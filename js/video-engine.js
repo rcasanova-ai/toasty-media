@@ -20,8 +20,17 @@ export function createDisposableRoomId() {
   return `tm${timestamp}${random}`.slice(0, 15);
 }
 
+export function isValidRoomId(roomId) {
+  return typeof roomId === "string" && /^[a-zA-Z0-9]{1,30}$/.test(roomId);
+}
+
 export function getRoomIdFromUrl(search = window.location.search) {
-  return new URLSearchParams(search).get("room");
+  const roomId = new URLSearchParams(search).get("room");
+  return isValidRoomId(roomId) ? roomId : null;
+}
+
+export function getOrCreateRoomId(search = window.location.search) {
+  return getRoomIdFromUrl(search) || createDisposableRoomId();
 }
 
 export function getGuestInviteUrl(roomId) {

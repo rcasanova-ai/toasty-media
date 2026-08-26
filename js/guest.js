@@ -1,4 +1,4 @@
-import { BackgroundMode, VideoEngine, getRoomIdFromUrl } from "./video-engine.js";
+import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js";
 import { LocalIsolatedRecorder } from "./recording.js";
 
 const state = {
@@ -42,7 +42,10 @@ init();
 
 async function init() {
   elements.roomLabel.textContent = state.roomId ? state.roomId : "Missing room";
-  elements.joinStudio.disabled = !state.roomId;
+  elements.joinStudio.disabled = !isValidRoomId(state.roomId);
+  if (!isValidRoomId(state.roomId)) {
+    elements.guestStatus.textContent = "This Studio invite has an invalid or expired room ID. Ask the host for a fresh invite.";
+  }
   bindControls();
   engine.onMessage(handleVdoMessage);
   await startPreview();

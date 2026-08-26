@@ -1,14 +1,14 @@
 import {
   VideoEngine,
   createDisposableRoomId,
+  getOrCreateRoomId,
   getGuestInviteUrl,
-  getRoomIdFromUrl
 } from "./video-engine.js";
 import { LocalIsolatedRecorder } from "./recording.js";
 import { Soundboard } from "./soundboard.js";
 
 const state = {
-  roomId: getRoomIdFromUrl() || createDisposableRoomId(),
+  roomId: getOrCreateRoomId(),
   micMuted: false,
   cameraOff: false,
   screenSharing: false,
