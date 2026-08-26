@@ -67,6 +67,18 @@
       </section>
 
       <section class="joined-room" id="joinedRoom" hidden aria-label="Live guest room">
+        <div class="guest-live-controls">
+          <button id="guestToggleMic" type="button" aria-pressed="false">Mute mic</button>
+          <button id="guestToggleCamera" type="button" aria-pressed="false">Camera off</button>
+          <button id="guestToggleScreen" type="button" aria-pressed="false">Share screen</button>
+          <button id="guestToggleRecording" class="danger-action" type="button" aria-pressed="false">Start recording</button>
+          <button id="guestEndSession" class="danger-action" type="button">Leave</button>
+        </div>
+        <div class="recording-pill guest-recording" id="guestRecordingState" data-active="false">
+          <span class="recording-dot" aria-hidden="true"></span>
+          <span id="guestRecordingLabel">Recording idle</span>
+          <strong id="guestRecordingTimer">00:00:00</strong>
+        </div>
         <div id="guestFrame" class="vdo-frame large-frame"></div>
       </section>
     </main>

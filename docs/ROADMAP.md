@@ -8,15 +8,17 @@
 - Use hosted VDO.Ninja through `js/video-engine.js`.
 - Support disposable room IDs and guest invite links.
 - Provide guest device preview, background choice, and join state.
-- Provide director controls, soundboard, recording request state, and session end.
+- Provide host and guest controls, soundboard, real local recording proof, and session end.
+- Preserve honest fallback states for browser permission and recording support failures.
 
 ## Phase 2: Reliable Local Isolated Recording
 
-- Prove access to host and guest media tracks outside cross-origin iframe limits.
-- Record isolated audio and video where required.
-- Store session metadata beside media outputs.
+- Improve the proven browser-local recording path.
+- Add start/stop coordination between host and guest.
+- Record isolated audio and video where browser/device support allows it.
+- Store and reconcile session metadata beside media outputs.
 - Add recovery behavior for dropped tracks.
-- Make the UI claim recording only after this path is proven.
+- Detect and guide around device contention when VDO.Ninja and MediaRecorder compete for the same camera or microphone.
 
 ## Phase 3: Google Drive Automatic Storage
 

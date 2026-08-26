@@ -36,6 +36,7 @@ Toasty Studio is a static browser app:
 - `js/guest.js` owns guest device preview, setup, and join state.
 - `js/video-engine.js` isolates VDO.Ninja-specific URL and iframe API logic.
 - `js/soundboard.js` isolates sound cue behavior.
+- `js/recording.js` owns browser-local isolated recording behavior.
 
 The Studio is designed so Toasty Media owns the workflow and replaceable engines sit behind adapters.
 
@@ -51,7 +52,14 @@ Authoritative references checked during implementation:
 - Background/effects parameters: https://docs.vdo.ninja/advanced-settings/video-parameters/effects
 - Virtual background image lists: https://docs.vdo.ninja/advanced-settings/video-parameters/and-imagelist
 
-Other Studio code calls internal methods such as `setMicrophone`, `setCamera`, `setScreenShare`, `requestRecording`, and `mountGuestFrame`. It should not construct VDO.Ninja URLs directly.
+Other Studio code calls internal methods such as `setMicrophone`, `setCamera`, `setScreenShare`, `setGuestMicrophone`, `setGuestCamera`, `setGuestScreenShare`, and `mountGuestFrame`. It should not construct VDO.Ninja URLs directly.
+
+The current two-person call path uses hosted VDO.Ninja room participant iframes:
+
+- Host: generated room ID plus a host `push` stream.
+- Guest: invite URL with the same room ID plus a generated guest `push` stream.
+- Host and guest use the native VDO.Ninja room UI inside the iframe for WebRTC transport, echo handling, and cross-browser device negotiation.
+- Toasty Studio controls send `postMessage` commands to the relevant iframe for mic, camera, screen share, state checks, and hangup.
 
 ## Background System
 
@@ -63,7 +71,7 @@ Guest onboarding supports:
 - Research library preset
 - Fireside stage preset
 
-The guest page provides a local visual preview before joining. VDO.Ninja blur maps to `effects=3`. Placeholder virtual background presets map to `effects=5` structurally, but final production-grade transmitted background images require CORS-hosted image URLs through VDO.Ninja `imagelist` or a future self-owned media pipeline. Custom uploaded backgrounds should later be staged through validated temporary object storage before being passed to the video engine.
+The guest page provides a local visual preview before joining. VDO.Ninja blur maps to `effects=3` and is requested when the guest joins. Toasty Media preset backgrounds are preview-only in the hosted VDO.Ninja MVP because production-grade virtual background replacement requires hosted image URLs through VDO.Ninja `imagelist`, browser/device support, and realistic cross-browser QA. Custom uploaded backgrounds should later be staged through validated temporary object storage before being passed to the video engine.
 
 ## Soundboard
 
@@ -78,20 +86,52 @@ The MVP soundboard is modular and intentionally small:
 
 `js/soundboard.js` currently synthesizes simple cues with the Web Audio API so the foundation works without bundled audio assets. It can later load approved audio files from `assets/audio/` without touching director page logic.
 
+The soundboard is local to the host browser in this phase. Hosted VDO.Ninja iframes do not expose a simple parent-page path for injecting Web Audio output into the live WebRTC mix. For now, cues are useful for host monitoring and can be incorporated into recording/post-production later through FFmpeg or through a future virtual audio device / WebRTC-owned mixer path.
+
 ## Recording
 
-Phase 1 exposes a recording request control and visible timer, but reliable local isolated recording is not complete yet.
+Phase 1 now implements the first reliable recording proof possible without owning the WebRTC stack: browser-local isolated recording for each participant.
 
 Prepared recording model:
 
-- Host track
-- Guest track
-- Audio track data
-- Video track data where required
-- Session metadata
-- Recording event log
+- Host audio and video, recorded locally in the host browser.
+- Guest audio and video, recorded locally in the guest browser.
+- Session metadata written with each participant package.
+- Future upload and reconciliation metadata for Google Drive.
 
-Technical gate: hosted cross-origin VDO.Ninja iframes do not give Toasty Studio direct access to isolated host and guest media tracks. The current `requestRecording` adapter sends a VDO.Ninja recording command and tracks UI state honestly. Phase 2 must prove a reliable local isolated capture path before the product claims recording is complete.
+Implementation:
+
+- `js/recording.js` uses `navigator.mediaDevices.getUserMedia` and `MediaRecorder`.
+- It records separate audio-only and video-only streams where the browser supports it.
+- In Chromium browsers with File System Access API support, stopping a recording prompts for a directory and writes:
+
+```text
+session/
+  session.json
+  host/
+    audio.webm
+    video.webm
+```
+
+or:
+
+```text
+session/
+  session.json
+  guest-1/
+    audio.webm
+    video.webm
+```
+
+- In browsers without File System Access API support, it falls back to downloading separate JSON/audio/video files.
+
+Limitations:
+
+- Hosted cross-origin VDO.Ninja iframes do not give Toasty Studio direct access to isolated remote tracks.
+- Each participant must start and stop their own local recording in this proof.
+- Browser camera/microphone exclusivity varies. Some browsers/devices may not allow VDO.Ninja and the parent page recorder to capture the same camera/microphone at the same time.
+- Safari MediaRecorder and File System Access support are less reliable than current Chrome.
+- Local files are not automatically uploaded or reconciled yet.
 
 ## Google Drive Storage
 

@@ -3,7 +3,6 @@ const IFRAME_ALLOW =
   "camera; microphone; display-capture; autoplay; fullscreen; picture-in-picture; web-share";
 
 const DEFAULT_PARAMS = {
-  cleanoutput: "1",
   transparent: "1",
   autostart: "1",
   api: "1"
@@ -44,24 +43,25 @@ export class VideoEngine {
 
   mountDirectorFrame(container, { roomId, label = "Host" }) {
     const streamId = `${roomId}-host`;
-    return this.mountFrame(container, "director", {
-      director: roomId,
+    return this.mountFrame(container, "host", {
+      room: roomId,
       push: streamId,
       label,
       webcam: "1",
-      cleandirector: "1",
-      cleanoutput: "1",
-      showlabels: "1"
+      showlabels: "1",
+      cleanoutput: "0"
     });
   }
 
   mountRoomFrame(container, { roomId }) {
     return this.mountFrame(container, "room", {
       room: roomId,
-      scene: "1",
+      scene: "0",
       cleanoutput: "1",
       transparent: "1",
-      showlabels: "1"
+      showlabels: "1",
+      muted: "1",
+      mute: "1"
     });
   }
 
@@ -73,6 +73,7 @@ export class VideoEngine {
       label: guestName || "Guest",
       webcam: "1",
       showlabels: "1",
+      cleanoutput: "0",
       effects: effectForBackground(backgroundMode)
     });
   }
@@ -108,19 +109,27 @@ export class VideoEngine {
   }
 
   setMicrophone(enabled) {
-    return this.send("director", { mic: enabled });
+    return this.send("host", { mic: enabled });
   }
 
   setCamera(enabled) {
-    return this.send("director", { camera: enabled });
+    return this.send("host", { camera: enabled });
   }
 
   setScreenShare(enabled) {
-    return this.send("director", { screenshare: enabled, share: enabled });
+    return this.send("host", { screenshare: enabled });
   }
 
-  requestRecording(enabled) {
-    return this.send("director", { record: enabled });
+  setGuestMicrophone(enabled) {
+    return this.send("guest", { mic: enabled });
+  }
+
+  setGuestCamera(enabled) {
+    return this.send("guest", { camera: enabled });
+  }
+
+  setGuestScreenShare(enabled) {
+    return this.send("guest", { screenshare: enabled });
   }
 
   disconnectAll() {
@@ -130,7 +139,7 @@ export class VideoEngine {
     });
   }
 
-  requestDetailedState(frameId = "director") {
+  requestDetailedState(frameId = "host") {
     return this.send(frameId, { getDetailedState: true });
   }
 
@@ -147,13 +156,6 @@ export class VideoEngine {
 
 function effectForBackground(backgroundMode) {
   if (backgroundMode === BackgroundMode.BLUR) return "3";
-  if (
-    backgroundMode === BackgroundMode.NEWSROOM ||
-    backgroundMode === BackgroundMode.LIBRARY ||
-    backgroundMode === BackgroundMode.STAGE
-  ) {
-    return "5";
-  }
   return "0";
 }
 

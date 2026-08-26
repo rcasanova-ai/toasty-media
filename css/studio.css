@@ -387,10 +387,24 @@ button[aria-pressed="true"] {
   grid-column: 1 / -1;
 }
 
+.guest-live-controls {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-bottom: 0.75rem;
+}
+
+.guest-recording {
+  justify-content: flex-start;
+  margin-bottom: 0.75rem;
+  width: fit-content;
+}
+
 @media (max-width: 980px) {
   .director-layout,
   .guest-layout,
-  .video-grid {
+  .video-grid,
+  .guest-live-controls {
     grid-template-columns: 1fr;
   }
 

@@ -4,6 +4,7 @@ import {
   getGuestInviteUrl,
   getRoomIdFromUrl
 } from "./video-engine.js";
+import { LocalIsolatedRecorder } from "./recording.js";
 import { Soundboard } from "./soundboard.js";
 
 const state = {
@@ -11,9 +12,10 @@ const state = {
   micMuted: false,
   cameraOff: false,
   screenSharing: false,
-  recordingRequested: false,
+  recordingActive: false,
   recordingStartedAt: null,
-  timerId: null
+  timerId: null,
+  recorder: null
 };
 
 const engine = new VideoEngine();
@@ -51,10 +53,14 @@ function init() {
 
   engine.onMessage((message) => {
     if (!message) return;
-    elements.connectionState.textContent = "VDO event received";
+    handleVdoMessage(message);
   });
 
   window.setInterval(() => engine.requestDetailedState(), 5000);
+  if (!LocalIsolatedRecorder.isSupported()) {
+    elements.recordingNote.textContent = "Recording is unavailable in this browser. Use current Chrome for the recording proof.";
+    elements.toggleRecording.disabled = true;
+  }
 }
 
 function mountRoom() {
@@ -96,7 +102,7 @@ function createNewRoom() {
     micMuted: false,
     cameraOff: false,
     screenSharing: false,
-    recordingRequested: false,
+    recordingActive: false,
     recordingStartedAt: null
   });
   updatePressed(elements.toggleMic, false, "Mute mic", "Unmute mic");
@@ -124,22 +130,43 @@ function toggleScreen() {
   updatePressed(elements.toggleScreen, state.screenSharing, "Share screen", "Stop sharing");
 }
 
-function toggleRecording() {
-  state.recordingRequested = !state.recordingRequested;
-  engine.requestRecording(state.recordingRequested);
-  if (state.recordingRequested) {
+async function toggleRecording() {
+  try {
+    if (state.recordingActive) {
+      elements.toggleRecording.disabled = true;
+      await state.recorder.stop();
+      state.recordingActive = false;
+      stopRecordingTimer();
+      updateRecordingUi();
+      elements.toggleRecording.disabled = false;
+      return;
+    }
+
+    state.recorder = new LocalIsolatedRecorder({
+      role: "host",
+      roomId: state.roomId,
+      status: (message) => {
+        elements.recordingNote.textContent = message;
+      }
+    });
+    await state.recorder.start();
+    state.recordingActive = true;
     state.recordingStartedAt = Date.now();
     state.timerId = window.setInterval(updateRecordingTimer, 1000);
-  } else {
+    updateRecordingUi();
+  } catch (error) {
+    state.recordingActive = false;
     stopRecordingTimer();
+    updateRecordingUi();
+    elements.recordingNote.textContent = `Recording failed: ${humanizeError(error)}`;
+    elements.toggleRecording.disabled = false;
   }
-  updateRecordingUi();
 }
 
 function endSession() {
   engine.disconnectAll();
   stopRecordingTimer();
-  state.recordingRequested = false;
+  state.recordingActive = false;
   updateRecordingUi();
   elements.connectionState.textContent = "Session ended";
 }
@@ -150,13 +177,13 @@ function updatePressed(button, pressed, offLabel, onLabel) {
 }
 
 function updateRecordingUi() {
-  elements.toggleRecording.setAttribute("aria-pressed", String(state.recordingRequested));
-  elements.toggleRecording.textContent = state.recordingRequested ? "Stop request" : "Request record";
-  elements.recordingState.dataset.active = String(state.recordingRequested);
-  elements.recordingLabel.textContent = state.recordingRequested ? "Record requested" : "Recording idle";
-  elements.recordingNote.textContent = state.recordingRequested
-    ? "VDO.Ninja record command requested. Isolated local tracks are a Phase 2 technical gate."
-    : "Local isolated recording is prepared in architecture, not active in this MVP shell.";
+  elements.toggleRecording.setAttribute("aria-pressed", String(state.recordingActive));
+  elements.toggleRecording.textContent = state.recordingActive ? "Stop recording" : "Start recording";
+  elements.recordingState.dataset.active = String(state.recordingActive);
+  elements.recordingLabel.textContent = state.recordingActive ? "Recording locally" : "Recording idle";
+  if (!state.recordingActive && LocalIsolatedRecorder.isSupported()) {
+    elements.recordingNote.textContent = "Records this host browser's isolated mic and camera to local files.";
+  }
   updateRecordingTimer();
 }
 
@@ -179,3 +206,24 @@ function stopRecordingTimer() {
   }
   state.recordingStartedAt = null;
 }
+
+function handleVdoMessage(message) {
+  if (message.action === "push-connection" && message.value === true) {
+    elements.connectionState.textContent = "Guest connected";
+  } else if (message.action === "push-connection" && message.value === false) {
+    elements.connectionState.textContent = "Guest disconnected";
+  } else if (message.action === "view-connection" && message.value === false) {
+    elements.connectionState.textContent = "Viewer disconnected";
+  } else if (message.action || message.getDetailedState) {
+    elements.connectionState.textContent = "Room active";
+  }
+}
+
+function humanizeError(error) {
+  if (error?.name === "NotAllowedError") return "camera or microphone permission was denied.";
+  if (error?.name === "NotFoundError") return "no camera or microphone device was found.";
+  if (error?.name === "NotReadableError") return "camera or microphone is already in use or unavailable.";
+  return error?.message || "unknown browser recording error.";
+}
+
+updateRecordingUi();

@@ -1,9 +1,17 @@
 import { BackgroundMode, VideoEngine, getRoomIdFromUrl } from "./video-engine.js";
+import { LocalIsolatedRecorder } from "./recording.js";
 
 const state = {
   roomId: getRoomIdFromUrl(),
   previewStream: null,
-  selectedBackground: BackgroundMode.NONE
+  selectedBackground: BackgroundMode.NONE,
+  micMuted: false,
+  cameraOff: false,
+  screenSharing: false,
+  recordingActive: false,
+  recordingStartedAt: null,
+  timerId: null,
+  recorder: null
 };
 
 const engine = new VideoEngine();
@@ -19,7 +27,15 @@ const elements = {
   joinStudio: document.querySelector("#joinStudio"),
   guestStatus: document.querySelector("#guestStatus"),
   joinedRoom: document.querySelector("#joinedRoom"),
-  guestFrame: document.querySelector("#guestFrame")
+  guestFrame: document.querySelector("#guestFrame"),
+  guestToggleMic: document.querySelector("#guestToggleMic"),
+  guestToggleCamera: document.querySelector("#guestToggleCamera"),
+  guestToggleScreen: document.querySelector("#guestToggleScreen"),
+  guestToggleRecording: document.querySelector("#guestToggleRecording"),
+  guestEndSession: document.querySelector("#guestEndSession"),
+  guestRecordingState: document.querySelector("#guestRecordingState"),
+  guestRecordingLabel: document.querySelector("#guestRecordingLabel"),
+  guestRecordingTimer: document.querySelector("#guestRecordingTimer")
 };
 
 init();
@@ -28,7 +44,12 @@ async function init() {
   elements.roomLabel.textContent = state.roomId ? state.roomId : "Missing room";
   elements.joinStudio.disabled = !state.roomId;
   bindControls();
+  engine.onMessage(handleVdoMessage);
   await startPreview();
+  if (!LocalIsolatedRecorder.isSupported()) {
+    elements.guestStatus.textContent = "Recording is unavailable in this browser. Use current Chrome for the recording proof.";
+    elements.guestToggleRecording.disabled = true;
+  }
 }
 
 function bindControls() {
@@ -42,6 +63,11 @@ function bindControls() {
   elements.cameraSelect.addEventListener("change", startPreview);
   elements.microphoneSelect.addEventListener("change", startPreview);
   elements.joinStudio.addEventListener("click", joinStudio);
+  elements.guestToggleMic.addEventListener("click", toggleMic);
+  elements.guestToggleCamera.addEventListener("click", toggleCamera);
+  elements.guestToggleScreen.addEventListener("click", toggleScreen);
+  elements.guestToggleRecording.addEventListener("click", toggleRecording);
+  elements.guestEndSession.addEventListener("click", leaveSession);
 }
 
 async function startPreview() {
@@ -97,6 +123,7 @@ function joinStudio() {
   const guestName = elements.guestName.value.trim() || "Guest";
   elements.joinState.textContent = "Joining";
   elements.joinStudio.disabled = true;
+  const backgroundNote = getBackgroundNote(state.selectedBackground);
   stopPreview();
   engine.mountGuestFrame(elements.guestFrame, {
     roomId: state.roomId,
@@ -104,7 +131,7 @@ function joinStudio() {
     backgroundMode: state.selectedBackground
   });
   elements.joinedRoom.hidden = false;
-  elements.guestStatus.textContent = "Joined. The Toasty Studio room is open below.";
+  elements.guestStatus.textContent = backgroundNote || "Joined. The Toasty Studio room is open below.";
   elements.joinState.textContent = "Joined";
 }
 
@@ -112,3 +139,130 @@ function stopPreview() {
   state.previewStream?.getTracks().forEach((track) => track.stop());
   state.previewStream = null;
 }
+
+function toggleMic() {
+  state.micMuted = !state.micMuted;
+  engine.setGuestMicrophone(!state.micMuted);
+  updatePressed(elements.guestToggleMic, state.micMuted, "Mute mic", "Unmute mic");
+}
+
+function toggleCamera() {
+  state.cameraOff = !state.cameraOff;
+  engine.setGuestCamera(!state.cameraOff);
+  updatePressed(elements.guestToggleCamera, state.cameraOff, "Camera off", "Camera on");
+}
+
+function toggleScreen() {
+  state.screenSharing = !state.screenSharing;
+  engine.setGuestScreenShare(state.screenSharing);
+  updatePressed(elements.guestToggleScreen, state.screenSharing, "Share screen", "Stop sharing");
+}
+
+async function toggleRecording() {
+  try {
+    if (state.recordingActive) {
+      elements.guestToggleRecording.disabled = true;
+      await state.recorder.stop();
+      state.recordingActive = false;
+      stopRecordingTimer();
+      updateRecordingUi();
+      elements.guestToggleRecording.disabled = false;
+      return;
+    }
+
+    state.recorder = new LocalIsolatedRecorder({
+      role: "guest-1",
+      roomId: state.roomId,
+      status: (message) => {
+        elements.guestStatus.textContent = message;
+      }
+    });
+    await state.recorder.start({
+      audioDeviceId: elements.microphoneSelect.value,
+      videoDeviceId: elements.cameraSelect.value
+    });
+    state.recordingActive = true;
+    state.recordingStartedAt = Date.now();
+    state.timerId = window.setInterval(updateRecordingTimer, 1000);
+    updateRecordingUi();
+  } catch (error) {
+    state.recordingActive = false;
+    stopRecordingTimer();
+    updateRecordingUi();
+    elements.guestStatus.textContent = `Recording failed: ${humanizeError(error)}`;
+    elements.guestToggleRecording.disabled = false;
+  }
+}
+
+function leaveSession() {
+  engine.disconnectAll();
+  stopRecordingTimer();
+  state.recordingActive = false;
+  updateRecordingUi();
+  elements.joinState.textContent = "Left";
+  elements.guestStatus.textContent = "You left the Studio session.";
+}
+
+function updatePressed(button, pressed, offLabel, onLabel) {
+  button.setAttribute("aria-pressed", String(pressed));
+  button.textContent = pressed ? onLabel : offLabel;
+}
+
+function updateRecordingUi() {
+  elements.guestToggleRecording.setAttribute("aria-pressed", String(state.recordingActive));
+  elements.guestToggleRecording.textContent = state.recordingActive ? "Stop recording" : "Start recording";
+  elements.guestRecordingState.dataset.active = String(state.recordingActive);
+  elements.guestRecordingLabel.textContent = state.recordingActive ? "Recording locally" : "Recording idle";
+  updateRecordingTimer();
+}
+
+function updateRecordingTimer() {
+  if (!state.recordingStartedAt) {
+    elements.guestRecordingTimer.textContent = "00:00:00";
+    return;
+  }
+  const elapsed = Math.floor((Date.now() - state.recordingStartedAt) / 1000);
+  const hours = String(Math.floor(elapsed / 3600)).padStart(2, "0");
+  const minutes = String(Math.floor((elapsed % 3600) / 60)).padStart(2, "0");
+  const seconds = String(elapsed % 60).padStart(2, "0");
+  elements.guestRecordingTimer.textContent = `${hours}:${minutes}:${seconds}`;
+}
+
+function stopRecordingTimer() {
+  if (state.timerId) {
+    window.clearInterval(state.timerId);
+    state.timerId = null;
+  }
+  state.recordingStartedAt = null;
+}
+
+function getBackgroundNote(background) {
+  if (background === BackgroundMode.BLUR) {
+    return "Joined with VDO.Ninja blur requested. Browser support depends on VDO.Ninja and device capability.";
+  }
+  if (background !== BackgroundMode.NONE) {
+    return "Joined. Preset backgrounds are preview-only in this hosted VDO.Ninja MVP; production replacement needs hosted image-list support.";
+  }
+  return "";
+}
+
+function humanizeError(error) {
+  if (error?.name === "NotAllowedError") return "camera or microphone permission was denied.";
+  if (error?.name === "NotFoundError") return "no camera or microphone device was found.";
+  if (error?.name === "NotReadableError") return "camera or microphone is already in use or unavailable.";
+  return error?.message || "unknown browser recording error.";
+}
+
+function handleVdoMessage(message) {
+  if (!message) return;
+  if (message.action === "view-connection" && message.value === false) {
+    elements.joinState.textContent = "Host disconnected";
+    elements.guestStatus.textContent = "The host connection was lost. Keep this page open if you plan to reconnect.";
+  } else if (message.action === "push-connection" && message.value === false) {
+    elements.joinState.textContent = "Disconnected";
+  } else if (message.action || message.getDetailedState) {
+    elements.joinState.textContent = "Joined";
+  }
+}
+
+updateRecordingUi();
