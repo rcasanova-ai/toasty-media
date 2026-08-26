@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Toasty Studio Director</title>
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="stylesheet" href="../css/brand.css">
+    <link rel="stylesheet" href="../css/studio.css">
+    <script type="module" src="../js/director.js"></script>
+  </head>
+  <body class="studio-shell director-shell">
+    <header class="studio-header">
+      <a class="studio-brand" href="../site/" aria-label="Toasty Media home">
+        <img src="../shared/brand/toasty-media/ToastyMediaHLOGO.png" alt="Toasty Media">
+        <span>Studio</span>
+      </a>
+      <div class="session-meta">
+        <span id="roomLabel">Room pending</span>
+        <span id="connectionState">Ready</span>
+      </div>
+    </header>
+
+    <main class="director-layout">
+      <section class="stage-column" aria-labelledby="stageTitle">
+        <div class="stage-heading">
+          <div>
+            <p class="eyebrow">Live room</p>
+            <h1 id="stageTitle">Director console</h1>
+          </div>
+          <div class="recording-pill" id="recordingState" data-active="false">
+            <span class="recording-dot" aria-hidden="true"></span>
+            <span id="recordingLabel">Recording idle</span>
+            <strong id="recordingTimer">00:00:00</strong>
+          </div>
+        </div>
+
+        <div class="video-grid" aria-label="Studio video area">
+          <article class="video-panel">
+            <div class="panel-label">
+              <span>Host video</span>
+              <small>Director feed</small>
+            </div>
+            <div id="hostFrame" class="vdo-frame" data-empty="Loading host feed"></div>
+          </article>
+          <article class="video-panel">
+            <div class="panel-label">
+              <span>Guest video</span>
+              <small>Room composite</small>
+            </div>
+            <div id="guestFrame" class="vdo-frame" data-empty="Waiting for guest"></div>
+          </article>
+        </div>
+      </section>
+
+      <aside class="control-column" aria-label="Studio controls">
+        <section class="control-section">
+          <h2>Session</h2>
+          <div class="room-card">
+            <label for="guestInvite">Guest invite</label>
+            <div class="copy-row">
+              <input id="guestInvite" type="url" readonly>
+              <button id="copyInvite" type="button">Copy</button>
+            </div>
+            <button id="newRoom" class="secondary-action" type="button">New disposable room</button>
+          </div>
+        </section>
+
+        <section class="control-section">
+          <h2>Controls</h2>
+          <div class="control-grid">
+            <button id="toggleMic" type="button" aria-pressed="false">Mute mic</button>
+            <button id="toggleCamera" type="button" aria-pressed="false">Camera off</button>
+            <button id="toggleScreen" type="button" aria-pressed="false">Share screen</button>
+            <button id="toggleRecording" class="danger-action" type="button" aria-pressed="false">Request record</button>
+          </div>
+          <p class="control-note" id="recordingNote">Local isolated recording is prepared in architecture, not active in this MVP shell.</p>
+        </section>
+
+        <section class="control-section">
+          <div class="section-title-row">
+            <h2>Soundboard</h2>
+            <label class="volume-control" for="soundboardVolume">
+              <span>Volume</span>
+              <input id="soundboardVolume" type="range" min="0" max="1" value="0.65" step="0.05">
+            </label>
+          </div>
+          <div class="soundboard-grid" id="soundboard"></div>
+        </section>
+
+        <section class="control-section">
+          <button id="endSession" class="danger-action full-width" type="button">End session</button>
+        </section>
+      </aside>
+    </main>
+  </body>
+</html>

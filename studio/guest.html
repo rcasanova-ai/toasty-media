@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Join Toasty Studio</title>
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="stylesheet" href="../css/brand.css">
+    <link rel="stylesheet" href="../css/studio.css">
+    <script type="module" src="../js/guest.js"></script>
+  </head>
+  <body class="studio-shell guest-shell">
+    <header class="studio-header">
+      <a class="studio-brand" href="../site/" aria-label="Toasty Media home">
+        <img src="../shared/brand/toasty-media/ToastyMediaHLOGO.png" alt="Toasty Media">
+        <span>Studio</span>
+      </a>
+      <div class="session-meta">
+        <span id="guestRoomLabel">Guest room</span>
+        <span id="joinState">Not joined</span>
+      </div>
+    </header>
+
+    <main class="guest-layout">
+      <section class="guest-preview-card" aria-labelledby="guestTitle">
+        <div>
+          <p class="eyebrow">Guest check-in</p>
+          <h1 id="guestTitle">Join the conversation</h1>
+          <p class="guest-lede">Set your name, devices, and background before entering Toasty Studio.</p>
+        </div>
+
+        <div class="preview-stage" id="previewStage" data-background="none">
+          <video id="cameraPreview" autoplay muted playsinline></video>
+          <div class="preview-overlay">
+            <img src="../shared/brand/toasty-media/ToastyMediaSM.png" alt="">
+          </div>
+        </div>
+      </section>
+
+      <section class="guest-controls-card" aria-label="Guest setup">
+        <label>
+          <span>Guest name</span>
+          <input id="guestName" type="text" autocomplete="name" placeholder="Your name">
+        </label>
+
+        <label>
+          <span>Microphone</span>
+          <select id="microphoneSelect"></select>
+        </label>
+
+        <label>
+          <span>Camera</span>
+          <select id="cameraSelect"></select>
+        </label>
+
+        <fieldset class="background-picker">
+          <legend>Background</legend>
+          <label><input type="radio" name="background" value="none" checked> No background</label>
+          <label><input type="radio" name="background" value="blur"> Background blur</label>
+          <label><input type="radio" name="background" value="newsroom"> Warm newsroom</label>
+          <label><input type="radio" name="background" value="library"> Research library</label>
+          <label><input type="radio" name="background" value="stage"> Fireside stage</label>
+        </fieldset>
+
+        <button id="joinStudio" class="primary-action full-width" type="button">Join Studio</button>
+        <p class="control-note" id="guestStatus">Camera preview starts locally before joining. No account required.</p>
+      </section>
+
+      <section class="joined-room" id="joinedRoom" hidden aria-label="Live guest room">
+        <div id="guestFrame" class="vdo-frame large-frame"></div>
+      </section>
+    </main>
+  </body>
+</html>
