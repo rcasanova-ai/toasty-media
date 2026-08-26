@@ -120,7 +120,8 @@ h2 {
 }
 
 .feature-grid,
-.workflow-grid {
+.workflow-grid,
+.book-grid {
   display: grid;
   gap: 1rem;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -129,7 +130,8 @@ h2 {
 }
 
 .feature-card,
-.workflow-grid > div {
+.workflow-grid > div,
+.book-card {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -141,7 +143,8 @@ h2 {
 }
 
 .feature-card h3,
-.workflow-grid h3 {
+.workflow-grid h3,
+.book-card h3 {
   font-size: 1.35rem;
 }
 
@@ -153,6 +156,19 @@ h2 {
   letter-spacing: 0.08em;
   margin: 0 0 0.5rem;
   text-transform: uppercase;
+}
+
+.text-link {
+  color: var(--caramel);
+  display: inline-flex;
+  font-family: var(--font-heading);
+  font-weight: 900;
+  margin-top: 0.5rem;
+  text-decoration: none;
+}
+
+.books-band {
+  background: #fff4df;
 }
 
 .split-section {
@@ -203,7 +219,8 @@ h2 {
   .hero-section,
   .split-section,
   .feature-grid,
-  .workflow-grid {
+  .workflow-grid,
+  .book-grid {
     grid-template-columns: 1fr;
   }
 
@@ -213,5 +230,216 @@ h2 {
 
   .feature-card-large {
     grid-column: auto;
+  }
+}
+
+.ricardo-page {
+  background: #0c1015;
+  color: #f4efe8;
+}
+
+.ricardo-nav {
+  background: rgba(12, 16, 21, 0.92);
+  border-bottom-color: rgba(217, 166, 111, 0.22);
+}
+
+.ricardo-nav .site-nav a {
+  color: var(--cream);
+}
+
+.ricardo-hero {
+  align-items: center;
+  background:
+    radial-gradient(circle at 12% 20%, rgba(143, 183, 255, 0.16), transparent 34%),
+    radial-gradient(circle at 80% 65%, rgba(217, 166, 111, 0.16), transparent 30%),
+    #0f1d2e;
+  display: grid;
+  gap: clamp(1.5rem, 4vw, 4rem);
+  grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+  min-height: calc(100svh - 90px);
+  overflow: hidden;
+  padding: clamp(2rem, 6vw, 5rem) clamp(1rem, 5vw, 5rem) 0;
+}
+
+.ricardo-copy {
+  max-width: 760px;
+}
+
+.ricardo-copy h1 {
+  color: #f4efe8;
+  font-size: clamp(2.8rem, 6vw, 5.8rem);
+  line-height: 0.95;
+}
+
+.ricardo-page .hero-lede {
+  color: #d8c9b6;
+}
+
+.ricardo-portrait {
+  align-self: end;
+  margin: 0;
+}
+
+.ricardo-portrait img {
+  max-height: min(760px, 78vh);
+  object-fit: contain;
+  object-position: bottom center;
+  width: 100%;
+}
+
+.ricardo-band,
+.ricardo-light {
+  padding: clamp(2.5rem, 6vw, 5rem) clamp(1rem, 5vw, 5rem);
+}
+
+.ricardo-band {
+  background: #14223a;
+}
+
+.ricardo-light {
+  background: #f4efe8;
+  color: #181411;
+}
+
+.ricardo-band h2,
+.ricardo-band h3 {
+  color: #f4efe8;
+}
+
+.ricardo-light h2,
+.ricardo-light h3 {
+  color: var(--espresso);
+}
+
+.signal-grid,
+.routes-grid,
+.links-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 auto;
+  max-width: 1120px;
+}
+
+.routes-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.signal-grid article,
+.routes-grid article,
+.links-grid a,
+.timeline > div,
+.thesis-card {
+  border-radius: var(--radius);
+  padding: 1.1rem;
+}
+
+.signal-grid article,
+.routes-grid article {
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(217, 166, 111, 0.22);
+}
+
+.signal-grid p,
+.routes-grid p {
+  color: #cfc3b5;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.chip-row span {
+  border: 1px solid rgba(217, 166, 111, 0.28);
+  border-radius: 999px;
+  color: var(--cream);
+  font-family: var(--font-heading);
+  font-size: 0.72rem;
+  font-weight: 900;
+  padding: 0.3rem 0.5rem;
+}
+
+.timeline {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0 auto;
+  max-width: 1120px;
+}
+
+.timeline > div,
+.links-grid a,
+.thesis-card {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(139, 94, 28, 0.18);
+}
+
+.timeline b,
+.links-grid b {
+  color: var(--caramel);
+  display: block;
+  font-family: var(--font-heading);
+}
+
+.timeline p,
+.links-grid span {
+  color: #4d4039;
+}
+
+.thesis-card {
+  margin: 1rem auto 0;
+  max-width: 1120px;
+}
+
+.thesis-card p {
+  color: var(--espresso);
+  font-family: var(--font-heading);
+  font-size: clamp(2rem, 5vw, 4rem);
+  font-weight: 900;
+  line-height: 0.98;
+  margin: 0;
+}
+
+.thesis-card cite {
+  color: var(--caramel);
+  display: block;
+  font-family: var(--font-heading);
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  margin-top: 1rem;
+  text-transform: uppercase;
+}
+
+.links-grid a {
+  text-decoration: none;
+}
+
+.ricardo-footer {
+  background: #0c1015;
+  border-top-color: rgba(217, 166, 111, 0.22);
+}
+
+.ricardo-footer p {
+  color: var(--cream);
+}
+
+@media (max-width: 980px) {
+  .ricardo-hero,
+  .signal-grid,
+  .routes-grid,
+  .links-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ricardo-hero {
+    min-height: auto;
+    padding-top: 2rem;
+  }
+
+  .ricardo-portrait img {
+    max-height: 520px;
   }
 }
