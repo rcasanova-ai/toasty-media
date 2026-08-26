@@ -132,10 +132,22 @@ h2 {
 .feature-card,
 .workflow-grid > div,
 .book-card {
+  display: flex;
+  flex-direction: column;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 1.2rem;
+}
+
+.book-cover {
+  aspect-ratio: 4 / 5;
+  background: #fffaf1;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  margin-bottom: 1rem;
+  object-fit: cover;
+  width: 100%;
 }
 
 .feature-card-large {
@@ -169,6 +181,46 @@ h2 {
 
 .books-band {
   background: #fff4df;
+}
+
+.articles-band {
+  background: #f8ead5;
+}
+
+.article-layout {
+  padding: clamp(2rem, 6vw, 5rem) clamp(1rem, 5vw, 5rem);
+}
+
+.article-shell {
+  margin: 0 auto;
+  max-width: 820px;
+}
+
+.article-shell h1 {
+  font-size: clamp(2.5rem, 7vw, 5rem);
+  line-height: 0.96;
+}
+
+.article-dek {
+  color: var(--caramel);
+  font-family: var(--font-heading);
+  font-size: 1.25rem;
+  font-weight: 900;
+}
+
+.article-hero {
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin: 1.5rem 0;
+  object-fit: cover;
+  width: 100%;
+}
+
+.article-content {
+  color: #4d4039;
+  font-size: 1.08rem;
+  margin-bottom: 1.5rem;
 }
 
 .split-section {

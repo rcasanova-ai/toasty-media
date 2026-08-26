@@ -1,0 +1,165 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>The Eloquence Protocol — Bonus Materials</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Lora:ital,wght@0,400;0,600;1,400&family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --black:  #0a0a0a; --dark: #111111; --card: #161616;
+      --gold: #C8A96E; --gold2: #e8c87a; --navy: #1C3A5E;
+      --text: #e8e0d0; --muted: #888880; --border: rgba(200,169,110,0.22);
+    }
+    html, body { min-height: 100%; background: var(--black); color: var(--text); font-family: 'Poppins', sans-serif; font-weight: 300; line-height: 1.7; overflow-x: hidden; }
+    .top-bar { width: 100%; height: 3px; background: linear-gradient(90deg, transparent, var(--gold), var(--gold2), var(--gold), transparent); }
+    .hero { position: relative; z-index: 1; max-width: 680px; margin: 0 auto; padding: 72px 32px 52px; text-align: center; }
+    .logo-wrap { display: inline-block; margin-bottom: 28px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.1s; }
+    .logo-wrap svg { filter: drop-shadow(0 0 20px rgba(200,169,110,0.35)); }
+    .eyebrow { font-family: 'Cinzel', serif; font-size: 9px; font-weight: 400; letter-spacing: 5px; text-transform: uppercase; color: var(--gold); margin-bottom: 20px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.2s; }
+    h1 { font-family: 'Cinzel', serif; font-size: clamp(32px, 8vw, 58px); font-weight: 700; line-height: 1.1; color: #fff; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 10px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.3s; }
+    .subtitle { font-family: 'Lora', serif; font-size: 17px; font-style: italic; color: var(--gold); margin-bottom: 44px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.4s; }
+    .divider { display: flex; align-items: center; gap: 14px; margin: 0 auto 44px; max-width: 280px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.45s; }
+    .divider::before { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, var(--gold)); }
+    .divider::after  { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--gold), transparent); }
+    .divider-icon { color: var(--gold); font-size: 10px; }
+    .hero-desc { font-size: 14px; color: var(--muted); max-width: 440px; margin: 0 auto; opacity: 0; animation: fadeUp 0.8s ease forwards 0.5s; }
+    .bonus-grid { position: relative; z-index: 1; max-width: 680px; margin: 0 auto 52px; padding: 0 32px; display: grid; gap: 10px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.55s; }
+    .bonus-item { background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--gold); padding: 16px 20px; display: flex; align-items: flex-start; gap: 14px; transition: background 0.2s, border-left-color 0.2s; }
+    .bonus-item:hover { background: #1a1a1a; border-left-color: var(--gold2); }
+    .bonus-num { font-family: 'Cinzel', serif; font-size: 24px; font-weight: 700; color: var(--gold); line-height: 1; min-width: 32px; opacity: 0.5; }
+    .bonus-text strong { display: block; font-family: 'Cinzel', serif; font-size: 11px; font-weight: 600; letter-spacing: 0.5px; color: #fff; text-transform: uppercase; margin-bottom: 4px; }
+    .bonus-text p { font-size: 12px; color: var(--muted); line-height: 1.5; }
+    .form-section { position: relative; z-index: 1; max-width: 680px; margin: 0 auto 72px; padding: 0 32px; opacity: 0; animation: fadeUp 0.8s ease forwards 0.7s; }
+    .form-card { background: var(--card); border: 1px solid var(--border); padding: 44px 40px; text-align: center; }
+    .form-card h2 { font-family: 'Cinzel', serif; font-size: 22px; font-weight: 600; color: #fff; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+    .form-card p { font-size: 13px; color: var(--muted); margin-bottom: 32px; }
+    .mailer-embed form, .mailer-embed .ml-form-embedContainer, .mailer-embed .ck-form, .mailer-embed > div { background: transparent !important; padding: 0 !important; }
+    .mailer-embed input[type="email"], .mailer-embed input[type="text"] { width: 100% !important; background: #0f0f0f !important; border: 1px solid var(--border) !important; border-radius: 0 !important; color: var(--text) !important; font-family: 'Poppins', sans-serif !important; font-size: 14px !important; padding: 15px 18px !important; margin-bottom: 10px !important; outline: none !important; transition: border-color 0.2s !important; }
+    .mailer-embed input[type="email"]:focus, .mailer-embed input[type="text"]:focus { border-color: var(--gold) !important; }
+    .mailer-embed input[type="submit"], .mailer-embed button[type="submit"] { width: 100% !important; background: var(--gold) !important; color: #000 !important; font-family: 'Cinzel', serif !important; font-size: 11px !important; font-weight: 600 !important; letter-spacing: 3px !important; text-transform: uppercase !important; padding: 17px 32px !important; border: none !important; border-radius: 0 !important; cursor: pointer !important; transition: background 0.2s !important; }
+    .mailer-embed input[type="submit"]:hover, .mailer-embed button[type="submit"]:hover { background: var(--gold2) !important; }
+    .privacy-note { margin-top: 18px; font-size: 11px; color: var(--muted); opacity: 0.6; }
+    footer { position: relative; z-index: 1; text-align: center; padding: 28px 32px; border-top: 1px solid var(--border); }
+    footer p { font-family: 'Cinzel', serif; font-size: 9px; letter-spacing: 2px; color: var(--muted); text-transform: uppercase; }
+    footer span { color: var(--gold); }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+    @media (max-width: 500px) { .hero { padding: 52px 20px 36px; } .form-card { padding: 32px 20px; } .bonus-grid, .form-section { padding: 0 16px; } }
+  </style>
+</head>
+<body>
+  <div class="top-bar"></div>
+  <section class="hero">
+<div class="logo-wrap">
+  <img src="logo.png" alt="Logo" style="width:76px; height:76px; filter: drop-shadow(0 0 20px rgba(200,169,110,0.35));" />
+</div>
+    <p class="eyebrow">The Eloquence Protocol &nbsp;·&nbsp; Reader Exclusive</p>
+    <h1>Bonus<br/>Materials</h1>
+    <p class="subtitle">Tools to accelerate your practice</p>
+    <div class="divider"><span class="divider-icon">◆</span></div>
+    <p class="hero-desc">You've read the Protocol. Now claim the resources that turn reading into mastery. Enter your email for instant access.</p>
+  </section>
+  <div class="bonus-grid">
+    <div class="bonus-item">
+      <span class="bonus-num">01</span>
+      <div class="bonus-text">
+        <strong>The 5-Day Executive Action Plan</strong>
+        <p>One task per day. Targeted drills and timed exercises that build the mechanics of eloquence from the ground up. Practice makes perfect.</p>
+      </div>
+    </div>
+    <div class="bonus-item">
+      <span class="bonus-num">02</span>
+      <div class="bonus-text">
+        <strong>The Eloquence Cheat Sheet</strong>
+        <p>Core mechanics distilled into a quick-reference field guide. Keep it open before every high-stakes meeting.</p>
+      </div>
+    </div>
+  </div>
+  <section class="form-section">
+    <div class="form-card">
+      <h2>Claim Your Bonus Materials</h2>
+      <p>Enter your email and receive instant access.</p>
+      <!-- ════════════════════════════════════════
+        EMBED CODE IN THE DIV BELOW.
+      ════════════════════════════════════════ -->
+      <div class="mailer-embed">
+        <div class="sib-form" style="text-align:center; background-color:transparent;">
+  <div id="sib-form-container" class="sib-form-container">
+
+    <!-- SUCCESS MESSAGE -->
+    <div id="success-message" class="sib-form-message-panel" style="display:none;">
+      <div style="color:#C8A96E; font-family:'Cinzel', serif;">
+        You're in. Check your email. Your files are on the way.
+      </div>
+    </div>
+
+    <!-- ERROR MESSAGE -->
+    <div id="error-message" class="sib-form-message-panel" style="display:none;">
+      <div style="color:#ff6b6b;">
+        Something went wrong. Try again.
+      </div>
+    </div>
+
+    <!-- FORM -->
+<div class="mailer-embed">
+
+<form method="POST"
+  action="https://604ebcb3.sibforms.com/serve/MUIFAFuit0DYg57Hp-6qWx_FT1-B4OQoX02VE3jfqDYkrSv-yPWAeVyuhNjxT-r4JtaZWgzEukujzg4qQTYc6ay1fIhMQXFE3vv05p_2bTg0WTRE2F64R-H_G-YfCR4u2f2WGD9VEMrvfNn3bMpE8GfSCtzFo6FS6ASE05Sh3BdH4KoL4UcUu0hcBAoT6HqseepwTIgAVMF8uBSGCg=="
+  target="hidden_iframe"
+  onsubmit="setTimeout(function(){ window.location.href='/thank-you.html'; }, 1200);">
+
+  <input
+    type="email"
+    name="EMAIL"
+    placeholder="Your email address"
+    required
+    style="
+      width:100%;
+      background:#0f0f0f;
+      border:1px solid rgba(200,169,110,0.22);
+      color:#e8e0d0;
+      padding:15px 18px;
+      font-family:'Poppins', sans-serif;
+      font-size:14px;
+      margin-bottom:10px;
+    "
+  />
+
+  <button type="submit"
+    style="
+      width:100%;
+      background:#C8A96E;
+      color:#000;
+      font-family:'Cinzel', serif;
+      letter-spacing:2px;
+      padding:16px;
+      border:none;
+      cursor:pointer;
+    ">
+    Send My Files
+  </button>
+
+  <input type="hidden" name="locale" value="en">
+  <input type="text" name="email_address_check" value="" style="display:none;">
+
+</form>
+<iframe name="hidden_iframe" style="display:none;"></iframe>
+</div>
+</div>
+
+<script>
+  window.REQUIRED_ERROR_MESSAGE = "Email is required.";
+  window.EMAIL_INVALID_MESSAGE = "Enter a valid email address.";
+</script>
+
+      </div>
+      <p class="privacy-note">🔒 &nbsp;Your information is private and will never be shared or sold.</p>
+    </div>
+  </section>
+  <footer>
+    <p><span>The Eloquence Protocol</span> &nbsp;·&nbsp; by Ricardo Casanova</p>
+  </footer>
+</body>
+</html>

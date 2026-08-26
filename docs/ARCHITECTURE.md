@@ -16,6 +16,9 @@ The shared assets are referenced by both the public site and Studio. They should
 The public website foundation is static and dependency-light:
 
 - `site/index.html` is the first maintainable homepage for `toasty.media`.
+- `site/ricardo/index.html` is the canonical redesigned Ricardo profile.
+- `ricardo/index.html` preserves the legacy `/ricardo/` production path as a redirect.
+- `articles/`, `eloquencebonus/`, root PDFs, and `thank-you.html` preserve useful production URLs under Git management.
 - `css/brand.css` contains shared brand tokens and base UI primitives.
 - `css/site.css` contains public website layout.
 - The repository root `index.html` redirects to `site/` for simple static hosting compatibility.
