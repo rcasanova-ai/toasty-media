@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Custom Podcast Studio</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      background-color: #121212;
+      color: #ffffff;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px;
+    }
+
+    /* Video Frame Styling */
+    .stage-container {
+      width: 100%;
+      max-width: 1100px;
+      flex-grow: 1;
+      background: #1e1e1e;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+      position: relative;
+    }
+
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+
+    /* Custom UI Controls Bar */
+    .controls-bar {
+      margin-top: 20px;
+      display: flex;
+      gap: 15px;
+      background: #1e1e1e;
+      padding: 12px 24px;
+      border-radius: 50px;
+      border: 1px solid #333;
+    }
+
+    button {
+      background: #2a2a2a;
+      color: #fff;
+      border: 1px solid #444;
+      padding: 10px 20px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: all 0.2s ease;
+    }
+
+    button:hover {
+      background: #3a3a3a;
+      border-color: #666;
+    }
+
+    button.active {
+      background: #d32f2f;
+      border-color: #f44336;
+    }
+
+    .record-btn.recording {
+      background: #e53935;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.6; }
+      100% { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Studio Stage -->
+  <div class="stage-container">
+    <!-- VDO.Ninja iFrame -->
+    <iframe 
+      id="vdoNinjaFrame"
+      allow="camera; microphone; display-capture; autoplay"
+      src="">
+    </iframe>
+  </div>
+
+  <!-- Custom Control Bar -->
+  <div class="controls-bar">
+    <button id="toggleMicBtn" onclick="toggleMic()">Mute Mic</button>
+    <button id="toggleCamBtn" onclick="toggleCam()">Turn Off Cam</button>
+    <button id="toggleScreenshareBtn" onclick="toggleScreenshare()">Share Screen</button>
+    <button id="recordBtn" class="record-btn" onclick="toggleRecording()">Start Local Record</button>
+  </div>
+
+  <script>
+    // Configuration
+    const ROOM_NAME = "MyCustomStudioRoom123"; // Change to your room name
+    const VDO_IFRAME = document.getElementById('vdoNinjaFrame');
+
+    // State Tracking
+    let isMicMuted = false;
+    let isCamOff = false;
+    let isScreensharing = false;
+    let isRecording = false;
+
+    // Build the VDO.Ninja URL with URL Parameters
+    // &api=1 enables the postMessage API
+    // &cleanoutput removes standard UI elements inside the iframe
+    // &autostart bypasses setup screens
+    const vdoUrl = https://vdo.ninja/?room=${ROOM_NAME}&api=1&cleanoutput=1&autostart=1;
+    VDO_IFRAME.src = vdoUrl;
+
+    // Helper function to send command actions to VDO.Ninja
+    function sendVdoCommand(action, value = true) {
+      VDO_IFRAME.contentWindow.postMessage({
+        action: action,
+        value: value
+      }, '*');
+    }
+
+    // Custom Button Handlers
+    function toggleMic() {
+      isMicMuted = !isMicMuted;
+      sendVdoCommand('mic', !isMicMuted); // true = enable, false = mute
+      
+      const btn = document.getElementById('toggleMicBtn');
+      btn.innerText = isMicMuted ? "Unmute Mic" : "Mute Mic";
+      btn.classList.toggle('active', isMicMuted);
+    }
+
+    function toggleCam() {
+      isCamOff = !isCamOff;
+      sendVdoCommand('camera', !isCamOff);
+      
+      const btn = document.getElementById('toggleCamBtn');
+      btn.innerText = isCamOff ? "Turn On Cam" : "Turn Off Cam";
+      btn.classList.toggle('active', isCamOff);
+    }
+
+    function toggleScreenshare() {
+      isScreensharing = !isScreensharing;
+      sendVdoCommand('share', isScreensharing);
+      
+      const btn = document.getElementById('toggleScreenshareBtn');
+      btn.innerText = isScreensharing ? "Stop Sharing" : "Share Screen";
+      btn.classList.toggle('active', isScreensharing);
+    }
+
+    function toggleRecording() {
+      isRecording = !isRecording;
+      sendVdoCommand('record', isRecording);
+      
+      const btn = document.getElementById('recordBtn');
+      btn.innerText = isRecording ? "Stop Recording" : "Start Local Record";
+      btn.classList.toggle('recording', isRecording);
+    }
+
+    // Optional: Listen for events coming back FROM VDO.Ninja
+    window.addEventListener('message', function(event) {
+      if (event.data && event.data.action) {
+        console.log("VDO.Ninja Event Received:", event.data);
+      }
+    });
+  </script>
+</body>
+</html>
