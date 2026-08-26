@@ -40,6 +40,62 @@
     var(--studio-canvas);
   color: var(--studio-cream);
   min-height: 100vh;
+  position: relative;
+}
+
+/* Atmosphere — large-scale background art, not contained in any card */
+
+.studio-atmosphere {
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: absolute;
+  z-index: -1;
+}
+
+.atmosphere-word {
+  color: transparent;
+  font-family: var(--font-heading);
+  font-size: min(30vw, 460px);
+  font-weight: 900;
+  left: -3vw;
+  letter-spacing: -0.02em;
+  line-height: 0.78;
+  position: absolute;
+  top: -6vw;
+  transform: rotate(-4deg);
+  -webkit-text-stroke: 1.5px rgba(255, 171, 92, 0.06);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.atmosphere-word--second {
+  bottom: -9vw;
+  left: auto;
+  right: -4vw;
+  top: auto;
+  transform: rotate(3deg);
+  -webkit-text-stroke: 1.5px rgba(244, 234, 217, 0.045);
+}
+
+.atmosphere-mark {
+  background: url("../shared/brand/toasty-media/ToastyTransparent.png") center / contain no-repeat;
+  bottom: -10vw;
+  filter: grayscale(0.35);
+  height: min(40vw, 560px);
+  opacity: 0.05;
+  position: absolute;
+  right: -6vw;
+  width: min(40vw, 560px);
+}
+
+.atmosphere-grain {
+  background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+  inset: 0;
+  mix-blend-mode: overlay;
+  opacity: 0.05;
+  position: absolute;
 }
 
 .studio-shell .button-primary,
@@ -192,13 +248,18 @@
 .brand-lockup {
   align-items: center;
   display: flex;
-  gap: 0.7rem;
   text-decoration: none;
 }
 
 .brand-lockup img {
-  height: 32px;
+  height: 76px;
+  position: relative;
   width: auto;
+  z-index: 1;
+}
+
+.brand-lockup--compact img {
+  height: 50px;
 }
 
 .brand-block {
@@ -206,118 +267,81 @@
 }
 
 .brand-block::before {
-  background: radial-gradient(closest-side, rgba(255, 122, 41, 0.16), transparent 75%);
+  background: radial-gradient(closest-side, rgba(255, 122, 41, 0.18), transparent 75%);
   content: "";
-  height: 220px;
-  left: -60px;
+  height: 180px;
+  left: -50px;
   pointer-events: none;
   position: absolute;
-  top: -60px;
-  width: 320px;
+  top: -50px;
+  width: 260px;
   z-index: 0;
 }
 
-.brand-lockup,
-.studio-mark-wrap,
-.brand-tagline {
+.brand-lockup {
   position: relative;
   z-index: 1;
 }
 
-.studio-mark-wrap {
-  margin: 0.2rem 0 0.1rem;
-  position: relative;
-  width: fit-content;
-}
+/* On Air sign — one illuminated status object, styled like broadcast-booth signage */
 
-.studio-mark {
-  display: flex;
-  line-height: 0.86;
-  margin: 0;
-}
-
-.studio-mark span {
-  background: linear-gradient(100deg, var(--studio-amber), var(--studio-orange) 55%, var(--studio-burnt));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  display: inline-block;
-  filter: drop-shadow(0 5px 16px rgba(255, 122, 41, 0.3));
-  font-family: "Permanent Marker", "Montserrat", cursive;
-  font-size: clamp(2.6rem, 4vw, 3.5rem);
-  transform: rotate(var(--r, 0deg)) translateY(var(--y, 0));
-}
-
-.studio-scribble {
-  height: 20px;
-  left: 2px;
-  margin-top: -0.4rem;
-  position: relative;
-  width: 92%;
-}
-
-.studio-scribble path {
-  fill: none;
-  stroke: var(--studio-burnt);
-  stroke-linecap: round;
-  stroke-width: 5;
-}
-
-.brand-tagline {
-  color: var(--studio-cream);
-  font-family: var(--font-heading);
-  font-size: 1.05rem;
-  font-weight: 900;
-  letter-spacing: 0.01em;
-  margin: 0.5rem 0 0;
-  text-transform: uppercase;
-}
-
-.brand-lockup--compact img {
-  height: 26px;
-}
-
-.brand-lockup--compact .studio-mark span {
-  font-size: 1.5rem;
-}
-
-/* Live session indicator */
-
-.live-pill {
+.on-air-sign {
   align-items: center;
-  color: var(--studio-cream-dim);
+  background: linear-gradient(180deg, #201713, #140e0c);
+  border: 1px solid rgba(255, 171, 92, 0.16);
+  border-radius: 7px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), inset 0 -3px 5px rgba(0, 0, 0, 0.5), 0 2px 10px rgba(0, 0, 0, 0.35);
   display: inline-flex;
-  font-family: var(--font-heading);
-  font-size: 0.72rem;
-  font-weight: 800;
-  gap: 0.5rem;
-  letter-spacing: 0.07em;
-  margin: 1rem 0 0;
-  text-transform: uppercase;
+  gap: 0.55rem;
+  margin-top: 0.9rem;
+  padding: 0.5rem 0.85rem;
+  position: relative;
+  transition: opacity 300ms ease;
   width: fit-content;
+  z-index: 1;
 }
 
-.live-dot {
-  background: var(--studio-green);
+.on-air-bulbs {
+  display: flex;
+  gap: 3px;
+}
+
+.on-air-bulbs span {
+  background: var(--studio-muted);
   border-radius: 50%;
-  box-shadow: 0 0 0 4px rgba(52, 199, 123, 0.18);
-  height: 0.55rem;
-  width: 0.55rem;
+  height: 4px;
+  opacity: 0.4;
+  transition: background 300ms ease, box-shadow 300ms ease, opacity 300ms ease;
+  width: 4px;
 }
 
-@keyframes live-breathe {
-  0%,
-  100% {
-    box-shadow: 0 0 0 3px rgba(52, 199, 123, 0.16);
-  }
-
-  50% {
-    box-shadow: 0 0 0 6px rgba(52, 199, 123, 0.24);
-  }
+.on-air-text {
+  color: var(--studio-muted);
+  font-family: var(--font-heading);
+  font-size: 0.92rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition: color 300ms ease, text-shadow 300ms ease;
 }
 
-.live-dot {
-  animation: live-breathe 2.4s ease-in-out infinite;
+.on-air-sign[data-state="connected"] {
+  border-color: rgba(255, 91, 69, 0.35);
+}
+
+.on-air-sign[data-state="connected"] .on-air-text {
+  color: var(--studio-red-bright);
+  text-shadow: 0 0 10px rgba(255, 91, 69, 0.7), 0 0 26px rgba(255, 91, 69, 0.32);
+}
+
+.on-air-sign[data-state="connected"] .on-air-bulbs span {
+  background: var(--studio-orange-bright);
+  box-shadow: 0 0 6px rgba(255, 171, 92, 0.85);
+  opacity: 1;
+}
+
+.on-air-sign[data-state="idle"] {
+  opacity: 0.75;
 }
 
 /* Rail eyebrow / rows shared instrumentation style */
@@ -371,7 +395,7 @@
 .rail {
   display: flex;
   flex-direction: column;
-  gap: 1.35rem;
+  gap: 1.1rem;
   min-width: 0;
 }
 
@@ -508,6 +532,22 @@
   color: var(--studio-cream);
 }
 
+.recording-pill[data-active="true"]::after {
+  background: var(--studio-red);
+  border-radius: 4px;
+  color: #fff6ee;
+  content: "ON AIR";
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  margin-left: 0.15rem;
+  padding: 0.15rem 0.4rem;
+}
+
+#recordingTimer,
+.rail-row strong {
+  font-variant-numeric: tabular-nums;
+}
+
 .recording-dot {
   background: var(--studio-muted);
   border-radius: 50%;
@@ -573,14 +613,39 @@
   background: #100c0b;
   border: 1px solid var(--studio-line);
   border-radius: 14px;
+  box-shadow: 0 0 0 1px rgba(255, 122, 41, 0.05), 0 30px 70px -20px rgba(255, 122, 41, 0.16);
   min-width: 0;
   overflow: hidden;
   position: relative;
-  transition: border-color 200ms ease;
+  transition: border-color 200ms ease, box-shadow 200ms ease;
 }
 
 .video-panel:hover {
   border-color: var(--studio-line-warm);
+  box-shadow: 0 0 0 1px rgba(255, 122, 41, 0.12), 0 34px 80px -18px rgba(255, 122, 41, 0.28);
+}
+
+.video-panel .corner-mark {
+  border-color: rgba(255, 171, 92, 0.35);
+  height: 14px;
+  pointer-events: none;
+  position: absolute;
+  width: 14px;
+  z-index: 3;
+}
+
+.corner-mark--tl {
+  border-left: 1px solid;
+  border-top: 1px solid;
+  left: 10px;
+  top: 10px;
+}
+
+.corner-mark--br {
+  border-bottom: 1px solid;
+  border-right: 1px solid;
+  bottom: 10px;
+  right: 10px;
 }
 
 .panel-label {
@@ -685,7 +750,9 @@
 
 .stage-empty {
   align-items: center;
-  background: radial-gradient(120% 120% at 50% 30%, rgba(255, 122, 41, 0.07), transparent 60%), #0c0908;
+  background:
+    radial-gradient(120% 120% at 50% 34%, rgba(255, 122, 41, 0.08), transparent 62%),
+    #0c0908;
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
@@ -694,6 +761,19 @@
   pointer-events: none;
   position: absolute;
   z-index: 2;
+}
+
+.stage-empty::before {
+  background: url("../shared/brand/toasty-media/ToastyTransparent.png") center / 150px no-repeat;
+  content: "";
+  inset: 0;
+  opacity: 0.07;
+  position: absolute;
+}
+
+.stage-empty-ring,
+.stage-empty p {
+  position: relative;
 }
 
 .stage-empty[hidden] {
@@ -1087,61 +1167,85 @@
 }
 
 .sound-wave {
-  align-items: flex-end;
-  display: flex;
-  gap: 2px;
-  height: 26px;
+  height: 30px;
+  overflow: visible;
+  position: relative;
   width: 100%;
 }
 
-.sound-wave span {
-  background: var(--studio-burnt);
-  border-radius: 1px;
-  flex: 1;
-  transition: transform 160ms ease;
+.sound-wave svg {
+  display: block;
+  height: 100%;
+  overflow: visible;
+  width: 100%;
 }
 
-.sound-tile[data-category="popular"] .sound-wave span {
-  background: var(--studio-orange);
+.sound-wave path {
+  fill: var(--studio-burnt);
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  transition: fill 160ms ease;
 }
 
-.sound-tile[data-category="trending"] .sound-wave span {
-  background: var(--studio-amber);
+.sound-tile[data-category="popular"] .sound-wave path {
+  fill: var(--studio-orange);
 }
 
-.sound-tile[data-category="custom"] .sound-wave span {
-  background: var(--studio-cream-dim);
-  opacity: 0.6;
+.sound-tile[data-category="trending"] .sound-wave path {
+  fill: var(--studio-amber);
 }
 
-.sound-tile:hover .sound-wave span {
-  transform: scaleY(1.12);
+.sound-tile[data-category="custom"] .sound-wave path {
+  fill: var(--studio-cream-dim);
+  opacity: 0.55;
 }
 
-.sound-tile:hover .sound-wave span,
-.sound-tile.is-active .sound-wave span {
-  background: var(--studio-orange-bright);
+.sound-tile:hover .sound-wave path,
+.sound-tile.is-active .sound-wave path {
+  fill: var(--studio-orange-bright);
 }
 
-.sound-tile.is-active .sound-wave span {
-  animation: sound-wave-play 460ms ease-in-out infinite alternate;
+.sound-tile:hover .sound-wave path {
+  transform: scaleY(1.08);
 }
 
-.sound-wave span:nth-child(2n) {
-  animation-delay: 80ms;
+.sound-tile.is-active .sound-wave path {
+  animation: wave-pulse 460ms ease-in-out infinite alternate;
 }
 
-.sound-wave span:nth-child(3n) {
-  animation-delay: 160ms;
-}
-
-@keyframes sound-wave-play {
+@keyframes wave-pulse {
   from {
-    transform: scaleY(0.7);
+    transform: scaleY(0.88);
   }
 
   to {
-    transform: scaleY(1.15);
+    transform: scaleY(1.14);
+  }
+}
+
+.sound-playhead {
+  background: linear-gradient(180deg, transparent, rgba(255, 246, 238, 0.65), transparent);
+  bottom: -3px;
+  left: 0;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  top: -3px;
+  width: 2px;
+}
+
+.sound-tile.is-active .sound-playhead {
+  animation: playhead-sweep var(--dur, 0.5s) linear forwards;
+  opacity: 1;
+}
+
+@keyframes playhead-sweep {
+  from {
+    left: 0;
+  }
+
+  to {
+    left: 100%;
   }
 }
 

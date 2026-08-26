@@ -13,23 +13,29 @@
     <script type="module" src="../js/director.js"></script>
   </head>
   <body class="studio-shell director-shell">
+    <div class="studio-atmosphere" aria-hidden="true">
+      <span class="atmosphere-word">TOASTY</span>
+      <span class="atmosphere-word atmosphere-word--second">STUDIO</span>
+      <span class="atmosphere-mark"></span>
+      <span class="atmosphere-grain"></span>
+    </div>
+
     <div class="studio-grid">
       <aside class="rail rail-left" aria-label="Studio session rail">
         <div class="brand-block">
           <a class="brand-lockup" href="../site/" aria-label="Toasty Media home">
-            <img src="../shared/brand/toasty-media/ToastyMediaHLOGO.png" alt="Toasty Media">
+            <img
+              src="../shared/brand/toasty-media/ToastyMediaStudio.png"
+              alt="Toasty Media Studio"
+              onerror="this.onerror=null;this.src='../shared/brand/toasty-media/ToastyMediaHLOGO.png';"
+            >
           </a>
-          <p class="studio-mark-wrap">
-            <span class="studio-mark" aria-label="Studio">
-              <span style="--r:-5deg;--y:2px">S</span><span style="--r:3deg;--y:-4px">t</span><span style="--r:-2deg;--y:3px">u</span><span style="--r:4deg;--y:-3px">d</span><span style="--r:-3deg;--y:4px">i</span><span style="--r:2deg;--y:-2px">o</span>
-            </span>
-            <svg class="studio-scribble" viewBox="0 0 260 24" preserveAspectRatio="none" aria-hidden="true">
-              <path d="M4 14 C 50 3, 100 21, 150 9 S 224 2, 254 13"></path>
-            </svg>
-          </p>
-          <p class="brand-tagline">Show up live.</p>
 
-          <p class="live-pill"><span class="live-dot" aria-hidden="true"></span>Live studio session</p>
+          <div class="on-air-sign" id="connectionChip" data-state="idle">
+            <span class="on-air-bulbs" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="on-air-text" aria-hidden="true">On Air</span>
+            <span id="connectionState" class="sr-only">Ready</span>
+          </div>
         </div>
 
         <section class="rail-invite" aria-label="Session invite">
@@ -72,9 +78,6 @@
             <span id="recordingLabel">Recording idle</span>
             <strong id="recordingTimer">00:00:00</strong>
           </div>
-          <div class="connection-chip" id="connectionChip" data-state="idle">
-            <span id="connectionState">Ready</span>
-          </div>
         </div>
 
         <div class="video-grid" aria-label="Studio video area">
@@ -84,6 +87,8 @@
               <span class="panel-status" id="hostPanelStatus">Loading</span>
             </div>
             <div id="hostFrame" class="vdo-frame" data-empty="Loading host feed"></div>
+            <span class="corner-mark corner-mark--tl" aria-hidden="true"></span>
+            <span class="corner-mark corner-mark--br" aria-hidden="true"></span>
           </article>
           <article class="video-panel">
             <div class="panel-label">
@@ -95,6 +100,8 @@
               <span class="stage-empty-ring"></span>
               <p>Waiting for guest to join</p>
             </div>
+            <span class="corner-mark corner-mark--tl" aria-hidden="true"></span>
+            <span class="corner-mark corner-mark--br" aria-hidden="true"></span>
           </article>
         </div>
 

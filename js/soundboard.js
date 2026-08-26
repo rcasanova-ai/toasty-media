@@ -93,11 +93,10 @@ export class Soundboard {
         const wave = document.createElement("span");
         wave.className = "sound-wave";
         wave.setAttribute("aria-hidden", "true");
-        barHeights(cue.id).forEach((height) => {
-          const bar = document.createElement("span");
-          bar.style.height = `${height}%`;
-          wave.appendChild(bar);
-        });
+        wave.innerHTML = `<svg viewBox="0 0 100 30" preserveAspectRatio="none"><path d="${organicWavePath(cue.id)}"></path></svg>`;
+        const playhead = document.createElement("span");
+        playhead.className = "sound-playhead";
+        wave.appendChild(playhead);
 
         const meta = document.createElement("span");
         meta.className = "sound-meta";
@@ -112,6 +111,7 @@ export class Soundboard {
         button.append(play, wave, meta);
         button.addEventListener("click", () => {
           this.play(cue);
+          button.style.setProperty("--dur", `${cue.duration}s`);
           button.classList.add("is-active");
           window.setTimeout(() => button.classList.remove("is-active"), Math.max(cue.duration * 1000, 220));
         });
@@ -168,15 +168,29 @@ export class Soundboard {
   }
 }
 
-function barHeights(seed) {
-  const bars = 14;
+function organicWavePath(seed) {
+  const segments = 16;
+  const viewW = 100;
+  const viewH = 30;
+  const mid = viewH / 2;
   let hash = 0;
   for (let i = 0; i < seed.length; i += 1) {
     hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
   }
-  const heights = [];
-  for (let i = 0; i < bars; i += 1) {
-    heights.push(20 + ((hash >> i % 24) & 0xff) % 70);
+  const amplitudeAt = (i) => {
+    const x = Math.sin((hash + i * 97) * 12.9898) * 43758.5453;
+    const rand = x - Math.floor(x);
+    const envelope = Math.sin((Math.PI * i) / segments) * 0.7 + 0.3;
+    return (0.2 + rand * 0.8) * envelope;
+  };
+  const stepX = viewW / segments;
+  const top = [];
+  const bottom = [];
+  for (let i = 0; i <= segments; i += 1) {
+    const amplitude = amplitudeAt(i);
+    const x = (i * stepX).toFixed(1);
+    top.push(`${x} ${(mid - amplitude * (mid - 1.5)).toFixed(1)}`);
+    bottom.unshift(`${x} ${(mid + amplitude * (mid - 1.5)).toFixed(1)}`);
   }
-  return heights;
+  return `M ${top.join(" L ")} L ${bottom.join(" L ")} Z`;
 }
