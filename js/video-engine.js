@@ -3,8 +3,6 @@ const IFRAME_ALLOW =
   "camera; microphone; display-capture; autoplay; fullscreen; picture-in-picture; web-share";
 
 const DEFAULT_PARAMS = {
-  transparent: "1",
-  autostart: "1",
   api: "1"
 };
 
@@ -47,11 +45,7 @@ export class VideoEngine {
       room: roomId,
       push: streamId,
       label,
-      webcam: "1",
-      showlabels: "1",
-      showpreview: "1",
-      fullscreen: "1",
-      cleanoutput: "1"
+      showlabels: "1"
     });
   }
 
