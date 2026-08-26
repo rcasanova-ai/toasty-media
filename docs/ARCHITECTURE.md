@@ -56,10 +56,12 @@ Other Studio code calls internal methods such as `setMicrophone`, `setCamera`, `
 
 The current two-person call path uses hosted VDO.Ninja room participant iframes:
 
-- Host: generated room ID plus a host `push` stream.
+- Host: generated alphanumeric room ID plus a host `push` stream.
 - Guest: invite URL with the same room ID plus a generated guest `push` stream.
 - Host and guest use the native VDO.Ninja room UI inside the iframe for WebRTC transport, echo handling, and cross-browser device negotiation.
 - Toasty Studio controls send `postMessage` commands to the relevant iframe for mic, camera, screen share, state checks, and hangup.
+- The director screen separates host self-preview from program output. Host self-preview is the VDO.Ninja publishing iframe with `showpreview`, `fullscreen`, and `cleanoutput` so the host sees their camera immediately after granting permission without duplicate parent-page camera capture. Program output is a VDO.Ninja `room` + `scene=0` iframe; VDO documents `scene=0` as auto-adding all room videos.
+- Room IDs and stream IDs are generated as alphanumeric strings because VDO.Ninja documents room IDs as alphanumeric and stream IDs as safest when alphanumeric.
 
 ## Background System
 

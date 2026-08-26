@@ -18,9 +18,9 @@ export const BackgroundMode = Object.freeze({
 
 export function createDisposableRoomId() {
   const random = crypto.getRandomValues(new Uint32Array(3));
-  return `toasty-${Date.now().toString(36)}-${Array.from(random, (part) =>
+  return `toasty${Date.now().toString(36)}${Array.from(random, (part) =>
     part.toString(36)
-  ).join("")}`;
+  ).join("")}`.slice(0, 49);
 }
 
 export function getRoomIdFromUrl(search = window.location.search) {
@@ -42,14 +42,16 @@ export class VideoEngine {
   }
 
   mountDirectorFrame(container, { roomId, label = "Host" }) {
-    const streamId = `${roomId}-host`;
+    const streamId = `${roomId}host`;
     return this.mountFrame(container, "host", {
       room: roomId,
       push: streamId,
       label,
       webcam: "1",
       showlabels: "1",
-      cleanoutput: "0"
+      showpreview: "1",
+      fullscreen: "1",
+      cleanoutput: "1"
     });
   }
 
@@ -66,7 +68,7 @@ export class VideoEngine {
   }
 
   mountGuestFrame(container, { roomId, guestName, backgroundMode }) {
-    const streamId = `${roomId}-${slugify(guestName || "guest")}-${Date.now().toString(36)}`;
+    const streamId = `${roomId}${slugify(guestName || "guest")}${Date.now().toString(36)}`.slice(0, 64);
     return this.mountFrame(container, "guest", {
       room: roomId,
       push: streamId,
@@ -162,7 +164,6 @@ function effectForBackground(backgroundMode) {
 function slugify(value) {
   return value
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
+    .replace(/[^a-z0-9]+/g, "")
     .slice(0, 32) || "guest";
 }
