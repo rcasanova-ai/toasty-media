@@ -24,6 +24,10 @@ export class LocalIsolatedRecorder {
     return Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
   }
 
+  get mimeType() {
+    return this.videoRecorder?.mimeType || this.audioRecorder?.mimeType || null;
+  }
+
   async start({ audioDeviceId, videoDeviceId } = {}) {
     if (!LocalIsolatedRecorder.isSupported()) {
       throw new Error("This browser does not support getUserMedia and MediaRecorder.");

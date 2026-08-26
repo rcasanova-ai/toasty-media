@@ -56,10 +56,12 @@ async function init() {
 }
 
 function bindControls() {
-  document.querySelectorAll("input[name='background']").forEach((input) => {
-    input.addEventListener("change", () => {
-      state.selectedBackground = input.value;
-      elements.previewStage.dataset.background = input.value;
+  document.querySelectorAll(".bg-swatch").forEach((button) => {
+    button.addEventListener("click", () => {
+      document.querySelectorAll(".bg-swatch").forEach((other) => other.setAttribute("aria-pressed", "false"));
+      button.setAttribute("aria-pressed", "true");
+      state.selectedBackground = button.dataset.background;
+      elements.previewStage.dataset.background = button.dataset.background;
     });
   });
 
@@ -207,8 +209,15 @@ function leaveSession() {
 }
 
 function updatePressed(button, pressed, offLabel, onLabel) {
+  const label = pressed ? onLabel : offLabel;
   button.setAttribute("aria-pressed", String(pressed));
-  button.textContent = pressed ? onLabel : offLabel;
+  button.setAttribute("title", label);
+  const labelEl = button.querySelector(".dock-label");
+  if (labelEl) {
+    labelEl.textContent = label;
+  } else {
+    button.textContent = label;
+  }
 }
 
 function updateRecordingUi() {
