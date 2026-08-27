@@ -78,6 +78,7 @@ function bindControls() {
 async function startPreview() {
   try {
     stopPreview();
+    const cameraBeforeHydration = elements.cameraSelect.value;
     const constraints = {
       video: deviceConstraint(elements.cameraSelect.value),
       audio: deviceConstraint(elements.microphoneSelect.value)
@@ -85,6 +86,11 @@ async function startPreview() {
     state.previewStream = await navigator.mediaDevices.getUserMedia(constraints);
     elements.cameraPreview.srcObject = state.previewStream;
     await hydrateDevices();
+    if (elements.cameraSelect.value && elements.cameraSelect.value !== cameraBeforeHydration) {
+      await restartPreviewWithSelectedDevices();
+    } else {
+      await replaceCamoDefault();
+    }
     elements.guestStatus.textContent = "Preview ready. Choose a background, then join.";
   } catch (error) {
     elements.guestStatus.textContent = "Camera or microphone permission is needed before joining.";
@@ -107,6 +113,7 @@ async function hydrateDevices() {
 
 function fillSelect(select, devices, fallbackLabel) {
   const selected = select.value;
+  const preferredDeviceId = fallbackLabel === "Camera" ? preferredCamera(devices)?.deviceId : "";
   select.replaceChildren(
     ...devices.map((device, index) => {
       const option = document.createElement("option");
@@ -117,7 +124,43 @@ function fillSelect(select, devices, fallbackLabel) {
   );
   if (devices.some((device) => device.deviceId === selected)) {
     select.value = selected;
+  } else if (preferredDeviceId) {
+    select.value = preferredDeviceId;
   }
+}
+
+async function replaceCamoDefault() {
+  const selectedCamera = selectedDeviceLabel(elements.cameraSelect);
+  if (!selectedCamera || !isCamoCamera(selectedCamera)) return;
+  const betterCamera = [...elements.cameraSelect.options].find((option) => !isCamoCamera(option.textContent));
+  if (!betterCamera) return;
+  elements.cameraSelect.value = betterCamera.value;
+  await restartPreviewWithSelectedDevices();
+}
+
+async function restartPreviewWithSelectedDevices() {
+  stopPreview();
+  state.previewStream = await navigator.mediaDevices.getUserMedia({
+    video: deviceConstraint(elements.cameraSelect.value),
+    audio: deviceConstraint(elements.microphoneSelect.value)
+  });
+  elements.cameraPreview.srcObject = state.previewStream;
+}
+
+function selectedDeviceLabel(select) {
+  return select.selectedOptions[0]?.textContent || "";
+}
+
+function preferredCamera(devices) {
+  return (
+    devices.find((device) => /facetime|studio display|built-?in|integrated/i.test(device.label)) ||
+    devices.find((device) => !isCamoCamera(device.label)) ||
+    devices[0]
+  );
+}
+
+function isCamoCamera(label = "") {
+  return /camo/i.test(label);
 }
 
 function deviceConstraint(deviceId) {

@@ -6,6 +6,8 @@ const DEFAULT_PARAMS = {
   api: "1"
 };
 
+const HOST_CAMERA_HINT = "FaceTime";
+
 export const BackgroundMode = Object.freeze({
   NONE: "none",
   BLUR: "blur",
@@ -54,6 +56,7 @@ export class VideoEngine {
       push: streamId,
       label,
       webcam: true,
+      vdo: HOST_CAMERA_HINT,
       showlabels: "1"
     });
   }
