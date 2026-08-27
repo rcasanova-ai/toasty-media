@@ -294,7 +294,7 @@ function handleVdoMessage(message) {
   } else if (message.action === "view-connection" && message.value === false) {
     setConnectionStatus("Viewer disconnected", "idle");
   } else if (message.action || message.getDetailedState) {
-    setConnectionStatus("Room active", "connected");
+    setConnectionStatus("Live", "connected");
   }
 }
 

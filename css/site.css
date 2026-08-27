@@ -796,3 +796,580 @@ h2 {
     max-height: 520px;
   }
 }
+
+/* Final art direction pass */
+
+.home-page,
+.ricardo-page {
+  overflow-x: hidden;
+}
+
+.home-page::before,
+.ricardo-page::before {
+  background:
+    linear-gradient(rgba(255, 246, 232, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 246, 232, 0.04) 1px, transparent 1px);
+  background-size: 72px 72px;
+  content: "";
+  inset: 0;
+  opacity: 0.22;
+  pointer-events: none;
+  position: fixed;
+  z-index: -1;
+}
+
+.site-header {
+  min-height: 72px;
+}
+
+.home-page .site-header,
+.ricardo-nav {
+  box-shadow: 0 1px 0 rgba(255, 246, 232, 0.06);
+}
+
+.home-page .brand-link img,
+.ricardo-nav .brand-link img {
+  filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.32));
+}
+
+.home-hero {
+  align-items: end;
+  display: grid;
+  gap: clamp(1.25rem, 3vw, 3rem);
+  grid-template-columns: minmax(0, 0.86fr) minmax(340px, 1.14fr);
+  min-height: calc(100svh - 72px);
+  overflow: hidden;
+  padding: clamp(2.5rem, 5vw, 5.5rem) clamp(1rem, 5vw, 5rem) clamp(2rem, 4vw, 4rem);
+  position: relative;
+}
+
+.home-hero::before {
+  background:
+    radial-gradient(circle at 22% 22%, rgba(237, 154, 111, 0.22), transparent 30%),
+    radial-gradient(circle at 72% 74%, rgba(217, 166, 111, 0.18), transparent 34%),
+    linear-gradient(130deg, rgba(255, 246, 232, 0.08), transparent 38%);
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.hero-backdrop {
+  bottom: -0.12em;
+  color: rgba(255, 246, 232, 0.045);
+  font-family: var(--font-heading);
+  font-size: clamp(4.5rem, 14vw, 13rem);
+  font-weight: 900;
+  left: clamp(1rem, 5vw, 5rem);
+  letter-spacing: 0;
+  line-height: 0.78;
+  position: absolute;
+  white-space: nowrap;
+}
+
+.home-hero .hero-copy {
+  align-self: center;
+  max-width: 720px;
+  position: relative;
+  z-index: 1;
+}
+
+.home-hero h1 {
+  font-size: clamp(3.1rem, 7.8vw, 7.7rem);
+  letter-spacing: 0;
+  line-height: 0.86;
+  max-width: 760px;
+}
+
+.home-hero .hero-lede {
+  color: #ead7c2;
+  font-size: clamp(1.05rem, 1.55vw, 1.34rem);
+}
+
+.media-board {
+  align-items: end;
+  display: grid;
+  grid-template-columns: 0.82fr 0.52fr;
+  grid-template-rows: auto auto;
+  gap: clamp(0.75rem, 1.5vw, 1.1rem);
+  isolation: isolate;
+  min-height: min(72vh, 680px);
+  position: relative;
+  z-index: 1;
+}
+
+.media-board::before {
+  background: rgba(237, 154, 111, 0.86);
+  content: "";
+  height: 52%;
+  left: 18%;
+  position: absolute;
+  top: 16%;
+  transform: rotate(-5deg);
+  width: 70%;
+  z-index: -1;
+}
+
+.media-board::after {
+  border: 1px solid rgba(255, 246, 232, 0.25);
+  content: "";
+  inset: 9% 4% 13% 14%;
+  pointer-events: none;
+  position: absolute;
+  transform: rotate(3deg);
+}
+
+.media-tile {
+  margin: 0;
+  position: relative;
+}
+
+.media-tile img {
+  border: 1px solid rgba(255, 246, 232, 0.18);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.48);
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.media-tile figcaption,
+.profile-spread figcaption {
+  background: var(--cream-soft);
+  color: var(--espresso);
+  font-family: var(--font-heading);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  padding: 0.5rem 0.64rem;
+  position: absolute;
+  right: 0.8rem;
+  text-transform: uppercase;
+  top: 0.8rem;
+}
+
+.media-tile-main {
+  grid-row: 1 / span 2;
+  height: min(68vh, 620px);
+}
+
+.media-tile-stack {
+  height: min(30vh, 260px);
+  transform: translateY(2rem);
+}
+
+.media-tile-book {
+  height: min(36vh, 300px);
+  justify-self: start;
+  transform: translateX(-18%);
+  width: 72%;
+}
+
+.editorial-band {
+  padding: clamp(3.25rem, 7vw, 7rem) clamp(1rem, 5vw, 5rem);
+  position: relative;
+}
+
+.editorial-band::before {
+  background: rgba(217, 166, 111, 0.22);
+  content: "";
+  height: 1px;
+  left: clamp(1rem, 5vw, 5rem);
+  position: absolute;
+  right: clamp(1rem, 5vw, 5rem);
+  top: 0;
+}
+
+.section-heading {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(160px, 0.35fr) minmax(0, 1fr);
+}
+
+.section-heading .eyebrow {
+  align-self: start;
+}
+
+.section-heading h2 {
+  max-width: 900px;
+}
+
+.feature-ledger {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: 1.2fr 0.9fr 0.9fr;
+  margin: 0 auto;
+  max-width: 1120px;
+}
+
+.feature-ledger article {
+  background: rgba(255, 246, 232, 0.06);
+  border: 1px solid rgba(217, 166, 111, 0.18);
+  min-height: 260px;
+  padding: clamp(1.25rem, 2.4vw, 2rem);
+  transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.feature-ledger article:hover {
+  background: rgba(255, 246, 232, 0.09);
+  border-color: rgba(237, 154, 111, 0.5);
+  transform: translateY(-3px);
+}
+
+.feature-ledger .ledger-primary {
+  background:
+    linear-gradient(145deg, rgba(237, 154, 111, 0.22), rgba(255, 246, 232, 0.06)),
+    rgba(255, 246, 232, 0.07);
+}
+
+.feature-ledger h3 {
+  font-size: clamp(1.45rem, 2.8vw, 2.6rem);
+  line-height: 1;
+}
+
+.feature-ledger p,
+.media-strip p,
+.studio-mention p {
+  color: #dfcdbb;
+}
+
+.media-strip {
+  align-items: center;
+  background: var(--cream-soft);
+  color: var(--ink);
+  display: grid;
+  gap: clamp(1.5rem, 4vw, 4rem);
+  grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.2fr);
+  padding: clamp(2.5rem, 6vw, 6rem) clamp(1rem, 5vw, 5rem);
+}
+
+.media-strip figure {
+  margin: 0;
+  position: relative;
+}
+
+.media-strip figure::before {
+  background: var(--toast);
+  content: "";
+  inset: 12% -4% -8% 14%;
+  position: absolute;
+  z-index: 0;
+}
+
+.media-strip img {
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  position: relative;
+  width: 100%;
+  z-index: 1;
+}
+
+.media-strip h2 {
+  color: var(--espresso);
+  font-size: clamp(2.4rem, 5vw, 5rem);
+  line-height: 0.92;
+}
+
+.media-strip p:not(.eyebrow) {
+  color: #4b352e;
+  font-size: 1.16rem;
+  max-width: 680px;
+}
+
+.books-band {
+  background:
+    radial-gradient(circle at 15% 20%, rgba(237, 154, 111, 0.12), transparent 34%),
+    var(--espresso);
+}
+
+.book-grid {
+  align-items: stretch;
+}
+
+.book-card {
+  overflow: hidden;
+  position: relative;
+}
+
+.home-page .book-card {
+  background: rgba(255, 246, 232, 0.075);
+}
+
+.book-cover {
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+}
+
+.studio-mention {
+  background:
+    linear-gradient(110deg, rgba(237, 154, 111, 0.18), transparent 42%),
+    #231412;
+  color: var(--cream-soft);
+  padding: clamp(3rem, 6vw, 5.5rem) clamp(1rem, 5vw, 5rem);
+}
+
+.workflow-band {
+  background: var(--espresso-2);
+}
+
+.workflow-grid > div {
+  border-left: 4px solid var(--toast-bright);
+}
+
+.articles-band {
+  background: #fff1da;
+  color: var(--ink);
+}
+
+.articles-band h2 {
+  color: var(--espresso);
+}
+
+.articles-band p:not(.eyebrow) {
+  color: #4b352e;
+}
+
+.profile-spread {
+  align-items: end;
+  background:
+    linear-gradient(180deg, var(--espresso-2), var(--espresso));
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(240px, 0.65fr) minmax(260px, 0.9fr) minmax(0, 1fr);
+  padding: 0 clamp(1rem, 5vw, 5rem) clamp(3rem, 6vw, 5.5rem);
+}
+
+.profile-spread figure {
+  margin: 0;
+  position: relative;
+}
+
+.profile-spread img {
+  border: 1px solid rgba(217, 166, 111, 0.2);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.profile-spread-main {
+  height: 420px;
+}
+
+.profile-spread figure:not(.profile-spread-main) {
+  height: 320px;
+  transform: translateY(2rem);
+}
+
+.profile-note {
+  border-top: 1px solid rgba(217, 166, 111, 0.28);
+  padding-top: 1.2rem;
+}
+
+.profile-note h2 {
+  color: var(--cream-soft);
+  font-size: clamp(2rem, 4vw, 4rem);
+  line-height: 0.94;
+}
+
+.ricardo-hero {
+  background:
+    radial-gradient(circle at 12% 18%, rgba(237, 154, 111, 0.2), transparent 34%),
+    linear-gradient(105deg, rgba(255, 246, 232, 0.08), transparent 42%),
+    var(--espresso-2);
+}
+
+.ricardo-hero::after {
+  bottom: -0.06em;
+  color: rgba(255, 246, 232, 0.045);
+  content: "RICARDO";
+  font-family: var(--font-heading);
+  font-size: clamp(5rem, 18vw, 16rem);
+  font-weight: 900;
+  left: clamp(1rem, 5vw, 4rem);
+  letter-spacing: 0;
+  line-height: 0.8;
+  position: absolute;
+}
+
+.ricardo-portrait img {
+  filter: drop-shadow(0 28px 46px rgba(0, 0, 0, 0.42));
+}
+
+.signal-grid article:first-child {
+  grid-column: span 2;
+}
+
+.signal-grid article:first-child h3 {
+  font-size: clamp(1.6rem, 3vw, 2.8rem);
+}
+
+.timeline {
+  border-left: 1px solid rgba(139, 94, 28, 0.22);
+  gap: 0;
+}
+
+.timeline > div {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(139, 94, 28, 0.18);
+  border-radius: 0;
+  padding: 1.35rem 1.5rem;
+}
+
+.thesis-card {
+  background: var(--espresso);
+  border-color: transparent;
+}
+
+.thesis-card p {
+  color: var(--cream-soft);
+}
+
+.thesis-card cite {
+  color: var(--toast-bright);
+}
+
+@media (max-width: 980px) {
+  .home-hero,
+  .media-strip,
+  .profile-spread,
+  .feature-ledger,
+  .section-heading {
+    grid-template-columns: 1fr;
+  }
+
+  .home-hero {
+    min-height: auto;
+  }
+
+  .media-board {
+    grid-template-columns: 1fr 0.72fr;
+    min-height: 0;
+  }
+
+  .media-tile-main {
+    height: 48vh;
+    min-height: 340px;
+  }
+
+  .media-tile-stack {
+    height: 210px;
+    transform: none;
+  }
+
+  .media-tile-book {
+    grid-column: 1 / span 2;
+    height: 220px;
+    transform: none;
+    width: 48%;
+  }
+
+  .profile-spread {
+    padding-top: 2rem;
+  }
+
+  .profile-spread-main,
+  .profile-spread figure:not(.profile-spread-main) {
+    height: 320px;
+    transform: none;
+  }
+
+  .signal-grid article:first-child {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .site-header {
+    position: relative;
+  }
+
+  .brand-link img {
+    height: 38px;
+  }
+
+  .site-nav {
+    gap: 0.8rem;
+  }
+
+  .home-hero h1,
+  .ricardo-copy h1 {
+    font-size: clamp(2.65rem, 16vw, 4.5rem);
+  }
+
+  .ricardo-hero {
+    min-height: calc(100svh - 116px);
+    padding-bottom: 8.5rem;
+  }
+
+  .ricardo-copy h1 {
+    font-size: clamp(2.45rem, 13vw, 3.25rem);
+    line-height: 0.9;
+    max-width: 11ch;
+  }
+
+  .ricardo-page .hero-lede {
+    max-width: 19rem;
+  }
+
+  .ricardo-portrait {
+    bottom: 0;
+    opacity: 0.74;
+    position: absolute;
+    right: -4.5rem;
+    width: min(62vw, 250px);
+  }
+
+  .ricardo-portrait img {
+    max-height: 330px;
+  }
+
+  .hero-backdrop {
+    white-space: normal;
+  }
+
+  .media-board {
+    display: block;
+  }
+
+  .media-board::before,
+  .media-board::after {
+    display: none;
+  }
+
+  .media-tile {
+    margin-bottom: 0.85rem;
+  }
+
+  .media-tile-main,
+  .media-tile-stack,
+  .media-tile-book {
+    height: auto;
+    min-height: 0;
+    width: 100%;
+  }
+
+  .media-tile img {
+    aspect-ratio: 4 / 3;
+  }
+
+  .media-tile-book img {
+    aspect-ratio: 16 / 10;
+    object-position: top;
+  }
+
+  .feature-ledger article,
+  .feature-card,
+  .workflow-grid > div,
+  .book-card {
+    min-height: 0;
+  }
+
+  .profile-spread {
+    display: block;
+  }
+
+  .profile-spread figure,
+  .profile-note {
+    margin-bottom: 1rem;
+  }
+}
