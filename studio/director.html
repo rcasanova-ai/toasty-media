@@ -32,8 +32,7 @@
           </a>
 
           <div class="on-air-sign" id="connectionChip" data-state="idle">
-            <span class="on-air-bulbs" aria-hidden="true"><span></span><span></span><span></span></span>
-            <span class="on-air-text" aria-hidden="true">On Air</span>
+            <span class="on-air-text" aria-hidden="true">ON AIR</span>
             <span id="connectionState" class="sr-only">Ready</span>
           </div>
         </div>
@@ -47,7 +46,7 @@
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 7h3a5 5 0 0 1 0 10h-3m-6 0H6A5 5 0 0 1 6 7h3"></path><line x1="8" y1="12" x2="16" y2="12"></line></svg>
             <span class="btn-label">Copy Link</span>
           </button>
-          <input id="guestInvite" class="invite-url" type="url" readonly aria-label="Guest invite link">
+          <input id="guestInvite" class="invite-url" type="hidden" readonly aria-label="Guest invite link">
         </section>
 
         <nav class="quick-actions" aria-label="Quick actions">
@@ -71,14 +70,6 @@
 
       <section class="stage-main" aria-labelledby="stageTitle">
         <h1 id="stageTitle" class="sr-only">Director console</h1>
-
-        <div class="stage-statusbar">
-          <div class="recording-pill" id="recordingState" data-active="false">
-            <span class="recording-dot" aria-hidden="true"></span>
-            <span id="recordingLabel">Recording idle</span>
-            <strong id="recordingTimer">00:00:00</strong>
-          </div>
-        </div>
 
         <div class="video-grid" aria-label="Studio video area">
           <article class="video-panel">
@@ -104,6 +95,21 @@
             <span class="corner-mark corner-mark--br" aria-hidden="true"></span>
           </article>
         </div>
+
+        <section class="recording-panel" id="recordingState" data-active="false" aria-label="Recording">
+          <div>
+            <p class="rail-eyebrow">Recording</p>
+            <p class="recording-purpose" id="recordingLabel">Capture isolated local media for this session.</p>
+          </div>
+          <div class="recording-actions">
+            <strong id="recordingTimer" class="recording-timer" hidden>00:00:00</strong>
+            <button id="toggleRecording" class="rec-toggle" type="button" aria-pressed="false">Start recording</button>
+          </div>
+          <div class="waveform" id="recordingWaveform" data-active="false" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <p class="control-note" id="recordingNote">Records this host browser's isolated mic and camera to local files.</p>
+        </section>
 
         <div class="control-dock" role="group" aria-label="Call controls">
           <button id="toggleMic" class="dock-btn" type="button" aria-pressed="false" title="Mute mic">
@@ -149,14 +155,14 @@
           <div class="panel-section" aria-label="Session">
             <p class="rail-eyebrow">Session</p>
             <div class="rail-row">
-              <span>Room</span>
-              <strong id="roomLabel">Room pending</strong>
+              <span>Date</span>
+              <strong id="sessionDate">—</strong>
             </div>
             <div class="rail-row">
-              <span>Started</span>
-              <strong id="sessionStartedAt">—</strong>
+              <span>Time</span>
+              <strong id="sessionTime">—</strong>
             </div>
-            <button id="newRoom" class="link-action" type="button">New disposable room</button>
+            <button id="newRoom" class="link-action" type="button">New session</button>
           </div>
 
           <div class="panel-section" aria-label="Participants">
@@ -183,17 +189,6 @@
               <span>Format</span>
               <strong id="streamFormatValue">—</strong>
             </div>
-          </div>
-
-          <div class="panel-section" aria-label="Recording">
-            <p class="rail-eyebrow">Recording</p>
-            <div class="rec-control">
-              <button id="toggleRecording" class="rec-toggle" type="button" aria-pressed="false">Start recording</button>
-            </div>
-            <div class="waveform" id="recordingWaveform" data-active="false" aria-hidden="true">
-              <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
-            </div>
-            <p class="control-note" id="recordingNote">Local isolated recording is prepared in architecture, not active in this MVP shell.</p>
           </div>
         </section>
       </aside>

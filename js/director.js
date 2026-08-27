@@ -24,8 +24,8 @@ const engine = new VideoEngine();
 const elements = {
   hostFrame: document.querySelector("#hostFrame"),
   guestFrame: document.querySelector("#guestFrame"),
-  roomLabel: document.querySelector("#roomLabel"),
-  sessionStartedAt: document.querySelector("#sessionStartedAt"),
+  sessionDate: document.querySelector("#sessionDate"),
+  sessionTime: document.querySelector("#sessionTime"),
   connectionState: document.querySelector("#connectionState"),
   connectionChip: document.querySelector("#connectionChip"),
   streamConnectionValue: document.querySelector("#streamConnectionValue"),
@@ -81,9 +81,10 @@ function init() {
 }
 
 function mountRoom() {
-  elements.roomLabel.textContent = state.roomId;
+  const now = new Date();
   elements.guestInvite.value = getGuestInviteUrl(state.roomId);
-  elements.sessionStartedAt.textContent = formatClock(new Date());
+  elements.sessionDate.textContent = formatDate(now);
+  elements.sessionTime.textContent = formatClock(now);
   elements.hostPanelStatus.textContent = "Live";
   elements.hostPanelStatus.dataset.state = "connected";
   engine.mountDirectorFrame(elements.hostFrame, {
@@ -241,7 +242,10 @@ function updateRecordingUi() {
   elements.toggleRecording.setAttribute("aria-pressed", String(state.recordingActive));
   elements.toggleRecording.textContent = state.recordingActive ? "Stop recording" : "Start recording";
   elements.recordingState.dataset.active = String(state.recordingActive);
-  elements.recordingLabel.textContent = state.recordingActive ? "Recording locally" : "Recording idle";
+  elements.recordingLabel.textContent = state.recordingActive
+    ? "Recording isolated host media locally."
+    : "Capture isolated local media for this session.";
+  elements.recordingTimer.hidden = !state.recordingActive;
   elements.recordingWaveform.dataset.active = String(state.recordingActive);
   if (!state.recordingActive && LocalIsolatedRecorder.isSupported()) {
     elements.recordingNote.textContent = "Records this host browser's isolated mic and camera to local files.";
@@ -307,6 +311,10 @@ function humanizeError(error) {
 
 function formatClock(date) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatDate(date) {
+  return date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 }
 
 updateRecordingUi();

@@ -53,6 +53,7 @@ export class VideoEngine {
       room: roomId,
       push: streamId,
       label,
+      webcam: true,
       showlabels: "1"
     });
   }
@@ -99,7 +100,9 @@ export class VideoEngine {
     const url = new URL("/", this.baseUrl);
     const merged = { ...DEFAULT_PARAMS, ...params };
     Object.entries(merged).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== false && value !== "") {
+      if (value === true) {
+        url.searchParams.set(key, "");
+      } else if (value !== undefined && value !== null && value !== false && value !== "") {
         url.searchParams.set(key, value);
       }
     });

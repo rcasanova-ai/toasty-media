@@ -224,7 +224,7 @@ function updateRecordingUi() {
   elements.guestToggleRecording.setAttribute("aria-pressed", String(state.recordingActive));
   elements.guestToggleRecording.textContent = state.recordingActive ? "Stop recording" : "Start recording";
   elements.guestRecordingState.dataset.active = String(state.recordingActive);
-  elements.guestRecordingLabel.textContent = state.recordingActive ? "Recording locally" : "Recording idle";
+  elements.guestRecordingLabel.textContent = state.recordingActive ? "Recording locally" : "Local capture ready";
   updateRecordingTimer();
 }
 
