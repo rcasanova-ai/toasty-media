@@ -35,6 +35,7 @@
           <span class="powered-by" id="poweredBy">Powered by Toasty Media</span>
 
           <div class="on-air-sign" id="connectionChip" data-state="idle">
+            <span class="on-air-bulb" aria-hidden="true"></span>
             <span class="on-air-text" aria-hidden="true">ON AIR</span>
             <span id="connectionState" class="sr-only">Ready</span>
           </div>
@@ -57,7 +58,12 @@
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 7h3a5 5 0 0 1 0 10h-3m-6 0H6A5 5 0 0 1 6 7h3"></path><line x1="8" y1="12" x2="16" y2="12"></line></svg>
             <span class="btn-label">Copy Link</span>
           </button>
+          <button id="copyListenerInvite" class="link-action" type="button">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            <span class="btn-label">Copy Listener Link</span>
+          </button>
           <input id="guestInvite" class="invite-url" type="hidden" readonly aria-label="Guest invite link">
+          <input id="listenerInvite" class="invite-url" type="hidden" readonly aria-label="Listener invite link">
         </section>
 
         <nav class="quick-actions" aria-label="Quick actions">
@@ -94,7 +100,7 @@
           </article>
           <article class="video-panel">
             <div class="panel-label">
-              <span>Guest</span>
+              <span>Guests</span>
               <span class="panel-status" id="guestPanelStatus">Waiting</span>
             </div>
             <div id="guestFrame" class="vdo-frame" data-empty="Waiting for guest to join"></div>
@@ -185,8 +191,23 @@
             </div>
             <div class="participant-row">
               <span class="participant-dot" id="participantGuestDot" data-state="idle" aria-hidden="true"></span>
-              <span class="participant-name">Guest</span>
+              <span class="participant-name">Guest 1</span>
               <span class="participant-role" id="participantGuestStatus">Waiting</span>
+            </div>
+            <div class="participant-row">
+              <span class="participant-dot" id="participantGuest2Dot" data-state="idle" aria-hidden="true"></span>
+              <span class="participant-name">Guest 2</span>
+              <span class="participant-role" id="participantGuest2Status">Open</span>
+            </div>
+            <div class="participant-row">
+              <span class="participant-dot" id="participantGuest3Dot" data-state="idle" aria-hidden="true"></span>
+              <span class="participant-name">Guest 3</span>
+              <span class="participant-role" id="participantGuest3Status">Open</span>
+            </div>
+            <div class="participant-row">
+              <span class="participant-dot" data-state="listener" aria-hidden="true"></span>
+              <span class="participant-name">Listeners</span>
+              <span class="participant-role">View only</span>
             </div>
           </div>
 

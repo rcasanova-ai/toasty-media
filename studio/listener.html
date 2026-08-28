@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Listen to Toasty Studio</title>
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@700;800;900&family=Permanent+Marker&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/brand.css">
+    <link rel="stylesheet" href="../css/studio.css">
+    <script type="module" src="../js/listener.js"></script>
+  </head>
+  <body class="studio-shell listener-shell">
+    <main class="listener-grid">
+      <header class="guest-topbar">
+        <a class="brand-lockup brand-lockup--compact" href="../site/" aria-label="Toasty Media home">
+          <img
+            id="studioBrandLogo"
+            src="../shared/brand/toasty-media/ToastyMediaStudio.png"
+            alt="Toasty Media Studio"
+            onerror="this.onerror=null;this.src='../shared/brand/toasty-media/ToastyMediaHLOGO.png';"
+          >
+          <span class="brand-text-lockup" id="studioBrandText" hidden>Toasty Studio</span>
+        </a>
+        <div class="guest-topbar-status">
+          <span class="powered-by" id="poweredBy">Powered by Toasty Media</span>
+          <span class="guest-status-chip" id="listenerState">Listening</span>
+        </div>
+      </header>
+
+      <section class="listener-stage" aria-label="Studio listener room">
+        <div id="listenerFrame" class="vdo-frame large-frame" data-empty="Waiting for the Studio feed"></div>
+      </section>
+    </main>
+  </body>
+</html>

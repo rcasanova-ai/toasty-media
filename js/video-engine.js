@@ -44,6 +44,15 @@ export function getGuestInviteUrl(roomId, brandTheme) {
   return url.toString();
 }
 
+export function getListenerInviteUrl(roomId, brandTheme) {
+  const url = new URL("../studio/listener.html", window.location.href);
+  url.searchParams.set("room", roomId);
+  if (brandTheme) {
+    url.searchParams.set("brand", brandTheme);
+  }
+  return url.toString();
+}
+
 export class VideoEngine {
   constructor(options = {}) {
     this.baseUrl = options.baseUrl || VDO_ORIGIN;
@@ -87,6 +96,15 @@ export class VideoEngine {
       showlabels: "1",
       cleanoutput: "0",
       effects: effectForBackground(backgroundMode)
+    });
+  }
+
+  mountListenerFrame(container, { roomId }) {
+    return this.mountFrame(container, "listener", {
+      room: roomId,
+      scene: "0",
+      showlabels: "1",
+      cleanoutput: "1"
     });
   }
 

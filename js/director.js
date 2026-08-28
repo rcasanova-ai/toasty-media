@@ -3,6 +3,7 @@ import {
   createDisposableRoomId,
   getOrCreateRoomId,
   getGuestInviteUrl,
+  getListenerInviteUrl,
 } from "./video-engine.js";
 import {
   applyBrandTheme,
@@ -23,7 +24,7 @@ const state = {
   recordingStartedAt: null,
   timerId: null,
   recorder: null,
-  guestConnected: false
+  guestCount: 0
 };
 
 const engine = new VideoEngine();
@@ -40,9 +41,15 @@ const elements = {
   guestStageEmpty: document.querySelector("#guestStageEmpty"),
   participantGuestDot: document.querySelector("#participantGuestDot"),
   participantGuestStatus: document.querySelector("#participantGuestStatus"),
+  participantGuest2Dot: document.querySelector("#participantGuest2Dot"),
+  participantGuest2Status: document.querySelector("#participantGuest2Status"),
+  participantGuest3Dot: document.querySelector("#participantGuest3Dot"),
+  participantGuest3Status: document.querySelector("#participantGuest3Status"),
   guestInvite: document.querySelector("#guestInvite"),
+  listenerInvite: document.querySelector("#listenerInvite"),
   inviteGuestBtn: document.querySelector("#inviteGuestBtn"),
   copyInvite: document.querySelector("#copyInvite"),
+  copyListenerInvite: document.querySelector("#copyListenerInvite"),
   brandThemeSelect: document.querySelector("#brandThemeSelect"),
   studioBrandLogo: document.querySelector("#studioBrandLogo"),
   studioBrandText: document.querySelector("#studioBrandText"),
@@ -109,6 +116,7 @@ function mountRoom() {
 
 function updateInviteAndHistory() {
   elements.guestInvite.value = getGuestInviteUrl(state.roomId, state.brandTheme);
+  elements.listenerInvite.value = getListenerInviteUrl(state.roomId, state.brandTheme);
   const url = new URL(window.location.href);
   url.searchParams.set("room", state.roomId);
   url.searchParams.set("brand", state.brandTheme);
@@ -118,6 +126,7 @@ function updateInviteAndHistory() {
 function bindControls() {
   elements.inviteGuestBtn.addEventListener("click", inviteGuest);
   elements.copyInvite.addEventListener("click", copyInvite);
+  elements.copyListenerInvite.addEventListener("click", copyListenerInvite);
   elements.brandThemeSelect.addEventListener("change", changeBrandTheme);
   elements.newRoom.addEventListener("click", createNewRoom);
   elements.toggleMic.addEventListener("click", toggleMic);
@@ -156,6 +165,14 @@ async function copyInvite() {
   }, 1400);
 }
 
+async function copyListenerInvite() {
+  await navigator.clipboard.writeText(elements.listenerInvite.value);
+  setLabel(elements.copyListenerInvite, "Copied");
+  window.setTimeout(() => {
+    setLabel(elements.copyListenerInvite, "Copy Listener Link");
+  }, 1400);
+}
+
 function createNewRoom() {
   state.roomId = createDisposableRoomId();
   stopRecordingTimer();
@@ -165,7 +182,7 @@ function createNewRoom() {
     screenSharing: false,
     recordingActive: false,
     recordingStartedAt: null,
-    guestConnected: false
+    guestCount: 0
   });
   updatePressed(elements.toggleMic, false, "Mute mic", "Unmute mic");
   updatePressed(elements.toggleCamera, false, "Camera off", "Camera on");
@@ -173,7 +190,7 @@ function createNewRoom() {
     if (btn) updatePressed(btn, false, "Share screen", "Stop sharing");
   });
   updateRecordingUi();
-  updateGuestPresence(false, "Waiting");
+  updateGuestPresence(0);
   setConnectionStatus("Ready", "idle");
   mountRoom();
 }
@@ -236,7 +253,7 @@ function endSession() {
   stopRecordingTimer();
   state.recordingActive = false;
   updateRecordingUi();
-  updateGuestPresence(false, "Disconnected");
+  updateGuestPresence(0);
   setConnectionStatus("Session ended", "idle");
 }
 
@@ -314,22 +331,32 @@ function applySelectedBrand() {
   });
 }
 
-function updateGuestPresence(connected, statusText) {
-  state.guestConnected = connected;
-  elements.participantGuestDot.dataset.state = connected ? "active" : "idle";
-  elements.participantGuestStatus.textContent = statusText;
-  elements.guestPanelStatus.textContent = statusText;
-  elements.guestPanelStatus.dataset.state = connected ? "connected" : "idle";
-  elements.guestStageEmpty.hidden = connected;
+function updateGuestPresence(count) {
+  state.guestCount = Math.max(0, Math.min(3, count));
+  const seats = [
+    [elements.participantGuestDot, elements.participantGuestStatus],
+    [elements.participantGuest2Dot, elements.participantGuest2Status],
+    [elements.participantGuest3Dot, elements.participantGuest3Status]
+  ];
+  seats.forEach(([dot, label], index) => {
+    const occupied = index < state.guestCount;
+    dot.dataset.state = occupied ? "active" : "idle";
+    label.textContent = occupied ? "Connected" : index === 0 ? "Waiting" : "Open";
+  });
+
+  const hasGuests = state.guestCount > 0;
+  elements.guestPanelStatus.textContent = hasGuests ? `${state.guestCount} connected` : "Waiting";
+  elements.guestPanelStatus.dataset.state = hasGuests ? "connected" : "idle";
+  elements.guestStageEmpty.hidden = hasGuests;
 }
 
 function handleVdoMessage(message) {
   if (message.action === "push-connection" && message.value === true) {
     setConnectionStatus("Guest connected", "connected");
-    updateGuestPresence(true, "Connected");
+    updateGuestPresence(state.guestCount + 1);
   } else if (message.action === "push-connection" && message.value === false) {
     setConnectionStatus("Guest disconnected", "idle");
-    updateGuestPresence(false, "Disconnected");
+    updateGuestPresence(state.guestCount - 1);
   } else if (message.action === "view-connection" && message.value === false) {
     setConnectionStatus("Viewer disconnected", "idle");
   } else if (message.action || message.getDetailedState) {

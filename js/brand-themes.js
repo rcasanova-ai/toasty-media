@@ -6,6 +6,7 @@ export const BRAND_THEMES = Object.freeze({
   toasty: Object.freeze({
     id: "toasty",
     label: "Toasty Media",
+    showPoweredBy: false,
     logoSrc: "../shared/brand/toasty-media/ToastyMediaStudio.png",
     logoAlt: "Toasty Media Studio",
     textLogo: "Toasty Studio",
@@ -29,6 +30,7 @@ export const BRAND_THEMES = Object.freeze({
   "8alta": Object.freeze({
     id: "8alta",
     label: "8alta",
+    showPoweredBy: true,
     textLogo: "8alta Studio",
     atmosphereBrand: "8ALTA",
     atmosphereProduct: "STUDIO",
@@ -50,6 +52,7 @@ export const BRAND_THEMES = Object.freeze({
   santati: Object.freeze({
     id: "santati",
     label: "Santati",
+    showPoweredBy: true,
     textLogo: "Santati Studio",
     atmosphereBrand: "SANTATI",
     atmosphereProduct: "STUDIO",
@@ -122,6 +125,7 @@ export function applyBrandTheme(themeId, elements = {}) {
   }
 
   if (elements.poweredBy) {
+    elements.poweredBy.hidden = !theme.showPoweredBy;
     elements.poweredBy.textContent = "Powered by Toasty Media";
   }
 
