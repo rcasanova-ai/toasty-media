@@ -4,11 +4,18 @@ import {
   getOrCreateRoomId,
   getGuestInviteUrl,
 } from "./video-engine.js";
+import {
+  applyBrandTheme,
+  getInitialBrandTheme,
+  normalizeBrandTheme,
+  saveBrandTheme,
+} from "./brand-themes.js";
 import { LocalIsolatedRecorder } from "./recording.js";
 import { Soundboard } from "./soundboard.js";
 
 const state = {
   roomId: getOrCreateRoomId(),
+  brandTheme: getInitialBrandTheme(),
   micMuted: false,
   cameraOff: false,
   screenSharing: false,
@@ -28,8 +35,6 @@ const elements = {
   sessionTime: document.querySelector("#sessionTime"),
   connectionState: document.querySelector("#connectionState"),
   connectionChip: document.querySelector("#connectionChip"),
-  streamConnectionValue: document.querySelector("#streamConnectionValue"),
-  streamFormatValue: document.querySelector("#streamFormatValue"),
   hostPanelStatus: document.querySelector("#hostPanelStatus"),
   guestPanelStatus: document.querySelector("#guestPanelStatus"),
   guestStageEmpty: document.querySelector("#guestStageEmpty"),
@@ -38,6 +43,12 @@ const elements = {
   guestInvite: document.querySelector("#guestInvite"),
   inviteGuestBtn: document.querySelector("#inviteGuestBtn"),
   copyInvite: document.querySelector("#copyInvite"),
+  brandThemeSelect: document.querySelector("#brandThemeSelect"),
+  studioBrandLogo: document.querySelector("#studioBrandLogo"),
+  studioBrandText: document.querySelector("#studioBrandText"),
+  poweredBy: document.querySelector("#poweredBy"),
+  atmosphereBrandWord: document.querySelector("#atmosphereBrandWord"),
+  atmosphereProductWord: document.querySelector("#atmosphereProductWord"),
   newRoom: document.querySelector("#newRoom"),
   toggleMic: document.querySelector("#toggleMic"),
   toggleCamera: document.querySelector("#toggleCamera"),
@@ -59,6 +70,7 @@ const elements = {
 init();
 
 function init() {
+  applySelectedBrand();
   mountRoom();
   bindControls();
   new Soundboard({
@@ -82,7 +94,6 @@ function init() {
 
 function mountRoom() {
   const now = new Date();
-  elements.guestInvite.value = getGuestInviteUrl(state.roomId);
   elements.sessionDate.textContent = formatDate(now);
   elements.sessionTime.textContent = formatClock(now);
   elements.hostPanelStatus.textContent = "Live";
@@ -93,14 +104,21 @@ function mountRoom() {
   });
   engine.mountRoomFrame(elements.guestFrame, { roomId: state.roomId });
 
+  updateInviteAndHistory();
+}
+
+function updateInviteAndHistory() {
+  elements.guestInvite.value = getGuestInviteUrl(state.roomId, state.brandTheme);
   const url = new URL(window.location.href);
   url.searchParams.set("room", state.roomId);
+  url.searchParams.set("brand", state.brandTheme);
   history.replaceState({}, "", url);
 }
 
 function bindControls() {
   elements.inviteGuestBtn.addEventListener("click", inviteGuest);
   elements.copyInvite.addEventListener("click", copyInvite);
+  elements.brandThemeSelect.addEventListener("change", changeBrandTheme);
   elements.newRoom.addEventListener("click", createNewRoom);
   elements.toggleMic.addEventListener("click", toggleMic);
   elements.toggleCamera.addEventListener("click", toggleCamera);
@@ -108,6 +126,13 @@ function bindControls() {
   elements.toggleScreenQuick?.addEventListener("click", toggleScreen);
   elements.toggleRecording.addEventListener("click", toggleRecording);
   elements.endSession.addEventListener("click", endSession);
+}
+
+function changeBrandTheme() {
+  state.brandTheme = normalizeBrandTheme(elements.brandThemeSelect.value);
+  saveBrandTheme(state.brandTheme);
+  applySelectedBrand();
+  updateInviteAndHistory();
 }
 
 async function inviteGuest() {
@@ -182,7 +207,6 @@ async function toggleRecording() {
       stopRecordingTimer();
       updateRecordingUi();
       elements.toggleRecording.disabled = false;
-      elements.streamFormatValue.textContent = "—";
       return;
     }
 
@@ -198,7 +222,6 @@ async function toggleRecording() {
     state.recordingStartedAt = Date.now();
     state.timerId = window.setInterval(updateRecordingTimer, 1000);
     updateRecordingUi();
-    elements.streamFormatValue.textContent = state.recorder.mimeType || "—";
   } catch (error) {
     state.recordingActive = false;
     stopRecordingTimer();
@@ -244,11 +267,11 @@ function updateRecordingUi() {
   elements.recordingState.dataset.active = String(state.recordingActive);
   elements.recordingLabel.textContent = state.recordingActive
     ? "Recording isolated host media locally."
-    : "Capture isolated local media for this session.";
+    : "Record the host camera and microphone locally.";
   elements.recordingTimer.hidden = !state.recordingActive;
   elements.recordingWaveform.dataset.active = String(state.recordingActive);
   if (!state.recordingActive && LocalIsolatedRecorder.isSupported()) {
-    elements.recordingNote.textContent = "Records this host browser's isolated mic and camera to local files.";
+    elements.recordingNote.textContent = "Host track only here. Guest tracks are captured from the guest page.";
   }
   updateRecordingTimer();
 }
@@ -275,8 +298,20 @@ function stopRecordingTimer() {
 
 function setConnectionStatus(text, level) {
   elements.connectionState.textContent = text;
-  elements.streamConnectionValue.textContent = text;
   elements.connectionChip.dataset.state = level;
+}
+
+function applySelectedBrand() {
+  state.brandTheme = normalizeBrandTheme(state.brandTheme);
+  elements.brandThemeSelect.value = state.brandTheme;
+  applyBrandTheme(state.brandTheme, {
+    root: document.body,
+    logoImg: elements.studioBrandLogo,
+    logoText: elements.studioBrandText,
+    poweredBy: elements.poweredBy,
+    atmosphereBrandWord: elements.atmosphereBrandWord,
+    atmosphereProductWord: elements.atmosphereProductWord
+  });
 }
 
 function updateGuestPresence(connected, statusText) {

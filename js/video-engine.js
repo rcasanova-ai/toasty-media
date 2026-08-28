@@ -35,9 +35,12 @@ export function getOrCreateRoomId(search = window.location.search) {
   return getRoomIdFromUrl(search) || createDisposableRoomId();
 }
 
-export function getGuestInviteUrl(roomId) {
+export function getGuestInviteUrl(roomId, brandTheme) {
   const url = new URL("../studio/guest.html", window.location.href);
   url.searchParams.set("room", roomId);
+  if (brandTheme) {
+    url.searchParams.set("brand", brandTheme);
+  }
   return url.toString();
 }
 

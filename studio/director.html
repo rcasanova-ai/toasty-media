@@ -14,8 +14,8 @@
   </head>
   <body class="studio-shell director-shell">
     <div class="studio-atmosphere" aria-hidden="true">
-      <span class="atmosphere-word">TOASTY</span>
-      <span class="atmosphere-word atmosphere-word--second">STUDIO</span>
+      <span class="atmosphere-word" id="atmosphereBrandWord">TOASTY</span>
+      <span class="atmosphere-word atmosphere-word--second" id="atmosphereProductWord">STUDIO</span>
       <span class="atmosphere-mark"></span>
       <span class="atmosphere-grain"></span>
     </div>
@@ -25,11 +25,14 @@
         <div class="brand-block">
           <a class="brand-lockup" href="../site/" aria-label="Toasty Media home">
             <img
+              id="studioBrandLogo"
               src="../shared/brand/toasty-media/ToastyMediaStudio.png"
               alt="Toasty Media Studio"
               onerror="this.onerror=null;this.src='../shared/brand/toasty-media/ToastyMediaHLOGO.png';"
             >
+            <span class="brand-text-lockup" id="studioBrandText" hidden>Toasty Studio</span>
           </a>
+          <span class="powered-by" id="poweredBy">Powered by Toasty Media</span>
 
           <div class="on-air-sign" id="connectionChip" data-state="idle">
             <span class="on-air-text" aria-hidden="true">ON AIR</span>
@@ -38,6 +41,14 @@
         </div>
 
         <section class="rail-invite" aria-label="Session invite">
+          <label class="brand-switcher" for="brandThemeSelect">
+            <span>Brand</span>
+            <select id="brandThemeSelect">
+              <option value="toasty">Toasty Media</option>
+              <option value="8alta">8alta</option>
+              <option value="santati">Santati</option>
+            </select>
+          </label>
           <button id="inviteGuestBtn" class="btn btn-primary" type="button">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
             Invite Guest
@@ -99,7 +110,7 @@
         <section class="recording-panel" id="recordingState" data-active="false" aria-label="Recording">
           <div>
             <p class="rail-eyebrow">Recording</p>
-            <p class="recording-purpose" id="recordingLabel">Capture isolated local media for this session.</p>
+            <p class="recording-purpose" id="recordingLabel">Record the host camera and microphone locally.</p>
           </div>
           <div class="recording-actions">
             <strong id="recordingTimer" class="recording-timer" hidden>00:00:00</strong>
@@ -108,7 +119,7 @@
           <div class="waveform" id="recordingWaveform" data-active="false" aria-hidden="true">
             <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
           </div>
-          <p class="control-note" id="recordingNote">Records this host browser's isolated mic and camera to local files.</p>
+          <p class="control-note" id="recordingNote">Host track only here. Guest tracks are captured from the guest page.</p>
         </section>
 
         <div class="control-dock" role="group" aria-label="Call controls">
@@ -162,7 +173,7 @@
               <span>Time</span>
               <strong id="sessionTime">—</strong>
             </div>
-            <button id="newRoom" class="link-action" type="button">New session</button>
+            <button id="newRoom" class="link-action" type="button">New invite room</button>
           </div>
 
           <div class="panel-section" aria-label="Participants">
@@ -179,17 +190,6 @@
             </div>
           </div>
 
-          <div class="panel-section" aria-label="Stream status">
-            <p class="rail-eyebrow">Stream Status</p>
-            <div class="rail-row">
-              <span>Connection</span>
-              <strong id="streamConnectionValue">Ready</strong>
-            </div>
-            <div class="rail-row">
-              <span>Format</span>
-              <strong id="streamFormatValue">—</strong>
-            </div>
-          </div>
         </section>
       </aside>
     </div>

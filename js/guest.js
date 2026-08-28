@@ -1,8 +1,10 @@
 import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js";
+import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js";
 import { LocalIsolatedRecorder } from "./recording.js";
 
 const state = {
   roomId: getRoomIdFromUrl(),
+  brandTheme: getInitialBrandTheme(window.location.search, { useStorage: false }),
   previewStream: null,
   selectedBackground: BackgroundMode.NONE,
   micMuted: false,
@@ -19,6 +21,9 @@ const engine = new VideoEngine();
 const elements = {
   roomLabel: document.querySelector("#guestRoomLabel"),
   joinState: document.querySelector("#joinState"),
+  studioBrandLogo: document.querySelector("#studioBrandLogo"),
+  studioBrandText: document.querySelector("#studioBrandText"),
+  poweredBy: document.querySelector("#poweredBy"),
   cameraPreview: document.querySelector("#cameraPreview"),
   previewStage: document.querySelector("#previewStage"),
   guestName: document.querySelector("#guestName"),
@@ -41,6 +46,12 @@ const elements = {
 init();
 
 async function init() {
+  applyBrandTheme(state.brandTheme, {
+    root: document.body,
+    logoImg: elements.studioBrandLogo,
+    logoText: elements.studioBrandText,
+    poweredBy: elements.poweredBy
+  });
   elements.roomLabel.textContent = state.roomId ? state.roomId : "Missing room";
   elements.joinStudio.disabled = !isValidRoomId(state.roomId);
   if (!isValidRoomId(state.roomId)) {
