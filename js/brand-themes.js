@@ -18,12 +18,18 @@ export const BRAND_THEMES = Object.freeze({
       "--studio-surface": "#171210",
       "--studio-surface-2": "#201815",
       "--studio-surface-raised": "#2a201a",
+      "--studio-line": "rgba(230, 200, 168, 0.1)",
       "--studio-line-strong": "rgba(255, 170, 110, 0.28)",
       "--studio-line-warm": "rgba(184, 70, 14, 0.35)",
+      "--studio-cream": "#f4ead9",
+      "--studio-cream-dim": "#d3c2ac",
+      "--studio-muted": "#9c8d7c",
       "--studio-orange": "#ff7a29",
       "--studio-orange-bright": "#ffab5c",
       "--studio-amber": "#ffc670",
       "--studio-burnt": "#c1470f",
+      "--studio-brown": "#4a2d2a",
+      "--studio-green": "#34c77b",
       "--studio-client-glow": "rgba(255, 122, 41, 0.24)"
     })
   }),
@@ -31,44 +37,60 @@ export const BRAND_THEMES = Object.freeze({
     id: "8alta",
     label: "8alta",
     showPoweredBy: true,
+    logoSrc: "../shared/brand/clients/8alta/logo.svg",
+    logoAlt: "8ALTA Studio",
     textLogo: "8alta Studio",
     atmosphereBrand: "8ALTA",
     atmosphereProduct: "STUDIO",
     vars: Object.freeze({
       "--studio-canvas": "#060b12",
-      "--studio-canvas-2": "#07111f",
-      "--studio-surface": "#0e1724",
-      "--studio-surface-2": "#121f30",
-      "--studio-surface-raised": "#18283c",
-      "--studio-line-strong": "rgba(92, 199, 255, 0.28)",
-      "--studio-line-warm": "rgba(72, 162, 255, 0.34)",
-      "--studio-orange": "#48a2ff",
-      "--studio-orange-bright": "#7ed6ff",
-      "--studio-amber": "#c2f0ff",
-      "--studio-burnt": "#1f6fd1",
-      "--studio-client-glow": "rgba(72, 162, 255, 0.28)"
+      "--studio-canvas-2": "#0c0f17",
+      "--studio-surface": "#14151d",
+      "--studio-surface-2": "#1b1b24",
+      "--studio-surface-raised": "#24232f",
+      "--studio-line": "rgba(215, 181, 109, 0.13)",
+      "--studio-line-strong": "rgba(215, 181, 109, 0.34)",
+      "--studio-line-warm": "rgba(244, 234, 217, 0.25)",
+      "--studio-cream": "#f4ead9",
+      "--studio-cream-dim": "#d8ccb8",
+      "--studio-muted": "#9b968b",
+      "--studio-orange": "#d7b56d",
+      "--studio-orange-bright": "#f1d48b",
+      "--studio-amber": "#f4ead9",
+      "--studio-burnt": "#8f743c",
+      "--studio-brown": "#28202a",
+      "--studio-green": "#52b788",
+      "--studio-client-glow": "rgba(215, 181, 109, 0.28)"
     })
   }),
   santati: Object.freeze({
     id: "santati",
     label: "Santati",
     showPoweredBy: true,
+    logoSrc: "../shared/brand/clients/santati/logo.svg",
+    logoAlt: "Santati Studio",
     textLogo: "Santati Studio",
     atmosphereBrand: "SANTATI",
     atmosphereProduct: "STUDIO",
     vars: Object.freeze({
       "--studio-canvas": "#09110d",
-      "--studio-canvas-2": "#0d1711",
-      "--studio-surface": "#121d16",
-      "--studio-surface-2": "#17271d",
-      "--studio-surface-raised": "#1f3327",
-      "--studio-line-strong": "rgba(219, 188, 108, 0.3)",
-      "--studio-line-warm": "rgba(122, 179, 104, 0.34)",
-      "--studio-orange": "#d7b56d",
-      "--studio-orange-bright": "#f5d889",
-      "--studio-amber": "#ffe7a8",
-      "--studio-burnt": "#718f46",
-      "--studio-client-glow": "rgba(219, 188, 108, 0.26)"
+      "--studio-canvas-2": "#0e1915",
+      "--studio-surface": "#14211c",
+      "--studio-surface-2": "#192b25",
+      "--studio-surface-raised": "#20372f",
+      "--studio-line": "rgba(122, 179, 104, 0.14)",
+      "--studio-line-strong": "rgba(122, 179, 104, 0.34)",
+      "--studio-line-warm": "rgba(60, 149, 169, 0.28)",
+      "--studio-cream": "#eef6ef",
+      "--studio-cream-dim": "#c8d9ce",
+      "--studio-muted": "#92aaa0",
+      "--studio-orange": "#7ab368",
+      "--studio-orange-bright": "#a7d993",
+      "--studio-amber": "#d9bf78",
+      "--studio-burnt": "#3c95a9",
+      "--studio-brown": "#17332b",
+      "--studio-green": "#7ab368",
+      "--studio-client-glow": "rgba(122, 179, 104, 0.28)"
     })
   })
 });
@@ -126,7 +148,6 @@ export function applyBrandTheme(themeId, elements = {}) {
 
   if (elements.poweredBy) {
     elements.poweredBy.hidden = !theme.showPoweredBy;
-    elements.poweredBy.textContent = "Powered by Toasty Media";
   }
 
   if (elements.atmosphereBrandWord) {

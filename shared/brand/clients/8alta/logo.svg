@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 120" role="img" aria-labelledby="title">
+  <title id="title">8ALTA</title>
+  <rect width="520" height="120" fill="none"/>
+  <text x="12" y="82" fill="#f4ead9" font-family="Montserrat, Poppins, Arial, sans-serif" font-size="78" font-weight="900" letter-spacing="3">&#8734;ALTA</text>
+  <path d="M21 96h340" stroke="#d7b56d" stroke-width="5" stroke-linecap="round"/>
+</svg>

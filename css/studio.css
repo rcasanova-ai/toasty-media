@@ -254,6 +254,8 @@
 
 .brand-lockup img {
   height: 76px;
+  max-width: 190px;
+  object-fit: contain;
   position: relative;
   width: auto;
   z-index: 1;
@@ -261,6 +263,7 @@
 
 .brand-lockup--compact img {
   height: 50px;
+  max-width: 160px;
 }
 
 .brand-text-lockup {
@@ -280,16 +283,27 @@
 }
 
 .powered-by {
+  align-items: flex-start;
   color: var(--studio-muted);
-  display: block;
+  display: inline-flex;
+  flex-direction: column;
   font-family: var(--font-heading);
   font-size: 0.62rem;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  gap: 0.18rem;
+  letter-spacing: 0.06em;
   margin-top: 0.25rem;
   position: relative;
   text-transform: uppercase;
   z-index: 1;
+}
+
+.powered-by img {
+  height: 22px;
+  max-width: 118px;
+  object-fit: contain;
+  opacity: 0.92;
+  width: auto;
 }
 
 .powered-by[hidden],
@@ -339,26 +353,29 @@
 .on-air-sign {
   align-items: center;
   background:
-    linear-gradient(180deg, rgba(43, 21, 16, 0.98), rgba(12, 8, 7, 0.98)),
+    radial-gradient(circle at 73% 50%, rgba(255, 69, 47, 0.32), transparent 36%),
+    linear-gradient(180deg, #33110d, #120706 64%, #070403),
     #140807;
-  border: 2px solid #3a302b;
-  border-radius: 3px;
+  border: 2px solid #5d463d;
+  border-radius: 4px;
   box-shadow:
-    inset 0 1px 0 rgba(255, 236, 211, 0.12),
-    inset 0 -8px 18px rgba(0, 0, 0, 0.62),
-    0 10px 24px rgba(0, 0, 0, 0.48);
+    inset 0 2px 0 rgba(255, 236, 211, 0.16),
+    inset 0 -10px 22px rgba(0, 0, 0, 0.7),
+    0 12px 26px rgba(0, 0, 0, 0.56),
+    0 0 0 1px rgba(0, 0, 0, 0.72);
   display: inline-flex;
-  gap: 0.58rem;
+  gap: 0.72rem;
   margin-top: 0.9rem;
-  min-width: 132px;
-  padding: 0.5rem 0.72rem 0.44rem;
+  min-width: 166px;
+  padding: 0.56rem 0.82rem 0.5rem;
   position: relative;
   transition: background 300ms ease, border-color 300ms ease, box-shadow 300ms ease;
   z-index: 1;
 }
 
 .on-air-sign::before {
-  border: 1px solid rgba(255, 236, 211, 0.12);
+  border: 1px solid rgba(255, 236, 211, 0.16);
+  box-shadow: inset 0 0 16px rgba(255, 255, 255, 0.04);
   content: "";
   inset: 4px;
   pointer-events: none;
@@ -378,27 +395,37 @@
 
 .on-air-bulb {
   background:
-    radial-gradient(circle at 36% 30%, #ffd8c8, #ff4c36 34%, #8f100a 68%, #2a0604);
-  border: 1px solid rgba(255, 226, 204, 0.2);
+    radial-gradient(circle at 35% 30%, #ffe7de, #ff4a34 30%, #ab130c 63%, #300605);
+  border: 2px solid rgba(255, 226, 204, 0.24);
   border-radius: 50%;
   box-shadow:
-    inset 0 -2px 5px rgba(52, 0, 0, 0.8),
-    0 0 0 3px rgba(38, 23, 20, 0.9),
-    0 0 8px rgba(255, 57, 42, 0.22);
+    inset 0 -3px 7px rgba(52, 0, 0, 0.82),
+    0 0 0 4px rgba(28, 12, 10, 0.96),
+    0 0 10px rgba(255, 57, 42, 0.28);
   flex: 0 0 auto;
-  height: 0.88rem;
-  opacity: 0.38;
+  height: 1.28rem;
+  opacity: 0.45;
   position: relative;
-  width: 0.88rem;
+  width: 1.28rem;
   z-index: 1;
+}
+
+.on-air-bulb::after {
+  border-left: 1px solid rgba(255, 236, 211, 0.22);
+  border-right: 1px solid rgba(255, 236, 211, 0.16);
+  border-radius: 50%;
+  content: "";
+  inset: -4px 3px;
+  position: absolute;
+  transform: rotate(35deg);
 }
 
 .on-air-text {
   color: rgba(255, 226, 204, 0.28);
   font-family: var(--font-heading);
-  font-size: 1rem;
+  font-size: 1.1rem;
   font-weight: 900;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.16em;
   line-height: 1;
   text-transform: uppercase;
   transition: color 300ms ease, text-shadow 300ms ease, filter 300ms ease;
@@ -407,14 +434,14 @@
 
 .on-air-sign[data-state="connected"] {
   background:
-    radial-gradient(circle at 58% 42%, rgba(255, 220, 180, 0.24), transparent 60%),
-    linear-gradient(180deg, #ef3928, #a9160d 64%, #4f0a06);
-  border-color: #7c5546;
+    radial-gradient(circle at 74% 50%, rgba(255, 246, 220, 0.28), transparent 35%),
+    linear-gradient(180deg, #ff4b35, #b9140d 62%, #550905);
+  border-color: #8b6252;
   box-shadow:
     inset 0 2px 0 rgba(255, 228, 194, 0.25),
-    inset 0 -10px 20px rgba(48, 0, 0, 0.45),
-    0 0 24px rgba(255, 69, 47, 0.56),
-    0 10px 26px rgba(0, 0, 0, 0.5);
+    inset 0 -12px 22px rgba(48, 0, 0, 0.48),
+    0 0 30px rgba(255, 69, 47, 0.72),
+    0 14px 28px rgba(0, 0, 0, 0.56);
 }
 
 .on-air-sign[data-state="connected"] .on-air-bulb {
@@ -439,18 +466,18 @@
   0%,
   100% {
     box-shadow:
-      inset 0 -2px 5px rgba(52, 0, 0, 0.8),
-      0 0 0 3px rgba(38, 23, 20, 0.9),
-      0 0 8px rgba(255, 57, 42, 0.24);
+      inset 0 -3px 7px rgba(52, 0, 0, 0.8),
+      0 0 0 4px rgba(38, 23, 20, 0.9),
+      0 0 10px rgba(255, 57, 42, 0.3);
     filter: saturate(0.85);
   }
 
   50% {
     box-shadow:
-      inset 0 -2px 5px rgba(52, 0, 0, 0.56),
-      0 0 0 3px rgba(38, 23, 20, 0.9),
-      0 0 14px rgba(255, 57, 42, 0.84),
-      0 0 28px rgba(255, 57, 42, 0.42);
+      inset 0 -3px 7px rgba(52, 0, 0, 0.56),
+      0 0 0 4px rgba(38, 23, 20, 0.9),
+      0 0 22px rgba(255, 57, 42, 0.95),
+      0 0 46px rgba(255, 57, 42, 0.54);
     filter: saturate(1.25);
   }
 }

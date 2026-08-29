@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 120" role="img" aria-labelledby="title">
+  <title id="title">Santati</title>
+  <rect width="560" height="120" fill="none"/>
+  <g fill="none" stroke="#7ab368" stroke-width="6" stroke-linecap="round">
+    <path d="M28 75c28-48 70-48 98 0"/>
+    <path d="M126 75c28-48 70-48 98 0"/>
+  </g>
+  <text x="244" y="79" fill="#eef6ef" font-family="Inter, Arial, sans-serif" font-size="62" font-weight="800" letter-spacing="0">Santati</text>
+</svg>
