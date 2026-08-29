@@ -1,0 +1,10 @@
+<Files "director.html">
+  AuthType Basic
+  AuthName "Toasty Studio Director"
+  AuthUserFile /home/fmxgijyvpq/toasty.media/studio/.htpasswd
+  Require valid-user
+</Files>
+
+<Files ".htpasswd">
+  Require all denied
+</Files>

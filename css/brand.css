@@ -12,8 +12,8 @@
   --panel: rgba(255, 248, 236, 0.88);
   --shadow: 0 24px 60px rgba(74, 45, 42, 0.18);
   --radius: 8px;
-  --font-heading: Montserrat, Arial, sans-serif;
-  --font-body: Lora, Georgia, serif;
+  --font-heading: "Libre Franklin", Arial, sans-serif;
+  --font-body: Inter, Arial, sans-serif;
 }
 
 * {
