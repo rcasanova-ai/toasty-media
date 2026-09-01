@@ -20,6 +20,27 @@
       <span class="atmosphere-grain"></span>
     </div>
 
+    <header class="studio-global-nav" aria-label="Studio navigation">
+      <div class="ai-studio-masthead" id="aiStudioMasthead" hidden>
+        <img
+          src="../shared/brand/toasty-media/ToastyMediaStudio.png"
+          alt="Toasty Media Studio"
+          onerror="this.onerror=null;this.src='../shared/brand/toasty-media/ToastyMediaHLOGO.png';"
+        >
+      </div>
+
+      <section class="studio-mode-switcher" aria-label="Studio mode">
+        <button class="mode-card" type="button" data-studio-mode="live" aria-pressed="true">
+          <span class="mode-icon mode-icon--live" aria-hidden="true"></span>
+          <strong>Live Studio</strong>
+        </button>
+        <button class="mode-card" type="button" data-studio-mode="ai" aria-pressed="false">
+          <span class="mode-icon mode-icon--ai" aria-hidden="true"></span>
+          <strong>AI Production</strong>
+        </button>
+      </section>
+    </header>
+
     <div class="studio-grid">
       <aside class="rail rail-left" aria-label="Studio session rail">
         <div class="brand-block">
@@ -91,7 +112,207 @@
       <section class="stage-main" aria-labelledby="stageTitle">
         <h1 id="stageTitle" class="sr-only">Director console</h1>
 
-        <div class="video-grid" aria-label="Studio video area">
+        <section class="ai-production-workbench" id="aiProductionWorkbench" hidden aria-labelledby="aiProductionTitle">
+          <div class="production-head">
+            <div>
+              <p class="rail-eyebrow">AI Production</p>
+              <h2 id="aiProductionTitle">Drop it in. We'll make it Toasty.</h2>
+              <p class="production-subtitle">Video, clips, photos or audio. Toasty handles the production.</p>
+            </div>
+            <label class="ai-brand-control" for="aiBrandProfile">
+              <span>Brand</span>
+              <select id="aiBrandProfile">
+                <option value="toasty">Toasty Media</option>
+                <option value="8alta">8alta</option>
+                <option value="santati">Santati</option>
+              </select>
+              <strong>Brand ✓</strong>
+            </label>
+          </div>
+
+          <section class="quick-toast-screen" id="quickToastScreen" aria-labelledby="quickToastTitle">
+            <div class="quick-toast-hero">
+              <label class="quick-drop-zone" id="quickDropZone">
+                <input id="quickMediaUpload" type="file" accept="video/*,image/*,audio/*" multiple>
+                <span class="quick-drop-kicker">Drop your content here</span>
+                <strong id="quickToastTitle">Your content</strong>
+                <small>Supports video, clips, photos, and audio.</small>
+                <b>Choose files</b>
+              </label>
+              <div class="quick-toast-panel">
+                <label>Format
+                  <select id="quickFormat">
+                    <option value="original">Original</option>
+                    <option value="16:9" selected>LinkedIn / Landscape</option>
+                    <option value="9:16">Vertical / Reels / Shorts</option>
+                    <option value="1:1">Square</option>
+                  </select>
+                </label>
+                <details class="quick-customize">
+                  <summary>Customize</summary>
+                  <label><input id="quickIntro" type="checkbox" checked> Intro</label>
+                  <label><input id="quickOutro" type="checkbox" checked> Outro</label>
+                  <label><input id="quickLowerThird" type="checkbox" checked> Lower third</label>
+                  <label><input id="quickWatermark" type="checkbox" checked> Watermark</label>
+                  <label><input id="quickCaptions" type="checkbox"> Captions</label>
+                  <label><input id="quickNormalizeAudio" type="checkbox" checked> Normalize audio</label>
+                </details>
+                <button id="quickToastIt" class="btn btn-primary quick-toast-button" type="button" disabled>Toast it</button>
+                <button id="startCreateWorkflow" class="link-action quick-create-link" type="button">Start from an idea →</button>
+              </div>
+            </div>
+            <div id="quickAssetStrip" class="quick-asset-strip" aria-label="Quick Toast assets"></div>
+            <section class="quick-preview" id="quickPreview" hidden aria-live="polite">
+              <div>
+                <p class="rail-eyebrow">Preview</p>
+                <h3>Toasty prepared your production.</h3>
+              </div>
+              <ul id="quickPreviewList"></ul>
+              <div class="quick-preview-actions">
+                <button id="quickRenderVideo" class="btn btn-primary" type="button">Render video</button>
+                <button id="quickDownloadRenderedMp4" class="btn btn-ghost" type="button" disabled>Download MP4</button>
+              </div>
+              <p id="quickRenderStatus" class="render-status">Ready to render with the local helper.</p>
+            </section>
+          </section>
+
+          <section class="create-workflow" id="createWorkflow" hidden aria-label="Create workflow">
+            <div class="create-workflow-head">
+              <div>
+                <p class="rail-eyebrow">Create</p>
+                <h3>Start with an idea, a link, or something you want to say.</h3>
+              </div>
+              <button id="backToQuickToast" class="btn btn-ghost btn-small" type="button">Quick Toast</button>
+            </div>
+
+          <aside class="concierge-note" id="conciergeNote" aria-live="polite">Toasty suggests: start with one visible proof.</aside>
+
+          <nav class="workflow-tabs" id="aiWorkflowTabs" aria-label="AI production stages"></nav>
+
+          <div class="workflow-stage" data-stage="source">
+            <div class="workflow-grid workflow-grid--source">
+              <label>Topic<input id="aiTopic" type="text" placeholder="e.g. Why most AI pilots stall after the demo"></label>
+              <label>URL<input id="aiUrl" type="url" placeholder="https://example.com/source"></label>
+              <label>Audience<input id="aiAudience" type="text" placeholder="e.g. founders, executives, creators"></label>
+              <label>Objective<input id="aiObjective" type="text" placeholder="e.g. get viewers to pick one production proof"></label>
+              <label>Platform
+                <select id="aiPlatform">
+                  <option>LinkedIn</option>
+                  <option>YouTube</option>
+                  <option selected>YouTube Shorts</option>
+                  <option>Instagram Reels</option>
+                  <option>TikTok</option>
+                  <option>Generic</option>
+                </select>
+              </label>
+              <label>Aspect ratio
+                <select id="aiAspectRatio">
+                  <option value="9:16" selected>9:16 vertical</option>
+                  <option value="16:9">16:9 landscape</option>
+                  <option value="1:1">1:1 square</option>
+                </select>
+              </label>
+              <label>Target duration<input id="aiTargetDuration" type="number" min="15" max="180" step="5" value="45"></label>
+              <label>Raw notes<textarea id="aiNotes" rows="6" placeholder="Talking points, examples, audience, offer..."></textarea></label>
+              <label>Paste material<textarea id="aiSourceText" rows="6" placeholder="Paste an article, transcript, research notes, or brief here"></textarea></label>
+            </div>
+            <button id="generateAngles" class="btn btn-primary" type="button">Generate Angles</button>
+          </div>
+
+          <div class="workflow-stage" data-stage="script" hidden>
+            <div class="creative-brief" id="creativeBrief" hidden></div>
+            <div class="angle-grid" id="angleGrid"></div>
+            <div class="script-editor-grid">
+              <label>Hook<textarea id="scriptHook" rows="3"></textarea></label>
+              <label>Main script<textarea id="scriptBody" rows="10"></textarea></label>
+              <label>CTA<textarea id="scriptCta" rows="3"></textarea></label>
+              <label>Suggested title<input id="scriptTitle" type="text"></label>
+            </div>
+            <button id="generateScript" class="btn btn-primary" type="button">Generate Script</button>
+          </div>
+
+          <div class="workflow-stage" data-stage="record" hidden>
+            <section class="voice-recorder" id="aiRecordingState" data-active="false">
+              <div>
+                <p class="rail-eyebrow">Real Voice</p>
+                <p class="recording-purpose" id="aiRecordingLabel">Record creator voice for the selected production.</p>
+                <p class="control-note" id="aiRecordingNote">Audio-only capture. This voice can later drive a digital-twin/avatar provider.</p>
+              </div>
+              <div class="recording-actions">
+                <strong id="aiRecordingTimer" class="recording-timer">00:00:00</strong>
+                <button id="aiRecordToggle" class="rec-toggle" type="button" aria-pressed="false">Start recording</button>
+              </div>
+              <audio id="aiAudioPlayback" controls hidden></audio>
+              <button id="downloadAiAudio" class="btn btn-ghost btn-small" type="button" disabled>Download Audio</button>
+            </section>
+            <section class="digital-twin-panel">
+              <div>
+                <p class="rail-eyebrow">Digital Twin</p>
+                <h3>Narration ready</h3>
+                <p class="control-note">Export your real narration, generate the synced video in your chosen provider, then import the returned clip.</p>
+              </div>
+              <div class="digital-twin-actions">
+                <button id="exportNarrationForAvatar" class="btn btn-ghost btn-small" type="button" disabled>Export Narration</button>
+                <label class="file-button">Import Generated Video<input id="digitalTwinUpload" type="file" accept="video/*"></label>
+              </div>
+              <div id="digitalTwinPreview" class="media-preview" data-empty="No digital-twin video imported yet"></div>
+            </section>
+          </div>
+
+          <div class="workflow-stage" data-stage="scenes" hidden>
+            <div class="scene-toolbar">
+              <button id="addScene" class="btn btn-primary btn-small" type="button">Add Scene</button>
+              <button id="regenerateScenes" class="btn btn-ghost btn-small" type="button">Regenerate Metadata</button>
+            </div>
+            <div id="sceneList" class="scene-list"></div>
+          </div>
+
+          <div class="workflow-stage" data-stage="assets" hidden>
+            <div class="asset-grid">
+              <label>Attach avatar / digital-twin video<input id="avatarUpload" type="file" accept="video/*"></label>
+              <label>Attach B-roll / image / screen asset<input id="visualUpload" type="file" accept="image/*,video/*"></label>
+            </div>
+            <div id="sceneAssetList" class="scene-asset-list"></div>
+            <p class="control-note">Attach the visuals you already have. Toasty will keep each scene organized for review and assembly.</p>
+          </div>
+
+          <div class="workflow-stage" data-stage="assemble" hidden>
+            <div id="timelineList" class="timeline-list"></div>
+          </div>
+
+          <div class="workflow-stage" data-stage="review" hidden>
+            <div class="review-summary">
+              <strong id="reviewDuration">0s</strong>
+              <span id="reviewWarnings">No scenes yet</span>
+            </div>
+            <div id="reviewList" class="review-list"></div>
+          </div>
+
+          <div class="workflow-stage" data-stage="export" hidden>
+            <div class="export-panel">
+              <p>Export the project plan with its script, voice, scenes, visual assignments, captions, and review state.</p>
+              <div class="export-actions">
+                <button id="renderVideo" class="btn btn-primary" type="button">Render Video</button>
+                <button id="downloadRenderedMp4" class="btn btn-ghost" type="button" disabled>Download MP4</button>
+                <button id="exportManifest" class="btn btn-ghost" type="button">Download Production Manifest</button>
+              </div>
+              <p id="renderStatus" class="render-status">Start the local render helper, then render an MP4.</p>
+            </div>
+            <details class="provider-debug">
+              <summary>Production Engine</summary>
+              <div>
+                <span>LLM: Dev mock</span>
+                <span>Avatar: Manual</span>
+                <span>Image/Video: Manual</span>
+                <span>Caption: Dev mock</span>
+                <span>Render: Manifest</span>
+              </div>
+            </details>
+          </div>
+          </section>
+        </section>
+
+        <div class="video-grid live-studio-panel" aria-label="Studio video area">
           <article class="video-panel">
             <div class="panel-label">
               <span>Director</span>
@@ -116,7 +337,7 @@
           </article>
         </div>
 
-        <section class="recording-panel" id="recordingState" data-active="false" aria-label="Recording">
+        <section class="recording-panel live-studio-panel" id="recordingState" data-active="false" aria-label="Recording">
           <div>
             <p class="rail-eyebrow">Recording</p>
             <p class="recording-purpose" id="recordingLabel">Record the host camera and microphone locally.</p>
@@ -131,7 +352,7 @@
           <p class="control-note" id="recordingNote">Host track only here. Guest tracks are captured from the guest page.</p>
         </section>
 
-        <div class="control-dock" role="group" aria-label="Call controls">
+        <div class="control-dock live-studio-panel" role="group" aria-label="Call controls">
           <button id="toggleMic" class="dock-btn" type="button" aria-pressed="false" title="Mute mic">
             <span class="dock-icon dock-icon-on" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg></span>
             <span class="dock-icon dock-icon-off" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg></span>
@@ -153,7 +374,7 @@
           </button>
         </div>
 
-        <section class="soundboard-panel" aria-label="Soundboard">
+        <section class="soundboard-panel live-studio-panel" aria-label="Soundboard">
           <div class="soundboard-head">
             <p class="rail-card-title">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>

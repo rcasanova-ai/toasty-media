@@ -11,6 +11,7 @@ import {
   normalizeBrandTheme,
   saveBrandTheme,
 } from "./brand-themes.js";
+import { AIProductionController } from "./ai-production.js";
 import { LocalIsolatedRecorder } from "./recording.js";
 import { Soundboard } from "./soundboard.js";
 
@@ -86,6 +87,10 @@ function init() {
     tabsContainer: elements.soundboardTabs,
     searchInput: elements.soundboardSearch
   });
+  new AIProductionController({
+    getBrandTheme: () => state.brandTheme,
+    onBrandChange: changeBrandThemeFromProduction
+  }).init();
 
   engine.onMessage((message) => {
     if (!message) return;
@@ -142,6 +147,11 @@ function changeBrandTheme() {
   saveBrandTheme(state.brandTheme);
   applySelectedBrand();
   updateInviteAndHistory();
+}
+
+function changeBrandThemeFromProduction(brandTheme) {
+  elements.brandThemeSelect.value = normalizeBrandTheme(brandTheme);
+  changeBrandTheme();
 }
 
 async function inviteGuest() {

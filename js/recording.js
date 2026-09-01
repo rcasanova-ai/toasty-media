@@ -7,10 +7,12 @@ const DEFAULT_MIME_TYPES = [
 ];
 
 export class LocalIsolatedRecorder {
-  constructor({ role, roomId, status }) {
+  constructor({ role, roomId, status, mode = "video", saveOnStop = true }) {
     this.role = role;
     this.roomId = roomId;
     this.status = status;
+    this.mode = mode;
+    this.saveOnStop = saveOnStop;
     this.stream = null;
     this.audioRecorder = null;
     this.videoRecorder = null;
@@ -36,71 +38,82 @@ export class LocalIsolatedRecorder {
     this.audioChunks = [];
     this.videoChunks = [];
     this.stoppedAt = null;
+    const audioOnly = this.mode === "audio";
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: deviceConstraint(audioDeviceId),
-      video: deviceConstraint(videoDeviceId)
+      video: audioOnly ? false : deviceConstraint(videoDeviceId)
     });
 
     const audioTracks = this.stream.getAudioTracks();
     const videoTracks = this.stream.getVideoTracks();
     if (!audioTracks.length) throw new Error("No microphone track was available for recording.");
-    if (!videoTracks.length) throw new Error("No camera track was available for recording.");
+    if (!audioOnly && !videoTracks.length) throw new Error("No camera track was available for recording.");
 
     const audioMimeType = chooseMimeType(["audio/webm;codecs=opus", "audio/webm"]);
     const videoMimeType = chooseMimeType(DEFAULT_MIME_TYPES);
     this.audioRecorder = new MediaRecorder(new MediaStream(audioTracks), recorderOptions(audioMimeType));
-    this.videoRecorder = new MediaRecorder(new MediaStream(videoTracks), recorderOptions(videoMimeType));
     this.audioRecorder.addEventListener("dataavailable", (event) => pushChunk(event, this.audioChunks));
-    this.videoRecorder.addEventListener("dataavailable", (event) => pushChunk(event, this.videoChunks));
+    if (!audioOnly) {
+      this.videoRecorder = new MediaRecorder(new MediaStream(videoTracks), recorderOptions(videoMimeType));
+      this.videoRecorder.addEventListener("dataavailable", (event) => pushChunk(event, this.videoChunks));
+      this.videoRecorder.start(1000);
+    }
     this.audioRecorder.start(1000);
-    this.videoRecorder.start(1000);
     this.startedAt = new Date();
-    this.status?.("Recording local isolated audio and video.");
+    this.status?.(audioOnly ? "Recording local isolated audio." : "Recording local isolated audio and video.");
   }
 
   async stop() {
-    if (!this.audioRecorder || !this.videoRecorder) {
+    if (!this.audioRecorder) {
       throw new Error("Recording has not started.");
     }
-    await Promise.all([stopRecorder(this.audioRecorder), stopRecorder(this.videoRecorder)]);
+    await Promise.all([this.audioRecorder, this.videoRecorder].filter(Boolean).map(stopRecorder));
     this.stoppedAt = new Date();
     this.stream?.getTracks().forEach((track) => track.stop());
     const audioBlob = new Blob(this.audioChunks, { type: this.audioRecorder.mimeType || "audio/webm" });
-    const videoBlob = new Blob(this.videoChunks, { type: this.videoRecorder.mimeType || "video/webm" });
+    const videoBlob = this.videoRecorder
+      ? new Blob(this.videoChunks, { type: this.videoRecorder.mimeType || "video/webm" })
+      : null;
     const session = this.buildSessionManifest(audioBlob, videoBlob);
-    await saveRecordingPackage({
-      role: this.role,
-      session,
-      audioBlob,
-      videoBlob
-    });
+    if (this.saveOnStop) {
+      await saveRecordingPackage({
+        role: this.role,
+        session,
+        audioBlob,
+        videoBlob
+      });
+    }
     this.audioRecorder = null;
     this.videoRecorder = null;
     this.stream = null;
     this.status?.("Recording saved locally.");
-    return session;
+    return { session, audioBlob, videoBlob };
   }
 
   buildSessionManifest(audioBlob, videoBlob) {
     const participantPath = this.role === "host" ? "host" : "guest-1";
+    const audioOnly = this.mode === "audio";
     return {
       roomId: this.roomId,
       participantRole: this.role,
+      recordingMode: audioOnly ? "audio-only" : "audio-video",
       participantPath,
       startedAt: this.startedAt?.toISOString(),
       stoppedAt: this.stoppedAt?.toISOString(),
       files: {
         session: "session/session.json",
         audio: `session/${participantPath}/audio.webm`,
-        video: `session/${participantPath}/video.webm`
+        video: audioOnly ? null : `session/${participantPath}/video.webm`
       },
       sizes: {
         audioBytes: audioBlob.size,
-        videoBytes: videoBlob.size
+        videoBytes: videoBlob?.size || 0
       },
       notes: [
         "This is browser-local isolated recording for this participant only.",
-        "The guest must stop and save their own local package; hosted VDO.Ninja iframes do not expose remote isolated tracks to this page."
+        audioOnly
+          ? "AI Production uses real creator voice audio as the future avatar provider input."
+          : "The guest must stop and save their own local package; hosted VDO.Ninja iframes do not expose remote isolated tracks to this page."
       ]
     };
   }
@@ -137,13 +150,13 @@ async function saveRecordingPackage({ role, session, audioBlob, videoBlob }) {
     await writeTextFile(sessionDir, "session.json", JSON.stringify(session, null, 2));
     const participantDir = await sessionDir.getDirectoryHandle(session.participantPath, { create: true });
     await writeBlobFile(participantDir, "audio.webm", audioBlob);
-    await writeBlobFile(participantDir, "video.webm", videoBlob);
+    if (videoBlob) await writeBlobFile(participantDir, "video.webm", videoBlob);
     return;
   }
 
   downloadBlob(new Blob([JSON.stringify(session, null, 2)], { type: "application/json" }), `${role}-session.json`);
   downloadBlob(audioBlob, `${role}-audio.webm`);
-  downloadBlob(videoBlob, `${role}-video.webm`);
+  if (videoBlob) downloadBlob(videoBlob, `${role}-video.webm`);
 }
 
 async function writeTextFile(directory, name, value) {
