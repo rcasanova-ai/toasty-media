@@ -1,0 +1,5 @@
+RewriteEngine On
+
+RewriteRule ^studio$ /studio/director.html [L]
+RewriteCond %{THE_REQUEST} \s/+studio/director\.html[\s?]
+RewriteRule ^studio/director\.html$ /studio [R=302,L]

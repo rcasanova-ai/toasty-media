@@ -1,6 +1,7 @@
 import { collectRenderMedia } from "./media-store.js";
 
-const RENDER_ENDPOINT = "http://127.0.0.1:4174/render";
+const LOCAL_RENDER_ENDPOINT = "http://127.0.0.1:4174/render";
+const PRODUCTION_RENDER_ENDPOINT = "";
 
 export function buildTimeline({ project, productionSpec, brandProfile }) {
   const narrationDuration = project.audio?.duration || 0;
@@ -66,7 +67,8 @@ export async function renderProductionMp4({ project, productionSpec, brandProfil
   });
 
   onProgress("Rendering MP4...");
-  const response = await fetch(RENDER_ENDPOINT, { method: "POST", body: form });
+  const renderEndpoint = getRenderEndpoint();
+  const response = await fetch(renderEndpoint, { method: "POST", body: form });
   if (!response.ok) {
     let message = "Render failed. Start the local render helper and try again.";
     try {
@@ -87,6 +89,15 @@ export async function renderProductionMp4({ project, productionSpec, brandProfil
     timeline,
     manifest
   };
+}
+
+function getRenderEndpoint() {
+  const host = window.location.hostname;
+  if (host === "localhost" || host === "127.0.0.1" || host === "") {
+    return LOCAL_RENDER_ENDPOINT;
+  }
+  if (PRODUCTION_RENDER_ENDPOINT) return PRODUCTION_RENDER_ENDPOINT;
+  throw new Error("Rendering is not available on this production host yet. Toasty Studio needs a Node and FFmpeg render worker before MP4 export can run here.");
 }
 
 export function renderReadiness({ project, consistency }) {

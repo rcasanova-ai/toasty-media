@@ -21,6 +21,7 @@ if [[ "$(pwd)" != "$EXPECTED_LOCAL_ROOT" ]]; then
 fi
 
 MANAGED_PATHS=(
+  ".htaccess"
   "index.html"
   "site"
   "ricardo"
@@ -61,7 +62,7 @@ printf '  %s\n' "${MANAGED_PATHS[@]}"
 echo "Excluded paths:"
 printf '  %s\n' "${EXCLUDED_PATHS[@]}"
 
-ssh "$SSH_ALIAS" "test -d '$PROD_ROOT' && test -d '$PROD_ROOT/dominion-investor-dashboard' && test -d '$PROD_ROOT/incitech'"
+ssh "$SSH_ALIAS" "test -d '$PROD_ROOT'"
 
 if [[ "$MODE" == "dry-run" ]]; then
   echo
@@ -84,8 +85,6 @@ for path in "${MANAGED_PATHS[@]}"; do
   ssh "$SSH_ALIAS" "if [ -e '$PROD_ROOT/$path' ]; then mkdir -p '$BACKUP_DIR/$(dirname "$path")' && cp -a '$PROD_ROOT/$path' '$BACKUP_DIR/$path'; fi"
 done
 
-tar -cf - "${MANAGED_PATHS[@]}" | ssh "$SSH_ALIAS" "cd '$PROD_ROOT' && tar -xf -"
-
-ssh "$SSH_ALIAS" "test -d '$PROD_ROOT/dominion-investor-dashboard' && test -d '$PROD_ROOT/incitech'"
+git archive --format=tar HEAD -- "${MANAGED_PATHS[@]}" | ssh "$SSH_ALIAS" "cd '$PROD_ROOT' && tar -xf -"
 
 echo "Deployment complete. Backup: $BACKUP_DIR"
