@@ -7,20 +7,44 @@ import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-const HOST = "127.0.0.1";
+const HOST = process.env.TOASTY_RENDER_HOST || "127.0.0.1";
 const PORT = Number(process.env.TOASTY_RENDER_PORT || 4174);
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const API_TOKEN = process.env.TOASTY_RENDER_TOKEN || "";
+const ALLOWED_ORIGINS = new Set([
+  "https://toasty.media",
+  "http://localhost:4173",
+  "http://127.0.0.1:4173"
+]);
+const MAX_UPLOAD_BYTES = Number(process.env.TOASTY_RENDER_MAX_UPLOAD_BYTES || 350 * 1024 * 1024);
+const MAX_FILES = Number(process.env.TOASTY_RENDER_MAX_FILES || 20);
+const MAX_FILE_BYTES = Number(process.env.TOASTY_RENDER_MAX_FILE_BYTES || 150 * 1024 * 1024);
+const MAX_TOTAL_DURATION = Number(process.env.TOASTY_RENDER_MAX_DURATION || 180);
+const MAX_SCENES = Number(process.env.TOASTY_RENDER_MAX_SCENES || 40);
+const FFMPEG_TIMEOUT_MS = Number(process.env.TOASTY_RENDER_FFMPEG_TIMEOUT_MS || 120000);
+const SAFE_ID = /^[a-z0-9][a-z0-9._-]{0,80}$/i;
 
 const server = createServer(async (req, res) => {
-  setCors(res);
+  if (!setCors(req, res)) {
+    sendJson(req, res, 403, { error: "Origin is not allowed." });
+    return;
+  }
   if (req.method === "OPTIONS") {
     res.writeHead(204);
     res.end();
     return;
   }
   if (req.method !== "POST" || req.url !== "/render") {
-    sendJson(res, 404, { error: "Render helper is running. POST /render to create an MP4." });
+    sendJson(req, res, 404, { error: "Render helper is running. POST /render to create an MP4." });
+    return;
+  }
+  if (!isAuthorized(req)) {
+    sendJson(req, res, 401, { error: "Render token is required." });
+    return;
+  }
+  if (Number(req.headers["content-length"] || 0) > MAX_UPLOAD_BYTES) {
+    sendJson(req, res, 413, { error: "Render upload is too large." });
     return;
   }
 
@@ -36,11 +60,12 @@ const server = createServer(async (req, res) => {
     const form = await request.formData();
     const manifestPart = form.get("manifest");
     const manifest = JSON.parse(typeof manifestPart === "string" ? manifestPart : await manifestPart.text());
+    validateManifest(manifest);
     const media = await writeMediaFiles({ form, workDir });
     const outputPath = await renderProduction({ manifest, media, workDir });
     const output = await readFile(outputPath);
+    setCors(req, res);
     res.writeHead(200, {
-      "Access-Control-Allow-Origin": "*",
       "Content-Type": "video/mp4",
       "Content-Disposition": `attachment; filename="${safeFileName(manifest.title || "toasty-production")}.mp4"`,
       "Content-Length": output.length
@@ -48,7 +73,7 @@ const server = createServer(async (req, res) => {
     res.end(output);
   } catch (error) {
     console.error(error);
-    sendJson(res, 500, { error: creatorError(error) });
+    sendJson(req, res, error.statusCode || 500, { error: creatorError(error) });
   } finally {
     if (workDir) await rm(workDir, { recursive: true, force: true });
   }
@@ -61,8 +86,12 @@ server.listen(PORT, HOST, () => {
 async function writeMediaFiles({ form, workDir }) {
   const media = new Map();
   const files = form.getAll("media");
+  if (files.length > MAX_FILES) throw httpError(413, "Too many media files.");
   for (const file of files) {
+    if (!file?.name || typeof file.arrayBuffer !== "function") continue;
+    if (file.size > MAX_FILE_BYTES) throw httpError(413, "One media file is too large.");
     const [mediaId, ...nameParts] = file.name.split("__");
+    if (!SAFE_ID.test(mediaId || "")) throw httpError(400, "Invalid media id.");
     const fileName = safeFileName(nameParts.join("__") || file.name);
     const filePath = join(workDir, `${mediaId}-${fileName}`);
     await writeFile(filePath, Buffer.from(await file.arrayBuffer()));
@@ -120,6 +149,38 @@ async function renderProduction({ manifest, media, workDir }) {
     await run(FFMPEG, ["-y", "-i", silentVideo, "-c", "copy", "-movflags", "+faststart", outputPath]);
   }
   return outputPath;
+}
+
+function validateManifest(manifest) {
+  if (!manifest || typeof manifest !== "object") throw httpError(400, "Invalid render manifest.");
+  if (!Array.isArray(manifest.timeline) || manifest.timeline.length < 1 || manifest.timeline.length > MAX_SCENES) {
+    throw httpError(400, "Invalid scene count.");
+  }
+  if (!Array.isArray(manifest.assets)) throw httpError(400, "Invalid asset list.");
+  if (!manifest.productionSpec || !Array.isArray(manifest.productionSpec.scenes)) {
+    throw httpError(400, "Invalid production spec.");
+  }
+  if (!["9:16", "16:9", "1:1"].includes(manifest.aspectRatio)) throw httpError(400, "Invalid aspect ratio.");
+  const totalDuration = manifest.timeline.reduce((sum, segment) => {
+    if (!SAFE_ID.test(segment.sceneId || "")) throw httpError(400, "Invalid scene id.");
+    const duration = Number(segment.duration);
+    if (!Number.isFinite(duration) || duration < 1 || duration > MAX_TOTAL_DURATION) throw httpError(400, "Invalid scene duration.");
+    [
+      segment.primaryVisualAssetId,
+      segment.avatarAssetId,
+      segment.brollAssetId,
+      segment.audioSourceAssetId,
+      segment.narrationMediaId
+    ].filter(Boolean).forEach((id) => {
+      if (!SAFE_ID.test(id)) throw httpError(400, "Invalid asset id.");
+    });
+    return sum + duration;
+  }, 0);
+  if (totalDuration > MAX_TOTAL_DURATION) throw httpError(400, "Render is too long.");
+  manifest.assets.forEach((asset) => {
+    if (asset.id && !SAFE_ID.test(asset.id)) throw httpError(400, "Invalid asset id.");
+    if (asset.mediaId && !SAFE_ID.test(asset.mediaId)) throw httpError(400, "Invalid media id.");
+  });
 }
 
 async function renderScene({ segment, scene, assetPath, avatarPath, brollPath, audioSourcePath, manifest, width, height, output }) {
@@ -288,32 +349,61 @@ function safeFileName(value) {
 }
 
 function creatorError(error) {
+  if (error.publicMessage) return error.publicMessage;
   if (/ENOENT/.test(error.message)) return "Render helper could not find FFmpeg.";
+  if (/timed out/.test(error.message)) return "Render timed out. Try a shorter production or smaller media files.";
   if (/No such file|Invalid data|Error opening/.test(error.message)) return "One of the media files could not be rendered. Try replacing that scene asset.";
   return "Render failed. Check that the local render helper is running and the imported media files are playable.";
 }
 
-function setCors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+function setCors(req, res) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  if (!ALLOWED_ORIGINS.has(origin)) return false;
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Toasty-Render-Token");
+  res.setHeader("Access-Control-Max-Age", "86400");
+  return true;
 }
 
-function sendJson(res, status, payload) {
-  setCors(res);
+function sendJson(req, res, status, payload) {
+  setCors(req, res);
   res.writeHead(status, { "Content-Type": "application/json" });
   res.end(JSON.stringify(payload));
+}
+
+function isAuthorized(req) {
+  if (!API_TOKEN && isLocalOrigin(req.headers.origin)) return true;
+  return Boolean(API_TOKEN) && req.headers["x-toasty-render-token"] === API_TOKEN;
+}
+
+function isLocalOrigin(origin = "") {
+  return origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:");
+}
+
+function httpError(statusCode, publicMessage) {
+  const error = new Error(publicMessage);
+  error.statusCode = statusCode;
+  error.publicMessage = publicMessage;
+  return error;
 }
 
 function run(command, args) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] });
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`${command} timed out`));
+    }, FFMPEG_TIMEOUT_MS);
     let stderr = "";
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
     });
     child.on("error", reject);
     child.on("close", (code) => {
+      clearTimeout(timeout);
       if (code === 0) resolve();
       else reject(new Error(stderr || `${command} exited with ${code}`));
     });
