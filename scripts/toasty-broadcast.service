@@ -1,0 +1,20 @@
+[Unit]
+Description=Toasty Media RTMP Broadcast Service
+After=network.target
+
+[Service]
+Type=simple
+User=toasty
+WorkingDirectory=/opt/toasty-media
+Environment=NODE_ENV=production
+Environment=TOASTY_BROADCAST_HOST=127.0.0.1
+Environment=TOASTY_BROADCAST_PORT=4175
+EnvironmentFile=-/etc/toasty/broadcast.env
+ExecStart=/usr/bin/node /opt/toasty-media/scripts/broadcast-server.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
