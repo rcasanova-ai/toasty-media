@@ -1,10 +1,11 @@
-const DEFAULT_ENDPOINT = window.TOASTY_BROADCAST_ENDPOINT || "http://127.0.0.1:4175";
+const DEFAULT_ENDPOINT = window.TOASTY_BROADCAST_ENDPOINT || "https://broadcast.toasty.media";
 const DEFAULT_TOKEN = window.TOASTY_BROADCAST_TOKEN || "";
 
 export class ToastyBroadcastController {
   constructor({ getProgramUrl } = {}) {
     this.getProgramUrl = getProgramUrl;
     this.endpoint = localStorage.getItem("toasty.broadcast.endpoint") || DEFAULT_ENDPOINT;
+    this.serviceToken = sessionStorage.getItem("toasty.broadcast.token") || DEFAULT_TOKEN;
     this.broadcastId = null;
     this.abortController = null;
     this.captureStream = null;
@@ -38,6 +39,9 @@ export class ToastyBroadcastController {
       <button id="openProgramOutput" class="btn btn-ghost broadcast-wide" type="button">Open Program Output</button>
       <label>Broadcast service
         <input id="broadcastEndpoint" type="url" value="${escapeHtml(this.endpoint)}" placeholder="https://broadcast.toasty.media">
+      </label>
+      <label>Service token
+        <input id="broadcastServiceToken" type="password" autocomplete="off" value="${escapeHtml(this.serviceToken)}" placeholder="Paste Toasty broadcast token">
       </label>
       <label>Destination
         <select id="broadcastDestination">
@@ -83,7 +87,7 @@ export class ToastyBroadcastController {
     rightRail.appendChild(panel);
 
     [
-      "broadcastBadge", "openProgramOutput", "broadcastEndpoint", "broadcastDestination",
+      "broadcastBadge", "openProgramOutput", "broadcastEndpoint", "broadcastServiceToken", "broadcastDestination",
       "broadcastStreamUrl", "broadcastStreamKey", "broadcastResolution", "broadcastBitrate",
       "broadcastHelp", "testBroadcast", "toggleBroadcast", "broadcastMetrics",
       "broadcastDuration", "broadcastStateText"
@@ -99,6 +103,11 @@ export class ToastyBroadcastController {
     this.elements.broadcastEndpoint.addEventListener("change", () => {
       this.endpoint = this.elements.broadcastEndpoint.value.trim().replace(/\/+$/, "");
       localStorage.setItem("toasty.broadcast.endpoint", this.endpoint);
+    });
+    this.elements.broadcastServiceToken.addEventListener("change", () => {
+      this.serviceToken = this.elements.broadcastServiceToken.value.trim();
+      if (this.serviceToken) sessionStorage.setItem("toasty.broadcast.token", this.serviceToken);
+      else sessionStorage.removeItem("toasty.broadcast.token");
     });
     window.addEventListener("beforeunload", () => this.stop({ quiet: true }));
   }
@@ -245,7 +254,9 @@ export class ToastyBroadcastController {
 
   async request(path, options = {}) {
     this.endpoint = this.elements.broadcastEndpoint?.value.trim().replace(/\/+$/, "") || this.endpoint;
+    this.serviceToken = this.elements.broadcastServiceToken?.value.trim() || this.serviceToken;
     localStorage.setItem("toasty.broadcast.endpoint", this.endpoint);
+    if (this.serviceToken) sessionStorage.setItem("toasty.broadcast.token", this.serviceToken);
     const response = await fetch(`${this.endpoint}${path}`, {
       ...options,
       headers: { ...this.headers(), ...(options.headers || {}) }
@@ -257,7 +268,8 @@ export class ToastyBroadcastController {
 
   headers() {
     const headers = { "Content-Type": "application/json" };
-    if (DEFAULT_TOKEN) headers.Authorization = `Bearer ${DEFAULT_TOKEN}`;
+    const token = this.serviceToken || DEFAULT_TOKEN;
+    if (token) headers.Authorization = `Bearer ${token}`;
     return headers;
   }
 
@@ -271,7 +283,7 @@ export class ToastyBroadcastController {
     this.elements.broadcastMetrics.hidden = !live;
     this.elements.broadcastStateText.textContent = live ? "Streaming" : connecting ? "Connecting" : "Offline";
     [
-      this.elements.broadcastEndpoint, this.elements.broadcastDestination,
+      this.elements.broadcastEndpoint, this.elements.broadcastServiceToken, this.elements.broadcastDestination,
       this.elements.broadcastStreamUrl, this.elements.broadcastStreamKey,
       this.elements.broadcastResolution, this.elements.broadcastBitrate
     ].forEach((element) => { element.disabled = live || connecting; });
