@@ -14,6 +14,7 @@ import {
 import { AIProductionController } from "./ai-production.js";
 import { LocalIsolatedRecorder } from "./recording.js";
 import { Soundboard } from "./soundboard.js";
+import { ToastyBroadcastController } from "./broadcast-client.js";
 
 const state = {
   roomId: getOrCreateRoomId(),
@@ -90,6 +91,9 @@ function init() {
   new AIProductionController({
     getBrandTheme: () => state.brandTheme,
     onBrandChange: changeBrandThemeFromProduction
+  }).init();
+  new ToastyBroadcastController({
+    getProgramUrl: () => elements.listenerInvite.value
   }).init();
 
   engine.onMessage((message) => {
