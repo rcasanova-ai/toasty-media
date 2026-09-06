@@ -282,7 +282,7 @@ export class ToastyBroadcastController {
     if (!this.startedAt) return;
     const seconds = Math.floor((Date.now() - this.startedAt) / 1000);
     const h = String(Math.floor(seconds / 3600)).padStart(2, "0");
-    const m = String(Math.floor((seconds % 3600) / 60).padStart(2, "0"));
+    const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, "0");
     const s = String(seconds % 60).padStart(2, "0");
     this.elements.broadcastDuration.textContent = `${h}:${m}:${s}`;
   }
