@@ -1,14 +1,20 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 
 const HOST = process.env.TOASTY_BROADCAST_HOST || "127.0.0.1";
 const PORT = Number(process.env.TOASTY_BROADCAST_PORT || 4175);
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
-const API_TOKEN = process.env.TOASTY_BROADCAST_TOKEN || "";
+const AUTH_USERNAME = process.env.TOASTY_AUTH_USERNAME || "ricardo";
+const AUTH_PASSWORD_SALT = process.env.TOASTY_AUTH_PASSWORD_SALT || "";
+const AUTH_PASSWORD_HASH = process.env.TOASTY_AUTH_PASSWORD_HASH || "";
+const SESSION_SECRET = process.env.TOASTY_SESSION_SECRET || "";
+const SESSION_SECONDS = 12 * 60 * 60;
+const COOKIE_NAME = "toasty_session";
 const ALLOWED_ORIGINS = new Set([
   "https://toasty.media",
+  "https://www.toasty.media",
   "http://localhost:4173",
   "http://127.0.0.1:4173"
 ]);
@@ -17,12 +23,33 @@ const jobs = new Map();
 const server = createServer(async (req, res) => {
   if (!setCors(req, res)) return sendJson(res, 403, { error: "Origin is not allowed." });
   if (req.method === "OPTIONS") return res.writeHead(204).end();
-  if (!isAuthorized(req)) return sendJson(res, 401, { error: "Broadcast token is required." });
 
   try {
     if (req.method === "GET" && req.url === "/health") {
-      return sendJson(res, 200, { ok: true, activeBroadcasts: jobs.size });
+      return sendJson(res, 200, { ok: true, activeBroadcasts: jobs.size, authConfigured: authConfigured() });
     }
+
+    if (req.method === "GET" && req.url === "/auth/session") {
+      const session = readSession(req);
+      return sendJson(res, 200, { authenticated: Boolean(session), username: session?.username || null });
+    }
+
+    if (req.method === "POST" && req.url === "/auth/login") {
+      if (!authConfigured()) return sendJson(res, 503, { error: "Studio authentication is not configured." });
+      const body = await readJson(req);
+      if (!validCredentials(body?.username, body?.password)) {
+        return sendJson(res, 401, { error: "Incorrect username or password." });
+      }
+      res.setHeader("Set-Cookie", makeSessionCookie(AUTH_USERNAME));
+      return sendJson(res, 200, { authenticated: true, username: AUTH_USERNAME });
+    }
+
+    if (req.method === "POST" && req.url === "/auth/logout") {
+      res.setHeader("Set-Cookie", `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`);
+      return sendJson(res, 200, { authenticated: false });
+    }
+
+    if (!readSession(req)) return sendJson(res, 401, { error: "Studio login required." });
 
     if (req.method === "POST" && req.url === "/broadcast/start") {
       const body = await readJson(req);
@@ -80,6 +107,63 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`Toasty broadcast service listening on http://${HOST}:${PORT}`);
 });
+
+function authConfigured() {
+  return Boolean(AUTH_USERNAME && AUTH_PASSWORD_SALT && AUTH_PASSWORD_HASH && SESSION_SECRET);
+}
+
+function validCredentials(username, password) {
+  if (String(username || "").toLowerCase() !== AUTH_USERNAME.toLowerCase()) return false;
+  if (typeof password !== "string" || !password) return false;
+  const candidate = scryptSync(password, AUTH_PASSWORD_SALT, 64);
+  const expected = Buffer.from(AUTH_PASSWORD_HASH, "hex");
+  return expected.length === candidate.length && timingSafeEqual(expected, candidate);
+}
+
+function makeSessionCookie(username) {
+  const expires = Math.floor(Date.now() / 1000) + SESSION_SECONDS;
+  const payload = Buffer.from(JSON.stringify({ username, expires })).toString("base64url");
+  const signature = sign(payload);
+  return `${COOKIE_NAME}=${payload}.${signature}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${SESSION_SECONDS}`;
+}
+
+function readSession(req) {
+  if (!authConfigured()) return null;
+  const cookies = parseCookies(req.headers.cookie || "");
+  const raw = cookies[COOKIE_NAME];
+  if (!raw) return null;
+  const dot = raw.lastIndexOf(".");
+  if (dot < 1) return null;
+  const payload = raw.slice(0, dot);
+  const suppliedSignature = raw.slice(dot + 1);
+  const expectedSignature = sign(payload);
+  if (!safeStringEqual(suppliedSignature, expectedSignature)) return null;
+  try {
+    const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (session.username !== AUTH_USERNAME || Number(session.expires) <= Math.floor(Date.now() / 1000)) return null;
+    return session;
+  } catch (_) {
+    return null;
+  }
+}
+
+function sign(payload) {
+  return createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+}
+
+function safeStringEqual(a, b) {
+  const left = Buffer.from(String(a));
+  const right = Buffer.from(String(b));
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+function parseCookies(header) {
+  return header.split(";").reduce((out, item) => {
+    const index = item.indexOf("=");
+    if (index > 0) out[item.slice(0, index).trim()] = item.slice(index + 1).trim();
+    return out;
+  }, {});
+}
 
 function startFfmpeg(job, req, res) {
   const target = joinRtmp(job.streamUrl, job.streamKey);
@@ -183,16 +267,14 @@ function clampNumber(value, min, max, fallback) {
 function setCors(req, res) {
   const origin = req.headers.origin;
   if (origin && !ALLOWED_ORIGINS.has(origin)) return false;
-  if (origin) res.setHeader("Access-Control-Allow-Origin", origin);
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
   res.setHeader("Vary", "Origin");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   return true;
-}
-
-function isAuthorized(req) {
-  if (!API_TOKEN) return true;
-  return req.headers.authorization === `Bearer ${API_TOKEN}`;
 }
 
 async function readJson(req) {
@@ -203,7 +285,11 @@ async function readJson(req) {
     if (size > 64 * 1024) throw httpError(413, "Request is too large.");
     chunks.push(chunk);
   }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+  } catch (_) {
+    throw httpError(400, "Invalid JSON request.");
+  }
 }
 
 function sendJson(res, status, body) {
