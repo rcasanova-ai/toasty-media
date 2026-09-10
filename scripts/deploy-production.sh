@@ -44,12 +44,14 @@ FULL_PATHS=(
 )
 
 EXPERTISE_PATHS=(
+  "index.html"
   "experts"
   "app"
   "admin"
   "css/expertise-platform.css"
   "js/expertise-platform.js"
   "js/expertise-admin.js"
+  "js/brand-themes.js"
 )
 
 if [[ "$SCOPE" == "expertise" ]]; then
@@ -71,8 +73,6 @@ echo "Target: $SSH_ALIAS:$PROD_ROOT"
 echo "Paths:"
 printf '  %s\n' "${MANAGED_PATHS[@]}"
 
-# Force a plain C locale on both sides of SSH. This prevents the host from
-# receiving macOS LC_CTYPE=UTF-8/C.UTF-8 values that trigger Perl locale spam.
 SSH=(env LANG=C LC_ALL=C LC_CTYPE=C ssh "$SSH_ALIAS")
 REMOTE_ENV="export LANG=C LC_ALL=C LC_CTYPE=C;"
 
