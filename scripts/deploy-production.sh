@@ -27,8 +27,6 @@ FULL_PATHS=(
   "site"
   "ricardo"
   "studio"
-  "experts"
-  "app"
   "admin"
   "css"
   "js"
@@ -45,11 +43,8 @@ FULL_PATHS=(
 
 EXPERTISE_PATHS=(
   "index.html"
-  "experts"
-  "app"
   "admin"
   "css/expertise-platform.css"
-  "js/expertise-platform.js"
   "js/expertise-admin.js"
   "js/brand-themes.js"
 )
