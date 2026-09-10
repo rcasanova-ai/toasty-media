@@ -5,22 +5,23 @@ SSH_ALIAS="toasty-spaceship"
 PROD_ROOT="/home/fmxgijyvpq/toasty.media"
 EXPECTED_LOCAL_ROOT="/Users/ricardocasanova/Projects/toasty-media"
 MODE="dry-run"
+SCOPE="full"
 
-if [[ "${1:-}" == "--execute" ]]; then
-  MODE="execute"
-elif [[ "${1:-}" == "--dry-run" || -z "${1:-}" ]]; then
-  MODE="dry-run"
-else
-  echo "Usage: scripts/deploy-production.sh [--dry-run|--execute]" >&2
-  exit 64
-fi
+for arg in "$@"; do
+  case "$arg" in
+    --execute) MODE="execute" ;;
+    --dry-run) MODE="dry-run" ;;
+    --expertise) SCOPE="expertise" ;;
+    *) echo "Usage: scripts/deploy-production.sh [--dry-run|--execute] [--expertise]" >&2; exit 64 ;;
+  esac
+done
 
 if [[ "$(pwd)" != "$EXPECTED_LOCAL_ROOT" ]]; then
   echo "Refusing to run outside $EXPECTED_LOCAL_ROOT" >&2
   exit 1
 fi
 
-MANAGED_PATHS=(
+FULL_PATHS=(
   ".htaccess"
   "index.html"
   "site"
@@ -42,16 +43,22 @@ MANAGED_PATHS=(
   "ricardo_casanova_resumeJune2026.pdf"
 )
 
-EXCLUDED_PATHS=(
-  "dominion-investor-dashboard"
-  "incitech"
+EXPERTISE_PATHS=(
+  "experts"
+  "app"
+  "admin"
+  "css/expertise-platform.css"
+  "js/expertise-platform.js"
+  "js/expertise-admin.js"
 )
 
+if [[ "$SCOPE" == "expertise" ]]; then
+  MANAGED_PATHS=("${EXPERTISE_PATHS[@]}")
+else
+  MANAGED_PATHS=("${FULL_PATHS[@]}")
+fi
+
 for path in "${MANAGED_PATHS[@]}"; do
-  if [[ "$path" == "dominion-investor-dashboard"* || "$path" == "incitech"* ]]; then
-    echo "Managed path accidentally includes excluded path: $path" >&2
-    exit 1
-  fi
   if [[ ! -e "$path" ]]; then
     echo "Managed path does not exist locally: $path" >&2
     exit 1
@@ -59,17 +66,19 @@ for path in "${MANAGED_PATHS[@]}"; do
 done
 
 echo "Mode: $MODE"
+echo "Scope: $SCOPE"
 echo "Target: $SSH_ALIAS:$PROD_ROOT"
-echo "Managed paths:"
+echo "Paths:"
 printf '  %s\n' "${MANAGED_PATHS[@]}"
-echo "Excluded paths:"
-printf '  %s\n' "${EXCLUDED_PATHS[@]}"
+
+# Force a plain C locale on both sides of SSH. This prevents the host from
+# receiving macOS LC_CTYPE=UTF-8/C.UTF-8 values that trigger Perl locale spam.
+SSH=(env LANG=C LC_ALL=C LC_CTYPE=C ssh "$SSH_ALIAS")
+REMOTE_ENV="export LANG=C LC_ALL=C LC_CTYPE=C;"
 
 if [[ "$MODE" == "dry-run" ]]; then
-  ssh "$SSH_ALIAS" "test -d '$PROD_ROOT'"
-  echo
+  "${SSH[@]}" "$REMOTE_ENV test -d '$PROD_ROOT'; echo 'Remote connection OK'"
   echo "Dry run only. No production files were changed."
-  echo "Run with APPROVE_TOASTY_DEPLOY=production scripts/deploy-production.sh --execute after explicit approval."
   exit 0
 fi
 
@@ -81,16 +90,15 @@ fi
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="$PROD_ROOT/_backups/toasty-media-$STAMP"
 
-# Build one remote backup command so the deploy does not open a new SSH session
-# for every managed path. This also avoids repeating remote locale warnings.
-REMOTE_BACKUP_CMD="set -e; test -d '$PROD_ROOT'; mkdir -p '$BACKUP_DIR';"
+REMOTE_BACKUP_CMD="$REMOTE_ENV set -e; test -d '$PROD_ROOT'; mkdir -p '$BACKUP_DIR';"
 for path in "${MANAGED_PATHS[@]}"; do
   dir="$(dirname "$path")"
-  REMOTE_BACKUP_CMD+=" if [ -e '$PROD_ROOT/$path' ]; then mkdir -p '$BACKUP_DIR/$dir'; cp -a '$PROD_ROOT/$path' '$BACKUP_DIR/$path'; fi;"
+  REMOTE_BACKUP_CMD+=" echo 'Backing up: $path'; if [ -e '$PROD_ROOT/$path' ]; then mkdir -p '$BACKUP_DIR/$dir'; cp -a '$PROD_ROOT/$path' '$BACKUP_DIR/$path'; fi;"
 done
 
-ssh "$SSH_ALIAS" "$REMOTE_BACKUP_CMD"
+"${SSH[@]}" "$REMOTE_BACKUP_CMD"
 
-git archive --format=tar HEAD -- "${MANAGED_PATHS[@]}" | ssh "$SSH_ALIAS" "set -e; cd '$PROD_ROOT'; tar -xf -"
+echo "Uploading deployment..."
+git archive --format=tar HEAD -- "${MANAGED_PATHS[@]}" | "${SSH[@]}" "$REMOTE_ENV set -e; cd '$PROD_ROOT'; tar -xf -"
 
 echo "Deployment complete. Backup: $BACKUP_DIR"
