@@ -33,70 +33,41 @@ export const BRAND_THEMES = Object.freeze({
       "--studio-client-glow": "rgba(255, 122, 41, 0.24)"
     })
   }),
-  "8alta": Object.freeze({
-    id: "8alta",
-    label: "8alta",
+  workspace: Object.freeze({
+    id: "workspace",
+    label: "Workspace brand",
     showPoweredBy: true,
-    logoSrc: "../shared/brand/clients/8alta/logo.svg",
-    logoAlt: "8ALTA Studio",
-    textLogo: "8alta Studio",
-    atmosphereBrand: "8ALTA",
+    logoSrc: null,
+    logoAlt: "Workspace Studio",
+    textLogo: "Workspace Studio",
+    atmosphereBrand: "YOUR",
     atmosphereProduct: "STUDIO",
     vars: Object.freeze({
-      "--studio-canvas": "#060b12",
-      "--studio-canvas-2": "#0c0f17",
-      "--studio-surface": "#14151d",
-      "--studio-surface-2": "#1b1b24",
-      "--studio-surface-raised": "#24232f",
-      "--studio-line": "rgba(215, 181, 109, 0.13)",
-      "--studio-line-strong": "rgba(215, 181, 109, 0.34)",
-      "--studio-line-warm": "rgba(244, 234, 217, 0.25)",
-      "--studio-cream": "#f4ead9",
-      "--studio-cream-dim": "#d8ccb8",
-      "--studio-muted": "#9b968b",
-      "--studio-orange": "#d7b56d",
-      "--studio-orange-bright": "#f1d48b",
-      "--studio-amber": "#f4ead9",
-      "--studio-burnt": "#8f743c",
-      "--studio-brown": "#28202a",
-      "--studio-green": "#52b788",
-      "--studio-client-glow": "rgba(215, 181, 109, 0.28)"
-    })
-  }),
-  santati: Object.freeze({
-    id: "santati",
-    label: "Santati",
-    showPoweredBy: true,
-    logoSrc: "../shared/brand/clients/santati/logo.svg",
-    logoAlt: "Santati Studio",
-    textLogo: "Santati Studio",
-    atmosphereBrand: "SANTATI",
-    atmosphereProduct: "STUDIO",
-    vars: Object.freeze({
-      "--studio-canvas": "#09110d",
-      "--studio-canvas-2": "#0e1915",
-      "--studio-surface": "#14211c",
-      "--studio-surface-2": "#192b25",
-      "--studio-surface-raised": "#20372f",
-      "--studio-line": "rgba(122, 179, 104, 0.14)",
-      "--studio-line-strong": "rgba(122, 179, 104, 0.34)",
-      "--studio-line-warm": "rgba(60, 149, 169, 0.28)",
-      "--studio-cream": "#eef6ef",
-      "--studio-cream-dim": "#c8d9ce",
-      "--studio-muted": "#92aaa0",
-      "--studio-orange": "#7ab368",
-      "--studio-orange-bright": "#a7d993",
-      "--studio-amber": "#d9bf78",
-      "--studio-burnt": "#3c95a9",
-      "--studio-brown": "#17332b",
-      "--studio-green": "#7ab368",
-      "--studio-client-glow": "rgba(122, 179, 104, 0.28)"
+      "--studio-canvas": "#0a0d12",
+      "--studio-canvas-2": "#10141b",
+      "--studio-surface": "#151a22",
+      "--studio-surface-2": "#1c232d",
+      "--studio-surface-raised": "#252d39",
+      "--studio-line": "rgba(255,255,255,0.10)",
+      "--studio-line-strong": "rgba(255,255,255,0.24)",
+      "--studio-line-warm": "rgba(214,180,109,0.28)",
+      "--studio-cream": "#f5f1e8",
+      "--studio-cream-dim": "#d8d3ca",
+      "--studio-muted": "#98a1ad",
+      "--studio-orange": "#d6b46d",
+      "--studio-orange-bright": "#efd28e",
+      "--studio-amber": "#f5e7bd",
+      "--studio-burnt": "#9b7a3b",
+      "--studio-brown": "#20252d",
+      "--studio-green": "#5ec58b",
+      "--studio-client-glow": "rgba(214,180,109,0.24)"
     })
   })
 });
 
 export function normalizeBrandTheme(themeId) {
   const normalized = String(themeId || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (["8alta", "santati", "client", "custom"].includes(normalized)) return "workspace";
   return BRAND_THEMES[normalized]?.id || DEFAULT_BRAND_THEME;
 }
 
@@ -104,9 +75,7 @@ export function getInitialBrandTheme(search = window.location.search, options = 
   const { useStorage = true } = options;
   const fromUrl = new URLSearchParams(search).get("brand");
   if (fromUrl) return normalizeBrandTheme(fromUrl);
-
   if (!useStorage) return DEFAULT_BRAND_THEME;
-
   try {
     return normalizeBrandTheme(window.localStorage.getItem(THEME_STORAGE_KEY));
   } catch {
@@ -118,7 +87,7 @@ export function saveBrandTheme(themeId) {
   try {
     window.localStorage.setItem(THEME_STORAGE_KEY, normalizeBrandTheme(themeId));
   } catch {
-    // Theme persistence is nice to have, not critical to running a session.
+    // Theme persistence is optional.
   }
 }
 
@@ -126,10 +95,7 @@ export function applyBrandTheme(themeId, elements = {}) {
   const theme = BRAND_THEMES[normalizeBrandTheme(themeId)];
   const root = elements.root || document.body;
   root.dataset.brandTheme = theme.id;
-
-  Object.entries(theme.vars).forEach(([property, value]) => {
-    root.style.setProperty(property, value);
-  });
+  Object.entries(theme.vars).forEach(([property, value]) => root.style.setProperty(property, value));
 
   if (elements.logoImg) {
     if (theme.logoSrc) {
@@ -140,23 +106,20 @@ export function applyBrandTheme(themeId, elements = {}) {
       elements.logoImg.hidden = true;
     }
   }
-
   if (elements.logoText) {
     elements.logoText.hidden = Boolean(theme.logoSrc);
     elements.logoText.textContent = theme.textLogo || `${theme.label} Studio`;
   }
-
-  if (elements.poweredBy) {
-    elements.poweredBy.hidden = !theme.showPoweredBy;
-  }
-
-  if (elements.atmosphereBrandWord) {
-    elements.atmosphereBrandWord.textContent = theme.atmosphereBrand;
-  }
-
-  if (elements.atmosphereProductWord) {
-    elements.atmosphereProductWord.textContent = theme.atmosphereProduct;
-  }
-
+  if (elements.poweredBy) elements.poweredBy.hidden = !theme.showPoweredBy;
+  if (elements.atmosphereBrandWord) elements.atmosphereBrandWord.textContent = theme.atmosphereBrand;
+  if (elements.atmosphereProductWord) elements.atmosphereProductWord.textContent = theme.atmosphereProduct;
   return theme;
+}
+
+// Keep customer identities out of Toasty's product UI. Existing legacy theme links
+// remain compatible, but Studio presents only Toasty or a generic white-label workspace.
+if (typeof document !== "undefined") {
+  document.querySelectorAll("#brandThemeSelect, #aiBrandProfile").forEach((select) => {
+    select.innerHTML = '<option value="toasty">Toasty Media</option><option value="workspace">Workspace brand</option>';
+  });
 }
