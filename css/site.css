@@ -12,14 +12,14 @@ body {
   display: flex;
   gap: 1.5rem;
   justify-content: space-between;
-  padding: 0.9rem clamp(1rem, 4vw, 4rem);
+  padding: 0.9rem max(1.25rem, calc((100vw - 1400px) / 2 + 1.25rem));
   position: sticky;
   top: 0;
   z-index: 10;
 }
 
 .brand-link img {
-  height: 46px;
+  height: 52px;
   width: auto;
 }
 
@@ -424,16 +424,16 @@ h2 {
 }
 
 .home-page .site-header {
-  background: rgba(43, 23, 20, 0.94);
-  border-bottom-color: rgba(217, 166, 111, 0.22);
+  background: rgba(255, 246, 232, 0.96);
+  border-bottom-color: rgba(74, 45, 42, 0.14);
 }
 
 .home-page .site-nav a {
-  color: var(--cream);
+  color: var(--espresso);
 }
 
 .home-page .site-nav a::after {
-  background: var(--toast-bright);
+  background: var(--caramel);
 }
 
 .home-page h1,
@@ -510,12 +510,33 @@ h2 {
   color: var(--toast-bright);
 }
 
-.home-page .site-footer {
-  border-top-color: rgba(217, 166, 111, 0.22);
+.home-page .site-footer,
+.ricardo-footer {
+  background: var(--cream-soft);
+  border-top-color: rgba(74, 45, 42, 0.14);
 }
 
-.home-page .site-footer p {
-  color: #cbb9a8;
+.home-page .site-footer a,
+.ricardo-footer a {
+  color: var(--espresso);
+  font-weight: 800;
+  margin-left: auto;
+  text-decoration: none;
+}
+
+.site-nav .nav-cta {
+  background: var(--caramel);
+  border-radius: 8px;
+  color: #fff8ec !important;
+  padding: 0.55rem 0.95rem;
+}
+
+.site-nav .nav-cta::after {
+  display: none;
+}
+
+.feature-ledger.offer-pair {
+  grid-template-columns: 1fr 1fr;
 }
 
 /* Ricardo profile — Toasty espresso/caramel dark, not a generic navy dark mode */
@@ -547,10 +568,13 @@ h2 {
   display: grid;
   gap: clamp(1.5rem, 4vw, 4rem);
   grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
+  margin-inline: auto;
+  max-width: 1400px;
   min-height: calc(100svh - 78px);
   overflow: hidden;
   padding: clamp(2rem, 6vw, 5rem) clamp(1rem, 5vw, 5rem) 0;
   position: relative;
+  width: 100%;
 }
 
 .ricardo-copy {
@@ -771,12 +795,12 @@ h2 {
 }
 
 .ricardo-footer {
-  background: var(--espresso-2);
-  border-top-color: rgba(217, 166, 111, 0.22);
+  background: var(--cream-soft);
+  border-top-color: rgba(74, 45, 42, 0.14);
 }
 
 .ricardo-footer p {
-  color: var(--cream);
+  color: var(--muted);
 }
 
 @media (max-width: 980px) {
@@ -833,14 +857,17 @@ h2 {
 }
 
 .home-hero {
-  align-items: end;
+  align-items: center;
   display: grid;
   gap: clamp(1.25rem, 3vw, 3rem);
-  grid-template-columns: minmax(0, 0.86fr) minmax(340px, 1.14fr);
+  grid-template-columns: minmax(0, 1.08fr) minmax(300px, 0.92fr);
+  margin-inline: auto;
+  max-width: 1400px;
   min-height: calc(100svh - 72px);
   overflow: hidden;
   padding: clamp(2.5rem, 5vw, 5.5rem) clamp(1rem, 5vw, 5rem) clamp(2rem, 4vw, 4rem);
   position: relative;
+  width: 100%;
 }
 
 .home-hero::before {
@@ -875,10 +902,10 @@ h2 {
 }
 
 .home-hero h1 {
-  font-size: clamp(3rem, 6.6vw, 6.4rem);
+  font-size: clamp(2.6rem, 5vw, 4.8rem);
   letter-spacing: 0;
-  line-height: 0.95;
-  max-width: 760px;
+  line-height: 0.96;
+  max-width: 18ch;
 }
 
 .home-hero .hero-lede {
@@ -1115,7 +1142,7 @@ h2 {
   max-width: 35rem;
 }
 
-.studio-copy > p:nth-of-type(1) {
+.studio-copy > p.lead-line {
   color: #fff6e8;
   font-family: var(--font-heading);
   font-size: clamp(1.7rem, 3.4vw, 3.35rem);
@@ -1125,7 +1152,7 @@ h2 {
   text-transform: uppercase;
 }
 
-.studio-copy > p:nth-of-type(2) {
+.studio-copy > p:not(.eyebrow):not(.lead-line) {
   color: rgba(255, 246, 232, 0.78);
   font-size: 1.03rem;
   max-width: 31rem;
@@ -1561,9 +1588,8 @@ h2 {
   max-height: min(820px, 82vh);
 }
 
-.work-grid article:first-child,
-.signal-grid article:first-child {
-  grid-column: span 2;
+.work-grid article:first-child {
+  grid-column: auto;
 }
 
 .work-grid article:first-child h3,
