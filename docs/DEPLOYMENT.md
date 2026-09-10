@@ -22,15 +22,6 @@ The Git-managed Toasty Media deployment scope includes:
 - Toasty-owned PDFs/downloadables at the production root
 - `thank-you.html`
 
-## Excluded Paths
-
-These paths are unrelated and must remain completely untouched:
-
-- `/home/fmxgijyvpq/toasty.media/dominion-investor-dashboard/`
-- `/home/fmxgijyvpq/toasty.media/incitech/`
-
-Do not inspect deeply, copy, migrate, back up, modify, delete, sync, deploy over, or include them in Git history.
-
 ## Migration Rules
 
 - Production is a source for missing legacy/current Toasty content.
@@ -49,7 +40,7 @@ Before a real deployment, `scripts/deploy-production.sh --execute` creates a tim
 /home/fmxgijyvpq/toasty.media/_backups/toasty-media-YYYYMMDD-HHMMSS/
 ```
 
-The script backs up only managed paths that it is about to replace. It does not back up or traverse excluded paths.
+The script backs up only managed paths that it is about to replace.
 
 ## Rollback Procedure
 
@@ -95,7 +86,6 @@ Before deployment:
 After deployment approval and execution:
 
 - Validate `/`, `/site/`, `/ricardo/`, `/site/ricardo/`, `/articles/csuite_ai_scam.html`, `/eloquencebonus/`, `/thank-you.html`, and root PDF links.
-- Confirm excluded directories still exist and were not modified by the deployment.
 
 ## Approval Requirement
 

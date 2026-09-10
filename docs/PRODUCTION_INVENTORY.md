@@ -6,11 +6,6 @@ Read-only production inventory source:
 - Production root: `/home/fmxgijyvpq/toasty.media`
 - Inventory date: 2026-08-26
 
-Excluded paths were only confirmed by name and not traversed:
-
-- `dominion-investor-dashboard/`
-- `incitech/`
-
 ## Already Represented Locally
 
 - New Toasty Media homepage structure: represented by `site/index.html`.
@@ -56,13 +51,6 @@ Excluded paths were only confirmed by name and not traversed:
   - `images/Toast and Tea 3 PNG.png`
 
 Historical assets can remain archived in production until explicitly retired, but the redesigned homepage should not bring them back as pillars.
-
-## Unrelated And Excluded
-
-- `dominion-investor-dashboard/`
-- `incitech/`
-
-These paths are unrelated to Toasty Media repo management and must never be copied, backed up by the Toasty deployment script, modified, deleted, synced, deployed over, or included in Git history.
 
 ## URL Preservation Notes
 
