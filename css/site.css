@@ -1709,6 +1709,12 @@ h2 {
 
   .home-hero {
     min-height: auto;
+    overflow: visible;
+  }
+
+  .home-hero h1 {
+    max-width: none;
+    font-size: clamp(2.4rem, 10vw, 3.6rem);
   }
 
   .media-board {
