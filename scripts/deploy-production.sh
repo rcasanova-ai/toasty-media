@@ -65,9 +65,8 @@ printf '  %s\n' "${MANAGED_PATHS[@]}"
 echo "Excluded paths:"
 printf '  %s\n' "${EXCLUDED_PATHS[@]}"
 
-ssh "$SSH_ALIAS" "test -d '$PROD_ROOT'"
-
 if [[ "$MODE" == "dry-run" ]]; then
+  ssh "$SSH_ALIAS" "test -d '$PROD_ROOT'"
   echo
   echo "Dry run only. No production files were changed."
   echo "Run with APPROVE_TOASTY_DEPLOY=production scripts/deploy-production.sh --execute after explicit approval."
@@ -82,12 +81,16 @@ fi
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="$PROD_ROOT/_backups/toasty-media-$STAMP"
 
-ssh "$SSH_ALIAS" "mkdir -p '$BACKUP_DIR'"
-
+# Build one remote backup command so the deploy does not open a new SSH session
+# for every managed path. This also avoids repeating remote locale warnings.
+REMOTE_BACKUP_CMD="set -e; test -d '$PROD_ROOT'; mkdir -p '$BACKUP_DIR';"
 for path in "${MANAGED_PATHS[@]}"; do
-  ssh "$SSH_ALIAS" "if [ -e '$PROD_ROOT/$path' ]; then mkdir -p '$BACKUP_DIR/$(dirname "$path")' && cp -a '$PROD_ROOT/$path' '$BACKUP_DIR/$path'; fi"
+  dir="$(dirname "$path")"
+  REMOTE_BACKUP_CMD+=" if [ -e '$PROD_ROOT/$path' ]; then mkdir -p '$BACKUP_DIR/$dir'; cp -a '$PROD_ROOT/$path' '$BACKUP_DIR/$path'; fi;"
 done
 
-git archive --format=tar HEAD -- "${MANAGED_PATHS[@]}" | ssh "$SSH_ALIAS" "cd '$PROD_ROOT' && tar -xf -"
+ssh "$SSH_ALIAS" "$REMOTE_BACKUP_CMD"
+
+git archive --format=tar HEAD -- "${MANAGED_PATHS[@]}" | ssh "$SSH_ALIAS" "set -e; cd '$PROD_ROOT'; tar -xf -"
 
 echo "Deployment complete. Backup: $BACKUP_DIR"
