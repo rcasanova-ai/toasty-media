@@ -47,6 +47,7 @@ EXPERTISE_PATHS=(
   "css/expertise-platform.css"
   "js/expertise-admin.js"
   "js/brand-themes.js"
+  "js/video-engine.js"
 )
 
 if [[ "$SCOPE" == "expertise" ]]; then
@@ -84,16 +85,13 @@ fi
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="$PROD_ROOT/_backups/toasty-media-$STAMP"
-
 REMOTE_BACKUP_CMD="$REMOTE_ENV set -e; test -d '$PROD_ROOT'; mkdir -p '$BACKUP_DIR';"
 for path in "${MANAGED_PATHS[@]}"; do
   dir="$(dirname "$path")"
   REMOTE_BACKUP_CMD+=" echo 'Backing up: $path'; if [ -e '$PROD_ROOT/$path' ]; then mkdir -p '$BACKUP_DIR/$dir'; cp -a '$PROD_ROOT/$path' '$BACKUP_DIR/$path'; fi;"
 done
-
 "${SSH[@]}" "$REMOTE_BACKUP_CMD"
 
 echo "Uploading deployment..."
 git archive --format=tar HEAD -- "${MANAGED_PATHS[@]}" | "${SSH[@]}" "$REMOTE_ENV set -e; cd '$PROD_ROOT'; tar -xf -"
-
 echo "Deployment complete. Backup: $BACKUP_DIR"
