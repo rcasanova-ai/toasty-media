@@ -21,6 +21,12 @@
   --studio-red: #e5382c;
   --studio-red-bright: #ff5b45;
   --studio-client-glow: rgba(255, 122, 41, 0.24);
+  --studio-button-text: #1c0f06;
+  --studio-button-shadow: rgba(255, 122, 41, 0.32);
+  --studio-button-shadow-hover: rgba(255, 122, 41, 0.42);
+  --studio-atmosphere-stroke: rgba(255, 171, 92, 0.06);
+  --studio-atmosphere-stroke-2: rgba(244, 234, 217, 0.045);
+  --studio-mark-opacity: 0.05;
 
   /* remap shared brand.css tokens so generic primitives (buttons, headings, inputs) reflow dark */
   --cream-soft: var(--studio-canvas);
@@ -33,6 +39,7 @@
   --shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
   --radius: 10px;
   --font-body: "Inter", system-ui, -apple-system, sans-serif;
+  --font-heading: Montserrat, Inter, system-ui, sans-serif;
 
   background:
     radial-gradient(1100px 620px at 8% -8%, var(--studio-client-glow), transparent 58%),
@@ -66,6 +73,7 @@
   top: -6vw;
   transform: rotate(-4deg);
   -webkit-text-stroke: 1.5px rgba(255, 171, 92, 0.06);
+  -webkit-text-stroke-color: var(--studio-atmosphere-stroke);
   user-select: none;
   white-space: nowrap;
 }
@@ -77,6 +85,7 @@
   top: auto;
   transform: rotate(3deg);
   -webkit-text-stroke: 1.5px rgba(244, 234, 217, 0.045);
+  -webkit-text-stroke-color: var(--studio-atmosphere-stroke-2);
 }
 
 .atmosphere-mark {
@@ -84,7 +93,7 @@
   bottom: -10vw;
   filter: grayscale(0.35);
   height: min(40vw, 560px);
-  opacity: 0.05;
+  opacity: var(--studio-mark-opacity);
   position: absolute;
   right: -6vw;
   width: min(40vw, 560px);
@@ -179,13 +188,13 @@
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--studio-amber), var(--studio-orange) 60%, var(--studio-burnt));
-  box-shadow: 0 12px 30px rgba(255, 122, 41, 0.32);
-  color: #1c0f06;
+  background: var(--brand-gradient, linear-gradient(135deg, var(--studio-amber), var(--studio-orange) 60%, var(--studio-burnt)));
+  box-shadow: 0 12px 30px var(--studio-button-shadow);
+  color: var(--studio-button-text);
 }
 
 .btn-primary:hover {
-  box-shadow: 0 16px 36px rgba(255, 122, 41, 0.42);
+  box-shadow: 0 16px 36px var(--studio-button-shadow-hover);
 }
 
 .btn-ghost {
@@ -195,7 +204,7 @@
 }
 
 .btn-ghost:hover {
-  background: rgba(255, 122, 41, 0.08);
+  background: color-mix(in srgb, var(--studio-orange) 12%, transparent);
   border-color: var(--studio-orange);
   color: var(--studio-orange-bright);
 }
@@ -306,6 +315,50 @@
   width: auto;
 }
 
+.studio-shell:not([data-brand-theme="toasty"]) .brand-block {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--studio-surface-raised) 92%, transparent), color-mix(in srgb, var(--studio-orange) 10%, var(--studio-surface))),
+    var(--studio-surface);
+  border-color: var(--studio-line-strong);
+}
+
+.studio-shell:not([data-brand-theme="toasty"]) .brand-lockup {
+  justify-content: flex-start;
+  min-height: 94px;
+}
+
+.studio-shell:not([data-brand-theme="toasty"]) .brand-lockup img {
+  max-height: 82px;
+  object-fit: contain;
+  width: min(210px, 100%);
+}
+
+.studio-shell:not([data-brand-theme="toasty"]) .powered-by {
+  border-top: 1px solid var(--studio-line);
+  color: var(--studio-muted);
+  margin-top: 12px;
+  opacity: 0.66;
+  padding-top: 10px;
+}
+
+.studio-shell:not([data-brand-theme="toasty"]) .powered-by img {
+  max-height: 16px;
+  opacity: 0.48;
+}
+
+.studio-shell[data-brand-theme="8alta"] .rail-eyebrow,
+.studio-shell[data-brand-theme="8alta"] .mode-card[aria-pressed="true"] strong,
+.studio-shell[data-brand-theme="8alta"] .production-head h2 {
+  letter-spacing: 0.02em;
+}
+
+.studio-shell[data-brand-theme="santati"] .mode-card,
+.studio-shell[data-brand-theme="santati"] .quick-drop-zone,
+.studio-shell[data-brand-theme="santati"] .workflow-stage,
+.studio-shell[data-brand-theme="santati"] .asset-card {
+  border-radius: 14px;
+}
+
 .powered-by[hidden],
 .brand-lockup img[hidden],
 .brand-text-lockup[hidden] {
@@ -317,7 +370,7 @@
 }
 
 .brand-block::before {
-  background: radial-gradient(closest-side, rgba(255, 122, 41, 0.18), transparent 75%);
+  background: radial-gradient(closest-side, var(--studio-client-glow), transparent 75%);
   content: "";
   height: 180px;
   left: -50px;

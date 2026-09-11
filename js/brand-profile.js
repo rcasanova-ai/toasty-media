@@ -1,4 +1,4 @@
-import { BRAND_THEMES, DEFAULT_BRAND_THEME, normalizeBrandTheme } from "./brand-themes.js";
+import { BRAND_THEMES, DEFAULT_BRAND_THEME, normalizeBrandTheme } from "./brand-themes.js?v=brand-20260911";
 
 const STORAGE_KEY = "toastyBrandProfiles";
 
@@ -97,12 +97,13 @@ const DEFAULT_PROFILES = Object.freeze({
     defaultCTA: "Book a strategic conversation",
     website: "8alta.com",
     lowerThird: "8alta · Executive AI Strategy",
-    primaryColor: "#d7b56d",
-    secondaryColor: "#f4ead9",
-    accentColor: "#f1d48b",
-    backgroundPreference: "dark executive canvas with restrained gold accents",
-    fontDirection: "bold editorial headings, crisp professional body text",
-    visualStyle: "premium advisory, composed, evidence-led, minimal ornament",
+    primaryColor: "#1c355c",
+    secondaryColor: "#c9a24f",
+    accentColor: "#e5c879",
+    supportingPalette: ["#eaf1f7", "#ffffff", "#dfe9f2", "#162947"],
+    backgroundPreference: "light navy production environment with crisp white surfaces and restrained gold accents",
+    fontDirection: "bold executive headings, crisp professional body text, measured spacing",
+    visualStyle: "premium advisory, composed, evidence-led, light navy and gold hierarchy, minimal ornament",
     toneOfVoice: "authoritative, calm, precise, executive",
     writingStyle: "clear claims, measured confidence, boardroom-ready language",
     captionStyle: "restrained captions with generous spacing",
@@ -134,12 +135,13 @@ const DEFAULT_PROFILES = Object.freeze({
     defaultCTA: "Start with a clear next step",
     website: "santaticrm.com",
     lowerThird: "Santati · Trust-centered CRM",
-    primaryColor: "#7ab368",
-    secondaryColor: "#3c95a9",
-    accentColor: "#d9bf78",
-    backgroundPreference: "deep green canvas with organic highlights",
-    fontDirection: "clean readable type with grounded spacing",
-    visualStyle: "natural, calm, trustworthy, human-centered",
+    primaryColor: "#55308d",
+    secondaryColor: "#22a6a6",
+    accentColor: "#93e0dc",
+    supportingPalette: ["#120f24", "#1e1835", "#2a2147", "#f6f1ff"],
+    backgroundPreference: "Santati purple production environment with teal clarity accents and soft luminous surfaces",
+    fontDirection: "clean readable type with grounded spacing and warm high-contrast headings",
+    visualStyle: "purple and teal trust system, calm, trustworthy, human-centered, softly dimensional",
     toneOfVoice: "grounded, warm, clear, reassuring",
     writingStyle: "plain language, gentle authority, practical examples",
     captionStyle: "clear captions with soft contrast and natural pacing",
@@ -164,7 +166,11 @@ const DEFAULT_PROFILES = Object.freeze({
 
 export function getBrandProfiles() {
   const saved = readSavedProfiles();
-  return Object.values(BRAND_THEMES).map((theme) => mergeProfile(DEFAULT_PROFILES[theme.id] || profileFromTheme(theme), saved[theme.id]));
+  const profileIds = new Set([...Object.keys(DEFAULT_PROFILES), ...Object.keys(BRAND_THEMES), ...Object.keys(saved)]);
+  return [...profileIds].map((id) => {
+    const theme = BRAND_THEMES[normalizeBrandTheme(id)];
+    return mergeProfile(DEFAULT_PROFILES[id] || (theme ? profileFromTheme(theme) : blankProfile(id)), saved[id]);
+  });
 }
 
 export function getBrandProfile(profileId = DEFAULT_BRAND_THEME) {
@@ -201,6 +207,17 @@ function profileFromTheme(theme) {
     writingStyle: "concise and direct",
     captionStyle: "readable, high contrast",
     ctaStyle: "one clear next step"
+  };
+}
+
+function blankProfile(id) {
+  return {
+    ...PROFILE_DEFAULTS,
+    id,
+    name: id,
+    primaryColor: "#ff7a29",
+    secondaryColor: "#ffc670",
+    accentColor: "#ffab5c"
   };
 }
 

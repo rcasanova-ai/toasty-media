@@ -10,8 +10,8 @@ import {
   getInitialBrandTheme,
   normalizeBrandTheme,
   saveBrandTheme,
-} from "./brand-themes.js";
-import { AIProductionController } from "./ai-production.js";
+} from "./brand-themes.js?v=brand-20260911";
+import { AIProductionController } from "./ai-production.js?v=brand-20260911";
 import { LocalIsolatedRecorder } from "./recording.js";
 import { Soundboard } from "./soundboard.js";
 import { ToastyBroadcastController } from "./broadcast-client.js?v=auth-20260911";
@@ -58,6 +58,7 @@ const elements = {
   poweredBy: document.querySelector("#poweredBy"),
   atmosphereBrandWord: document.querySelector("#atmosphereBrandWord"),
   atmosphereProductWord: document.querySelector("#atmosphereProductWord"),
+  atmosphereMark: document.querySelector(".atmosphere-mark"),
   newRoom: document.querySelector("#newRoom"),
   toggleMic: document.querySelector("#toggleMic"),
   toggleCamera: document.querySelector("#toggleCamera"),
@@ -342,7 +343,8 @@ function applySelectedBrand() {
     logoText: elements.studioBrandText,
     poweredBy: elements.poweredBy,
     atmosphereBrandWord: elements.atmosphereBrandWord,
-    atmosphereProductWord: elements.atmosphereProductWord
+    atmosphereProductWord: elements.atmosphereProductWord,
+    atmosphereMark: elements.atmosphereMark
   });
 }
 
