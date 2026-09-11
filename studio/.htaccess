@@ -1,4 +1,4 @@
-DirectoryIndex director.html
+DirectoryIndex index.html
 Options -Indexes
 
 <Files ".htpasswd">

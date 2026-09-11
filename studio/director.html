@@ -10,7 +10,12 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@700;800;900&family=Permanent+Marker&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../css/brand.css">
     <link rel="stylesheet" href="../css/studio.css">
-    <script type="module" src="../js/director.js"></script>
+    <script>
+      if (window.top === window.self && /\/director\.html$/i.test(window.location.pathname)) {
+        window.location.replace("./");
+      }
+    </script>
+    <script type="module" src="../js/director.js?v=auth-20260911"></script>
   </head>
   <body class="studio-shell director-shell">
     <div class="studio-atmosphere" aria-hidden="true">

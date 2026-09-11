@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Toasty Studio</title>
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/brand.css">
+    <link rel="stylesheet" href="../css/studio-public.css">
+    <script type="module" src="../js/studio-auth.js"></script>
+  </head>
+  <body class="studio-public-shell">
+    <main id="studioPublicPage" class="studio-public-page" aria-live="polite">
+      <header class="public-nav">
+        <a class="public-brand" href="../">
+          <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Media Studio">
+        </a>
+        <nav aria-label="Studio sections">
+          <a href="#quick-toast">Quick Toast</a>
+          <a href="#live-studio">Live Studio</a>
+          <a href="#ai-production">AI Production</a>
+        </nav>
+      </header>
+
+      <section class="studio-hero">
+        <div class="hero-copy">
+          <p class="public-kicker">Toasty Studio</p>
+          <h1>Your content. Professionally produced.</h1>
+          <p class="hero-support">Drop in footage, clips, photos or audio. Toasty handles the production work — branding, cuts, captions, formatting, intros, outros and everything between.</p>
+          <strong>You create. Toasty produces.</strong>
+        </div>
+
+        <section class="auth-card" aria-labelledby="authTitle">
+          <div class="auth-tabs" role="tablist" aria-label="Studio access">
+            <button id="showSignup" class="auth-tab is-active" type="button" role="tab" aria-selected="true">Create Account</button>
+            <button id="showLogin" class="auth-tab" type="button" role="tab" aria-selected="false">Sign In</button>
+          </div>
+
+          <form id="signupForm" class="auth-form" autocomplete="on">
+            <h2 id="authTitle">Create your Studio account</h2>
+            <label>Name<input id="signupName" name="name" autocomplete="name" required></label>
+            <label>Email<input id="signupEmail" name="email" type="email" autocomplete="email" required></label>
+            <label>Password<input id="signupPassword" name="password" type="password" autocomplete="new-password" minlength="10" required></label>
+            <button class="public-button" type="submit">Create account</button>
+          </form>
+
+          <form id="loginForm" class="auth-form" autocomplete="on" hidden>
+            <h2>Sign in to Studio</h2>
+            <label>Email<input id="loginEmail" name="email" type="email" autocomplete="email" required></label>
+            <label>Password<input id="loginPassword" name="password" type="password" autocomplete="current-password" required></label>
+            <button class="public-button" type="submit">Sign in</button>
+          </form>
+
+          <p id="authMessage" class="auth-message" role="status"></p>
+        </section>
+      </section>
+
+      <section class="studio-showcase" aria-label="Existing Toasty Studio interface">
+        <div class="showcase-frame">
+          <div class="showcase-topbar"><span></span><span></span><span></span></div>
+          <div class="showcase-grid">
+            <aside>
+              <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="">
+              <b>ON AIR</b>
+              <small>Brand</small>
+              <small>Invite Guest</small>
+              <small>Quick Actions</small>
+            </aside>
+            <div class="showcase-main">
+              <div class="mode-pills"><span>Live Studio</span><span>AI Production</span></div>
+              <div class="drop-preview">Drop your content here</div>
+              <div class="stage-preview"><span></span><span></span><span></span><span></span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="product-sections">
+        <article id="quick-toast">
+          <p>Quick Toast</p>
+          <h2>Drop it in. We'll make it Toasty.</h2>
+          <span>Upload raw media and turn it into a branded production with intros, outros, lower thirds, captions, watermarks, and export-ready formats.</span>
+        </article>
+        <article id="live-studio">
+          <p>Live Studio</p>
+          <h2>Record the room, guests, and the moment.</h2>
+          <span>Invite guests, manage the session, record, and keep the production flow in one Toasty workspace.</span>
+        </article>
+        <article id="ai-production">
+          <p>AI Production</p>
+          <h2>Create something worth watching.</h2>
+          <span>Start from an idea, a link, notes, or raw material, then move through idea, script, record, scenes, assets, assemble, review, and export.</span>
+        </article>
+        <article>
+          <p>Brand memory</p>
+          <h2>Your production system remembers the brand.</h2>
+          <span>Keep colors, logo behavior, lower thirds, voice, creator context, and calls to action consistent across repeatable work.</span>
+        </article>
+        <article>
+          <p>Coming</p>
+          <h2>One recording. More content.</h2>
+          <span>Future workflows will help turn a single recording into more social cuts, summaries, and repurposed campaign assets.</span>
+        </article>
+      </section>
+    </main>
+
+    <section id="studioAppShell" class="studio-app-shell" hidden>
+      <button id="studioLogout" class="studio-logout" type="button">Sign out</button>
+      <iframe id="studioAppFrame" title="Toasty Studio application" src="about:blank"></iframe>
+    </section>
+  </body>
+</html>

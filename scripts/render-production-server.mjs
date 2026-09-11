@@ -6,16 +6,26 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { createHmac, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
+import { promisify } from "node:util";
 
 const HOST = process.env.TOASTY_RENDER_HOST || "127.0.0.1";
 const PORT = Number(process.env.TOASTY_RENDER_PORT || 4174);
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const API_TOKEN = process.env.TOASTY_RENDER_TOKEN || "";
+const SESSION_SECRET = process.env.TOASTY_SESSION_SECRET || API_TOKEN || "";
+const AUTH_DB_PATH = process.env.TOASTY_AUTH_DB || "/var/lib/toasty/toasty.sqlite";
+const AUTH_DB_HELPER = process.env.TOASTY_AUTH_DB_HELPER || join(SCRIPT_DIR, "toasty-auth-db.py");
+const SESSION_SECONDS = Number(process.env.TOASTY_SESSION_SECONDS || 7 * 24 * 60 * 60);
+const COOKIE_NAME = "toasty_session";
 const ALLOWED_ORIGINS = new Set([
   "https://toasty.media",
+  "https://www.toasty.media",
   "http://localhost:4173",
-  "http://127.0.0.1:4173"
+  "http://127.0.0.1:4173",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173"
 ]);
 const MAX_UPLOAD_BYTES = Number(process.env.TOASTY_RENDER_MAX_UPLOAD_BYTES || 350 * 1024 * 1024);
 const MAX_FILES = Number(process.env.TOASTY_RENDER_MAX_FILES || 20);
@@ -24,6 +34,9 @@ const MAX_TOTAL_DURATION = Number(process.env.TOASTY_RENDER_MAX_DURATION || 180)
 const MAX_SCENES = Number(process.env.TOASTY_RENDER_MAX_SCENES || 40);
 const FFMPEG_TIMEOUT_MS = Number(process.env.TOASTY_RENDER_FFMPEG_TIMEOUT_MS || 120000);
 const SAFE_ID = /^[a-z0-9][a-z0-9._-]{0,80}$/i;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const scryptAsync = promisify(scrypt);
+const rateBuckets = new Map();
 
 const server = createServer(async (req, res) => {
   if (!setCors(req, res)) {
@@ -35,12 +48,41 @@ const server = createServer(async (req, res) => {
     res.end();
     return;
   }
+  if (req.method === "GET" && req.url === "/health") {
+    sendJson(req, res, 200, { ok: true, authConfigured: authConfigured() });
+    return;
+  }
+  if (req.method === "GET" && req.url === "/auth/session") {
+    const session = await readSession(req);
+    sendJson(req, res, 200, {
+      authenticated: Boolean(session),
+      user: session ? publicSessionUser(session) : null
+    });
+    return;
+  }
+  if (req.method === "POST" && req.url === "/auth/register") {
+    if (!requireCsrf(req, res) || !limit(req, res, "register", 8, 15 * 60 * 1000)) return;
+    await handleRegister(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/auth/login") {
+    if (!requireCsrf(req, res) || !limit(req, res, "login", 12, 15 * 60 * 1000)) return;
+    await handleLogin(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/auth/logout") {
+    if (!requireCsrf(req, res)) return;
+    clearSession(req, res);
+    sendJson(req, res, 200, { authenticated: false });
+    return;
+  }
   if (req.method !== "POST" || req.url !== "/render") {
     sendJson(req, res, 404, { error: "Render helper is running. POST /render to create an MP4." });
     return;
   }
-  if (!isAuthorized(req)) {
-    sendJson(req, res, 401, { error: "Render token is required." });
+  if (!requireCsrf(req, res)) return;
+  if (!(await isAuthorized(req))) {
+    sendJson(req, res, 401, { error: "Sign in to render video." });
     return;
   }
   if (Number(req.headers["content-length"] || 0) > MAX_UPLOAD_BYTES) {
@@ -82,6 +124,130 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`Toasty render helper listening on http://${HOST}:${PORT}`);
 });
+
+async function handleRegister(req, res) {
+  if (!authConfigured()) return sendJson(req, res, 503, { error: "Studio authentication is not configured." });
+  const body = await readJson(req);
+  const name = cleanName(body?.name);
+  const email = normalizeEmail(body?.email);
+  const password = String(body?.password || "");
+  if (!name || !email || !password) return sendJson(req, res, 400, { error: "Name, email, and password are required." });
+  if (!EMAIL_PATTERN.test(email)) return sendJson(req, res, 400, { error: "Enter a valid email address." });
+  if (password.length < 10) return sendJson(req, res, 400, { error: "Use a password with at least 10 characters." });
+  const userId = randomUUID();
+  const passwordHash = await hashPassword(password);
+  const result = await db("create_user", { id: userId, name, email, passwordHash });
+  if (result.error === "duplicate_email") return sendJson(req, res, 409, { error: "An account with that email already exists." });
+  if (!result.user) return sendJson(req, res, 500, { error: "Account could not be created." });
+  setSession(req, res, result.user);
+  sendJson(req, res, 201, { authenticated: true, user: result.user });
+}
+
+async function handleLogin(req, res) {
+  if (!authConfigured()) return sendJson(req, res, 503, { error: "Studio authentication is not configured." });
+  const body = await readJson(req);
+  const email = normalizeEmail(body?.email);
+  const password = String(body?.password || "");
+  if (!email || !password) return sendJson(req, res, 400, { error: "Email and password are required." });
+  const result = await db("get_user_by_email", { email });
+  const generic = { error: "Incorrect email or password." };
+  if (!result.user || result.user.status !== "active" || !(await verifyPassword(password, result.passwordHash))) {
+    return sendJson(req, res, 401, generic);
+  }
+  const login = await db("mark_login", { id: result.user.id });
+  const user = login.user || result.user;
+  setSession(req, res, user);
+  sendJson(req, res, 200, { authenticated: true, user });
+}
+
+function authConfigured() {
+  return Boolean(SESSION_SECRET);
+}
+
+async function hashPassword(password) {
+  const salt = randomBytes(16).toString("hex");
+  const key = await scryptAsync(password, salt, 64);
+  return `scrypt$${salt}$${Buffer.from(key).toString("hex")}`;
+}
+
+async function verifyPassword(password, stored = "") {
+  const [method, salt, hash] = String(stored).split("$");
+  if (method !== "scrypt" || !salt || !hash) return false;
+  const candidate = Buffer.from(await scryptAsync(password, salt, 64));
+  const expected = Buffer.from(hash, "hex");
+  return expected.length === candidate.length && timingSafeEqual(expected, candidate);
+}
+
+function setSession(req, res, user) {
+  const expires = Math.floor(Date.now() / 1000) + SESSION_SECONDS;
+  const payload = Buffer.from(JSON.stringify({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    status: user.status,
+    expires
+  })).toString("base64url");
+  const signature = sign(payload);
+  res.setHeader("Set-Cookie", `${COOKIE_NAME}=${payload}.${signature}; ${cookieAttributes(req)}; Max-Age=${SESSION_SECONDS}`);
+}
+
+function clearSession(req, res) {
+  res.setHeader("Set-Cookie", `${COOKIE_NAME}=; ${cookieAttributes(req)}; Max-Age=0`);
+}
+
+function cookieAttributes(req) {
+  const secure = isLocalOrigin(req.headers.origin || "") ? "" : " Secure;";
+  return `HttpOnly;${secure} SameSite=Lax; Path=/`;
+}
+
+async function readSession(req) {
+  if (!authConfigured()) return null;
+  const cookies = parseCookies(req.headers.cookie || "");
+  const raw = cookies[COOKIE_NAME];
+  if (!raw) return null;
+  const dot = raw.lastIndexOf(".");
+  if (dot < 1) return null;
+  const payload = raw.slice(0, dot);
+  const suppliedSignature = raw.slice(dot + 1);
+  if (!safeStringEqual(suppliedSignature, sign(payload))) return null;
+  try {
+    const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (Number(session.expires) <= Math.floor(Date.now() / 1000)) return null;
+    const result = await db("get_user_by_id", { id: session.id });
+    if (!result.user || result.user.status !== "active") return null;
+    return result.user;
+  } catch {
+    return null;
+  }
+}
+
+function publicSessionUser(user) {
+  return user ? { id: user.id, name: user.name, email: user.email, status: user.status } : null;
+}
+
+function sign(payload) {
+  return createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+}
+
+function safeStringEqual(a, b) {
+  const left = Buffer.from(String(a));
+  const right = Buffer.from(String(b));
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+function parseCookies(header) {
+  return header.split(";").reduce((out, item) => {
+    const index = item.indexOf("=");
+    if (index > 0) out[item.slice(0, index).trim()] = item.slice(index + 1).trim();
+    return out;
+  }, {});
+}
+
+async function db(action, values = {}) {
+  const result = await runJson("python3", [AUTH_DB_HELPER], { action, dbPath: AUTH_DB_PATH, ...values });
+  if (result.error && result.error !== "duplicate_email") throw httpError(500, "Authentication storage is unavailable.");
+  return result;
+}
 
 async function writeMediaFiles({ form, workDir }) {
   const media = new Map();
@@ -361,9 +527,10 @@ function setCors(req, res) {
   if (!origin) return true;
   if (!ALLOWED_ORIGINS.has(origin)) return false;
   res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Vary", "Origin");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Toasty-Render-Token");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Toasty-Render-Token, X-Toasty-CSRF");
   res.setHeader("Access-Control-Max-Age", "86400");
   return true;
 }
@@ -374,7 +541,8 @@ function sendJson(req, res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
-function isAuthorized(req) {
+async function isAuthorized(req) {
+  if (await readSession(req)) return true;
   if (!API_TOKEN && isLocalOrigin(req.headers.origin)) return true;
   return Boolean(API_TOKEN) && req.headers["x-toasty-render-token"] === API_TOKEN;
 }
@@ -383,11 +551,83 @@ function isLocalOrigin(origin = "") {
   return origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:");
 }
 
+function requireCsrf(req, res) {
+  const origin = req.headers.origin || "";
+  if (origin && !ALLOWED_ORIGINS.has(origin)) {
+    sendJson(req, res, 403, { error: "Origin is not allowed." });
+    return false;
+  }
+  if (req.headers["x-toasty-csrf"] !== "1") {
+    sendJson(req, res, 403, { error: "Request verification failed." });
+    return false;
+  }
+  return true;
+}
+
+function limit(req, res, key, max, windowMs) {
+  const now = Date.now();
+  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown").split(",")[0].trim();
+  const bucketKey = `${key}:${ip}`;
+  const bucket = rateBuckets.get(bucketKey) || [];
+  const current = bucket.filter((time) => now - time < windowMs);
+  current.push(now);
+  rateBuckets.set(bucketKey, current);
+  if (current.length > max) {
+    sendJson(req, res, 429, { error: "Too many attempts. Try again shortly." });
+    return false;
+  }
+  return true;
+}
+
+async function readJson(req) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > 64 * 1024) throw httpError(413, "Request is too large.");
+    chunks.push(chunk);
+  }
+  if (!chunks.length) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    throw httpError(400, "Invalid JSON request.");
+  }
+}
+
+function cleanName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").slice(0, 120);
+}
+
+function normalizeEmail(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
 function httpError(statusCode, publicMessage) {
   const error = new Error(publicMessage);
   error.statusCode = statusCode;
   error.publicMessage = publicMessage;
   return error;
+}
+
+function runJson(command, args, input) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ["pipe", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+    child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) return reject(new Error(stderr || stdout || `${command} exited with ${code}`));
+      try {
+        resolve(JSON.parse(stdout || "{}"));
+      } catch (error) {
+        reject(error);
+      }
+    });
+    child.stdin.end(JSON.stringify(input));
+  });
 }
 
 function run(command, args) {

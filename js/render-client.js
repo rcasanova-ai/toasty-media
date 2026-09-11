@@ -2,7 +2,6 @@ import { collectRenderMedia } from "./media-store.js";
 
 const LOCAL_RENDER_ENDPOINT = "http://127.0.0.1:4174/render";
 const PRODUCTION_RENDER_ENDPOINT = "https://render.toasty.media/render";
-const PRODUCTION_RENDER_TOKEN = "357586a404673f0d3dd2a33f84d643ccbdd3b6f7d1c93dd218c245a2766a6596";
 
 export function buildTimeline({ project, productionSpec, brandProfile }) {
   const narrationDuration = project.audio?.duration || 0;
@@ -69,8 +68,12 @@ export async function renderProductionMp4({ project, productionSpec, brandProfil
 
   onProgress("Rendering MP4...");
   const renderEndpoint = getRenderEndpoint();
-  const headers = getRenderHeaders();
-  const response = await fetch(renderEndpoint, { method: "POST", headers, body: form });
+  const response = await fetch(renderEndpoint, {
+    method: "POST",
+    headers: { "X-Toasty-CSRF": "1" },
+    credentials: "include",
+    body: form
+  });
   if (!response.ok) {
     let message = "Render failed. Start the local render helper and try again.";
     try {
@@ -99,12 +102,6 @@ function getRenderEndpoint() {
     return LOCAL_RENDER_ENDPOINT;
   }
   return PRODUCTION_RENDER_ENDPOINT;
-}
-
-function getRenderHeaders() {
-  const host = window.location.hostname;
-  if (host === "localhost" || host === "127.0.0.1" || host === "") return {};
-  return { "X-Toasty-Render-Token": PRODUCTION_RENDER_TOKEN };
 }
 
 export function renderReadiness({ project, consistency }) {

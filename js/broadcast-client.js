@@ -1,8 +1,9 @@
 const DEFAULT_ENDPOINT = window.TOASTY_BROADCAST_ENDPOINT || "https://broadcast.toasty.media";
 
 export class ToastyBroadcastController {
-  constructor({ getProgramUrl } = {}) {
+  constructor({ getProgramUrl, requireLegacyAuthGate = true } = {}) {
     this.getProgramUrl = getProgramUrl;
+    this.requireLegacyAuthGate = requireLegacyAuthGate;
     this.endpoint = localStorage.getItem("toasty.broadcast.endpoint") || DEFAULT_ENDPOINT;
     this.broadcastId = null;
     this.abortController = null;
@@ -17,10 +18,11 @@ export class ToastyBroadcastController {
   init() {
     this.injectStyles();
     this.mountPanel();
-    this.mountLoginGate();
+    if (this.requireLegacyAuthGate) this.mountLoginGate();
     this.bind();
     this.updateUi("offline");
-    this.checkSession();
+    if (this.requireLegacyAuthGate) this.checkSession();
+    else this.unlock("Studio account");
     return this;
   }
 
@@ -80,8 +82,8 @@ export class ToastyBroadcastController {
       this.endpoint = this.elements.broadcastEndpoint.value.trim().replace(/\/+$/, "");
       localStorage.setItem("toasty.broadcast.endpoint", this.endpoint);
     });
-    this.elements.toastyLoginForm.addEventListener("submit", (event) => { event.preventDefault(); this.login(); });
-    this.elements.studioLogout.addEventListener("click", () => this.logout());
+    this.elements.toastyLoginForm?.addEventListener("submit", (event) => { event.preventDefault(); this.login(); });
+    this.elements.studioLogout?.addEventListener("click", () => this.logout());
     window.addEventListener("beforeunload", () => this.stop({ quiet: true }));
   }
 
@@ -117,14 +119,15 @@ export class ToastyBroadcastController {
   }
 
   lock(message = "") {
+    if (!this.requireLegacyAuthGate) return;
     this.elements.toastyLoginGate.hidden = false;
     this.elements.toastyLoginError.textContent = message;
     setTimeout(() => this.elements.toastyLoginPassword.focus(), 50);
   }
 
   unlock(username) {
-    this.elements.toastyLoginGate.hidden = true;
-    this.elements.studioUser.textContent = username ? `Signed in as ${username}` : "Signed in";
+    if (this.elements.toastyLoginGate) this.elements.toastyLoginGate.hidden = true;
+    if (this.elements.studioUser) this.elements.studioUser.textContent = username ? `Signed in as ${username}` : "Signed in";
   }
 
   openProgramOutput() {
@@ -208,7 +211,15 @@ export class ToastyBroadcastController {
   async request(path, options = {}, { allowUnauthorized = false } = {}) {
     this.endpoint = this.elements.broadcastEndpoint?.value.trim().replace(/\/+$/, "") || this.endpoint;
     localStorage.setItem("toasty.broadcast.endpoint", this.endpoint);
-    const response = await fetch(`${this.endpoint}${path}`, { ...options, credentials: "include", headers: { "Content-Type": "application/json", ...(options.headers || {}) } });
+    const response = await fetch(`${this.endpoint}${path}`, {
+      ...options,
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.method && options.method !== "GET" ? { "X-Toasty-CSRF": "1" } : {}),
+        ...(options.headers || {})
+      }
+    });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
       if (response.status === 401 && !allowUnauthorized) this.lock();
