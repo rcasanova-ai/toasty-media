@@ -38,6 +38,12 @@ export class VideoEngine {
   mountGuestFrame(container,{roomId,guestName,backgroundMode}) { const suffix=Date.now().toString(36).slice(-4); const streamId=`${roomId}g${suffix}`.slice(0,24); return this.mountFrame(container,"guest",{room:roomId,push:streamId,label:guestName||"Guest",webcam:"1",showlabels:"1",cleanoutput:"0",effects:effectForBackground(backgroundMode)}); }
   mountListenerFrame(container,{roomId}) { return this.mountFrame(container,"listener",{room:roomId,scene:"0",showlabels:"1",cleanoutput:"1"}); }
 
+  // Hidden viewer-only frame used purely to query the room's live guest list (id + label) for the Program Output compositor.
+  mountDirectorControlFrame(container,{roomId}) { return this.mountFrame(container,"control",{room:roomId,director:roomId,cleanoutput:"1",transparent:"1"}); }
+
+  // Solo (unmixed, no VDO.Ninja chrome/labels) single-stream view, used to place one participant into a Program Output tile.
+  mountSoloFrame(container,{roomId,streamId},frameId=streamId) { return this.mountFrame(container,frameId,{room:roomId,view:streamId,solo:true,cleanoutput:"1",transparent:"1",showlabels:"0",controls:"0"}); }
+
   mountFrame(container,frameId,params) { const iframe=document.createElement("iframe"); iframe.allow=IFRAME_ALLOW; iframe.allowFullscreen=true; iframe.src=this.buildUrl(params); iframe.title=`Toasty Studio ${frameId}`; container.replaceChildren(iframe); container.removeAttribute("data-empty"); this.frames.set(frameId,iframe); return iframe; }
   buildUrl(params) { const url=new URL("/",this.baseUrl); const merged={...DEFAULT_PARAMS,...params}; Object.entries(merged).forEach(([key,value])=>{ if(value===true)url.searchParams.set(key,""); else if(value!==undefined&&value!==null&&value!==false&&value!=="")url.searchParams.set(key,value); }); return url.toString(); }
   send(frameId,command) { const iframe=this.frames.get(frameId); if(!iframe?.contentWindow)return false; iframe.contentWindow.postMessage(command,this.baseUrl); return true; }
@@ -49,6 +55,27 @@ export class VideoEngine {
   setGuestScreenShare(enabled){return this.send("guest",{screenshare:enabled});}
   disconnectAll(){this.frames.forEach((_,frameId)=>{this.send(frameId,{hangup:true});this.send(frameId,{disconnect:true});});}
   requestDetailedState(frameId="host"){return this.send(frameId,{getDetailedState:true});}
+
+  // Asks the hidden director-control frame for the room's current guest list. Resolves to a normalized
+  // [{id,label}] array (tolerant of the VDO.Ninja response using id/streamID/UUID and label/name keys).
+  requestGuestList(frameId="control",timeoutMs=2500) {
+    return new Promise((resolve) => {
+      const cib = `guestlist-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
+      let done = false;
+      const finish = (list) => { if(done) return; done=true; clearTimeout(timer); off(); resolve(list); };
+      const off = this.onMessage((message) => {
+        if (message?.cib !== cib) return;
+        const raw = message.guestList || message.list || message.guests || [];
+        finish(raw.map((entry) => ({
+          id: entry.id || entry.streamID || entry.UUID || entry.uuid || entry.streamId,
+          label: entry.label || entry.name || entry.title || ""
+        })).filter((entry) => entry.id));
+      });
+      const timer = setTimeout(() => finish([]), timeoutMs);
+      if (!this.send(frameId, { action: "getGuestList", cib })) finish([]);
+    });
+  }
+
   onMessage(callback){this.listeners.add(callback);return()=>this.listeners.delete(callback);}
   handleMessage(event){if(event.origin!==this.baseUrl)return;this.listeners.forEach(callback=>callback(event.data));}
 }

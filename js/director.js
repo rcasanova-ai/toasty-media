@@ -15,6 +15,10 @@ import { AIProductionController } from "./ai-production.js?v=brand-20260911";
 import { LocalIsolatedRecorder } from "./recording.js";
 import { Soundboard } from "./soundboard.js";
 import { ToastyBroadcastController } from "./broadcast-client.js?v=auth-20260911";
+import { ProgramSync } from "./program-sync.js";
+import { getBrandProfile } from "./brand-profile.js";
+
+const GUEST_SEAT_COUNT = 3;
 
 const state = {
   roomId: getOrCreateRoomId(),
@@ -28,6 +32,22 @@ const state = {
   recorder: null,
   guestCount: 0
 };
+
+const program = {
+  scene: "holding",
+  layout: "auto",
+  topic: "",
+  tickerEnabled: false,
+  tickerText: "",
+  live: false,
+  hostTitle: "",
+  guestTitles: ["", "", ""],
+  // Stable seat -> {id,label} assignment for up to GUEST_SEAT_COUNT guests, independent of join/leave order noise.
+  guestSeats: new Array(GUEST_SEAT_COUNT).fill(null)
+};
+
+let programSync = null;
+let guestListTimerId = null;
 
 const engine = new VideoEngine();
 
@@ -74,7 +94,17 @@ const elements = {
   soundboard: document.querySelector("#soundboard"),
   soundboardVolume: document.querySelector("#soundboardVolume"),
   soundboardTabs: document.querySelector("#soundboardTabs"),
-  soundboardSearch: document.querySelector("#soundboardSearch")
+  soundboardSearch: document.querySelector("#soundboardSearch"),
+  directorControlFrame: document.querySelector("#directorControlFrame"),
+  poTopic: document.querySelector("#poTopic"),
+  poSceneGroup: document.querySelector("#poSceneGroup"),
+  poLayout: document.querySelector("#poLayout"),
+  poTickerEnabled: document.querySelector("#poTickerEnabled"),
+  poTickerText: document.querySelector("#poTickerText"),
+  poHostTitle: document.querySelector("#poHostTitle"),
+  poGuest1Title: document.querySelector("#poGuest1Title"),
+  poGuest2Title: document.querySelector("#poGuest2Title"),
+  poGuest3Title: document.querySelector("#poGuest3Title")
 };
 
 init();
@@ -95,7 +125,11 @@ function init() {
   }).init();
   new ToastyBroadcastController({
     getProgramUrl: () => elements.listenerInvite.value,
-    requireLegacyAuthGate: false
+    requireLegacyAuthGate: false,
+    onStateChange: (broadcastState) => {
+      program.live = broadcastState === "live";
+      publishProgramState();
+    }
   }).init();
 
   engine.onMessage((message) => {
@@ -108,6 +142,8 @@ function init() {
     elements.recordingNote.textContent = "Recording is unavailable in this browser. Use current Chrome for the recording proof.";
     elements.toggleRecording.disabled = true;
   }
+
+  bindProgramOutputControls();
 }
 
 function mountRoom() {
@@ -121,8 +157,52 @@ function mountRoom() {
     label: "Toasty Host"
   });
   engine.mountRoomFrame(elements.guestFrame, { roomId: state.roomId });
+  engine.mountDirectorControlFrame(elements.directorControlFrame, { roomId: state.roomId });
 
+  program.guestSeats = new Array(GUEST_SEAT_COUNT).fill(null);
+  restartProgramSync();
+  restartGuestListPolling();
   updateInviteAndHistory();
+  publishProgramState();
+}
+
+function restartProgramSync() {
+  programSync?.close();
+  programSync = new ProgramSync(state.roomId);
+  programSync.onMessage((message) => {
+    if (message?.type === "request-state") publishProgramState();
+  });
+}
+
+function restartGuestListPolling() {
+  if (guestListTimerId) window.clearInterval(guestListTimerId);
+  refreshGuestSeats();
+  guestListTimerId = window.setInterval(refreshGuestSeats, 4000);
+}
+
+// Sole source of truth for guest presence. Generic VDO.Ninja iframe/postMessage lifecycle events
+// (push-connection, getDetailedState, etc.) are NEVER trusted to mean "a guest joined" — they fire for
+// the director's own host/control frames too. Only an id returned by the room's real guest-list API,
+// with the host's own stream id excluded, counts as a guest. If that call is empty, times out, or
+// fails, engine.requestGuestList() resolves to [] (see video-engine.js) — so uncertain state always
+// reads as zero guests, never an invented one.
+async function refreshGuestSeats() {
+  const hostStreamId = `${state.roomId}h`;
+  const guests = (await engine.requestGuestList()).filter((guest) => guest.id !== hostStreamId);
+  const stillPresent = new Set(guests.map((guest) => guest.id));
+
+  // Keep existing seat holders steady so tiles don't jump around; only backfill empty seats.
+  // A guest id already occupying a seat is left alone, so a duplicate/repeated entry in the list
+  // (e.g. a reconnect reusing the same id) never claims a second seat.
+  program.guestSeats = program.guestSeats.map((seat) => (seat && stillPresent.has(seat.id) ? seat : null));
+  guests.forEach((guest) => {
+    if (program.guestSeats.some((seat) => seat?.id === guest.id)) return;
+    const emptyIndex = program.guestSeats.findIndex((seat) => seat === null);
+    if (emptyIndex !== -1) program.guestSeats[emptyIndex] = guest;
+  });
+
+  updateGuestPresence(program.guestSeats.filter(Boolean).length);
+  publishProgramState();
 }
 
 function updateInviteAndHistory() {
@@ -132,6 +212,60 @@ function updateInviteAndHistory() {
   url.searchParams.set("room", state.roomId);
   url.searchParams.set("brand", state.brandTheme);
   history.replaceState({}, "", url);
+}
+
+function bindProgramOutputControls() {
+  elements.poTopic.addEventListener("input", () => { program.topic = elements.poTopic.value; publishProgramState(); });
+  elements.poLayout.addEventListener("change", () => { program.layout = elements.poLayout.value; publishProgramState(); });
+  elements.poTickerEnabled.addEventListener("change", () => {
+    program.tickerEnabled = elements.poTickerEnabled.checked;
+    elements.poTickerText.disabled = !program.tickerEnabled;
+    publishProgramState();
+  });
+  elements.poTickerText.addEventListener("input", () => { program.tickerText = elements.poTickerText.value; publishProgramState(); });
+  elements.poHostTitle.addEventListener("input", () => { program.hostTitle = elements.poHostTitle.value; publishProgramState(); });
+  [elements.poGuest1Title, elements.poGuest2Title, elements.poGuest3Title].forEach((input, index) => {
+    input.addEventListener("input", () => { program.guestTitles[index] = input.value; publishProgramState(); });
+  });
+  elements.poSceneGroup.querySelectorAll(".po-swatch").forEach((button) => {
+    button.addEventListener("click", () => {
+      program.scene = button.dataset.scene;
+      elements.poSceneGroup.querySelectorAll(".po-swatch").forEach((other) => other.setAttribute("aria-pressed", String(other === button)));
+      publishProgramState();
+    });
+  });
+}
+
+function publishProgramState() {
+  const brandProfile = getBrandProfile(state.brandTheme);
+  const seats = [
+    {
+      id: "host",
+      streamId: `${state.roomId}h`,
+      name: brandProfile.creatorName || "Host",
+      title: program.hostTitle || brandProfile.creatorTitle || "",
+      active: true
+    },
+    ...program.guestSeats.map((seat, index) => ({
+      id: `guest${index + 1}`,
+      streamId: seat?.id || null,
+      name: seat?.label || `Guest ${index + 1}`,
+      title: program.guestTitles[index] || "",
+      active: Boolean(seat)
+    }))
+  ];
+
+  programSync.publishState({
+    roomId: state.roomId,
+    brandTheme: state.brandTheme,
+    scene: program.scene,
+    layout: program.layout,
+    topic: program.topic,
+    ticker: { enabled: program.tickerEnabled, text: program.tickerText },
+    live: program.live,
+    screenSharing: state.screenSharing,
+    seats
+  });
 }
 
 function bindControls() {
@@ -153,6 +287,7 @@ function changeBrandTheme() {
   saveBrandTheme(state.brandTheme);
   applySelectedBrand();
   updateInviteAndHistory();
+  publishProgramState();
 }
 
 function changeBrandThemeFromProduction(brandTheme) {
@@ -229,6 +364,7 @@ function toggleScreen() {
   [elements.toggleScreen, elements.toggleScreenQuick].forEach((btn) => {
     if (btn) updatePressed(btn, state.screenSharing, "Share screen", "Stop sharing");
   });
+  publishProgramState();
 }
 
 async function toggleRecording() {
@@ -362,20 +498,17 @@ function updateGuestPresence(count) {
   });
 
   const hasGuests = state.guestCount > 0;
-  elements.guestPanelStatus.textContent = hasGuests ? `${state.guestCount} connected` : "Waiting";
+  elements.guestPanelStatus.textContent = `${state.guestCount} connected`;
   elements.guestPanelStatus.dataset.state = hasGuests ? "connected" : "idle";
   elements.guestStageEmpty.hidden = hasGuests;
 }
 
 function handleVdoMessage(message) {
-  if (message.action === "push-connection" && message.value === true) {
-    setConnectionStatus("Guest connected", "connected");
-    updateGuestPresence(state.guestCount + 1);
-  } else if (message.action === "push-connection" && message.value === false) {
-    setConnectionStatus("Guest disconnected", "idle");
-    updateGuestPresence(state.guestCount - 1);
-  } else if (message.action === "view-connection" && message.value === false) {
-    setConnectionStatus("Viewer disconnected", "idle");
+  // push-connection/view-connection fire for ANY of our frames (host, control, room, etc.), not just
+  // real guests — so they're only used as a hint to re-poll the authoritative guest-list API below.
+  // The actual guest count/seat assignment always comes from refreshGuestSeats(), never from this event.
+  if (message.action === "push-connection" || message.action === "view-connection") {
+    refreshGuestSeats();
   } else if (message.action || message.getDetailedState) {
     setConnectionStatus("Live", "connected");
   }

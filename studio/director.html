@@ -145,6 +145,24 @@
                 <b>Choose files</b>
               </label>
               <div class="quick-toast-panel">
+                <div class="content-library-panel" id="contentLibraryPanel">
+                  <div class="content-library-head">
+                    <div>
+                      <p class="rail-eyebrow">Content Library</p>
+                      <strong>Google Drive</strong>
+                    </div>
+                    <button id="connectGoogleDrive" class="btn btn-ghost btn-small" type="button">Connect Drive</button>
+                  </div>
+                  <p id="driveStatus" class="control-note">Connect Google Drive to use your own media without storing permanent copies in Toasty.</p>
+                  <div class="drive-browser" id="driveBrowser" hidden>
+                    <div class="drive-toolbar">
+                      <button id="driveBack" class="btn btn-ghost btn-small" type="button" disabled>Back</button>
+                      <input id="driveSearch" type="search" placeholder="Search Drive media" aria-label="Search Google Drive">
+                      <button id="driveSearchBtn" class="btn btn-ghost btn-small" type="button">Search</button>
+                    </div>
+                    <div id="driveFileList" class="drive-file-list" aria-live="polite"></div>
+                  </div>
+                </div>
                 <label>Format
                   <select id="quickFormat">
                     <option value="original">Original</option>
@@ -161,6 +179,7 @@
                   <label><input id="quickWatermark" type="checkbox" checked> Watermark</label>
                   <label><input id="quickCaptions" type="checkbox"> Captions</label>
                   <label><input id="quickNormalizeAudio" type="checkbox" checked> Normalize audio</label>
+                  <label><input id="quickSaveToDrive" type="checkbox"> Save finished video to Google Drive</label>
                 </details>
                 <button id="quickToastIt" class="btn btn-primary quick-toast-button" type="button" disabled>Toast it</button>
                 <button id="startCreateWorkflow" class="link-action quick-create-link" type="button">Start from an idea →</button>
@@ -301,6 +320,7 @@
                 <button id="downloadRenderedMp4" class="btn btn-ghost" type="button" disabled>Download MP4</button>
                 <button id="exportManifest" class="btn btn-ghost" type="button">Download Production Manifest</button>
               </div>
+              <label class="drive-output-toggle"><input id="saveOutputToDrive" type="checkbox"> Save finished video to Google Drive</label>
               <p id="renderStatus" class="render-status">Start the local render helper, then render an MP4.</p>
             </div>
             <details class="provider-debug">
@@ -440,8 +460,53 @@
             </div>
           </div>
 
+          <div class="panel-section program-output-panel" aria-label="Program Output">
+            <p class="rail-eyebrow">Program Output</p>
+            <label class="po-field">Show / topic
+              <input id="poTopic" type="text" placeholder="e.g. Podcast Episode #47" maxlength="120">
+            </label>
+
+            <p class="po-subhead">Scene</p>
+            <div class="po-button-group" id="poSceneGroup" role="radiogroup" aria-label="Program scene">
+              <button type="button" class="po-swatch" data-scene="holding" aria-pressed="true">Starting Soon</button>
+              <button type="button" class="po-swatch" data-scene="live" aria-pressed="false">Live</button>
+              <button type="button" class="po-swatch" data-scene="ending" aria-pressed="false">Ending</button>
+            </div>
+
+            <label class="po-field">Layout
+              <select id="poLayout">
+                <option value="auto" selected>Auto</option>
+                <option value="1">1 speaker</option>
+                <option value="2">2 speakers</option>
+                <option value="3">3 speakers</option>
+                <option value="4">4 speakers</option>
+                <option value="screen-speaker">Screen + speaker</option>
+                <option value="screen-dominant">Screen dominant + PiP</option>
+                <option value="fullmedia">Full-screen media</option>
+              </select>
+            </label>
+
+            <label class="po-field po-ticker-toggle">
+              <input id="poTickerEnabled" type="checkbox">
+              Show ticker
+            </label>
+            <label class="po-field">Ticker text
+              <input id="poTickerText" type="text" placeholder="Breaking: ..." maxlength="220" disabled>
+            </label>
+
+            <details class="po-lower-thirds">
+              <summary>Lower-third titles</summary>
+              <label class="po-field">Host title<input id="poHostTitle" type="text" placeholder="Founder / Toasty Media"></label>
+              <label class="po-field">Guest 1 title<input id="poGuest1Title" type="text" placeholder="Title, company"></label>
+              <label class="po-field">Guest 2 title<input id="poGuest2Title" type="text" placeholder="Title, company"></label>
+              <label class="po-field">Guest 3 title<input id="poGuest3Title" type="text" placeholder="Title, company"></label>
+            </details>
+          </div>
+
         </section>
       </aside>
     </div>
+
+    <div id="directorControlFrame" class="director-control-frame" aria-hidden="true"></div>
   </body>
 </html>

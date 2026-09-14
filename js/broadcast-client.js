@@ -1,9 +1,10 @@
 const DEFAULT_ENDPOINT = window.TOASTY_BROADCAST_ENDPOINT || "https://broadcast.toasty.media";
 
 export class ToastyBroadcastController {
-  constructor({ getProgramUrl, requireLegacyAuthGate = true } = {}) {
+  constructor({ getProgramUrl, requireLegacyAuthGate = true, onStateChange } = {}) {
     this.getProgramUrl = getProgramUrl;
     this.requireLegacyAuthGate = requireLegacyAuthGate;
+    this.onStateChange = onStateChange;
     this.endpoint = localStorage.getItem("toasty.broadcast.endpoint") || DEFAULT_ENDPOINT;
     this.broadcastId = null;
     this.abortController = null;
@@ -229,6 +230,7 @@ export class ToastyBroadcastController {
   }
 
   updateUi(state) {
+    this.onStateChange?.(state);
     const live = state === "live";
     const connecting = state === "connecting";
     this.elements.broadcastBadge.dataset.state = state;

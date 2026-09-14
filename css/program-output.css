@@ -1,0 +1,327 @@
+/* Toasty Studio — Program Output canvas.
+   Self-contained on purpose: this page must render as a finished broadcast, independent of any
+   Director/Studio chrome. Brand tokens (--studio-*) are set at runtime by applyBrandTheme(); the
+   fallbacks below match the Toasty Media default so the canvas never renders unstyled. */
+
+:root {
+  --studio-canvas: #0b0908;
+  --studio-surface: #171210;
+  --studio-line: rgba(230, 200, 168, 0.14);
+  --studio-cream: #f4ead9;
+  --studio-cream-dim: #d3c2ac;
+  --studio-muted: #9c8d7c;
+  --studio-orange: #ff7a29;
+  --studio-orange-bright: #ffab5c;
+  --studio-amber: #ffc670;
+  --po-font-heading: Montserrat, Inter, system-ui, sans-serif;
+  --po-font-body: Inter, system-ui, -apple-system, sans-serif;
+  /* Chrome that sits directly over video (top/bottom bars, lower thirds) is always on a dark scrim,
+     regardless of brand — so it always needs light text, unlike --studio-cream which flips per brand
+     to suit that brand's own (light or dark) canvas color. */
+  --po-video-text: #f4ead9;
+  --po-video-text-dim: #d3c2ac;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  background: #000;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  width: 100%;
+}
+
+.program-output {
+  color: var(--studio-cream);
+  font-family: var(--po-font-body);
+}
+
+.po-canvas {
+  background: var(--studio-canvas);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100vh;
+  inset: 0;
+  overflow: hidden;
+  position: fixed;
+  width: 100vw;
+}
+
+/* Chrome: brand lockup, live badge, bottom identification bar */
+
+.po-chrome {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  padding: clamp(0.6rem, 1.6vw, 1.1rem) clamp(0.9rem, 2.4vw, 1.6rem);
+  position: relative;
+  z-index: 5;
+}
+
+.po-chrome-top {
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.55), transparent);
+}
+
+.po-brand img {
+  display: block;
+  height: clamp(22px, 3.4vw, 38px);
+  width: auto;
+}
+
+.po-live-badge {
+  align-items: center;
+  background: rgba(10, 8, 7, 0.6);
+  border: 1px solid var(--studio-line);
+  border-radius: 999px;
+  color: var(--po-video-text);
+  display: flex;
+  font-family: var(--po-font-heading);
+  font-size: clamp(0.6rem, 1vw, 0.78rem);
+  font-weight: 800;
+  gap: 0.45em;
+  letter-spacing: 0.08em;
+  padding: 0.4em 0.85em;
+}
+
+.po-live-dot {
+  background: var(--studio-muted);
+  border-radius: 50%;
+  display: block;
+  height: 0.6em;
+  width: 0.6em;
+}
+
+.po-live-badge[data-live="true"] .po-live-dot {
+  animation: po-live-pulse 1.6s ease-in-out infinite;
+  background: #ff3b30;
+}
+
+.po-live-badge[data-live="true"] #poLiveBadgeText {
+  color: #ff8d86;
+}
+
+@keyframes po-live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.82); }
+}
+
+.po-chrome-bottom {
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.62), transparent);
+  gap: clamp(0.6rem, 2vw, 1.4rem);
+}
+
+.po-chip {
+  background: #ff3b30;
+  border-radius: 5px;
+  color: #fff;
+  flex: 0 0 auto;
+  font-family: var(--po-font-heading);
+  font-size: clamp(0.62rem, 1vw, 0.78rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 0.35em 0.6em;
+}
+
+.po-topic {
+  color: var(--po-video-text);
+  flex: 0 1 auto;
+  font-family: var(--po-font-heading);
+  font-size: clamp(0.7rem, 1.3vw, 0.98rem);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.po-ticker {
+  border-left: 1px solid var(--studio-line);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding-left: clamp(0.6rem, 2vw, 1.4rem);
+}
+
+.po-ticker-track {
+  animation: po-ticker-scroll 16s linear infinite;
+  color: var(--po-video-text-dim);
+  display: inline-block;
+  font-size: clamp(0.68rem, 1.1vw, 0.88rem);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+@keyframes po-ticker-scroll {
+  from { transform: translateX(100%); }
+  to { transform: translateX(-100%); }
+}
+
+/* Live stage: speaker/screen tile grid */
+
+.po-stage {
+  display: grid;
+  gap: clamp(0.4rem, 1vw, 0.85rem);
+  padding: 0 clamp(0.9rem, 2.4vw, 1.6rem) clamp(0.4rem, 1vw, 0.85rem);
+  position: relative;
+}
+
+.po-stage[data-layout="1"],
+.po-stage[data-layout="fullmedia"] { grid-template-columns: 1fr; }
+.po-stage[data-layout="2"] { grid-template-columns: 1fr 1fr; }
+.po-stage[data-layout="3"] { grid-template-columns: repeat(3, 1fr); }
+.po-stage[data-layout="4"] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.po-stage[data-layout="screen-speaker"] { grid-template-columns: 3fr 1fr; }
+.po-stage[data-layout="screen-dominant"] { grid-template-columns: 1fr; }
+
+.po-stage[data-layout="screen-dominant"] .po-tile[data-role="speaker"] {
+  bottom: clamp(0.6rem, 1.6vw, 1.1rem);
+  height: 30%;
+  max-height: 220px;
+  position: absolute;
+  right: clamp(0.6rem, 1.6vw, 1.1rem);
+  width: 22%;
+  z-index: 3;
+}
+
+.po-tile {
+  background: #0c0908;
+  border: 1px solid var(--studio-line);
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+}
+
+.po-tile[data-role="screen"] {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.po-tile-video {
+  inset: 0;
+  position: absolute;
+}
+
+.po-tile-video iframe {
+  border: 0;
+  height: 100%;
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: 100%;
+}
+
+.po-tile-video--empty::after {
+  animation: po-ring-pulse 2.6s ease-in-out infinite;
+  border: 2px dashed var(--studio-line);
+  border-radius: 50%;
+  content: "";
+  height: 15%;
+  left: 50%;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 15%;
+}
+
+@keyframes po-ring-pulse {
+  0%, 100% { opacity: 0.35; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 0.75; transform: translate(-50%, -50%) scale(1.12); }
+}
+
+.po-lower-third {
+  bottom: clamp(0.5rem, 1.4vw, 0.9rem);
+  display: grid;
+  left: clamp(0.5rem, 1.4vw, 0.9rem);
+  max-width: calc(100% - clamp(1rem, 2.8vw, 1.8rem));
+  position: absolute;
+  z-index: 2;
+}
+
+.po-lower-third-name,
+.po-lower-third-title {
+  background: rgba(9, 7, 6, 0.72);
+  backdrop-filter: blur(6px);
+  overflow: hidden;
+  padding: 0.32em 0.7em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.po-lower-third-name {
+  border-left: 3px solid var(--studio-orange-bright);
+  border-radius: 4px 4px 0 0;
+  color: var(--po-video-text);
+  font-family: var(--po-font-heading);
+  font-size: clamp(0.72rem, 1.5vw, 1.05rem);
+  font-weight: 800;
+}
+
+.po-lower-third-title {
+  border-left: 3px solid var(--studio-orange-bright);
+  border-radius: 0 0 4px 4px;
+  color: var(--po-video-text-dim);
+  font-size: clamp(0.6rem, 1.1vw, 0.82rem);
+  font-weight: 600;
+}
+
+/* Holding / ending full-canvas scene screens */
+
+.po-scene-screen {
+  align-items: center;
+  background:
+    radial-gradient(120% 90% at 50% 20%, color-mix(in srgb, var(--studio-orange) 20%, transparent), transparent 60%),
+    var(--studio-canvas);
+  display: none;
+  flex-direction: column;
+  gap: 0.9rem;
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  justify-content: center;
+  padding: 2rem;
+  position: relative;
+  text-align: center;
+  z-index: 4;
+}
+
+.program-output[data-scene="holding"] .po-holding,
+.program-output[data-scene="ending"] .po-ending {
+  display: flex;
+}
+
+.program-output[data-scene="holding"] .po-stage,
+.program-output[data-scene="ending"] .po-stage {
+  visibility: hidden;
+}
+
+.program-output[data-scene="holding"] .po-chrome,
+.program-output[data-scene="ending"] .po-chrome {
+  visibility: hidden;
+}
+
+.po-scene-mark img {
+  height: clamp(52px, 9vw, 96px);
+  width: auto;
+}
+
+.po-scene-kicker {
+  color: var(--studio-orange-bright);
+  font-family: var(--po-font-heading);
+  font-size: clamp(0.7rem, 1.3vw, 0.95rem);
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.po-scene-topic {
+  color: var(--studio-cream);
+  font-family: var(--po-font-heading);
+  font-size: clamp(1.4rem, 4vw, 3rem);
+  font-weight: 900;
+  margin: 0;
+  max-width: 80%;
+}
+
+/* Program Output must fill a 3-person layout gracefully at phone-preview widths too */
+@media (max-width: 480px) {
+  .po-lower-third-title { display: none; }
+}

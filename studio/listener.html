@@ -3,39 +3,53 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Listen to Toasty Studio</title>
+    <title>Toasty Studio — Program Output</title>
     <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@700;800;900&family=Permanent+Marker&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../css/brand.css">
-    <link rel="stylesheet" href="../css/studio.css">
+    <link rel="stylesheet" href="../css/program-output.css">
     <script type="module" src="../js/listener.js"></script>
   </head>
-  <body class="studio-shell listener-shell">
-    <main class="listener-grid">
-      <header class="guest-topbar">
-        <a class="brand-lockup brand-lockup--compact" href="../site/" aria-label="Toasty Media home">
-          <img
-            id="studioBrandLogo"
-            src="../shared/brand/toasty-media/ToastyMediaStudio.png"
-            alt="Toasty Media Studio"
-            onerror="this.onerror=null;this.src='../shared/brand/toasty-media/ToastyMediaHLOGO.png';"
-          >
-          <span class="brand-text-lockup" id="studioBrandText" hidden>Toasty Studio</span>
-        </a>
-        <div class="guest-topbar-status">
-          <span class="powered-by" id="poweredBy">
-            <span>Powered by</span>
-            <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Media Studio">
-          </span>
-          <span class="guest-status-chip" id="listenerState">Listening</span>
+  <body class="program-output" data-scene="holding" data-layout="1">
+    <div class="po-canvas" id="poCanvas">
+      <header class="po-chrome po-chrome-top">
+        <div class="po-brand">
+          <img id="poBrandLogo" src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="">
+        </div>
+        <div class="po-live-badge" id="poLiveBadge" data-live="false">
+          <span class="po-live-dot" aria-hidden="true"></span>
+          <span id="poLiveBadgeText">ON SET</span>
         </div>
       </header>
 
-      <section class="listener-stage" aria-label="Studio listener room">
-        <div id="listenerFrame" class="vdo-frame large-frame" data-empty="Waiting for the Studio feed"></div>
+      <main class="po-stage" id="poStage" data-layout="1"></main>
+
+      <section class="po-scene-screen po-holding" id="poHolding">
+        <div class="po-scene-mark">
+          <img id="poHoldingLogo" src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="">
+        </div>
+        <p class="po-scene-kicker">Starting soon</p>
+        <h1 class="po-scene-topic" id="poHoldingTopic">Toasty Studio</h1>
       </section>
-    </main>
+
+      <section class="po-scene-screen po-ending" id="poEnding" hidden>
+        <div class="po-scene-mark">
+          <img id="poEndingLogo" src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="">
+        </div>
+        <p class="po-scene-kicker">Thanks for watching</p>
+        <h1 class="po-scene-topic" id="poEndingCta">Connect with Toasty Media</h1>
+      </section>
+
+      <footer class="po-chrome po-chrome-bottom" id="poChromeBottom">
+        <span class="po-chip po-chip-live" id="poLiveChip">LIVE</span>
+        <span class="po-topic" id="poTopic">Toasty Studio</span>
+        <div class="po-ticker" id="poTicker" hidden>
+          <div class="po-ticker-track" id="poTickerTrack"><span id="poTickerText"></span></div>
+        </div>
+      </footer>
+    </div>
   </body>
 </html>
+</content>
