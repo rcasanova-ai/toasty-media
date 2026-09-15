@@ -1,0 +1,100 @@
+name: Deploy Toasty Production
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: toasty-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.TOASTY_SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.TOASTY_SSH_HOST }}
+          SSH_PORT: ${{ secrets.TOASTY_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/toasty_github_deploy
+          chmod 600 ~/.ssh/toasty_github_deploy
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Determine changed deployable files
+        id: changes
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            BASE="HEAD^"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            BASE="HEAD^"
+          fi
+          git diff --name-only --diff-filter=ACMRT "$BASE" HEAD | \
+            grep -E '^(\.htaccess$|index\.html$|site/|ricardo/|studio/|admin/|css/|js/|shared/|assets/|articles/|eloquencebonus/|thank-you\.html$|5-Day Executive Program\.pdf$|Eloquence Cheat Sheet\.pdf$|casanova_case_study\.pdf$|ricardo_casanova_resumeJune2026\.pdf$)' > /tmp/deploy-files.txt || true
+          echo "Files selected:"
+          cat /tmp/deploy-files.txt || true
+          if [[ -s /tmp/deploy-files.txt ]]; then echo 'has_files=true' >> "$GITHUB_OUTPUT"; else echo 'has_files=false' >> "$GITHUB_OUTPUT"; fi
+
+      - name: Backup changed production files
+        if: steps.changes.outputs.has_files == 'true'
+        env:
+          SSH_HOST: ${{ secrets.TOASTY_SSH_HOST }}
+          SSH_USER: ${{ secrets.TOASTY_SSH_USER }}
+          SSH_PORT: ${{ secrets.TOASTY_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          PROD_ROOT='/home/fmxgijyvpq/toasty.media'
+          STAMP="$(date +%Y%m%d-%H%M%S)"
+          BACKUP="$PROD_ROOT/_backups/toasty-media-$STAMP"
+          while IFS= read -r path; do
+            printf '%s\0' "$path"
+          done < /tmp/deploy-files.txt | ssh -i ~/.ssh/toasty_github_deploy -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "PROD_ROOT='$PROD_ROOT' BACKUP='$BACKUP' bash -s" <<'REMOTE'
+          set -euo pipefail
+          mkdir -p "$BACKUP"
+          while IFS= read -r -d '' path; do
+            if [[ -e "$PROD_ROOT/$path" ]]; then
+              mkdir -p "$BACKUP/$(dirname "$path")"
+              cp -a "$PROD_ROOT/$path" "$BACKUP/$path"
+            fi
+          done
+          REMOTE
+
+      - name: Upload changed files
+        if: steps.changes.outputs.has_files == 'true'
+        env:
+          SSH_HOST: ${{ secrets.TOASTY_SSH_HOST }}
+          SSH_USER: ${{ secrets.TOASTY_SSH_USER }}
+          SSH_PORT: ${{ secrets.TOASTY_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          mapfile -t FILES < /tmp/deploy-files.txt
+          git archive --format=tar HEAD -- "${FILES[@]}" | ssh -i ~/.ssh/toasty_github_deploy -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "cd /home/fmxgijyvpq/toasty.media && tar -xf -"
+
+      - name: Verify production
+        if: steps.changes.outputs.has_files == 'true'
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location https://toasty.media/ >/tmp/home.html
+          curl --fail --silent --show-error --location https://toasty.media/ricardo/ >/dev/null
+          curl --fail --silent --show-error --location https://toasty.media/studio/ >/dev/null
+          curl --fail --silent --show-error --location https://toasty.media/studio/experts.html >/tmp/guest.html
+          curl --fail --silent --show-error --location https://toasty.media/admin/ >/dev/null
+          grep -Fq 'Studio to create.' /tmp/home.html
+          grep -Fq 'Who do you want to talk to?' /tmp/guest.html
+          echo 'Production verification passed.'
