@@ -2,6 +2,12 @@ name: Deploy Toasty Production
 
 on:
   workflow_dispatch:
+    inputs:
+      full_deploy:
+        description: Deploy every tracked production file
+        required: false
+        default: false
+        type: boolean
   push:
     branches: [main]
 
@@ -19,7 +25,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Configure SSH
         env:
@@ -37,16 +43,21 @@ jobs:
         id: changes
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.full_deploy }}" == "true" ]]; then
+            git ls-files | \
+              grep -E '^(\.htaccess$|index\.html$|site/|ricardo/|studio/|admin/|css/|js/|shared/|assets/|articles/|eloquencebonus/|thank-you\.html$|5-Day Executive Program\.pdf$|Eloquence Cheat Sheet\.pdf$|casanova_case_study\.pdf$|ricardo_casanova_resumeJune2026\.pdf$)' > /tmp/deploy-files.txt || true
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             BASE="HEAD^"
+            git diff --name-only --diff-filter=ACMRT "$BASE" HEAD | \
+              grep -E '^(\.htaccess$|index\.html$|site/|ricardo/|studio/|admin/|css/|js/|shared/|assets/|articles/|eloquencebonus/|thank-you\.html$|5-Day Executive Program\.pdf$|Eloquence Cheat Sheet\.pdf$|casanova_case_study\.pdf$|ricardo_casanova_resumeJune2026\.pdf$)' > /tmp/deploy-files.txt || true
           else
             BASE="${{ github.event.before }}"
+            if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+              BASE="HEAD^"
+            fi
+            git diff --name-only --diff-filter=ACMRT "$BASE" HEAD | \
+              grep -E '^(\.htaccess$|index\.html$|site/|ricardo/|studio/|admin/|css/|js/|shared/|assets/|articles/|eloquencebonus/|thank-you\.html$|5-Day Executive Program\.pdf$|Eloquence Cheat Sheet\.pdf$|casanova_case_study\.pdf$|ricardo_casanova_resumeJune2026\.pdf$)' > /tmp/deploy-files.txt || true
           fi
-          if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-            BASE="HEAD^"
-          fi
-          git diff --name-only --diff-filter=ACMRT "$BASE" HEAD | \
-            grep -E '^(\.htaccess$|index\.html$|site/|ricardo/|studio/|admin/|css/|js/|shared/|assets/|articles/|eloquencebonus/|thank-you\.html$|5-Day Executive Program\.pdf$|Eloquence Cheat Sheet\.pdf$|casanova_case_study\.pdf$|ricardo_casanova_resumeJune2026\.pdf$)' > /tmp/deploy-files.txt || true
           echo "Files selected:"
           cat /tmp/deploy-files.txt || true
           if [[ -s /tmp/deploy-files.txt ]]; then echo 'has_files=true' >> "$GITHUB_OUTPUT"; else echo 'has_files=false' >> "$GITHUB_OUTPUT"; fi
