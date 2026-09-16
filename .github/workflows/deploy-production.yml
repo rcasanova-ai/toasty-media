@@ -73,17 +73,16 @@ jobs:
           PROD_ROOT='/home/fmxgijyvpq/toasty.media'
           STAMP="$(date +%Y%m%d-%H%M%S)"
           BACKUP="$PROD_ROOT/_backups/toasty-media-$STAMP"
-          while IFS= read -r path; do
-            printf '%s\0' "$path"
-          done < /tmp/deploy-files.txt | ssh -i ~/.ssh/toasty_github_deploy -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "PROD_ROOT='$PROD_ROOT' BACKUP='$BACKUP' bash -s" <<'REMOTE'
+          FILES_B64="$(base64 -w0 /tmp/deploy-files.txt)"
+          ssh -i ~/.ssh/toasty_github_deploy -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "PROD_ROOT='$PROD_ROOT' BACKUP='$BACKUP' FILES_B64='$FILES_B64' bash -s" <<'REMOTE'
           set -euo pipefail
           mkdir -p "$BACKUP"
-          while IFS= read -r -d '' path; do
+          while IFS= read -r path; do
             if [[ -e "$PROD_ROOT/$path" ]]; then
               mkdir -p "$BACKUP/$(dirname "$path")"
               cp -a "$PROD_ROOT/$path" "$BACKUP/$path"
             fi
-          done
+          done < <(printf '%s' "$FILES_B64" | base64 -d)
           REMOTE
 
       - name: Upload changed files
