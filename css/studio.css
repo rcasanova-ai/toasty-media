@@ -89,7 +89,7 @@
 }
 
 .atmosphere-mark {
-  background: url("../shared/brand/toasty-media/ToastyTransparent.png") center / contain no-repeat;
+  background: var(--studio-mark-image, url("../shared/brand/toasty-media/ToastyTransparent.png")) center / contain no-repeat;
   bottom: -10vw;
   filter: grayscale(0.35);
   height: min(40vw, 560px);
@@ -944,7 +944,7 @@
 }
 
 .stage-empty::before {
-  background: url("../shared/brand/toasty-media/ToastyTransparent.png") center / 150px no-repeat;
+  background: var(--studio-mark-image, url("../shared/brand/toasty-media/ToastyTransparent.png")) center / 150px no-repeat;
   content: "";
   inset: 0;
   opacity: 0.07;

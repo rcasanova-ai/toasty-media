@@ -7,9 +7,10 @@
     <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@700;800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Manrope:wght@500;700;800&family=Montserrat:wght@700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../css/brand.css">
     <link rel="stylesheet" href="../css/program-output.css">
+    <link rel="stylesheet" href="../css/studio-white-label.css">
     <script type="module" src="../js/listener.js"></script>
   </head>
   <body class="program-output" data-scene="holding" data-layout="1">
@@ -49,6 +50,16 @@
           <div class="po-ticker-track" id="poTickerTrack"><span id="poTickerText"></span></div>
         </div>
       </footer>
+
+      <button type="button" class="po-audio-gate" id="poAudioGate">
+        <span class="po-audio-gate-icon" aria-hidden="true"></span>
+        <span class="po-audio-gate-label">Click to start Program Output</span>
+        <span class="po-audio-gate-note">Required once per tab so browser autoplay allows program video/audio to play.</span>
+      </button>
+      <span class="powered-by program-powered-by" id="programPoweredBy" hidden>
+        <span>Powered by</span>
+        <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Media Studio">
+      </span>
     </div>
   </body>
 </html>

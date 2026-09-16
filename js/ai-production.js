@@ -1,9 +1,10 @@
 import { LocalIsolatedRecorder } from "./recording.js";
-import { getBrandProfile, getBrandProfiles } from "./brand-profile.js?v=brand-20260911";
+import { getBrandProfile, getBrandProfiles } from "./brand-profile.js?v=brand-20260916b";
 import { deleteMediaBlob, hydrateMediaUrls, saveMediaBlob } from "./media-store.js";
 import { checkProductionConsistency } from "./production-consistency.js";
 import { createProductionSpec, createProviderRequests, createScene, estimateDuration, upgradeScene } from "./production-spec.js";
 import { buildTimeline, renderProductionMp4, renderReadiness } from "./render-client.js";
+import { studioRequest } from "./studio-api.js";
 import { ToastyConcierge } from "./toasty-concierge.js";
 
 const STAGES = ["source", "script", "record", "scenes", "assets", "assemble", "review", "export"];
@@ -68,6 +69,7 @@ export class AIProductionController {
     this.recordingTimer = null;
     this.audioUrl = null;
     this.renderedVideo = null;
+    this.drive = { connected: false, account: null, folderStack: [], files: [] };
     this.concierge = new ToastyConcierge();
     this.elements = this.getElements();
   }
@@ -79,6 +81,7 @@ export class AIProductionController {
     this.state = await hydrateMediaUrls(this.state);
     this.audioUrl = this.state.audio?.localPreviewUrl || null;
     this.render();
+    this.refreshGoogleDrive();
     if (!LocalIsolatedRecorder.isSupported()) {
       this.elements.aiRecordingNote.textContent = "Audio recording is unavailable in this browser. Use current Chrome for the recording proof.";
       this.elements.aiRecordToggle.disabled = true;
@@ -142,6 +145,14 @@ export class AIProductionController {
       renderStatus: this.root.querySelector("#renderStatus"),
       quickToastScreen: this.root.querySelector("#quickToastScreen"),
       createWorkflow: this.root.querySelector("#createWorkflow"),
+      contentLibraryPanel: this.root.querySelector("#contentLibraryPanel"),
+      connectGoogleDrive: this.root.querySelector("#connectGoogleDrive"),
+      driveStatus: this.root.querySelector("#driveStatus"),
+      driveBrowser: this.root.querySelector("#driveBrowser"),
+      driveBack: this.root.querySelector("#driveBack"),
+      driveSearch: this.root.querySelector("#driveSearch"),
+      driveSearchBtn: this.root.querySelector("#driveSearchBtn"),
+      driveFileList: this.root.querySelector("#driveFileList"),
       quickDropZone: this.root.querySelector("#quickDropZone"),
       quickMediaUpload: this.root.querySelector("#quickMediaUpload"),
       quickFormat: this.root.querySelector("#quickFormat"),
@@ -151,6 +162,7 @@ export class AIProductionController {
       quickWatermark: this.root.querySelector("#quickWatermark"),
       quickCaptions: this.root.querySelector("#quickCaptions"),
       quickNormalizeAudio: this.root.querySelector("#quickNormalizeAudio"),
+      quickSaveToDrive: this.root.querySelector("#quickSaveToDrive"),
       quickToastIt: this.root.querySelector("#quickToastIt"),
       startCreateWorkflow: this.root.querySelector("#startCreateWorkflow"),
       backToQuickToast: this.root.querySelector("#backToQuickToast"),
@@ -159,7 +171,8 @@ export class AIProductionController {
       quickPreviewList: this.root.querySelector("#quickPreviewList"),
       quickRenderVideo: this.root.querySelector("#quickRenderVideo"),
       quickDownloadRenderedMp4: this.root.querySelector("#quickDownloadRenderedMp4"),
-      quickRenderStatus: this.root.querySelector("#quickRenderStatus")
+      quickRenderStatus: this.root.querySelector("#quickRenderStatus"),
+      saveOutputToDrive: this.root.querySelector("#saveOutputToDrive")
     };
   }
 
@@ -186,8 +199,21 @@ export class AIProductionController {
     this.elements.renderVideo.addEventListener("click", () => this.renderVideo());
     this.elements.downloadRenderedMp4.addEventListener("click", () => this.downloadRenderedMp4());
     this.elements.quickMediaUpload.addEventListener("change", () => this.addQuickFiles(this.elements.quickMediaUpload.files));
+    this.elements.connectGoogleDrive.addEventListener("click", () => this.toggleGoogleDrive());
+    this.elements.driveSearchBtn.addEventListener("click", () => this.loadDriveFiles({ query: this.elements.driveSearch.value }));
+    this.elements.driveSearch.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        this.loadDriveFiles({ query: this.elements.driveSearch.value });
+      }
+    });
+    this.elements.driveBack.addEventListener("click", () => {
+      this.drive.folderStack.pop();
+      const parent = this.drive.folderStack[this.drive.folderStack.length - 1];
+      this.loadDriveFiles({ folderId: parent?.id || "" });
+    });
     this.elements.quickFormat.addEventListener("change", () => this.updateQuickSettings());
-    [this.elements.quickIntro, this.elements.quickOutro, this.elements.quickLowerThird, this.elements.quickWatermark, this.elements.quickCaptions, this.elements.quickNormalizeAudio].forEach((input) => {
+    [this.elements.quickIntro, this.elements.quickOutro, this.elements.quickLowerThird, this.elements.quickWatermark, this.elements.quickCaptions, this.elements.quickNormalizeAudio, this.elements.quickSaveToDrive, this.elements.saveOutputToDrive].forEach((input) => {
       input.addEventListener("change", () => this.updateQuickSettings());
     });
     this.elements.quickToastIt.addEventListener("click", () => this.prepareQuickToast());
@@ -312,6 +338,127 @@ export class AIProductionController {
     this.saveAndRender();
   }
 
+  async refreshGoogleDrive() {
+    try {
+      const status = await studioRequest("/integrations/google-drive/status", { method: "GET" });
+      this.drive.connected = Boolean(status.connected);
+      this.drive.account = status.account || null;
+      this.renderDriveStatus(status);
+      if (this.drive.connected) await this.loadDriveFiles();
+    } catch (error) {
+      this.elements.driveStatus.textContent = humanizeError(error);
+      this.elements.connectGoogleDrive.disabled = false;
+      this.elements.driveBrowser.hidden = true;
+    }
+  }
+
+  async toggleGoogleDrive() {
+    this.elements.connectGoogleDrive.disabled = true;
+    try {
+      if (this.drive.connected) {
+        await studioRequest("/integrations/google-drive/disconnect", { method: "POST", body: "{}" });
+        this.drive = { connected: false, account: null, folderStack: [], files: [] };
+        this.renderDriveStatus({ connected: false, configured: true });
+        this.elements.driveFileList.replaceChildren();
+        return;
+      }
+      const result = await studioRequest("/integrations/google-drive/oauth/start", { method: "POST", body: "{}" });
+      window.location.href = result.authUrl;
+    } catch (error) {
+      this.elements.driveStatus.textContent = humanizeError(error);
+      this.elements.connectGoogleDrive.disabled = false;
+    }
+  }
+
+  renderDriveStatus(status = {}) {
+    this.elements.connectGoogleDrive.disabled = false;
+    this.elements.connectGoogleDrive.textContent = status.connected ? "Disconnect" : "Connect Drive";
+    this.elements.driveBrowser.hidden = !status.connected;
+    if (!status.configured) {
+      this.elements.driveStatus.textContent = "Google Drive is not configured on the production server yet.";
+      this.elements.connectGoogleDrive.disabled = true;
+      return;
+    }
+    this.elements.driveStatus.textContent = status.connected
+      ? `Connected as ${status.account?.accountEmail || "Google Drive"}. Source media stays in Drive; the Studio stores references.`
+      : "Connect Google Drive to browse media and add references to the Studio.";
+    if (status.connected && !this.state.output.driveDefaultApplied) {
+      this.state.output.saveToGoogleDrive = true;
+      this.state.output.driveDefaultApplied = true;
+      saveProject(this.state);
+      this.renderQuickToast();
+    }
+  }
+
+  async loadDriveFiles({ folderId = "", query = "" } = {}) {
+    if (!this.drive.connected) return;
+    this.elements.driveFileList.replaceChildren(emptyMessage("Loading Drive..."));
+    try {
+      const params = new URLSearchParams();
+      if (folderId) params.set("folderId", folderId);
+      if (query) params.set("q", query);
+      const result = await studioRequest(`/integrations/google-drive/files${params.toString() ? `?${params}` : ""}`, { method: "GET" });
+      this.drive.files = result.files || [];
+      this.elements.driveBack.disabled = this.drive.folderStack.length < 1;
+      this.renderDriveFiles();
+    } catch (error) {
+      this.elements.driveFileList.replaceChildren(emptyMessage(humanizeError(error)));
+    }
+  }
+
+  renderDriveFiles() {
+    if (!this.drive.files.length) {
+      this.elements.driveFileList.replaceChildren(emptyMessage("No compatible Drive media found."));
+      return;
+    }
+    this.elements.driveFileList.replaceChildren(...this.drive.files.map((file) => this.driveFileRow(file)));
+  }
+
+  driveFileRow(file) {
+    const row = document.createElement("article");
+    row.className = "drive-file-row";
+    row.dataset.folder = String(Boolean(file.isFolder));
+    const thumb = file.thumbnailLink
+      ? `<img src="${file.thumbnailLink}" alt="">`
+      : `<span>${file.isFolder ? "Folder" : mediaKindFromMime(file.mimeType)}</span>`;
+    row.innerHTML = `
+      <div class="drive-thumb">${thumb}</div>
+      <div>
+        <strong>${escapeHtml(file.name)}</strong>
+        <span>${escapeHtml(file.isFolder ? "Folder" : `${mediaKindFromMime(file.mimeType)} · ${formatBytes(file.size)}${file.duration ? ` · ${Math.round(file.duration)}s` : ""}`)}</span>
+      </div>
+      <button class="btn btn-ghost btn-small" type="button">${file.isFolder ? "Open" : "Add to Studio"}</button>
+    `;
+    row.querySelector("button").addEventListener("click", () => {
+      if (file.isFolder) {
+        this.drive.folderStack.push({ id: file.id, name: file.name });
+        this.loadDriveFiles({ folderId: file.id });
+      } else {
+        this.importDriveFile(file);
+      }
+    });
+    return row;
+  }
+
+  async importDriveFile(file) {
+    this.elements.driveStatus.textContent = `Adding ${file.name} to the Studio...`;
+    try {
+      const result = await studioRequest("/media-assets/google-drive/import", {
+        method: "POST",
+        body: JSON.stringify({ fileId: file.id, brandId: this.getBrandTheme() })
+      });
+      const asset = quickAssetFromMediaAsset(result.asset);
+      this.state.quick.assets.push(asset);
+      this.state.quick.prepared = false;
+      this.clearRenderedVideo();
+      this.refreshProductionSpec();
+      this.saveAndRender();
+      this.elements.driveStatus.textContent = `${file.name} added as a Studio media reference.`;
+    } catch (error) {
+      this.elements.driveStatus.textContent = humanizeError(error);
+    }
+  }
+
   async addQuickFiles(fileList) {
     const files = [...fileList].filter((file) => QUICK_ASSET_KINDS.some((kind) => file.type.startsWith(`${kind}/`)));
     if (!files.length) {
@@ -386,6 +533,7 @@ export class AIProductionController {
       captions: this.elements.quickCaptions.checked,
       normalizeAudio: this.elements.quickNormalizeAudio.checked
     };
+    this.state.output.saveToGoogleDrive = this.elements.quickSaveToDrive.checked || this.elements.saveOutputToDrive.checked;
     this.state.quick.prepared = false;
     this.clearRenderedVideo();
     this.refreshProductionSpec();
@@ -851,6 +999,8 @@ export class AIProductionController {
     this.elements.quickWatermark.checked = Boolean(quick.settings.watermark);
     this.elements.quickCaptions.checked = Boolean(quick.settings.captions);
     this.elements.quickNormalizeAudio.checked = Boolean(quick.settings.normalizeAudio);
+    this.elements.quickSaveToDrive.checked = Boolean(this.state.output?.saveToGoogleDrive);
+    this.elements.saveOutputToDrive.checked = Boolean(this.state.output?.saveToGoogleDrive);
     this.elements.quickToastIt.disabled = !quick.assets.length;
     this.elements.quickAssetStrip.replaceChildren(...quick.assets.map((asset, index) => this.quickAssetCard(asset, index)));
     this.elements.quickPreview.hidden = !quick.prepared;
@@ -899,15 +1049,18 @@ export class AIProductionController {
   }
 
   renderBrand() {
+    const activeTheme = this.getBrandTheme();
     this.elements.aiBrandProfile.replaceChildren(
-      ...getBrandProfiles().map((profile) => {
+      ...getBrandProfiles()
+        .filter((profile) => activeTheme === "toasty" || profile.id !== "toasty")
+        .map((profile) => {
         const option = document.createElement("option");
         option.value = profile.id;
         option.textContent = profile.name;
         return option;
       })
     );
-    this.elements.aiBrandProfile.value = this.getBrandTheme();
+    this.elements.aiBrandProfile.value = activeTheme;
   }
 
   renderConcierge() {
@@ -1229,6 +1382,9 @@ function defaultProject() {
         normalizeAudio: true
       }
     },
+    output: {
+      saveToGoogleDrive: false
+    },
     source: {
       topic: "",
       url: "",
@@ -1265,6 +1421,7 @@ function loadProject() {
       },
       source: { ...defaultProject().source, ...(saved.source || {}) },
       script: { ...defaultProject().script, ...(saved.script || {}) },
+      output: { ...defaultProject().output, ...(saved.output || {}) },
       scenes: saved.scenes || [],
       assets: saved.assets || []
     };
@@ -1317,7 +1474,7 @@ function toSerializableProject(project, brandProfile = getBrandProfile()) {
       }
     },
     providers: {
-      concierge: "ToastyConcierge",
+      concierge: "Brand Concierge",
       avatar: providers.avatar.name,
       image: providers.visual.name,
       video: providers.visual.name,
@@ -1418,7 +1575,11 @@ function primaryQuickAudio(assets) {
     size: audio.size,
     duration: audio.duration || 0,
     recordedAt: audio.attachedAt,
-    localPreviewUrl: audio.localPreviewUrl
+    localPreviewUrl: audio.localPreviewUrl,
+    mediaAssetId: audio.mediaAssetId || null,
+    mediaReference: audio.mediaReference || null,
+    providerKey: audio.providerKey || null,
+    providerFileId: audio.providerFileId || null
   };
 }
 
@@ -1496,6 +1657,49 @@ function quickKind(file) {
   if (file.type.startsWith("image/")) return "image";
   if (file.type.startsWith("audio/")) return "audio";
   return "file";
+}
+
+function quickKindFromMime(mimeType = "") {
+  if (mimeType.startsWith("video/")) return "video";
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("audio/")) return "audio";
+  return "file";
+}
+
+function mediaKindFromMime(mimeType = "") {
+  if (mimeType === "application/vnd.google-apps.folder") return "Folder";
+  if (mimeType.startsWith("video/")) return "Video";
+  if (mimeType.startsWith("image/")) return "Image";
+  if (mimeType.startsWith("audio/")) return "Audio";
+  return "File";
+}
+
+function quickAssetFromMediaAsset(mediaAsset) {
+  const mediaId = createId();
+  return {
+    id: createId(),
+    mediaId,
+    mediaAssetId: mediaAsset.id,
+    mediaReference: {
+      id: mediaAsset.id,
+      provider: mediaAsset.provider,
+      providerFileId: mediaAsset.provider_file_id
+    },
+    providerKey: mediaAsset.provider,
+    providerFileId: mediaAsset.provider_file_id,
+    kind: "quick-content",
+    quickKind: quickKindFromMime(mediaAsset.mime_type),
+    name: mediaAsset.name,
+    mimeType: mediaAsset.mime_type,
+    size: mediaAsset.size || 0,
+    duration: mediaAsset.duration || null,
+    width: mediaAsset.width || null,
+    height: mediaAsset.height || null,
+    localPreviewUrl: mediaAsset.thumbnail_reference || "",
+    attachedAt: new Date().toISOString(),
+    provider: "Google Drive",
+    sourceUrl: mediaAsset.source_reference || null
+  };
 }
 
 function mediaMetadata(file) {
@@ -1667,6 +1871,9 @@ function createId() {
 
 function assetPreview(asset) {
   if (!asset?.localPreviewUrl) return '<div class="asset-preview" data-empty="true">No visual</div>';
+  if (asset.providerKey && asset.localPreviewUrl) {
+    return `<div class="asset-preview"><img src="${asset.localPreviewUrl}" alt="${escapeHtml(asset.name)}"></div>`;
+  }
   if (asset.mimeType.startsWith("image/")) {
     return `<div class="asset-preview"><img src="${asset.localPreviewUrl}" alt="${escapeHtml(asset.name)}"></div>`;
   }

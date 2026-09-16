@@ -1,1 +1,326 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Toasty Guest Scout</title><link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@700;800;900&display=swap" rel="stylesheet"><link rel="stylesheet" href="../css/expert-network.css"><script type="module" src="../js/expert-network.js"></script></head><body class="expert-network-shell"><header class="expert-topbar"><a class="expert-brand" href="./director.html"><img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Media Studio"><span class="expert-brand-copy"><small>Studio Intelligence</small><strong>Guest Scout</strong></span></a><div class="expert-actions"><a class="expert-btn secondary" href="./director.html">Back to Studio</a></div></header><div class="expert-layout"><aside class="expert-side"><h3>Guest Scout</h3><nav class="expert-nav"><button class="active" data-target="find">Find people</button><button data-target="double">Build my double</button><button data-target="interview">Agent interview</button></nav></aside><main class="expert-main"><section class="expert-view" data-view="find"><div class="expert-hero"><div><span class="expert-eyebrow">Agent-native guest sourcing</span><h1>Tell Toasty who you need to talk to.</h1><p>Your buyer agent screens digital doubles first, scores fit against evidence, and only puts qualified humans in front of you.</p></div></div><section class="search-card"><div class="brief-grid"><label class="field"><span>Who do you need?</span><textarea id="brief" placeholder="Example: Someone who can speak credibly about the commercial growth of Canadian soccer, preferably with direct club or federation experience."></textarea></label><label class="field"><span>Format</span><select id="format"><option>Podcast</option><option>Panel</option><option>Keynote</option><option>Research consultation</option><option>Workshop</option><option>Advisor</option></select></label><label class="field"><span>Region</span><input id="region" placeholder="Any, Canada, Bangkok..."></label></div><div class="search-actions"><span class="micro-cost">Prototype screening rail: <b>$0.18 per candidate</b> via future x402 service</span><button id="findGuests" class="expert-btn accent" type="button">Screen expert doubles</button></div></section><section id="resultsWrap" hidden><div class="metrics"><article class="metric-card"><small>Candidates screened</small><strong id="candidateCount">0</strong></article><article class="metric-card"><small>Agent screening cost</small><strong id="screenCost">$0.00</strong></article><article class="metric-card"><small>Best fit</small><strong id="bestScore">0%</strong></article><article class="metric-card"><small>Human touches required</small><strong id="humanTouches">0</strong></article></div><div class="results-grid" id="results"></div></section></section><section class="expert-view" data-view="double" hidden><div class="expert-hero"><div><span class="expert-eyebrow">Expert side</span><h1>Build your digital double once.</h1><p>Give your agent the professional evidence you already have. CVs, LinkedIn, dissertations, papers, essays, talks, project notes and other proof of expertise.</p></div></div><div class="double-grid"><section class="double-card"><label class="field"><span>Your name</span><input id="expertName" placeholder="Name"></label><br><label class="field"><span>LinkedIn / professional profile</span><input id="linkedin" placeholder="Paste profile URL"></label><br><label class="field"><span>Anything buyers should know</span><textarea id="expertBio" placeholder="Topics you can discuss, roles you've held, speaking interests, restrictions, travel preferences..."></textarea></label><br><label class="dropzone" id="dropzone"><input id="dropInput" type="file" multiple accept=".pdf,.doc,.docx,.txt,.md,.csv,.json,.html"><strong>Drop your professional corpus here</strong><span>CV, dissertation, papers, essays, speaking decks, notes, exported profile files. Add everything at once.</span></label><div class="source-list" id="sourceList"></div><div class="search-actions"><button class="expert-btn secondary" id="clearDouble" type="button">Clear local profile</button><button class="expert-btn accent" id="saveDouble" type="button">Save my double</button></div></section><section class="double-card"><span class="expert-eyebrow">Double readiness</span><h2 style="font:900 42px Montserrat,sans-serif;margin:8px 0 22px" id="doubleReady">0%</h2><div class="coverage" id="coverage"></div><div style="margin-top:24px;padding:16px;border-radius:14px;background:#f7f1e9;font-size:13px;line-height:1.55;color:#62584f"><b>Evidence boundary</b><br>The agent should answer only from uploaded or verified material. Unsupported claims stay unknown and get escalated to the human.</div></section></div></section><section class="expert-view" data-view="interview" hidden><div class="expert-hero"><div><span class="expert-eyebrow">Buyer-agent interview</span><h1 id="interviewName">Select an expert double</h1><p id="interviewRole">Run a screening search, then interview one of the ranked doubles.</p></div><div><span class="expert-eyebrow">Fit score</span><div class="score" id="interviewScore">0%</div></div></div><section class="interview-panel"><p class="micro-cost">Research brief: <b id="interviewBrief">No brief selected</b></p><div id="qaList"><div class="empty">No interview yet.</div></div></section></section></main></div><div class="toast" id="toast" hidden></div></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Toasty Experts</title>
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=Manrope:wght@500;700;800&family=Montserrat:wght@700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/expert-network.css">
+    <link rel="stylesheet" href="../css/studio-white-label.css">
+    <script type="module" src="../js/expert-network.js"></script>
+  </head>
+  <body class="expert-network-shell">
+    <header class="expert-topbar">
+      <a class="expert-brand" id="expertBrandLink" href="./director.html">
+        <img id="expertBrandLogo" src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Media Studio">
+        <span class="expert-brand-copy">
+          <small data-brand-copy="studioName">Toasty Studio</small>
+          <strong>Experts</strong>
+        </span>
+      </a>
+      <div class="expert-actions">
+        <span class="powered-by expert-powered-by" id="expertPoweredBy" hidden>
+          <span>Powered by</span>
+          <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Media Studio">
+        </span>
+        <a class="expert-btn secondary" id="backToStudio" href="./director.html">Back to Studio</a>
+      </div>
+    </header>
+
+    <div class="expert-layout">
+      <aside class="expert-side">
+        <h3 id="expertsSideTitle">Toasty Experts</h3>
+        <nav class="expert-nav" aria-label="Experts sections">
+          <button class="active" type="button" data-target="demo">Find an Expert</button>
+          <button type="button" data-target="directory">Directory</button>
+          <button type="button" data-target="onboarding">Expert Onboarding</button>
+          <button type="button" data-target="agent">Agent API</button>
+        </nav>
+        <section class="side-proof">
+          <small>Colosseum loop</small>
+          <strong>x402 discovery -> invite -> booking settlement -> reputation</strong>
+        </section>
+      </aside>
+
+      <main class="expert-main">
+        <section class="expert-view" data-view="demo">
+          <div class="expert-hero">
+            <div>
+              <span class="expert-eyebrow">Human services for AI agents</span>
+              <h1 id="expertsHeroTitle">Book credible humans from inside Toasty Studio.</h1>
+              <p>Start with a production need. Agents pay a tiny x402 fee to unlock matching, then the accepted human booking uses the negotiated USDC settlement rail.</p>
+            </div>
+            <div class="network-badge">
+              <small>Economic rails</small>
+              <strong>x402 + Solana</strong>
+              <span>Discovery fee, then booking release</span>
+            </div>
+          </div>
+
+          <section class="demo-grid">
+            <form class="search-card" id="requestForm">
+              <div class="form-head">
+                <div>
+                  <span class="expert-eyebrow">Production request</span>
+                  <h2>Find an expert</h2>
+                </div>
+                <button class="expert-btn secondary" id="loadScenario" type="button">Load demo</button>
+              </div>
+              <label class="field field-wide">
+                <span>Topic</span>
+                <input id="topic" value="Canadian Premier League growth">
+              </label>
+              <label class="field field-wide">
+                <span>Description</span>
+                <textarea id="description">I need a Canadian soccer expert for a 45-minute podcast about the growth of the Canadian Premier League.</textarea>
+              </label>
+              <div class="brief-grid">
+                <label class="field">
+                  <span>Expertise</span>
+                  <input id="expertiseRequired" value="soccer, Canada, Canadian Premier League, sports business">
+                </label>
+                <label class="field">
+                  <span>Location</span>
+                  <input id="locationPreference" value="Canada preferred">
+                </label>
+                <label class="field">
+                  <span>Language</span>
+                  <select id="language">
+                    <option selected>English</option>
+                    <option>French</option>
+                    <option>Spanish</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Budget</span>
+                  <input id="budget" type="number" min="50" step="25" value="500">
+                </label>
+                <label class="field">
+                  <span>Engagement type</span>
+                  <select id="engagementType">
+                    <option selected>Podcast guest</option>
+                    <option>Interview</option>
+                    <option>Webinar speaker</option>
+                    <option>Conference speaker</option>
+                    <option>Consultation</option>
+                    <option>Research call</option>
+                    <option>Technical review</option>
+                    <option>Custom</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Duration</span>
+                  <select id="durationMinutes">
+                    <option value="30">30 minutes</option>
+                    <option value="45" selected>45 minutes</option>
+                    <option value="60">60 minutes</option>
+                    <option value="90">90 minutes</option>
+                  </select>
+                </label>
+              </div>
+              <label class="field field-wide">
+                <span>Additional constraints</span>
+                <input id="constraints" value="Can explain the league to a general business audience; available within two weeks.">
+              </label>
+              <button class="expert-btn accent" type="submit">Pay x402 + match</button>
+            </form>
+
+            <section class="flow-panel" aria-labelledby="flowTitle">
+              <span class="expert-eyebrow">Transaction state</span>
+              <h2 id="flowTitle">Demo engagement</h2>
+              <ol class="flow-list" id="flowList"></ol>
+              <div class="payment-box" id="paymentBox">
+                <small>Payment status</small>
+                <strong>x402 discovery required</strong>
+                <span>Agent discovery is paid before candidate ranking; booking settlement comes later.</span>
+              </div>
+              <div class="flow-actions">
+                <button class="expert-btn secondary" id="acceptRequest" type="button" disabled>Expert accepts</button>
+                <button class="expert-btn secondary" id="authorizePayment" type="button" disabled>Authorize booking USDC</button>
+                <button class="expert-btn accent" id="completeEngagement" type="button" disabled>Complete + settle</button>
+              </div>
+            </section>
+          </section>
+
+          <section id="resultsWrap" hidden>
+            <div class="metrics">
+              <article class="metric-card"><small>Candidates screened</small><strong id="candidateCount">0</strong></article>
+              <article class="metric-card"><small>Best fit</small><strong id="bestScore">0%</strong></article>
+              <article class="metric-card"><small>Budget fit</small><strong id="budgetFit">0</strong></article>
+              <article class="metric-card"><small>Agent route</small><strong>findExperts()</strong></article>
+            </div>
+            <div class="results-grid" id="results"></div>
+          </section>
+
+          <section class="ledger-panel" id="ledgerPanel" hidden>
+            <div>
+              <span class="expert-eyebrow">Evidence trail</span>
+              <h2>Settlement and reputation</h2>
+            </div>
+            <div id="ledgerEntries" class="ledger-list"></div>
+          </section>
+
+          <section class="judgment-panel" aria-labelledby="judgmentTitle">
+            <div class="review-head">
+              <div>
+                <span class="expert-eyebrow">Human judgment transaction</span>
+                <h2 id="judgmentTitle">Canadian soccer title pulse</h2>
+              </div>
+              <div class="review-actions">
+                <button class="expert-btn secondary" id="createJudgmentTask" type="button">Create task</button>
+                <button class="expert-btn accent" id="settleJudgmentResponse" type="button" disabled>Accept + pay</button>
+                <button class="expert-btn secondary" id="escalateJudgment" type="button" disabled>Book an Expert</button>
+              </div>
+            </div>
+            <div class="judgment-grid">
+              <article>
+                <small>Agent question</small>
+                <strong>Which podcast title would make you most likely to listen?</strong>
+                <p>Requirements: Canadian soccer knowledge · 5 responses · 0.10 USDC per accepted response</p>
+              </article>
+              <article>
+                <small>Matched contributor</small>
+                <strong id="judgmentContributor">Not matched yet</strong>
+                <p id="judgmentRationale">Create the task to match a qualified contributor.</p>
+              </article>
+              <article>
+                <small>Accepted response</small>
+                <strong id="judgmentAnswer">Waiting</strong>
+                <p id="judgmentPayment">Payment proof appears after settlement.</p>
+              </article>
+            </div>
+          </section>
+        </section>
+
+        <section class="expert-view" data-view="directory" hidden>
+          <div class="expert-hero">
+            <div>
+              <span class="expert-eyebrow">Structured profiles</span>
+              <h1>Demo expert network</h1>
+              <p>Ten fictional experts with tags, credentials, links, rates, availability, verification states, and differentiated topical evidence.</p>
+            </div>
+          </div>
+          <div class="directory-toolbar">
+            <input id="directorySearch" type="search" placeholder="Search topics, skills, companies, credentials">
+            <select id="directoryCategory">
+              <option value="">All categories</option>
+            </select>
+          </div>
+          <div class="directory-grid" id="directoryGrid"></div>
+        </section>
+
+        <section class="expert-view" data-view="onboarding" hidden>
+          <div class="expert-hero">
+            <div>
+              <span class="expert-eyebrow">Expert side</span>
+              <h1>Create a profile agents can evaluate.</h1>
+              <p>Import public profile material, enrich it with professional public evidence, review every proposed fact, and publish only what you approve.</p>
+            </div>
+          </div>
+          <div class="onboarding-grid">
+            <form class="double-card" id="onboardingForm">
+              <div class="import-panel">
+                <span class="expert-eyebrow">Profile import</span>
+                <h2>Start from what you already have.</h2>
+                <p>We’ll read your public profile and fill both lists. Check the result. Imports miss things, and you can edit every row.</p>
+                <div class="import-actions">
+                  <button class="expert-btn secondary" id="fillLinkedIn" type="button">Fill from LinkedIn</button>
+                  <button class="expert-btn secondary" id="uploadCvButton" type="button">Upload CV</button>
+                  <button class="expert-btn secondary" id="startManual" type="button">Start manually</button>
+                </div>
+                <label class="field field-wide">
+                  <span>Pasted profile text</span>
+                  <textarea id="profileText" placeholder="Paste a LinkedIn PDF export, resume text, speaker bio, or public profile copy."></textarea>
+                </label>
+              </div>
+              <div class="brief-grid">
+                <label class="field"><span>Name</span><input id="expertName" required></label>
+                <label class="field"><span>Headline</span><input id="headline" required></label>
+                <label class="field"><span>Location</span><input id="expertLocation"></label>
+                <label class="field"><span>Languages</span><input id="expertLanguages" placeholder="English, French"></label>
+                <label class="field"><span>LinkedIn URL</span><input id="linkedin" type="url" placeholder="https://linkedin.com/in/..."></label>
+                <label class="field"><span>Website</span><input id="website" type="url"></label>
+                <label class="field field-wide"><span>Bio</span><textarea id="expertBio"></textarea></label>
+                <label class="field field-wide"><span>Topics / skills</span><input id="expertTopics" placeholder="AI agents, Solana, healthcare policy"></label>
+                <label class="field"><span>Hourly price</span><input id="hourlyPrice" type="number" min="0" step="25" value="350"></label>
+                <label class="field"><span>Availability</span><input id="availability" placeholder="Tue/Thu afternoons"></label>
+                <label class="field"><span>Engagement types</span><input id="preferredEngagements" placeholder="Podcast guest, consultation"></label>
+                <label class="field"><span>Verification</span>
+                  <select id="verificationState">
+                    <option>Unverified</option>
+                    <option selected>Profile reviewed</option>
+                    <option>Credentials reviewed</option>
+                    <option>Verified</option>
+                  </select>
+                </label>
+              </div>
+              <label class="dropzone" id="dropzone">
+                <input id="dropInput" type="file" multiple accept=".pdf,.doc,.docx,.txt,.md,.csv,.json,.html">
+                <strong>Attach CV, papers, talks, or profile exports</strong>
+                <span>LinkedIn PDF exports, CVs, papers, talks, and public profile copies stay local in this static MVP.</span>
+              </label>
+              <div class="source-list" id="sourceList"></div>
+              <div class="search-actions">
+                <button class="expert-btn secondary" id="enrichPublic" type="button">Enrich from public sources</button>
+                <button class="expert-btn secondary" id="clearProfile" type="button">Clear local draft</button>
+                <button class="expert-btn accent" type="submit">Save profile draft</button>
+              </div>
+            </form>
+            <section class="double-card">
+              <span class="expert-eyebrow">Profile readiness</span>
+              <h2 id="doubleReady">0%</h2>
+              <div class="coverage" id="coverage"></div>
+              <div class="status-note">
+                <b>Evidence model</b>
+                <span>Claimed expertise is user supplied or approved. Source-confirmed evidence has public provenance. Demonstrated expertise comes from completed Studio activity.</span>
+              </div>
+            </section>
+          </div>
+          <section class="review-panel" aria-labelledby="evidenceTitle">
+            <div class="review-head">
+              <div>
+                <span class="expert-eyebrow">Evidence review</span>
+                <h2 id="evidenceTitle">Proposed profile evidence</h2>
+              </div>
+              <div class="review-actions">
+                <button class="expert-btn secondary" id="bulkAccept" type="button">Keep low-risk</button>
+                <button class="expert-btn secondary" id="bulkReject" type="button">Delete proposed</button>
+              </div>
+            </div>
+            <div class="evidence-review-list" id="evidenceReviewList"></div>
+          </section>
+          <section class="review-panel" aria-labelledby="diligenceTitle">
+            <div class="review-head">
+              <div>
+                <span class="expert-eyebrow">Due diligence summary</span>
+                <h2 id="diligenceTitle">Profile evidence health</h2>
+              </div>
+            </div>
+            <div class="diligence-grid" id="diligenceGrid"></div>
+          </section>
+        </section>
+
+        <section class="expert-view" data-view="agent" hidden>
+          <div class="expert-hero">
+            <div>
+              <span class="expert-eyebrow">Agent programmable surface</span>
+              <h1>The UI calls the same service an agent would.</h1>
+              <p>These JSON contracts are deliberately small for Colosseum: discover, request, accept, authorize payment, complete, settle, and read status.</p>
+            </div>
+          </div>
+          <div class="api-grid">
+            <article class="api-card"><strong>findExperts(request)</strong><pre id="apiFind"></pre></article>
+            <article class="api-card"><strong>requestExpert(payload)</strong><pre id="apiRequest"></pre></article>
+            <article class="api-card"><strong>authorizePayment(engagementId)</strong><pre id="apiPayment"></pre></article>
+            <article class="api-card"><strong>x402-ready paid action</strong><pre id="apiX402"></pre></article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" hidden></div>
+  </body>
+</html>

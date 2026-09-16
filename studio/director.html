@@ -7,15 +7,16 @@
     <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@700;800;900&family=Permanent+Marker&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Manrope:wght@500;700;800&family=Montserrat:wght@700;800;900&family=Permanent+Marker&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../css/brand.css">
     <link rel="stylesheet" href="../css/studio.css">
+    <link rel="stylesheet" href="../css/studio-white-label.css?v=brand-20260916b">
     <script>
       if (window.top === window.self && /\/director\.html$/i.test(window.location.pathname)) {
-        window.location.replace("./");
+        window.location.replace(`./${window.location.search}`);
       }
     </script>
-    <script type="module" src="../js/director.js?v=brand-20260911"></script>
+    <script type="module" src="../js/director.js?v=brand-20260916b"></script>
   </head>
   <body class="studio-shell director-shell">
     <div class="studio-atmosphere" aria-hidden="true">
@@ -29,8 +30,8 @@
       <div class="ai-studio-masthead" id="aiStudioMasthead" hidden>
         <img
           src="../shared/brand/toasty-media/ToastyMediaStudio.png"
-          alt="Toasty Media Studio"
-          onerror="this.onerror=null;this.src='../shared/brand/toasty-media/ToastyMediaHLOGO.png';"
+          alt="Studio"
+          data-brand-logo
         >
       </div>
 
@@ -49,12 +50,11 @@
     <div class="studio-grid">
       <aside class="rail rail-left" aria-label="Studio session rail">
         <div class="brand-block">
-          <a class="brand-lockup" href="../site/" aria-label="Toasty Media home">
+          <a class="brand-lockup" id="studioBrandLink" href="../site/" aria-label="Studio brand home">
             <img
               id="studioBrandLogo"
               src="../shared/brand/toasty-media/ToastyMediaStudio.png"
               alt="Toasty Media Studio"
-              onerror="this.onerror=null;this.src='../shared/brand/toasty-media/ToastyMediaHLOGO.png';"
             >
             <span class="brand-text-lockup" id="studioBrandText" hidden>Toasty Studio</span>
           </a>
@@ -77,6 +77,7 @@
               <option value="toasty">Toasty Media</option>
               <option value="8alta">8alta</option>
               <option value="santati">Santati</option>
+              <option value="optimai">OptimAI Network</option>
             </select>
           </label>
           <button id="inviteGuestBtn" class="btn btn-primary" type="button">
@@ -121,8 +122,8 @@
           <div class="production-head">
             <div>
               <p class="rail-eyebrow">AI Production</p>
-              <h2 id="aiProductionTitle">Drop it in. We'll make it Toasty.</h2>
-              <p class="production-subtitle">Video, clips, photos or audio. Toasty handles the production.</p>
+              <h2 id="aiProductionTitle" data-brand-copy="productionTitle">Drop it in. We'll produce it.</h2>
+              <p class="production-subtitle" data-brand-copy="productionSubtitle">Video, clips, photos, or audio. The Studio handles the production.</p>
             </div>
             <label class="ai-brand-control" for="aiBrandProfile">
               <span>Brand</span>
@@ -130,6 +131,7 @@
                 <option value="toasty">Toasty Media</option>
                 <option value="8alta">8alta</option>
                 <option value="santati">Santati</option>
+                <option value="optimai">OptimAI Network</option>
               </select>
               <strong>Brand ✓</strong>
             </label>
@@ -153,7 +155,7 @@
                     </div>
                     <button id="connectGoogleDrive" class="btn btn-ghost btn-small" type="button">Connect Drive</button>
                   </div>
-                  <p id="driveStatus" class="control-note">Connect Google Drive to use your own media without storing permanent copies in Toasty.</p>
+                  <p id="driveStatus" class="control-note">Connect Google Drive to use your own media without storing permanent copies in the Studio.</p>
                   <div class="drive-browser" id="driveBrowser" hidden>
                     <div class="drive-toolbar">
                       <button id="driveBack" class="btn btn-ghost btn-small" type="button" disabled>Back</button>
@@ -181,15 +183,15 @@
                   <label><input id="quickNormalizeAudio" type="checkbox" checked> Normalize audio</label>
                   <label><input id="quickSaveToDrive" type="checkbox"> Save finished video to Google Drive</label>
                 </details>
-                <button id="quickToastIt" class="btn btn-primary quick-toast-button" type="button" disabled>Toast it</button>
+                <button id="quickToastIt" class="btn btn-primary quick-toast-button" type="button" disabled>Produce it</button>
                 <button id="startCreateWorkflow" class="link-action quick-create-link" type="button">Start from an idea →</button>
               </div>
             </div>
-            <div id="quickAssetStrip" class="quick-asset-strip" aria-label="Quick Toast assets"></div>
+            <div id="quickAssetStrip" class="quick-asset-strip" aria-label="Fast production assets"></div>
             <section class="quick-preview" id="quickPreview" hidden aria-live="polite">
               <div>
                 <p class="rail-eyebrow">Preview</p>
-                <h3>Toasty prepared your production.</h3>
+                <h3 data-brand-copy="preparedTitle">Your production is prepared.</h3>
               </div>
               <ul id="quickPreviewList"></ul>
               <div class="quick-preview-actions">
@@ -206,10 +208,10 @@
                 <p class="rail-eyebrow">Create</p>
                 <h3>Start with an idea, a link, or something you want to say.</h3>
               </div>
-              <button id="backToQuickToast" class="btn btn-ghost btn-small" type="button">Quick Toast</button>
+              <button id="backToQuickToast" class="btn btn-ghost btn-small" type="button">Fast Production</button>
             </div>
 
-          <aside class="concierge-note" id="conciergeNote" aria-live="polite">Toasty suggests: start with one visible proof.</aside>
+          <aside class="concierge-note" id="conciergeNote" aria-live="polite">Studio suggests: start with one visible proof.</aside>
 
           <nav class="workflow-tabs" id="aiWorkflowTabs" aria-label="AI production stages"></nav>
 
@@ -297,7 +299,7 @@
               <label>Attach B-roll / image / screen asset<input id="visualUpload" type="file" accept="image/*,video/*"></label>
             </div>
             <div id="sceneAssetList" class="scene-asset-list"></div>
-            <p class="control-note">Attach the visuals you already have. Toasty will keep each scene organized for review and assembly.</p>
+            <p class="control-note">Attach the visuals you already have. The Studio will keep each scene organized for review and assembly.</p>
           </div>
 
           <div class="workflow-stage" data-stage="assemble" hidden>
@@ -473,19 +475,6 @@
               <button type="button" class="po-swatch" data-scene="ending" aria-pressed="false">Ending</button>
             </div>
 
-            <label class="po-field">Layout
-              <select id="poLayout">
-                <option value="auto" selected>Auto</option>
-                <option value="1">1 speaker</option>
-                <option value="2">2 speakers</option>
-                <option value="3">3 speakers</option>
-                <option value="4">4 speakers</option>
-                <option value="screen-speaker">Screen + speaker</option>
-                <option value="screen-dominant">Screen dominant + PiP</option>
-                <option value="fullmedia">Full-screen media</option>
-              </select>
-            </label>
-
             <label class="po-field po-ticker-toggle">
               <input id="poTickerEnabled" type="checkbox">
               Show ticker
@@ -493,14 +482,6 @@
             <label class="po-field">Ticker text
               <input id="poTickerText" type="text" placeholder="Breaking: ..." maxlength="220" disabled>
             </label>
-
-            <details class="po-lower-thirds">
-              <summary>Lower-third titles</summary>
-              <label class="po-field">Host title<input id="poHostTitle" type="text" placeholder="Founder / Toasty Media"></label>
-              <label class="po-field">Guest 1 title<input id="poGuest1Title" type="text" placeholder="Title, company"></label>
-              <label class="po-field">Guest 2 title<input id="poGuest2Title" type="text" placeholder="Title, company"></label>
-              <label class="po-field">Guest 3 title<input id="poGuest3Title" type="text" placeholder="Title, company"></label>
-            </details>
           </div>
 
         </section>

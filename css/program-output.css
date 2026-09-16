@@ -54,7 +54,10 @@ html, body {
   align-items: center;
   display: flex;
   justify-content: space-between;
-  padding: clamp(0.6rem, 1.6vw, 1.1rem) clamp(0.9rem, 2.4vw, 1.6rem);
+  /* Extra inset (beyond just enough to clear the edge) so our logo/LIVE badge sit clear of the corner
+     zones where X/YouTube/LinkedIn typically place their own live indicator or watermark once this feed
+     is re-broadcast on their platform. */
+  padding: clamp(0.9rem, 2.2vw, 1.5rem) clamp(1.1rem, 3vw, 2rem);
   position: relative;
   z-index: 5;
 }
@@ -324,4 +327,111 @@ html, body {
 /* Program Output must fill a 3-person layout gracefully at phone-preview widths too */
 @media (max-width: 480px) {
   .po-lower-third-title { display: none; }
+}
+
+/* Waiting room: shown in the live stage instead of a blank/black frame when nobody has actually
+   joined yet (see renderLiveStage in listener.js) — a branded 4-up placeholder grid rather than dead air. */
+.po-waitingroom {
+  display: grid;
+  gap: clamp(0.4rem, 1vw, 0.85rem);
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+@media (max-width: 700px) {
+  .po-waitingroom { grid-template-columns: 1fr 1fr; }
+}
+
+.po-waitingroom-slot {
+  align-items: center;
+  background: var(--studio-surface);
+  border: 1px dashed var(--studio-line);
+  border-radius: 12px;
+  color: var(--po-video-text-dim);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.po-waitingroom-icon {
+  color: var(--studio-line);
+  width: clamp(28px, 5vw, 44px);
+}
+
+.po-waitingroom-icon svg {
+  display: block;
+  width: 100%;
+}
+
+.po-waitingroom-label {
+  color: var(--po-video-text);
+  font-family: var(--po-font-heading);
+  font-size: clamp(0.75rem, 1.4vw, 1rem);
+  font-weight: 800;
+}
+
+.po-waitingroom-note {
+  font-size: clamp(0.62rem, 1vw, 0.78rem);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* One-time audio/video unlock gate. Browsers block autoplay of unmuted video without a user
+   gesture in that frame; the VDO.Ninja tiles carry real (unmuted) program audio on purpose, and
+   cleanoutput hides VDO.Ninja's own "click to play" prompt, so Program Output needs its own. Tiles
+   are only mounted after this is clicked (see listener.js), so the resulting iframe loads happen
+   inside a genuine user gesture and are allowed to autoplay with sound. */
+.po-audio-gate {
+  align-items: center;
+  background: rgba(6, 5, 4, 0.86);
+  border: 0;
+  color: var(--po-video-text);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--po-font-body);
+  gap: 0.5rem;
+  inset: 0;
+  justify-content: center;
+  padding: 2rem;
+  position: absolute;
+  text-align: center;
+  z-index: 20;
+}
+
+.po-audio-gate[hidden] {
+  display: none;
+}
+
+.po-audio-gate-icon {
+  align-items: center;
+  background: var(--studio-orange);
+  border-radius: 50%;
+  display: flex;
+  height: clamp(48px, 7vw, 72px);
+  justify-content: center;
+  width: clamp(48px, 7vw, 72px);
+}
+
+.po-audio-gate-icon::before {
+  border-color: transparent transparent transparent var(--po-video-text);
+  border-style: solid;
+  border-width: 0.6em 0 0.6em 1em;
+  content: "";
+  margin-left: 0.15em;
+}
+
+.po-audio-gate-label {
+  font-family: var(--po-font-heading);
+  font-size: clamp(0.95rem, 2vw, 1.3rem);
+  font-weight: 800;
+}
+
+.po-audio-gate-note {
+  color: var(--po-video-text-dim);
+  font-size: clamp(0.7rem, 1.2vw, 0.85rem);
+  max-width: 30em;
 }

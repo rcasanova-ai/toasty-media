@@ -1,5 +1,11 @@
 RewriteEngine On
 
 RewriteRule ^studio$ /studio/director.html [L]
+
+# Bounce direct/top-level requests for director.html back to the auth gate at /studio, but not the
+# authenticated app shell's own iframe embed of it (studio-auth.js sets #studioAppFrame's src to
+# ./director.html) — THE_REQUEST alone can't tell those apart, so also require Sec-Fetch-Dest to be
+# something other than "iframe" before redirecting.
+RewriteCond %{HTTP:Sec-Fetch-Dest} !=iframe
 RewriteCond %{THE_REQUEST} \s/+studio/director\.html[\s?]
 RewriteRule ^studio/director\.html$ /studio [R=302,L]

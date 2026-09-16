@@ -6,12 +6,25 @@ import { ProgramSync } from "./program-sync.js";
 // Toasty Studio Program Output — the finished, audience-facing broadcast canvas.
 // This page contains ONLY the composited show: no director/guest/camera/scene controls of any kind.
 // It is the single feed re-used for the Toasty viewer, tab-capture RTMP broadcasting, and local recording.
+//
+// The video layer is VDO.Ninja's own auto-mixed room view (scene=0), not an individually-addressed
+// per-seat composite. Two per-seat approaches (solo/view, and director-assigned numbered scenes) were
+// each implemented and directly tested against real published streams; both failed inside VDO.Ninja
+// itself (solo/view hits a cross-origin localStorage bug in VDO.Ninja's own TURN-selection code;
+// numbered scenes accept the director's assignment over signaling but never negotiate media to the
+// viewer). scene=0 is the one mode that has shown video reliably, every time, including on production.
+// Toasty's own branded chrome (logo, LIVE badge, topic, ticker, holding/ending screens) still wraps it.
 
 const roomId = getRoomIdFromUrl();
 const engine = new VideoEngine();
 let sync = null;
-const mountedTiles = new Map(); // tileKey -> streamId currently mounted in that tile's iframe
+let programMounted = false;
 let tickerRafId = null;
+let lastProgramState = null;
+// Browsers block autoplay of unmuted <video> without a user gesture in that frame. The program frame
+// carries real (unmuted) program audio on purpose, so it isn't mounted until the operator clicks the
+// audio gate once — see mountProgramVideo() and the click handler below.
+let audioUnlocked = false;
 
 const elements = {
   canvas: document.querySelector("#poCanvas"),
@@ -29,7 +42,9 @@ const elements = {
   topic: document.querySelector("#poTopic"),
   ticker: document.querySelector("#poTicker"),
   tickerTrack: document.querySelector("#poTickerTrack"),
-  tickerText: document.querySelector("#poTickerText")
+  tickerText: document.querySelector("#poTickerText"),
+  audioGate: document.querySelector("#poAudioGate"),
+  poweredBy: document.querySelector("#programPoweredBy")
 };
 
 init();
@@ -41,6 +56,8 @@ function init() {
     return;
   }
   applyBrand(normalizeBrandTheme(new URLSearchParams(window.location.search).get("brand")));
+  elements.stage.dataset.layout = "1";
+  elements.audioGate.addEventListener("click", unlockAudio, { once: true });
   sync = new ProgramSync(roomId);
   const lastState = sync.readLastState();
   if (lastState) render(lastState);
@@ -50,8 +67,17 @@ function init() {
   sync.requestState();
 }
 
+function unlockAudio() {
+  audioUnlocked = true;
+  elements.audioGate.hidden = true;
+  // Mount now, inside this click's user-activation window, if the show is already live — a render
+  // that arrives later without a fresh gesture wouldn't reliably get an unmuted autoplay.
+  if (lastProgramState?.scene === "live") renderLiveStage(lastProgramState);
+}
+
 function render(programState) {
   if (!programState) return;
+  lastProgramState = programState;
   applyBrand(programState.brandTheme);
   document.body.dataset.scene = programState.scene || "holding";
 
@@ -71,108 +97,93 @@ function render(programState) {
   }
 
   if (programState.scene === "live") {
-    renderStage(programState);
+    renderLiveStage(programState);
   } else {
     clearStage();
+    elements.audioGate.hidden = true; // nothing to unlock on holding/ending — no media playing there
   }
 }
 
-function renderStage(programState) {
-  const seats = Array.isArray(programState.seats) ? programState.seats : [];
-  const host = seats.find((seat) => seat.id === "host") || null;
-  const activeGuests = seats.filter((seat) => seat.id !== "host" && seat.active);
-  const layout = resolveLayout(programState, activeGuests);
-
-  elements.stage.dataset.layout = layout;
-  document.body.dataset.layout = layout;
-
-  const tiles = buildTilePlan(layout, host, activeGuests);
-  const activeKeys = new Set(tiles.map((tile) => tile.key));
-  [...mountedTiles.keys()].filter((key) => !activeKeys.has(key)).forEach(teardownTile);
-
-  elements.stage.replaceChildren(...tiles.map((tile) => buildTileElement(tile)));
-}
-
-// Fully disconnects a tile's VDO.Ninja iframe (rather than just detaching it from the DOM) so a
-// dropped participant or an inactive scene doesn't keep an invisible connection running.
-function teardownTile(key) {
-  engine.frames.get(key)?.remove();
-  engine.frames.delete(key);
-  mountedTiles.delete(key);
-}
-
-function resolveLayout(programState, activeGuests) {
-  const requested = programState.layout || "auto";
-  const needsScreenPartner = requested === "screen-speaker" || requested === "screen-dominant";
-  if (needsScreenPartner && activeGuests.length === 0) return "1";
-  if (requested !== "auto") return requested;
-  if (programState.screenSharing && activeGuests.length > 0) return "screen-speaker";
-  return String(Math.min(4, 1 + activeGuests.length));
-}
-
-function buildTilePlan(layout, host, activeGuests) {
-  if (layout === "screen-speaker" || layout === "screen-dominant") {
-    return [
-      { key: "host", role: "screen", seat: host, showLowerThird: false },
-      { key: activeGuests[0].id, role: "speaker", seat: activeGuests[0], showLowerThird: true }
-    ];
+// Distinguishes "genuinely nobody has joined yet" from "video is loading" so the audience sees a real
+// branded waiting-room instead of a blank frame. hostStarted/guestCount come from Director (see
+// publishProgramState) — hostStarted is only true once the host has actually clicked "Start camera &
+// microphone", not just because Director's page is open.
+function renderLiveStage(programState) {
+  const roomEmpty = !programState.hostStarted && !programState.guestCount;
+  if (roomEmpty) {
+    if (programMounted) clearStage();
+    elements.stage.replaceChildren(buildWaitingRoom());
+    elements.audioGate.hidden = true; // no real media yet, nothing to unlock
+    return;
   }
-  if (layout === "fullmedia") {
-    return [{ key: "host", role: "screen", seat: host, showLowerThird: false }];
-  }
-  const count = Math.max(1, Math.min(4, Number(layout) || 1));
-  const speakers = [host, ...activeGuests].filter(Boolean).slice(0, count);
-  return speakers.map((seat) => ({ key: seat.id, role: "speaker", seat, showLowerThird: true }));
+  elements.audioGate.hidden = audioUnlocked; // real video is due — show the gate until it's clicked
+  mountProgramVideo();
 }
 
-function buildTileElement(tile) {
+function mountProgramVideo() {
+  if (programMounted) return;
+  if (!audioUnlocked) {
+    elements.stage.replaceChildren(buildTile(false));
+    return;
+  }
+  programMounted = true;
+  const tile = buildTile(true);
+  elements.stage.replaceChildren(tile);
+  engine.mountProgramFrame(tile.querySelector(".po-tile-video"), { roomId }, "program");
+}
+
+function buildTile(withVideo) {
   const el = document.createElement("article");
   el.className = "po-tile";
-  el.dataset.role = tile.role;
-
+  el.dataset.role = "speaker";
   const videoHost = document.createElement("div");
   videoHost.className = "po-tile-video";
+  if (!withVideo) videoHost.classList.add("po-tile-video--empty");
   el.appendChild(videoHost);
-
-  if (tile.showLowerThird && tile.seat) {
-    const lowerThird = document.createElement("div");
-    lowerThird.className = "po-lower-third";
-    lowerThird.innerHTML = `<span class="po-lower-third-name"></span><span class="po-lower-third-title"></span>`;
-    lowerThird.querySelector(".po-lower-third-name").textContent = tile.seat.name || "";
-    const titleEl = lowerThird.querySelector(".po-lower-third-title");
-    titleEl.textContent = tile.seat.title || "";
-    titleEl.hidden = !tile.seat.title;
-    el.appendChild(lowerThird);
-  }
-
-  mountTileVideo(videoHost, tile);
   return el;
 }
 
-function mountTileVideo(container, tile) {
-  const streamId = tile.seat?.streamId;
-  if (!streamId) {
-    container.classList.add("po-tile-video--empty");
-    return;
-  }
-  if (mountedTiles.get(tile.key) === streamId) {
-    // Same stream already mounted for this tile in a previous render; VideoEngine tracks the live
-    // iframe by frameId, so pulling it out of the stage and re-appending keeps the connection alive.
-    const existing = engine.frames.get(tile.key);
-    if (existing) { container.replaceChildren(existing); return; }
-  }
-  mountedTiles.set(tile.key, streamId);
-  engine.mountSoloFrame(container, { roomId, streamId }, tile.key);
+function buildWaitingRoom() {
+  const wrap = document.createElement("div");
+  wrap.className = "po-waitingroom";
+  [
+    { label: "Host", note: "Joining soon" },
+    { label: "Guest 1", note: "Open" },
+    { label: "Guest 2", note: "Open" },
+    { label: "Guest 3", note: "Open" }
+  ].forEach((slot) => {
+    const card = document.createElement("div");
+    card.className = "po-waitingroom-slot";
+    card.innerHTML = `
+      <span class="po-waitingroom-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"></path></svg>
+      </span>
+      <span class="po-waitingroom-label"></span>
+      <span class="po-waitingroom-note"></span>
+    `;
+    card.querySelector(".po-waitingroom-label").textContent = slot.label;
+    card.querySelector(".po-waitingroom-note").textContent = slot.note;
+    wrap.appendChild(card);
+  });
+  return wrap;
 }
 
 function clearStage() {
-  [...mountedTiles.keys()].forEach(teardownTile);
+  if (programMounted) {
+    engine.frames.get("program")?.remove();
+    engine.frames.delete("program");
+    programMounted = false;
+  }
   elements.stage.replaceChildren();
 }
 
 function applyBrand(themeId) {
-  const theme = applyBrandTheme(themeId, { root: document.body });
+  const theme = applyBrandTheme(themeId, { root: document.body, poweredBy: elements.poweredBy });
   const brandProfile = getBrandProfile(theme.id);
+  if (!lastProgramState?.topic) {
+    elements.holdingTopic.textContent = theme.textLogo || `${theme.label} Studio`;
+    elements.topic.textContent = theme.textLogo || `${theme.label} Studio`;
+  }
   [elements.brandLogo, elements.holdingLogo, elements.endingLogo].forEach((img) => {
     if (theme.logoSrc) { img.hidden = false; img.src = theme.logoSrc; img.alt = theme.logoAlt || theme.label; }
     else img.hidden = true;

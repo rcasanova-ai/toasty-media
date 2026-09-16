@@ -75,24 +75,25 @@ export class ToastyConcierge {
   }
 
   suggestForStage({ stage, project, brandProfile, productionSpec, consistency }) {
-    if (stage === "source") return `Toasty suggests: keep the idea tied to ${brandProfile.toneOfVoice} and one visible proof.`;
+    const prefix = brandProfile.id === "toasty" ? "Toasty suggests:" : `${brandProfile.name} Studio suggests:`;
+    if (stage === "source") return `${prefix} keep the idea tied to ${brandProfile.toneOfVoice} and one visible proof.`;
     if (stage === "script" && project.angles.length) {
       const selectedIndex = Math.max(0, project.angles.findIndex((angle) => angle.id === project.selectedAngleId));
-      return `Toasty suggests: angle ${selectedIndex + 1} best fits ${brandProfile.name} when the hook stays punchy.`;
+      return `${prefix} angle ${selectedIndex + 1} best fits ${brandProfile.name} when the hook stays punchy.`;
     }
-    if (stage === "script") return "Toasty suggests: generate angles before polishing the script.";
-    if (stage === "record") return "Toasty suggests: use your real narration as the master track for avatar, captions, and render timing.";
+    if (stage === "script") return `${prefix} generate angles before polishing the script.`;
+    if (stage === "record") return `${prefix} use your real narration as the master track for avatar, captions, and render timing.`;
     if (stage === "scenes") {
       const warning = consistency.sceneResults.find((result) => result.status !== "aligned");
-      return warning ? `Toasty suggests: scene ${warning.order} needs ${warning.messages[0]}.` : "Toasty suggests: the scene plan is carrying the production style.";
+      return warning ? `${prefix} scene ${warning.order} needs ${warning.messages[0]}.` : `${prefix} the scene plan is carrying the production style.`;
     }
     if (stage === "assets") {
       const missing = consistency.sceneResults.filter((result) => result.messages.includes("missing visual asset"));
-      return missing.length ? `Toasty suggests: scenes ${missing.map((item) => item.order).join(", ")} need matching visuals.` : "Toasty suggests: visuals are mapped to the current brand direction.";
+      return missing.length ? `${prefix} scenes ${missing.map((item) => item.order).join(", ")} need matching visuals.` : `${prefix} visuals are mapped to the current brand direction.`;
     }
-    if (stage === "review") return `Toasty suggests: ${consistency.summary}`;
-    if (stage === "export") return "Toasty suggests: export the manifest when voice, visuals, captions, and brand direction are aligned.";
-    return `Toasty suggests: keep the production ${productionSpec?.format || "short"} and unmistakably ${brandProfile.name}.`;
+    if (stage === "review") return `${prefix} ${consistency.summary}`;
+    if (stage === "export") return `${prefix} export the manifest when voice, visuals, captions, and brand direction are aligned.`;
+    return `${prefix} keep the production ${productionSpec?.format || "short"} and unmistakably ${brandProfile.name}.`;
   }
 }
 

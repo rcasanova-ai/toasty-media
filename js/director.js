@@ -10,13 +10,12 @@ import {
   getInitialBrandTheme,
   normalizeBrandTheme,
   saveBrandTheme,
-} from "./brand-themes.js?v=brand-20260911";
-import { AIProductionController } from "./ai-production.js?v=brand-20260911";
+} from "./brand-themes.js?v=brand-20260916b";
+import { AIProductionController } from "./ai-production.js?v=brand-20260916b";
 import { LocalIsolatedRecorder } from "./recording.js";
 import { Soundboard } from "./soundboard.js";
 import { ToastyBroadcastController } from "./broadcast-client.js?v=auth-20260911";
 import { ProgramSync } from "./program-sync.js";
-import { getBrandProfile } from "./brand-profile.js";
 
 const GUEST_SEAT_COUNT = 3;
 
@@ -35,14 +34,14 @@ const state = {
 
 const program = {
   scene: "holding",
-  layout: "auto",
   topic: "",
   tickerEnabled: false,
   tickerText: "",
   live: false,
-  hostTitle: "",
-  guestTitles: ["", "", ""],
-  // Stable seat -> {id,label} assignment for up to GUEST_SEAT_COUNT guests, independent of join/leave order noise.
+  // Stable seat -> {id,label} assignment for up to GUEST_SEAT_COUNT guests, independent of join/leave order
+  // noise. Used only to count active guests for the Participants panel — Program Output's video is
+  // VDO.Ninja's own auto-mixed room view (scene=0), not an individually-addressed per-seat composite (see
+  // video-engine.js's mountProgramFrame for why), so this no longer drives what Program Output shows.
   guestSeats: new Array(GUEST_SEAT_COUNT).fill(null)
 };
 
@@ -73,6 +72,7 @@ const elements = {
   copyInvite: document.querySelector("#copyInvite"),
   copyListenerInvite: document.querySelector("#copyListenerInvite"),
   brandThemeSelect: document.querySelector("#brandThemeSelect"),
+  studioBrandLink: document.querySelector("#studioBrandLink"),
   studioBrandLogo: document.querySelector("#studioBrandLogo"),
   studioBrandText: document.querySelector("#studioBrandText"),
   poweredBy: document.querySelector("#poweredBy"),
@@ -98,13 +98,8 @@ const elements = {
   directorControlFrame: document.querySelector("#directorControlFrame"),
   poTopic: document.querySelector("#poTopic"),
   poSceneGroup: document.querySelector("#poSceneGroup"),
-  poLayout: document.querySelector("#poLayout"),
   poTickerEnabled: document.querySelector("#poTickerEnabled"),
-  poTickerText: document.querySelector("#poTickerText"),
-  poHostTitle: document.querySelector("#poHostTitle"),
-  poGuest1Title: document.querySelector("#poGuest1Title"),
-  poGuest2Title: document.querySelector("#poGuest2Title"),
-  poGuest3Title: document.querySelector("#poGuest3Title")
+  poTickerText: document.querySelector("#poTickerText")
 };
 
 init();
@@ -188,10 +183,10 @@ function restartGuestListPolling() {
 // reads as zero guests, never an invented one.
 async function refreshGuestSeats() {
   const hostStreamId = `${state.roomId}h`;
-  const guests = (await engine.requestGuestList()).filter((guest) => guest.id !== hostStreamId);
+  const guests = (await engine.requestGuestList()).filter((entry) => entry.id !== hostStreamId);
   const stillPresent = new Set(guests.map((guest) => guest.id));
 
-  // Keep existing seat holders steady so tiles don't jump around; only backfill empty seats.
+  // Keep existing seat holders steady so counts don't flicker; only backfill empty seats.
   // A guest id already occupying a seat is left alone, so a duplicate/repeated entry in the list
   // (e.g. a reconnect reusing the same id) never claims a second seat.
   program.guestSeats = program.guestSeats.map((seat) => (seat && stillPresent.has(seat.id) ? seat : null));
@@ -216,17 +211,12 @@ function updateInviteAndHistory() {
 
 function bindProgramOutputControls() {
   elements.poTopic.addEventListener("input", () => { program.topic = elements.poTopic.value; publishProgramState(); });
-  elements.poLayout.addEventListener("change", () => { program.layout = elements.poLayout.value; publishProgramState(); });
   elements.poTickerEnabled.addEventListener("change", () => {
     program.tickerEnabled = elements.poTickerEnabled.checked;
     elements.poTickerText.disabled = !program.tickerEnabled;
     publishProgramState();
   });
   elements.poTickerText.addEventListener("input", () => { program.tickerText = elements.poTickerText.value; publishProgramState(); });
-  elements.poHostTitle.addEventListener("input", () => { program.hostTitle = elements.poHostTitle.value; publishProgramState(); });
-  [elements.poGuest1Title, elements.poGuest2Title, elements.poGuest3Title].forEach((input, index) => {
-    input.addEventListener("input", () => { program.guestTitles[index] = input.value; publishProgramState(); });
-  });
   elements.poSceneGroup.querySelectorAll(".po-swatch").forEach((button) => {
     button.addEventListener("click", () => {
       program.scene = button.dataset.scene;
@@ -237,34 +227,18 @@ function bindProgramOutputControls() {
 }
 
 function publishProgramState() {
-  const brandProfile = getBrandProfile(state.brandTheme);
-  const seats = [
-    {
-      id: "host",
-      streamId: `${state.roomId}h`,
-      name: brandProfile.creatorName || "Host",
-      title: program.hostTitle || brandProfile.creatorTitle || "",
-      active: true
-    },
-    ...program.guestSeats.map((seat, index) => ({
-      id: `guest${index + 1}`,
-      streamId: seat?.id || null,
-      name: seat?.label || `Guest ${index + 1}`,
-      title: program.guestTitles[index] || "",
-      active: Boolean(seat)
-    }))
-  ];
-
   programSync.publishState({
     roomId: state.roomId,
     brandTheme: state.brandTheme,
     scene: program.scene,
-    layout: program.layout,
     topic: program.topic,
     ticker: { enabled: program.tickerEnabled, text: program.tickerText },
     live: program.live,
-    screenSharing: state.screenSharing,
-    seats
+    // Lets Program Output tell "room is genuinely empty" apart from "video hasn't loaded yet" so it can
+    // show a real waiting-room placeholder instead of a blank frame. engine.frames.has("host") is true
+    // only once the host has actually clicked "Start camera & microphone" (see mountDirectorFrame).
+    hostStarted: engine.frames.has("host"),
+    guestCount: state.guestCount
   });
 }
 
@@ -299,7 +273,7 @@ async function inviteGuest() {
   const url = elements.guestInvite.value;
   if (navigator.share) {
     try {
-      await navigator.share({ title: "Join Toasty Studio", url });
+      await navigator.share({ title: `Join ${state.brandTheme === "toasty" ? "Toasty Studio" : elements.studioBrandLogo.alt}`, url });
       return;
     } catch (error) {
       if (error?.name === "AbortError") return;
@@ -477,6 +451,7 @@ function applySelectedBrand() {
     root: document.body,
     logoImg: elements.studioBrandLogo,
     logoText: elements.studioBrandText,
+    brandLink: elements.studioBrandLink,
     poweredBy: elements.poweredBy,
     atmosphereBrandWord: elements.atmosphereBrandWord,
     atmosphereProductWord: elements.atmosphereProductWord,

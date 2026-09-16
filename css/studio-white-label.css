@@ -1,0 +1,265 @@
+/* Tenant-level presentation layered over the shared Studio layouts. */
+
+body[data-brand-theme]:not([data-brand-theme="toasty"]) {
+  --font-heading: var(--brand-heading-font);
+  --font-body: var(--brand-body-font);
+}
+
+.studio-shell:not([data-brand-theme="toasty"]) .powered-by,
+.program-output:not([data-brand-theme="toasty"]) .powered-by,
+.studio-public-shell:not([data-brand-theme="toasty"]) .powered-by,
+.expert-network-shell:not([data-brand-theme="toasty"]) .powered-by {
+  align-items: center;
+  border: 0;
+  color: var(--studio-muted, var(--public-muted, #999));
+  display: inline-flex;
+  flex-direction: row;
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 8px;
+  font-weight: 600;
+  gap: 5px;
+  letter-spacing: .04em;
+  margin: 0;
+  opacity: .48;
+  padding: 0;
+  text-transform: uppercase;
+}
+
+.studio-shell:not([data-brand-theme="toasty"]) .powered-by img,
+.program-output:not([data-brand-theme="toasty"]) .powered-by img,
+.studio-public-shell:not([data-brand-theme="toasty"]) .powered-by img,
+.expert-network-shell:not([data-brand-theme="toasty"]) .powered-by img {
+  height: 10px;
+  max-width: 58px;
+  object-fit: contain;
+  opacity: .8;
+  width: auto;
+}
+
+.studio-shell:not([data-brand-theme="toasty"]) .brand-lockup img {
+  max-height: 64px;
+  max-width: 205px;
+}
+
+.studio-shell[data-brand-theme="8alta"] .brand-lockup img,
+.program-output[data-brand-theme="8alta"] .po-scene-mark img {
+  object-fit: contain;
+}
+
+.studio-shell[data-brand-theme="8alta"] .mode-card,
+.studio-shell[data-brand-theme="8alta"] .btn,
+.studio-shell[data-brand-theme="8alta"] .quick-drop-zone,
+.studio-shell[data-brand-theme="8alta"] .workflow-stage,
+.studio-shell[data-brand-theme="8alta"] .video-panel {
+  border-radius: 18px;
+}
+
+.studio-shell[data-brand-theme="8alta"] .btn-primary,
+.studio-public-shell[data-brand-theme="8alta"] .public-button {
+  border-radius: 999px;
+}
+
+.studio-shell[data-brand-theme="santati"] .mode-card,
+.studio-shell[data-brand-theme="santati"] .btn,
+.studio-shell[data-brand-theme="santati"] .quick-drop-zone,
+.studio-shell[data-brand-theme="santati"] .workflow-stage,
+.studio-shell[data-brand-theme="santati"] .video-panel {
+  border-radius: 7px;
+}
+
+.studio-shell[data-brand-theme="santati"] .brand-lockup img {
+  height: 72px;
+  object-position: left center;
+  width: 150px;
+}
+
+.studio-shell[data-brand-theme="optimai"] .mode-card,
+.studio-shell[data-brand-theme="optimai"] .btn,
+.studio-shell[data-brand-theme="optimai"] .quick-drop-zone,
+.studio-shell[data-brand-theme="optimai"] .workflow-stage,
+.studio-shell[data-brand-theme="optimai"] .video-panel {
+  border-radius: 10px;
+}
+
+.studio-shell[data-brand-theme="optimai"] .mode-card,
+.studio-shell[data-brand-theme="optimai"] .quick-toast-panel,
+.studio-shell[data-brand-theme="optimai"] .production-panel,
+.studio-shell[data-brand-theme="optimai"] .soundboard-panel {
+  background-image: linear-gradient(135deg, rgba(246, 246, 85, .035), transparent 42%);
+}
+
+.studio-shell[data-brand-theme="optimai"] .brand-lockup img {
+  height: 54px;
+  width: 172px;
+}
+
+/* Public sign-in / marketing shell */
+.studio-public-shell[data-brand-theme] {
+  --public-bg: var(--brand-background);
+  --public-panel: var(--brand-surface);
+  --public-ink: var(--brand-text);
+  --public-muted: var(--brand-text-muted);
+  --public-orange: var(--brand-primary);
+  --public-gold: var(--brand-accent);
+  --public-line: var(--brand-border);
+  background:
+    radial-gradient(circle at 14% 8%, color-mix(in srgb, var(--brand-primary) 22%, transparent), transparent 30rem),
+    radial-gradient(circle at 88% 20%, color-mix(in srgb, var(--brand-accent) 10%, transparent), transparent 26rem),
+    var(--brand-background);
+  font-family: var(--brand-body-font);
+}
+
+.studio-public-shell[data-brand-theme] .hero-copy h1,
+.studio-public-shell[data-brand-theme] .auth-form h2,
+.studio-public-shell[data-brand-theme] .product-sections h2 {
+  color: var(--brand-text);
+  font-family: var(--brand-heading-font);
+}
+
+.studio-public-shell[data-brand-theme] .auth-card,
+.studio-public-shell[data-brand-theme] .showcase-frame,
+.studio-public-shell[data-brand-theme] .product-sections article {
+  background: color-mix(in srgb, var(--brand-surface) 91%, transparent);
+}
+
+.studio-public-shell[data-brand-theme] .auth-form input {
+  background: var(--brand-surface-alt);
+  color: var(--brand-text);
+}
+
+.studio-public-shell[data-brand-theme] .auth-tab.is-active,
+.studio-public-shell[data-brand-theme] .public-button {
+  background: var(--brand-gradient);
+  border-color: var(--brand-primary);
+  color: var(--brand-button-text);
+}
+
+.studio-public-shell[data-brand-theme] .showcase-grid aside {
+  background: var(--brand-surface-alt);
+}
+
+.studio-public-shell[data-brand-theme] .showcase-frame {
+  background: var(--brand-surface);
+}
+
+.public-powered-by {
+  bottom: 12px;
+  position: fixed;
+  right: 16px;
+  z-index: 10;
+}
+
+/* Program Output attribution is intentionally tiny and outside the main brand lockup. */
+.program-powered-by {
+  bottom: 7px;
+  position: fixed;
+  right: 9px;
+  z-index: 12;
+}
+
+.program-output[data-brand-theme="8alta"] .po-tile,
+.program-output[data-brand-theme="8alta"] .po-waitingroom-slot {
+  border-radius: 18px;
+}
+
+.program-output[data-brand-theme="optimai"] .po-scene-screen {
+  background:
+    linear-gradient(120deg, rgba(246, 246, 85, .05), transparent 34%),
+    radial-gradient(80% 90% at 70% 25%, rgba(94, 237, 135, .12), transparent 60%),
+    var(--studio-canvas);
+}
+
+/* Experts inherits each tenant rather than presenting a separate Toasty product. */
+.expert-network-shell[data-brand-theme] {
+  --en-ink: var(--brand-text);
+  --en-muted: var(--brand-text-muted);
+  --en-paper: var(--brand-background);
+  --en-card: var(--brand-surface);
+  --en-line: var(--brand-border);
+  --en-accent: var(--brand-primary);
+  --en-accent-2: var(--brand-accent);
+  --en-good: var(--studio-green);
+  background: var(--brand-background);
+  color: var(--brand-text);
+  font-family: var(--brand-body-font);
+}
+
+.expert-network-shell[data-brand-theme] .expert-topbar,
+.expert-network-shell[data-brand-theme] .expert-side {
+  background: color-mix(in srgb, var(--brand-surface) 92%, transparent);
+}
+
+.expert-network-shell[data-brand-theme] .expert-nav button {
+  color: var(--brand-text-muted);
+}
+
+.expert-network-shell[data-brand-theme] .expert-nav button.active {
+  background: var(--brand-gradient);
+  color: var(--brand-button-text);
+}
+
+.expert-network-shell[data-brand-theme] .expert-btn.secondary,
+.expert-network-shell[data-brand-theme] .side-proof,
+.expert-network-shell[data-brand-theme] .search-card,
+.expert-network-shell[data-brand-theme] .flow-panel,
+.expert-network-shell[data-brand-theme] .metric-card,
+.expert-network-shell[data-brand-theme] .expert-card,
+.expert-network-shell[data-brand-theme] .double-card,
+.expert-network-shell[data-brand-theme] .review-panel,
+.expert-network-shell[data-brand-theme] .ledger-panel,
+.expert-network-shell[data-brand-theme] .judgment-panel,
+.expert-network-shell[data-brand-theme] .api-card {
+  background: var(--brand-surface);
+  color: var(--brand-text);
+}
+
+.expert-network-shell[data-brand-theme] .expert-btn.accent {
+  background: var(--brand-gradient);
+  color: var(--brand-button-text);
+}
+
+.expert-network-shell[data-brand-theme] input,
+.expert-network-shell[data-brand-theme] textarea,
+.expert-network-shell[data-brand-theme] select {
+  background: var(--brand-surface-alt);
+  border-color: var(--brand-border);
+  color: var(--brand-text);
+}
+
+.expert-network-shell[data-brand-theme] .flow-list li,
+.expert-network-shell[data-brand-theme] .ledger-list article,
+.expert-network-shell[data-brand-theme] .source-row,
+.expert-network-shell[data-brand-theme] .status-note,
+.expert-network-shell[data-brand-theme] .evidence-review-card,
+.expert-network-shell[data-brand-theme] .diligence-grid article,
+.expert-network-shell[data-brand-theme] .judgment-grid article,
+.expert-network-shell[data-brand-theme] .dropzone {
+  background: var(--brand-surface-alt);
+  color: var(--brand-text);
+}
+
+.expert-network-shell[data-brand-theme] .flow-list li[data-state="done"] {
+  background: color-mix(in srgb, var(--studio-green) 14%, var(--brand-surface-alt));
+  color: var(--studio-green);
+}
+
+.expert-network-shell[data-brand-theme] .flow-list li[data-state="current"] {
+  background: color-mix(in srgb, var(--brand-primary) 15%, var(--brand-surface-alt));
+  color: var(--brand-accent);
+}
+
+.expert-network-shell[data-brand-theme] .bar {
+  background: var(--brand-surface-alt);
+}
+
+.expert-network-shell[data-brand-theme] h1,
+.expert-network-shell[data-brand-theme] h2,
+.expert-network-shell[data-brand-theme] h3,
+.expert-network-shell[data-brand-theme] strong {
+  color: var(--brand-text);
+  font-family: var(--brand-heading-font);
+}
+
+.expert-powered-by {
+  margin-left: auto;
+}

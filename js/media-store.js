@@ -71,6 +71,15 @@ export async function collectRenderMedia(project) {
   return files;
 }
 
+export function mediaReferenceForAsset(asset) {
+  if (!asset?.mediaAssetId && !asset?.mediaReference?.id) return null;
+  return {
+    id: asset.mediaAssetId || asset.mediaReference.id,
+    provider: asset.providerKey || asset.mediaReference?.provider || asset.provider || "google_drive",
+    providerFileId: asset.providerFileId || asset.mediaReference?.providerFileId || null
+  };
+}
+
 function openMediaDb() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);

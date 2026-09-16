@@ -33,7 +33,7 @@ export class ToastyBroadcastController {
     panel.id = "broadcastPanel";
     panel.innerHTML = `
       <div class="broadcast-head">
-        <div><p class="rail-eyebrow">Broadcast</p><h3>Stream Toasty live</h3></div>
+        <div><p class="rail-eyebrow">Broadcast</p><h3>Stream the production live</h3></div>
         <span id="broadcastBadge" class="broadcast-badge" data-state="offline">OFFLINE</span>
       </div>
       <button id="openProgramOutput" class="btn btn-ghost broadcast-wide" type="button">Open Program Output</button>
