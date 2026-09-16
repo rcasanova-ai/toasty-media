@@ -103,8 +103,10 @@ jobs:
           if [[ -f peeps/index.html ]]; then
             curl --fail --silent --show-error --location https://toasty.media/peeps/ >/tmp/peeps.html
             curl --fail --silent --show-error --location https://toasty.media/peeps/app/ >/dev/null
+            curl --fail --silent --show-error --location https://toasty.media/peeps/app/dough.html >/tmp/dough.html
             curl --fail --silent --show-error --location https://toasty.media/peeps/manage/ >/dev/null
-            grep -Fq 'Find the right human.' /tmp/peeps.html
+            grep -Fq 'Find your' /tmp/peeps.html
+            grep -Fq 'Money for knowledge.' /tmp/dough.html
           fi
           grep -Fq 'Studio to create.' /tmp/home.html
           grep -Fq 'Who do you want to talk to?' /tmp/guest.html
