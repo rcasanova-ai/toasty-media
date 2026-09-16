@@ -43,20 +43,15 @@ jobs:
         id: changes
         run: |
           set -euo pipefail
+          FILTER='^(\.htaccess$|index\.html$|site/|ricardo/|studio/|admin/|peeps/|css/|js/|shared/|assets/|articles/|eloquencebonus/|thank-you\.html$|5-Day Executive Program\.pdf$|Eloquence Cheat Sheet\.pdf$|casanova_case_study\.pdf$|ricardo_casanova_resumeJune2026\.pdf$)'
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.full_deploy }}" == "true" ]]; then
-            git ls-files | \
-              grep -E '^(\.htaccess$|index\.html$|site/|ricardo/|studio/|admin/|css/|js/|shared/|assets/|articles/|eloquencebonus/|thank-you\.html$|5-Day Executive Program\.pdf$|Eloquence Cheat Sheet\.pdf$|casanova_case_study\.pdf$|ricardo_casanova_resumeJune2026\.pdf$)' > /tmp/deploy-files.txt || true
+            git ls-files | grep -E "$FILTER" > /tmp/deploy-files.txt || true
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            BASE="HEAD^"
-            git diff --name-only --diff-filter=ACMRT "$BASE" HEAD | \
-              grep -E '^(\.htaccess$|index\.html$|site/|ricardo/|studio/|admin/|css/|js/|shared/|assets/|articles/|eloquencebonus/|thank-you\.html$|5-Day Executive Program\.pdf$|Eloquence Cheat Sheet\.pdf$|casanova_case_study\.pdf$|ricardo_casanova_resumeJune2026\.pdf$)' > /tmp/deploy-files.txt || true
+            git diff --name-only --diff-filter=ACMRT HEAD^ HEAD | grep -E "$FILTER" > /tmp/deploy-files.txt || true
           else
             BASE="${{ github.event.before }}"
-            if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-              BASE="HEAD^"
-            fi
-            git diff --name-only --diff-filter=ACMRT "$BASE" HEAD | \
-              grep -E '^(\.htaccess$|index\.html$|site/|ricardo/|studio/|admin/|css/|js/|shared/|assets/|articles/|eloquencebonus/|thank-you\.html$|5-Day Executive Program\.pdf$|Eloquence Cheat Sheet\.pdf$|casanova_case_study\.pdf$|ricardo_casanova_resumeJune2026\.pdf$)' > /tmp/deploy-files.txt || true
+            if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then BASE="HEAD^"; fi
+            git diff --name-only --diff-filter=ACMRT "$BASE" HEAD | grep -E "$FILTER" > /tmp/deploy-files.txt || true
           fi
           echo "Files selected:"
           cat /tmp/deploy-files.txt || true
@@ -105,6 +100,12 @@ jobs:
           curl --fail --silent --show-error --location https://toasty.media/studio/ >/dev/null
           curl --fail --silent --show-error --location https://toasty.media/studio/experts.html >/tmp/guest.html
           curl --fail --silent --show-error --location https://toasty.media/admin/ >/dev/null
+          if [[ -f peeps/index.html ]]; then
+            curl --fail --silent --show-error --location https://toasty.media/peeps/ >/tmp/peeps.html
+            curl --fail --silent --show-error --location https://toasty.media/peeps/app/ >/dev/null
+            curl --fail --silent --show-error --location https://toasty.media/peeps/manage/ >/dev/null
+            grep -Fq 'Find the right human.' /tmp/peeps.html
+          fi
           grep -Fq 'Studio to create.' /tmp/home.html
           grep -Fq 'Who do you want to talk to?' /tmp/guest.html
           echo 'Production verification passed.'
