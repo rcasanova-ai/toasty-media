@@ -4,7 +4,7 @@ import {
   getOrCreateRoomId,
   getGuestInviteUrl,
   getListenerInviteUrl,
-} from "./video-engine.js";
+} from "./video-engine.js?v=studio-20260916c";
 import {
   applyBrandTheme,
   getInitialBrandTheme,

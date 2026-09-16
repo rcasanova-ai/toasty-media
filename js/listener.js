@@ -1,6 +1,6 @@
 import { applyBrandTheme, normalizeBrandTheme } from "./brand-themes.js";
 import { getBrandProfile } from "./brand-profile.js";
-import { VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js";
+import { VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js?v=studio-20260916c";
 import { ProgramSync } from "./program-sync.js";
 
 // Toasty Studio Program Output — the finished, audience-facing broadcast canvas.
@@ -50,12 +50,13 @@ const elements = {
 init();
 
 function init() {
+  applyBrand(normalizeBrandTheme(new URLSearchParams(window.location.search).get("brand")));
   if (!isValidRoomId(roomId)) {
     document.body.dataset.scene = "holding";
     elements.holdingTopic.textContent = "Invalid Program Output link";
+    elements.audioGate.hidden = true;
     return;
   }
-  applyBrand(normalizeBrandTheme(new URLSearchParams(window.location.search).get("brand")));
   elements.stage.dataset.layout = "1";
   elements.audioGate.addEventListener("click", unlockAudio, { once: true });
   sync = new ProgramSync(roomId);

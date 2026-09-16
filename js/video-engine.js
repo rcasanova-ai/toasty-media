@@ -24,13 +24,26 @@ export class VideoEngine {
   mountDirectorFrame(container,{roomId,label="Host"}) {
     const streamId=`${roomId}h`;
     container.dataset.empty="true";
+    const launch=document.createElement("div");
+    launch.className="camera-launch-card";
+    launch.innerHTML=`
+      <span class="camera-launch-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="13" height="14" rx="3"></rect><path d="m16 10 5-3v10l-5-3"></path></svg>
+      </span>
+      <span class="camera-launch-copy">
+        <strong>Ready when you are</strong>
+        <small>Camera and microphone stay off until you continue.</small>
+      </span>
+    `;
     const start=document.createElement("button");
     start.type="button";
     start.className="btn btn-primary";
-    start.textContent="Start camera & microphone";
+    start.textContent="Enable camera & microphone";
     start.setAttribute("aria-label","Start Live Studio camera and microphone");
     start.addEventListener("click",()=>this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:true,vdo:HOST_CAMERA_HINT,showlabels:"1"}),{once:true});
-    container.replaceChildren(start);
+    launch.appendChild(start);
+    container.replaceChildren(launch);
+    container.removeAttribute("data-empty");
     return null;
   }
 

@@ -11,7 +11,8 @@
     <link rel="stylesheet" href="../css/brand.css">
     <link rel="stylesheet" href="../css/program-output.css">
     <link rel="stylesheet" href="../css/studio-white-label.css">
-    <script type="module" src="../js/listener.js"></script>
+    <link rel="stylesheet" href="../css/studio-shell-v2.css?v=studio-20260916c">
+    <script type="module" src="../js/listener.js?v=studio-20260916c"></script>
   </head>
   <body class="program-output" data-scene="holding" data-layout="1">
     <div class="po-canvas" id="poCanvas">
@@ -52,9 +53,13 @@
       </footer>
 
       <button type="button" class="po-audio-gate" id="poAudioGate">
-        <span class="po-audio-gate-icon" aria-hidden="true"></span>
-        <span class="po-audio-gate-label">Click to start Program Output</span>
-        <span class="po-audio-gate-note">Required once per tab so browser autoplay allows program video/audio to play.</span>
+        <span class="po-audio-gate-panel">
+          <img class="po-audio-gate-brand" src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="" data-brand-logo>
+          <span class="po-audio-gate-kicker">Program output</span>
+          <span class="po-audio-gate-label">Start the broadcast preview</span>
+          <span class="po-audio-gate-note">One click enables program video and audio in this browser.</span>
+          <span class="po-audio-gate-action"><span class="po-audio-gate-icon" aria-hidden="true"></span> Enter program</span>
+        </span>
       </button>
       <span class="powered-by program-powered-by" id="programPoweredBy" hidden>
         <span>Powered by</span>

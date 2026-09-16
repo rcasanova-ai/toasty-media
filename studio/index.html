@@ -11,7 +11,8 @@
     <link rel="stylesheet" href="../css/brand.css">
     <link rel="stylesheet" href="../css/studio-public.css">
     <link rel="stylesheet" href="../css/studio-white-label.css">
-    <script type="module" src="../js/studio-auth.js"></script>
+    <link rel="stylesheet" href="../css/studio-shell-v2.css?v=studio-20260916c">
+    <script type="module" src="../js/studio-auth.js?v=studio-20260916c"></script>
   </head>
   <body class="studio-public-shell">
     <main id="studioPublicPage" class="studio-public-page" aria-live="polite">
@@ -32,9 +33,18 @@
           <h1 data-brand-copy="publicHeroTitle">Your content. Professionally produced.</h1>
           <p class="hero-support" data-brand-copy="publicHeroSupport">Bring footage, clips, photos, or audio and turn it into polished, on-brand content.</p>
           <strong data-brand-copy="publicHeroTagline">Create the source. The Studio produces.</strong>
+          <div class="hero-proof" aria-label="Studio capabilities">
+            <span><b>01</b> Record</span>
+            <span><b>02</b> Produce</span>
+            <span><b>03</b> Publish</span>
+          </div>
         </div>
 
         <section class="auth-card" aria-labelledby="authTitle">
+          <div class="auth-intro">
+            <span class="auth-status-dot" aria-hidden="true"></span>
+            <span>Private production workspace</span>
+          </div>
           <div class="auth-tabs" role="tablist" aria-label="Studio access">
             <button id="showSignup" class="auth-tab is-active" type="button" role="tab" aria-selected="true">Create Account</button>
             <button id="showLogin" class="auth-tab" type="button" role="tab" aria-selected="false">Sign In</button>
@@ -60,6 +70,13 @@
       </section>
 
       <section class="studio-showcase" aria-label="Studio interface preview">
+        <div class="section-heading">
+          <div>
+            <p class="public-kicker">One production system</p>
+            <h2>Everything stays in one clear workflow.</h2>
+          </div>
+          <p>Move from raw material to a finished, branded program without stitching together a dozen tools.</p>
+        </div>
         <div class="showcase-frame">
           <div class="showcase-topbar"><span></span><span></span><span></span></div>
           <div class="showcase-grid">
@@ -80,27 +97,38 @@
       </section>
 
       <section class="product-sections">
+        <div class="section-heading product-heading">
+          <div>
+            <p class="public-kicker">Built for repeatable output</p>
+            <h2>Three ways to produce. One brand system.</h2>
+          </div>
+        </div>
         <article id="quick-toast">
+          <span class="feature-number">01</span>
           <p data-brand-copy="quickLabel">Fast Production</p>
           <h2 data-brand-copy="quickTitle">Drop it in. We'll produce it.</h2>
           <span data-brand-copy="quickBody">Upload raw media and turn it into a branded production with intros, outros, lower thirds, captions, watermarks, and export-ready formats.</span>
         </article>
         <article id="live-studio">
+          <span class="feature-number">02</span>
           <p>Live Studio</p>
           <h2>Record the room, guests, and the moment.</h2>
           <span data-brand-copy="liveBody">Invite guests, manage the session, record, and keep the production flow in one workspace.</span>
         </article>
         <article id="ai-production">
+          <span class="feature-number">03</span>
           <p>AI Production</p>
           <h2>Create something worth watching.</h2>
           <span data-brand-copy="aiBody">Start from an idea, a link, notes, or raw material, then move through idea, script, record, scenes, assets, assemble, review, and export.</span>
         </article>
         <article>
+          <span class="feature-number">04</span>
           <p>Brand memory</p>
           <h2>Your production system remembers the brand.</h2>
           <span data-brand-copy="memoryBody">Keep colors, logo behavior, lower thirds, voice, creator context, and calls to action consistent across repeatable work.</span>
         </article>
         <article>
+          <span class="feature-number">05</span>
           <p>Coming</p>
           <h2>One recording. More content.</h2>
           <span>Future workflows will help turn a single recording into more social cuts, summaries, and repurposed campaign assets.</span>
