@@ -1,24 +1,39 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createReadStream, existsSync, readFileSync } from "node:fs";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { tmpdir } from "node:os";
-import { spawn } from "node:child_process";
+import { homedir, tmpdir } from "node:os";
+import { execFile, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { createHmac, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
+
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+
+loadLocalEnv();
 
 const HOST = process.env.TOASTY_RENDER_HOST || "127.0.0.1";
 const PORT = Number(process.env.TOASTY_RENDER_PORT || 4174);
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
-const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const API_TOKEN = process.env.TOASTY_RENDER_TOKEN || "";
 const SESSION_SECRET = process.env.TOASTY_SESSION_SECRET || API_TOKEN || "";
 const AUTH_DB_PATH = process.env.TOASTY_AUTH_DB || "/var/lib/toasty/toasty.sqlite";
 const AUTH_DB_HELPER = process.env.TOASTY_AUTH_DB_HELPER || join(SCRIPT_DIR, "toasty-auth-db.py");
 const SESSION_SECONDS = Number(process.env.TOASTY_SESSION_SECONDS || 7 * 24 * 60 * 60);
 const COOKIE_NAME = "toasty_session";
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "";
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || "https://render.toasty.media/integrations/google-drive/oauth/callback";
+const TOKEN_ENCRYPTION_KEY = process.env.TOASTY_TOKEN_ENCRYPTION_KEY || SESSION_SECRET;
+const GOOGLE_DRIVE_SCOPES = [
+  "openid",
+  "email",
+  "profile",
+  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/drive.file"
+];
 const ALLOWED_ORIGINS = new Set([
   "https://toasty.media",
   "https://www.toasty.media",
@@ -33,12 +48,51 @@ const MAX_FILE_BYTES = Number(process.env.TOASTY_RENDER_MAX_FILE_BYTES || 150 * 
 const MAX_TOTAL_DURATION = Number(process.env.TOASTY_RENDER_MAX_DURATION || 180);
 const MAX_SCENES = Number(process.env.TOASTY_RENDER_MAX_SCENES || 40);
 const FFMPEG_TIMEOUT_MS = Number(process.env.TOASTY_RENDER_FFMPEG_TIMEOUT_MS || 120000);
+const GOOGLE_DOWNLOAD_LIMIT_BYTES = Number(process.env.TOASTY_DRIVE_MAX_DOWNLOAD_BYTES || MAX_FILE_BYTES);
 const SAFE_ID = /^[a-z0-9][a-z0-9._-]{0,80}$/i;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const scryptAsync = promisify(scrypt);
+const execFileAsync = promisify(execFile);
 const rateBuckets = new Map();
+const TOASTY_EXPERT_DISCOVERY_PRICE = 0.001;
+const TOASTY_EXPERT_DISCOVERY_RECIPIENT = process.env.SVM_PAY_TO || process.env.TOASTY_EXPERTS_X402_RECIPIENT || "";
+const TOASTY_SOLANA_NETWORK = process.env.TOASTY_SOLANA_NETWORK || "solana-devnet";
+const TOASTY_USDC_MINT = process.env.TOASTY_USDC_MINT || "devnet-usdc";
+const TOASTY_SOLANA_RPC_URL = process.env.TOASTY_SOLANA_RPC_URL || "https://api.devnet.solana.com";
+const TOASTY_SOLANA_PAYER_KEYPAIR = process.env.TOASTY_SOLANA_PAYER_KEYPAIR || process.env.SVM_KEYPAIR_PATH || "";
+const TOASTY_MICROTASK_RECIPIENT = process.env.TOASTY_MICROTASK_RECIPIENT || process.env.SVM_PAY_TO || "";
+const TOASTY_MICROTASK_RESPONSE_PRICE = Number(process.env.TOASTY_MICROTASK_RESPONSE_PRICE || 0.10);
+const TOASTY_EXPERTS = Object.freeze([
+  { id: "exp-nadia-maclean", name: "Nadia MacLean", headline: "Canadian soccer business analyst", location: "Toronto, Canada", languages: ["English", "French"], categories: ["Soccer/football", "Media", "Business strategy"], topics: ["canadian premier league", "canada soccer", "soccer business", "sponsorship", "club operations"], sessionPrice: 425, currency: "USDC", verificationState: "Credentials reviewed", reputationScore: 94, completedEngagements: 18 },
+  { id: "exp-julien-roche", name: "Julien Roche", headline: "Football journalist covering Canada and CONCACAF", location: "Montreal, Canada", languages: ["English", "French"], categories: ["Soccer/football", "Media"], topics: ["canadian premier league", "concacaf", "canada soccer", "player development", "world cup"], sessionPrice: 325, currency: "USDC", verificationState: "Profile reviewed", reputationScore: 91, completedEngagements: 31 },
+  { id: "exp-owen-kerr", name: "Owen Kerr", headline: "Club academy and player pathway consultant", location: "Vancouver, Canada", languages: ["English"], categories: ["Soccer/football", "Business strategy"], topics: ["canadian soccer", "academy development", "scouting", "player pathways", "cpl"], sessionPrice: 500, currency: "USDC", verificationState: "Verified", reputationScore: 96, completedEngagements: 12 },
+  { id: "exp-marcus-vale", name: "Marcus Vale", headline: "Solana payments infrastructure operator", location: "Lisbon, Portugal", languages: ["English", "Portuguese"], categories: ["Crypto/Solana", "AI", "Enterprise technology"], topics: ["solana", "usdc", "x402", "agent payments", "stablecoin settlement"], sessionPrice: 650, currency: "USDC", verificationState: "Verified", reputationScore: 97, completedEngagements: 22 },
+  { id: "exp-leila-haddad", name: "Dr. Leila Haddad", headline: "Healthcare AI researcher", location: "Boston, United States", languages: ["English", "Arabic"], categories: ["Healthcare/science", "AI"], topics: ["healthcare ai", "clinical evaluation", "medical safety", "digital health"], sessionPrice: 850, currency: "USDC", verificationState: "Verified", reputationScore: 95, completedEngagements: 16 },
+  { id: "exp-kenji-sato", name: "Kenji Sato", headline: "Cybersecurity incident response advisor", location: "Seattle, United States", languages: ["English", "Japanese"], categories: ["Cybersecurity", "Enterprise technology"], topics: ["cybersecurity", "incident response", "ransomware", "cloud security"], sessionPrice: 750, currency: "USDC", verificationState: "Verified", reputationScore: 93, completedEngagements: 19 },
+  { id: "exp-maya-chen", name: "Maya Chen", headline: "Data center and AI infrastructure strategist", location: "Singapore", languages: ["English", "Mandarin"], categories: ["Data centers/infrastructure", "AI", "Enterprise technology"], topics: ["ai infrastructure", "data centers", "gpu procurement", "energy", "southeast asia"], sessionPrice: 575, currency: "USDC", verificationState: "Profile reviewed", reputationScore: 90, completedEngagements: 14 },
+  { id: "exp-sofia-ramos", name: "Sofia Ramos", headline: "Sustainability and climate operations advisor", location: "Mexico City, Mexico", languages: ["English", "Spanish"], categories: ["Sustainability", "Business strategy"], topics: ["sustainability", "carbon accounting", "esg", "supply chain"], sessionPrice: 525, currency: "USDC", verificationState: "Credentials reviewed", reputationScore: 92, completedEngagements: 17 },
+  { id: "exp-arun-iyer", name: "Arun Iyer", headline: "Enterprise AI transformation operator", location: "London, United Kingdom", languages: ["English", "Hindi"], categories: ["AI", "Enterprise technology", "Business strategy"], topics: ["enterprise ai", "workflow automation", "agent operations", "procurement"], sessionPrice: 725, currency: "USDC", verificationState: "Profile reviewed", reputationScore: 89, completedEngagements: 21 },
+  { id: "exp-camille-price", name: "Camille Price", headline: "Media format strategist and executive producer", location: "New York, United States", languages: ["English"], categories: ["Media", "Business strategy"], topics: ["podcasts", "webinars", "interviews", "executive media", "guest prep"], sessionPrice: 450, currency: "USDC", verificationState: "Profile reviewed", reputationScore: 88, completedEngagements: 27 }
+]);
+
+function loadLocalEnv() {
+  for (const name of [".env.local", ".env"]) {
+    const file = join(dirname(SCRIPT_DIR), name);
+    if (!existsSync(file)) continue;
+    for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const separator = trimmed.indexOf("=");
+      if (separator <= 0) continue;
+      const key = trimmed.slice(0, separator).trim();
+      const value = trimmed.slice(separator + 1).trim().replace(/^['"]|['"]$/g, "");
+      if (key && !Object.hasOwn(process.env, key)) process.env[key] = value;
+    }
+  }
+}
 
 const server = createServer(async (req, res) => {
+  try {
   if (!setCors(req, res)) {
     sendJson(req, res, 403, { error: "Origin is not allowed." });
     return;
@@ -76,6 +130,83 @@ const server = createServer(async (req, res) => {
     sendJson(req, res, 200, { authenticated: false });
     return;
   }
+  if (req.method === "GET" && req.url === "/integrations/google-drive/status") {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const account = await googleAccount(session.id);
+    sendJson(req, res, 200, {
+      configured: googleConfigured(),
+      connected: Boolean(account),
+      account: account ? publicProviderAccount(account) : null,
+      requiredScopes: GOOGLE_DRIVE_SCOPES
+    });
+    return;
+  }
+  if (req.method === "POST" && req.url === "/integrations/google-drive/oauth/start") {
+    if (!requireCsrf(req, res)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    if (!googleConfigured()) return sendJson(req, res, 503, { error: "Google Drive integration is not configured on the server." });
+    const state = signOAuthState({ userId: session.id, nonce: randomUUID(), expires: Math.floor(Date.now() / 1000) + 10 * 60 });
+    const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    authUrl.searchParams.set("client_id", GOOGLE_CLIENT_ID);
+    authUrl.searchParams.set("redirect_uri", GOOGLE_REDIRECT_URI);
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("scope", GOOGLE_DRIVE_SCOPES.join(" "));
+    authUrl.searchParams.set("access_type", "offline");
+    authUrl.searchParams.set("prompt", "consent");
+    authUrl.searchParams.set("include_granted_scopes", "true");
+    authUrl.searchParams.set("state", state);
+    sendJson(req, res, 200, { authUrl: authUrl.toString() });
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/integrations/google-drive/oauth/callback")) {
+    await handleGoogleCallback(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/integrations/google-drive/disconnect") {
+    if (!requireCsrf(req, res)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await disconnectGoogleDrive(session.id);
+    sendJson(req, res, 200, { connected: false });
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/integrations/google-drive/files")) {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleDriveFiles(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url === "/media-assets") {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const result = await db("list_media_assets", { ownerUserId: session.id, limit: 200 });
+    sendJson(req, res, 200, { assets: result.assets || [] });
+    return;
+  }
+  if (req.method === "POST" && req.url === "/media-assets/google-drive/import") {
+    if (!requireCsrf(req, res)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleDriveImport(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/agent/find-experts") {
+    if (!limit(req, res, "experts-find", 60, 15 * 60 * 1000)) return;
+    await handleAgentFindExperts(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/experts/enrich-public") {
+    if (!limit(req, res, "experts-enrich", 20, 15 * 60 * 1000)) return;
+    await handlePublicExpertEnrichment(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/agent/microtasks/settle") {
+    if (!limit(req, res, "microtask-settle", 30, 15 * 60 * 1000)) return;
+    await handleMicrotaskSettlement(req, res);
+    return;
+  }
   if (req.method !== "POST" || req.url !== "/render") {
     sendJson(req, res, 404, { error: "Render helper is running. POST /render to create an MP4." });
     return;
@@ -104,9 +235,12 @@ const server = createServer(async (req, res) => {
     const manifest = JSON.parse(typeof manifestPart === "string" ? manifestPart : await manifestPart.text());
     validateManifest(manifest);
     const media = await writeMediaFiles({ form, workDir });
+    await resolveReferencedMedia({ manifest, media, workDir, userId: (await readSession(req))?.id || null });
     const outputPath = await renderProduction({ manifest, media, workDir });
+    const driveOutput = await maybeSaveOutputToDrive({ manifest, outputPath, userId: (await readSession(req))?.id || null });
     const output = await readFile(outputPath);
     setCors(req, res);
+    if (driveOutput) res.setHeader("X-Toasty-Drive-File-Id", driveOutput.id);
     res.writeHead(200, {
       "Content-Type": "video/mp4",
       "Content-Disposition": `attachment; filename="${safeFileName(manifest.title || "toasty-production")}.mp4"`,
@@ -119,11 +253,529 @@ const server = createServer(async (req, res) => {
   } finally {
     if (workDir) await rm(workDir, { recursive: true, force: true });
   }
+  } catch (error) {
+    console.error(error);
+    sendJson(req, res, error.statusCode || 500, { error: creatorError(error) });
+  }
 });
 
 server.listen(PORT, HOST, () => {
   console.log(`Toasty render helper listening on http://${HOST}:${PORT}`);
 });
+
+async function handleAgentFindExperts(req, res) {
+  if (!TOASTY_EXPERT_DISCOVERY_RECIPIENT) {
+    sendJson(req, res, 503, { error: "Toasty Commerce x402 recipient is not configured. Set SVM_PAY_TO." });
+    return;
+  }
+  const body = await readJson(req);
+  const request = normalizeExpertRequest(body);
+  const proof = readDiscoveryPaymentProof(req);
+  if (!proof.ok) {
+    sendX402DiscoveryRequirement(req, res, proof.reason);
+    return;
+  }
+
+  await db("record_payment", {
+    id: randomUUID(),
+    paymentKind: "EXPERT_DISCOVERY",
+    rail: "x402-solana-usdc",
+    provider: "toasty-experts",
+    purpose: "expert discovery and candidate ranking",
+    status: "PAYMENT_VERIFIED",
+    network: TOASTY_SOLANA_NETWORK,
+    payerWallet: proof.payerWallet,
+    payeeWallet: TOASTY_EXPERT_DISCOVERY_RECIPIENT,
+    amount: TOASTY_EXPERT_DISCOVERY_PRICE,
+    currency: "USDC",
+    tokenMint: TOASTY_USDC_MINT,
+    transactionSignature: proof.transactionSignature,
+    paymentRequirement: x402DiscoveryRequirement(),
+    paymentSignature: proof.paymentSignature,
+    policyDecision: "APPROVED",
+    approvalSource: proof.approvalSource,
+    metadata: { request, verificationStatus: "VERIFIED" }
+  });
+
+  sendJson(req, res, 200, {
+    ok: true,
+    request,
+    payment: {
+      paymentKind: "EXPERT_DISCOVERY",
+      status: "PAYMENT_VERIFIED",
+      amount: TOASTY_EXPERT_DISCOVERY_PRICE,
+      currency: "USDC",
+      network: TOASTY_SOLANA_NETWORK,
+      transactionSignature: proof.transactionSignature
+    },
+    candidates: rankToastyExperts(request)
+  });
+}
+
+function sendX402DiscoveryRequirement(req, res, reason = "payment_required") {
+  const requirement = x402DiscoveryRequirement(reason);
+  setCors(req, res);
+  res.writeHead(402, {
+    "Content-Type": "application/json",
+    "X402-Payment-Required": "true",
+    "Payment-Required": Buffer.from(JSON.stringify(requirement)).toString("base64url")
+  });
+  res.end(JSON.stringify(requirement));
+}
+
+function x402DiscoveryRequirement(reason = "payment_required") {
+  return {
+    status: 402,
+    error: "Payment Required",
+    reason,
+    provider: "toasty-experts",
+    action: "find-experts",
+    paymentKind: "EXPERT_DISCOVERY",
+    purpose: "expert discovery and candidate ranking",
+    accepts: [{
+      scheme: "exact",
+      network: TOASTY_SOLANA_NETWORK,
+      asset: "USDC",
+      amount: TOASTY_EXPERT_DISCOVERY_PRICE.toFixed(3),
+      payTo: TOASTY_EXPERT_DISCOVERY_RECIPIENT
+    }],
+    submitProofTo: "/api/agent/payments/proof",
+    continueWith: "/api/agent/find-experts"
+  };
+}
+
+function readDiscoveryPaymentProof(req) {
+  const paymentSignature = String(req.headers["x-payment-signature"] || "").trim();
+  const transactionSignature = String(req.headers["x-solana-transaction-signature"] || paymentSignature).trim();
+  const asset = String(req.headers["x-payment-asset"] || "").trim().toUpperCase();
+  const amount = Number(req.headers["x-payment-amount"] || 0);
+  const payerWallet = String(req.headers["x-payer-wallet"] || "").trim().slice(0, 120);
+  const approvalSource = String(req.headers["x-approval-source"] || "POLICY").trim().toUpperCase().slice(0, 40);
+  if (!paymentSignature) return { ok: false, reason: "missing_payment_signature" };
+  if (asset !== "USDC") return { ok: false, reason: "invalid_asset" };
+  if (Math.abs(amount - TOASTY_EXPERT_DISCOVERY_PRICE) > 0.0000001) return { ok: false, reason: "invalid_amount" };
+  if (!/^[a-zA-Z0-9._:-]{24,160}$/.test(transactionSignature)) return { ok: false, reason: "invalid_transaction_signature" };
+  return { ok: true, paymentSignature, transactionSignature, payerWallet, approvalSource };
+}
+
+function normalizeExpertRequest(body = {}) {
+  return {
+    topic: String(body.topic || "").trim().slice(0, 180),
+    description: String(body.description || "").trim().slice(0, 1200),
+    expertiseRequired: Array.isArray(body.expertiseRequired)
+      ? body.expertiseRequired.map((item) => String(item).trim()).filter(Boolean).slice(0, 20)
+      : String(body.expertiseRequired || "").split(",").map((item) => item.trim()).filter(Boolean).slice(0, 20),
+    locationPreference: String(body.locationPreference || "").trim().slice(0, 120),
+    language: String(body.language || "English").trim().slice(0, 40),
+    budget: Number(body.budget || 0),
+    engagementType: String(body.engagementType || "Podcast guest").trim().slice(0, 80),
+    desiredDateTime: String(body.desiredDateTime || "Flexible").trim().slice(0, 120),
+    durationMinutes: Number(body.durationMinutes || 45),
+    additionalConstraints: String(body.additionalConstraints || "").trim().slice(0, 600)
+  };
+}
+
+function rankToastyExperts(request) {
+  return TOASTY_EXPERTS.map((expert) => scoreToastyExpert(expert, request))
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 6);
+}
+
+function scoreToastyExpert(expert, request) {
+  const requestTerms = tokenizeExpertText([
+    request.topic,
+    request.description,
+    request.locationPreference,
+    request.language,
+    request.engagementType,
+    request.additionalConstraints,
+    ...request.expertiseRequired
+  ].join(" "));
+  const expertTerms = tokenizeExpertText([
+    expert.name,
+    expert.headline,
+    expert.location,
+    ...expert.languages,
+    ...expert.categories,
+    ...expert.topics
+  ].join(" "));
+  const matchedTerms = [...requestTerms].filter((term) => expertTerms.has(term) || [...expertTerms].some((candidate) => candidate.includes(term) || term.includes(candidate)));
+  const budgetFit = !request.budget || request.budget >= expert.sessionPrice;
+  const locationFit = request.locationPreference && expert.location.toLowerCase().includes(request.locationPreference.toLowerCase().replace(" preferred", ""));
+  const languageFit = expert.languages.includes(request.language);
+  const formatFit = String(request.engagementType || "").toLowerCase().includes("podcast") && expert.topics.concat(expert.categories).join(" ").toLowerCase().includes("media");
+  const requestText = [...requestTerms].join(" ");
+  const expertText = [...expertTerms].join(" ");
+  const soccerBoost = requestText.includes("soccer") && expertText.includes("soccer") ? 12 : 0;
+  const canadaBoost = (requestText.includes("canada") || requestText.includes("canadian")) && (expertText.includes("canada") || expertText.includes("canadian")) ? 10 : 0;
+  const cplBoost = requestText.includes("premier") && requestText.includes("league") && (expertText.includes("cpl") || expertText.includes("premier")) ? 8 : 0;
+  const score = Math.max(35, Math.min(98, 46 + matchedTerms.length * 5 + soccerBoost + canadaBoost + cplBoost + (budgetFit ? 7 : -4) + (locationFit ? 8 : 0) + (languageFit ? 5 : 0) + (formatFit ? 5 : 0) + Math.min(8, expert.completedEngagements / 4)));
+  return {
+    ...expert,
+    score: Math.round(score),
+    confidence: score >= 88 ? "High" : score >= 72 ? "Medium" : "Exploratory",
+    matchReasons: [
+      matchedTerms.length ? `Matched terms: ${matchedTerms.slice(0, 5).join(", ")}` : "General category fit",
+      budgetFit ? `${expert.sessionPrice} USDC fits budget` : `${expert.sessionPrice} USDC may require negotiation`,
+      locationFit ? `Location fit: ${expert.location}` : "",
+      `${expert.verificationState}; ${expert.completedEngagements} completed engagements`
+    ].filter(Boolean)
+  };
+}
+
+function tokenizeExpertText(value = "") {
+  const stop = new Set(["about", "after", "and", "are", "for", "from", "into", "need", "the", "this", "with"]);
+  return new Set(String(value).toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((term) => term.length > 2 && !stop.has(term)));
+}
+
+async function handlePublicExpertEnrichment(req, res) {
+  const profile = await readJson(req);
+  const evidence = await enrichPublicProfile(profile);
+  sendJson(req, res, 200, {
+    ok: true,
+    discoveredAt: new Date().toISOString(),
+    evidence,
+    message: evidence.length ? "Public professional evidence queued for review." : "No reliable public professional evidence found."
+  });
+}
+
+async function enrichPublicProfile(profile = {}) {
+  const name = cleanSearchTerm(profile.name || "");
+  const location = cleanSearchTerm(profile.location || "");
+  const expertise = Array.isArray(profile.expertise) ? profile.expertise.map(cleanSearchTerm).filter(Boolean) : cleanSearchTerm(profile.expertise || "");
+  const identifiers = [profile.linkedinUrl, profile.website, profile.githubUrl].map((value) => String(value || "").trim()).filter(Boolean);
+  const expertiseTerms = Array.isArray(expertise) ? expertise : String(expertise).split(",").map(cleanSearchTerm).filter(Boolean);
+  const queries = [
+    [name, location, expertiseTerms.slice(0, 2).join(" "), "speaker OR podcast OR interview"].filter(Boolean).join(" "),
+    [name, expertiseTerms.slice(0, 2).join(" "), "publication OR article OR research"].filter(Boolean).join(" "),
+    [name, "company bio OR team page OR advisor"].filter(Boolean).join(" "),
+    ...identifiers
+  ].filter((query, index, list) => query && list.indexOf(query) === index).slice(0, 5);
+  const results = [];
+  for (const url of identifiers) {
+    try {
+      const direct = await fetchPublicProfessionalPage(url);
+      if (direct) results.push(direct);
+    } catch (error) {
+      console.warn("public enrichment direct fetch failed", url, error.message);
+    }
+  }
+  for (const query of queries) {
+    try {
+      results.push(...await searchPublicWeb(query));
+    } catch (error) {
+      console.warn("public enrichment search failed", query, error.message);
+    }
+  }
+  return normalizePublicEvidence(results, { name, expertiseTerms });
+}
+
+async function fetchPublicProfessionalPage(url) {
+  if (!/^https?:\/\//i.test(url)) return null;
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 ToastyExperts/0.1 professional-profile-enrichment",
+      "Accept": "text/html,application/xhtml+xml"
+    }
+  });
+  if (!response.ok) throw new Error(`Fetch failed with HTTP ${response.status}`);
+  const html = (await response.text()).slice(0, 300000);
+  const sourceTitle = cleanHtmlText(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || safeHost(url));
+  const description = cleanHtmlText(
+    html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+    html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+    html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1] ||
+    ""
+  );
+  return {
+    sourceUrl: url,
+    sourceTitle,
+    snippet: description || sourceTitle
+  };
+}
+
+async function searchPublicWeb(query) {
+  const url = new URL("https://duckduckgo.com/html/");
+  url.searchParams.set("q", query);
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "ToastyExpertsBot/0.1 professional-profile-enrichment",
+      "Accept": "text/html"
+    }
+  });
+  if (!response.ok) throw new Error(`Search failed with HTTP ${response.status}`);
+  const html = await response.text();
+  const matches = [...html.matchAll(/<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi)];
+  return matches.slice(0, 8).map((match) => {
+    const sourceUrl = decodeSearchUrl(stripHtml(match[1]));
+    return {
+      sourceUrl,
+      sourceTitle: cleanHtmlText(match[2]),
+      snippet: cleanHtmlText(match[3])
+    };
+  }).filter((item) => item.sourceUrl && isProfessionalSource(item));
+}
+
+function normalizePublicEvidence(results, { name, expertiseTerms }) {
+  const byClaim = new Map();
+  for (const result of results) {
+    const category = categorizePublicSource(result);
+    const proposedValue = discoveredFact(result, { name, expertiseTerms, category });
+    if (!proposedValue) continue;
+    const normalized = normalizeClaim(`${category} ${proposedValue}`);
+    const existing = byClaim.get(normalized);
+    const source = {
+      sourceType: sourceTypeForUrl(result.sourceUrl),
+      sourceUrl: result.sourceUrl,
+      sourceTitle: result.sourceTitle,
+      sourceDate: ""
+    };
+    if (existing) {
+      existing.sources = dedupeEvidenceSources([...existing.sources, source]);
+      existing.confidence = existing.sources.length > 1 ? "High" : existing.confidence;
+      continue;
+    }
+    byClaim.set(normalized, {
+      id: randomUUID(),
+      field: fieldForEvidenceCategory(category),
+      category,
+      proposedValue,
+      normalizedValue: normalized,
+      sourceType: source.sourceType,
+      sourceUrl: source.sourceUrl,
+      sourceTitle: source.sourceTitle,
+      sourceDate: "",
+      discoveredAt: new Date().toISOString(),
+      confidence: confidenceForEvidence(result),
+      status: "PROPOSED",
+      sourceConfirmationState: "SOURCE_CONFIRMED",
+      distinction: "Source-Confirmed Evidence",
+      userEdited: false,
+      approvedAt: null,
+      sources: [source]
+    });
+  }
+  return [...byClaim.values()].slice(0, 12);
+}
+
+async function handleMicrotaskSettlement(req, res) {
+  const body = await readJson(req);
+  const task = normalizeMicrotask(body.task || {});
+  const response = normalizeMicrotaskResponse(body.response || {});
+  const amount = Number(body.amount || task.pricePerAcceptedResponse || TOASTY_MICROTASK_RESPONSE_PRICE);
+  const recipient = String(body.recipientWallet || response.recipientWallet || TOASTY_MICROTASK_RECIPIENT || "").trim();
+  if (!TOASTY_SOLANA_PAYER_KEYPAIR) return sendJson(req, res, 503, { error: "Solana payer keypair is not configured." });
+  if (!recipient) return sendJson(req, res, 400, { error: "A recipient wallet is required for microtask settlement." });
+  if (!response.accepted) return sendJson(req, res, 400, { error: "Only accepted responses are payable." });
+  const settlement = await settleUsdc({ recipient, amount });
+  const paymentId = randomUUID();
+  await db("record_microtask_settlement", {
+    task,
+    response: {
+      ...response,
+      recipientWallet: recipient,
+      paymentId,
+      paymentStatus: "PAYMENT_RELEASED"
+    },
+    payment: {
+      id: paymentId,
+      paymentKind: "HUMAN_JUDGMENT_SETTLEMENT",
+      rail: "x402-solana-usdc",
+      provider: "toasty-experts",
+      purpose: "accepted-human-judgment-response",
+      status: "PAYMENT_RELEASED",
+      network: TOASTY_SOLANA_NETWORK,
+      payerWallet: settlement.payerWallet,
+      payeeWallet: recipient,
+      amount,
+      currency: "USDC",
+      tokenMint: TOASTY_USDC_MINT,
+      transactionSignature: settlement.transactionSignature,
+      policyDecision: "APPROVED",
+      approvalSource: "ACCEPTED_RESPONSE",
+      metadata: {
+        taskId: task.id,
+        responseId: response.id,
+        verificationStatus: "VERIFIED",
+        demonstratedExpertise: response.demonstratedExpertise
+      }
+    }
+  });
+  sendJson(req, res, 200, {
+    ok: true,
+    task,
+    response: { ...response, recipientWallet: recipient, paymentId, paymentStatus: "PAYMENT_RELEASED" },
+    payment: {
+      id: paymentId,
+      paymentKind: "HUMAN_JUDGMENT_SETTLEMENT",
+      amount,
+      currency: "USDC",
+      network: TOASTY_SOLANA_NETWORK,
+      payer: settlement.payerWallet,
+      recipient,
+      transactionSignature: settlement.transactionSignature,
+      verificationState: "VERIFIED",
+      timestamp: new Date().toISOString()
+    },
+    demonstratedExpertise: response.demonstratedExpertise
+  });
+}
+
+async function settleUsdc({ recipient, amount }) {
+  const keypairPath = resolveHomePath(TOASTY_SOLANA_PAYER_KEYPAIR);
+  const payerWallet = (await execFileAsync("solana-keygen", ["pubkey", keypairPath])).stdout.trim();
+  const args = [
+    "transfer",
+    "--fund-recipient",
+    "--allow-unfunded-recipient",
+    "--url", TOASTY_SOLANA_RPC_URL,
+    "--owner", keypairPath,
+    TOASTY_USDC_MINT,
+    amount.toFixed(3),
+    recipient
+  ];
+  const { stdout, stderr } = await execFileAsync("spl-token", args, { timeout: 60000 });
+  const output = `${stdout}\n${stderr}`;
+  const transactionSignature = output.match(/Signature:\s*([1-9A-HJ-NP-Za-km-z]{40,100})/)?.[1] || output.match(/\b([1-9A-HJ-NP-Za-km-z]{80,100})\b/)?.[1];
+  if (!transactionSignature) throw new Error(`USDC transfer completed without parseable signature: ${output.slice(0, 240)}`);
+  return { payerWallet, transactionSignature };
+}
+
+function normalizeMicrotask(task) {
+  return {
+    id: String(task.id || randomUUID()).slice(0, 80),
+    prompt: String(task.prompt || "Which podcast title would make you most likely to listen?").trim().slice(0, 1000),
+    requirements: Array.isArray(task.requirements) ? task.requirements.map(String).slice(0, 20) : String(task.requirements || "Canadian soccer knowledge").split(",").map((item) => item.trim()).filter(Boolean).slice(0, 20),
+    responsesRequired: Number(task.responsesRequired || 5),
+    pricePerAcceptedResponse: Number(task.pricePerAcceptedResponse || TOASTY_MICROTASK_RESPONSE_PRICE),
+    currency: "USDC",
+    topic: String(task.topic || "Canadian soccer").trim().slice(0, 120)
+  };
+}
+
+function normalizeMicrotaskResponse(response) {
+  return {
+    id: String(response.id || randomUUID()).slice(0, 80),
+    contributorId: String(response.contributorId || "exp-nadia-maclean").slice(0, 120),
+    contributorName: String(response.contributorName || "Nadia MacLean").slice(0, 160),
+    recipientWallet: String(response.recipientWallet || "").trim(),
+    answer: String(response.answer || "The title with a clear Canadian Premier League angle is most compelling.").trim().slice(0, 2000),
+    accepted: response.accepted !== false,
+    demonstratedExpertise: String(response.demonstratedExpertise || "Accepted Canadian soccer judgment").trim().slice(0, 240)
+  };
+}
+
+function cleanSearchTerm(value = "") {
+  return String(value).replace(/[^\p{L}\p{N}\s:./_-]/gu, " ").replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
+function cleanHtmlText(value = "") {
+  return String(value)
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function stripHtml(value = "") {
+  return String(value).replace(/&amp;/g, "&").replace(/<[^>]+>/g, "").trim();
+}
+
+function decodeSearchUrl(value = "") {
+  try {
+    const parsed = new URL(value, "https://duckduckgo.com");
+    const uddg = parsed.searchParams.get("uddg");
+    return uddg ? decodeURIComponent(uddg) : parsed.href;
+  } catch {
+    return value;
+  }
+}
+
+function isProfessionalSource(item) {
+  const text = `${item.sourceUrl} ${item.sourceTitle} ${item.snippet}`.toLowerCase();
+  if (/facebook|instagram|tiktok|pinterest|reddit|family|wedding|obituary|arrest|mugshot/.test(text)) return false;
+  return /linkedin|github|speaker|conference|event|podcast|interview|publication|research|journal|company|team|advisor|board|association|award|certification|profile|bio|article/.test(text);
+}
+
+function categorizePublicSource(item) {
+  const text = `${item.sourceUrl} ${item.sourceTitle} ${item.snippet}`.toLowerCase();
+  if (/github|repository|project/.test(text)) return "Public project work";
+  if (/speaker|conference|event|webinar|panel/.test(text)) return "Speaking";
+  if (/podcast|interview|media|youtube/.test(text)) return "Media appearance";
+  if (/publication|research|journal|paper|scholar|article|byline/.test(text)) return "Publication / research";
+  if (/certification|certificate|award/.test(text)) return "Credential";
+  if (/board|advisor|advisory|association/.test(text)) return "Board / advisory role";
+  if (/company|team|about|bio|profile/.test(text)) return "Professional bio";
+  return "Professional footprint";
+}
+
+function discoveredFact(item, { name, expertiseTerms, category }) {
+  const title = item.sourceTitle || "";
+  const snippet = item.snippet || "";
+  const subject = name || "Expert";
+  const topic = expertiseTerms?.find((term) => new RegExp(`\\b${escapeRegExp(term)}\\b`, "i").test(`${title} ${snippet}`));
+  if (!title && !snippet) return "";
+  if (topic) return `${subject} has public ${category.toLowerCase()} evidence related to ${topic}: ${title}`;
+  return `${subject} has ${category.toLowerCase()} evidence: ${title || snippet.slice(0, 140)}`;
+}
+
+function confidenceForEvidence(item) {
+  const host = safeHost(item.sourceUrl);
+  if (/edu|gov|org$/.test(host) || /conference|event|speaker|github|journal|company/.test(`${host} ${item.sourceTitle}`.toLowerCase())) return "High";
+  return "Medium";
+}
+
+function sourceTypeForUrl(url = "") {
+  const host = safeHost(url);
+  if (host.includes("github")) return "GitHub";
+  if (host.includes("linkedin")) return "LinkedIn URL";
+  if (/conference|event/.test(host)) return "Event website";
+  if (/podcast|youtube|spotify/.test(host)) return "Podcast/interview";
+  if (/journal|scholar|research/.test(host)) return "Publication index";
+  return "Public web";
+}
+
+function safeHost(url = "") {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function fieldForEvidenceCategory(category = "") {
+  if (/speaking|media|publication|research|credential|board/i.test(category)) return "credentials";
+  if (/project|expertise/i.test(category)) return "topics";
+  return "profile";
+}
+
+function normalizeClaim(value = "") {
+  return String(value).toLowerCase().replace(/https?:\/\/\S+/g, "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function dedupeEvidenceSources(sources) {
+  const seen = new Set();
+  return sources.filter((source) => {
+    const key = `${source.sourceUrl}|${source.sourceTitle}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function escapeRegExp(value = "") {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function resolveHomePath(path = "") {
+  return path === "~" ? homedir() : path.startsWith("~/") ? join(homedir(), path.slice(2)) : path;
+}
 
 async function handleRegister(req, res) {
   if (!authConfigured()) return sendJson(req, res, 503, { error: "Studio authentication is not configured." });
@@ -225,6 +877,272 @@ function publicSessionUser(user) {
   return user ? { id: user.id, name: user.name, email: user.email, status: user.status } : null;
 }
 
+function googleConfigured() {
+  return Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && TOKEN_ENCRYPTION_KEY);
+}
+
+function publicProviderAccount(account) {
+  if (!account) return null;
+  return {
+    id: account.id,
+    provider: account.provider,
+    providerAccountId: account.provider_account_id,
+    accountEmail: account.account_email,
+    scope: account.scope,
+    status: account.status,
+    connectedAt: account.connected_at,
+    updatedAt: account.updated_at
+  };
+}
+
+async function requireSession(req, res) {
+  const session = await readSession(req);
+  if (!session) {
+    sendJson(req, res, 401, { error: "Sign in to Toasty Studio first." });
+    return null;
+  }
+  return session;
+}
+
+function signOAuthState(payload) {
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  return `${body}.${sign(body)}`;
+}
+
+function readOAuthState(value = "") {
+  const dot = value.lastIndexOf(".");
+  if (dot < 1) throw httpError(400, "Invalid Google OAuth state.");
+  const body = value.slice(0, dot);
+  const signature = value.slice(dot + 1);
+  if (!safeStringEqual(signature, sign(body))) throw httpError(400, "Invalid Google OAuth state.");
+  const payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+  if (Number(payload.expires) <= Math.floor(Date.now() / 1000)) throw httpError(400, "Google OAuth state expired.");
+  return payload;
+}
+
+async function handleGoogleCallback(req, res) {
+  try {
+    if (!googleConfigured()) throw httpError(503, "Google Drive integration is not configured on the server.");
+    const url = new URL(req.url, `http://${HOST}:${PORT}`);
+    const code = url.searchParams.get("code");
+    const state = readOAuthState(url.searchParams.get("state") || "");
+    if (!code) throw httpError(400, "Google did not return an authorization code.");
+    const token = await googleTokenRequest({
+      code,
+      client_id: GOOGLE_CLIENT_ID,
+      client_secret: GOOGLE_CLIENT_SECRET,
+      redirect_uri: GOOGLE_REDIRECT_URI,
+      grant_type: "authorization_code"
+    });
+    const profile = await googleApiJson("https://www.googleapis.com/oauth2/v2/userinfo", token.access_token);
+    await db("upsert_provider_account", {
+      id: randomUUID(),
+      ownerUserId: state.userId,
+      provider: "google_drive",
+      providerAccountId: profile.id,
+      accountEmail: profile.email,
+      accessTokenEncrypted: encryptSecret(token.access_token),
+      refreshTokenEncrypted: token.refresh_token ? encryptSecret(token.refresh_token) : null,
+      scope: token.scope,
+      tokenType: token.token_type,
+      expiresAt: isoFromNow(Number(token.expires_in || 3600)),
+      metadata: { name: profile.name, picture: profile.picture }
+    });
+    res.writeHead(302, { Location: "https://toasty.media/studio/?drive=connected" });
+    res.end();
+  } catch (error) {
+    console.error("Google OAuth callback failed:", creatorError(error));
+    res.writeHead(302, { Location: "https://toasty.media/studio/?drive=error" });
+    res.end();
+  }
+}
+
+async function handleDriveFiles(req, res, session) {
+  const account = await requireGoogleAccount(session.id);
+  const accessToken = await validGoogleAccessToken(session.id, account);
+  const url = new URL(req.url, `http://${HOST}:${PORT}`);
+  const query = cleanDriveQuery(url.searchParams.get("q") || "");
+  const folderId = cleanDriveId(url.searchParams.get("folderId") || "");
+  const pageToken = cleanPageToken(url.searchParams.get("pageToken") || "");
+  const api = new URL("https://www.googleapis.com/drive/v3/files");
+  const terms = ["trashed = false"];
+  if (folderId) terms.push(`'${folderId}' in parents`);
+  if (query) terms.push(`name contains '${query.replaceAll("'", "\\'")}'`);
+  api.searchParams.set("q", terms.join(" and "));
+  api.searchParams.set("pageSize", "50");
+  api.searchParams.set("fields", "nextPageToken,files(id,name,mimeType,size,thumbnailLink,webViewLink,iconLink,parents,createdTime,modifiedTime,videoMediaMetadata,imageMediaMetadata)");
+  api.searchParams.set("orderBy", "folder,name");
+  if (pageToken) api.searchParams.set("pageToken", pageToken);
+  const payload = await googleApiJson(api.toString(), accessToken);
+  sendJson(req, res, 200, {
+    files: (payload.files || []).map(toDriveFile),
+    nextPageToken: payload.nextPageToken || null
+  });
+}
+
+async function handleDriveImport(req, res, session) {
+  const body = await readJson(req);
+  const account = await requireGoogleAccount(session.id);
+  const accessToken = await validGoogleAccessToken(session.id, account);
+  const fileId = cleanDriveId(body?.fileId || "");
+  if (!fileId) return sendJson(req, res, 400, { error: "Choose a Google Drive file first." });
+  const file = await driveFileMetadata(fileId, accessToken);
+  if (!isSupportedDriveMedia(file)) return sendJson(req, res, 400, { error: "Choose a video, image, or audio file." });
+  const asset = await db("upsert_media_asset", {
+    id: randomUUID(),
+    ownerUserId: session.id,
+    brandId: cleanOptionalId(body?.brandId),
+    provider: "google_drive",
+    providerFileId: file.id,
+    providerAccountId: account.id,
+    name: file.name,
+    mimeType: file.mimeType,
+    size: file.size ? Number(file.size) : null,
+    duration: file.videoMediaMetadata?.durationMillis ? Number(file.videoMediaMetadata.durationMillis) / 1000 : null,
+    width: file.videoMediaMetadata?.width || file.imageMediaMetadata?.width || null,
+    height: file.videoMediaMetadata?.height || file.imageMediaMetadata?.height || null,
+    thumbnailReference: file.thumbnailLink || null,
+    sourceReference: file.webViewLink || null,
+    parentFolderReference: file.parents?.[0] || null,
+    createdAt: file.createdTime || null,
+    modifiedAt: file.modifiedTime || null,
+    metadata: {
+      iconLink: file.iconLink || null,
+      provenance: "google_drive_reference"
+    }
+  });
+  sendJson(req, res, 201, { asset: asset.asset });
+}
+
+async function googleAccount(userId) {
+  const result = await db("get_provider_account", { ownerUserId: userId, provider: "google_drive" });
+  return result.account || null;
+}
+
+async function requireGoogleAccount(userId) {
+  const result = await db("get_provider_account", { ownerUserId: userId, provider: "google_drive", includeTokens: true });
+  if (!result.account) throw httpError(409, "Connect Google Drive first.");
+  return result.account;
+}
+
+async function disconnectGoogleDrive(userId) {
+  const account = await db("get_provider_account", { ownerUserId: userId, provider: "google_drive", includeTokens: true });
+  const refreshToken = account.account?.refresh_token_encrypted ? decryptSecret(account.account.refresh_token_encrypted) : null;
+  if (refreshToken) {
+    try {
+      await fetch("https://oauth2.googleapis.com/revoke", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ token: refreshToken })
+      });
+    } catch {
+      // Local disconnect still removes Toasty's stored credentials.
+    }
+  }
+  await db("disconnect_provider_account", { ownerUserId: userId, provider: "google_drive" });
+}
+
+async function validGoogleAccessToken(userId, account) {
+  if (!account.access_token_encrypted) throw httpError(409, "Reconnect Google Drive.");
+  if (account.expires_at && new Date(account.expires_at).getTime() > Date.now() + 60_000) {
+    return decryptSecret(account.access_token_encrypted);
+  }
+  if (!account.refresh_token_encrypted) throw httpError(409, "Reconnect Google Drive.");
+  const refreshed = await googleTokenRequest({
+    client_id: GOOGLE_CLIENT_ID,
+    client_secret: GOOGLE_CLIENT_SECRET,
+    refresh_token: decryptSecret(account.refresh_token_encrypted),
+    grant_type: "refresh_token"
+  });
+  await db("upsert_provider_account", {
+    id: account.id,
+    ownerUserId: userId,
+    provider: "google_drive",
+    providerAccountId: account.provider_account_id,
+    accountEmail: account.account_email,
+    accessTokenEncrypted: encryptSecret(refreshed.access_token),
+    refreshTokenEncrypted: account.refresh_token_encrypted,
+    scope: refreshed.scope || account.scope,
+    tokenType: refreshed.token_type || account.token_type,
+    expiresAt: isoFromNow(Number(refreshed.expires_in || 3600)),
+    metadata: account.metadata || {}
+  });
+  return refreshed.access_token;
+}
+
+async function googleTokenRequest(fields) {
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(fields)
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw httpError(502, payload.error_description || payload.error || "Google OAuth request failed.");
+  return payload;
+}
+
+async function googleApiJson(url, accessToken) {
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw httpError(response.status, payload.error?.message || "Google Drive request failed.");
+  return payload;
+}
+
+async function driveFileMetadata(fileId, accessToken) {
+  const url = new URL(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`);
+  url.searchParams.set("fields", "id,name,mimeType,size,thumbnailLink,webViewLink,iconLink,parents,createdTime,modifiedTime,videoMediaMetadata,imageMediaMetadata");
+  return googleApiJson(url.toString(), accessToken);
+}
+
+function toDriveFile(file) {
+  const folder = file.mimeType === "application/vnd.google-apps.folder";
+  return {
+    id: file.id,
+    name: file.name,
+    mimeType: file.mimeType,
+    size: file.size ? Number(file.size) : null,
+    thumbnailLink: file.thumbnailLink || null,
+    webViewLink: file.webViewLink || null,
+    iconLink: file.iconLink || null,
+    parents: file.parents || [],
+    createdTime: file.createdTime || null,
+    modifiedTime: file.modifiedTime || null,
+    width: file.videoMediaMetadata?.width || file.imageMediaMetadata?.width || null,
+    height: file.videoMediaMetadata?.height || file.imageMediaMetadata?.height || null,
+    duration: file.videoMediaMetadata?.durationMillis ? Number(file.videoMediaMetadata.durationMillis) / 1000 : null,
+    isFolder: folder,
+    selectable: !folder && isSupportedDriveMedia(file)
+  };
+}
+
+function isSupportedDriveMedia(file) {
+  return /^(video|image|audio)\//.test(file?.mimeType || "");
+}
+
+function encryptSecret(value) {
+  const iv = randomBytes(12);
+  const key = createHash("sha256").update(TOKEN_ENCRYPTION_KEY).digest();
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(String(value), "utf8"), cipher.final()]);
+  return `v1.${iv.toString("base64url")}.${cipher.getAuthTag().toString("base64url")}.${encrypted.toString("base64url")}`;
+}
+
+function decryptSecret(value = "") {
+  const [version, iv, tag, encrypted] = String(value).split(".");
+  if (version !== "v1" || !iv || !tag || !encrypted) throw httpError(500, "Stored provider token is invalid.");
+  const key = createHash("sha256").update(TOKEN_ENCRYPTION_KEY).digest();
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64url"));
+  decipher.setAuthTag(Buffer.from(tag, "base64url"));
+  return Buffer.concat([
+    decipher.update(Buffer.from(encrypted, "base64url")),
+    decipher.final()
+  ]).toString("utf8");
+}
+
+function isoFromNow(seconds) {
+  return new Date(Date.now() + seconds * 1000).toISOString();
+}
+
 function sign(payload) {
   return createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
 }
@@ -264,6 +1182,146 @@ async function writeMediaFiles({ form, workDir }) {
     media.set(mediaId, filePath);
   }
   return media;
+}
+
+async function resolveReferencedMedia({ manifest, media, workDir, userId }) {
+  if (!userId) return;
+  const references = new Map();
+  for (const asset of manifest.assets || []) {
+    if (!asset?.mediaId || media.has(asset.mediaId)) continue;
+    if (asset.mediaAssetId) references.set(asset.mediaId, asset.mediaAssetId);
+    if (asset.mediaReference?.id) references.set(asset.mediaId, asset.mediaReference.id);
+  }
+  if (manifest.narrationAudio?.mediaId && !media.has(manifest.narrationAudio.mediaId)) {
+    const referenceId = manifest.narrationAudio.mediaAssetId || manifest.narrationAudio.mediaReference?.id;
+    if (referenceId) references.set(manifest.narrationAudio.mediaId, referenceId);
+  }
+  for (const [mediaId, assetId] of references) {
+    const result = await db("get_media_asset", { id: assetId, ownerUserId: userId });
+    const asset = result.asset;
+    if (!asset || asset.status !== "available") throw httpError(409, "A referenced media asset is unavailable.");
+    if (asset.provider !== "google_drive") throw httpError(400, "Unsupported media provider.");
+    const filePath = await downloadGoogleDriveAsset({ userId, asset, workDir, mediaId });
+    media.set(mediaId, filePath);
+  }
+}
+
+async function downloadGoogleDriveAsset({ userId, asset, workDir, mediaId }) {
+  const account = await requireGoogleAccount(userId);
+  const accessToken = await validGoogleAccessToken(userId, account);
+  if (Number(asset.size || 0) > GOOGLE_DOWNLOAD_LIMIT_BYTES) throw httpError(413, "Referenced Drive media is too large for this render.");
+  const metadata = await driveFileMetadata(asset.provider_file_id, accessToken);
+  if (!isSupportedDriveMedia(metadata)) throw httpError(400, "Referenced Drive asset is not playable media.");
+  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(asset.provider_file_id)}?alt=media`, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  if (!response.ok) throw httpError(response.status, "Could not download a referenced Drive asset.");
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of Readable.fromWeb(response.body)) {
+    size += chunk.length;
+    if (size > GOOGLE_DOWNLOAD_LIMIT_BYTES) throw httpError(413, "Referenced Drive media is too large for this render.");
+    chunks.push(chunk);
+  }
+  const filePath = join(workDir, `${mediaId}-${safeFileName(asset.name || "drive-media")}`);
+  await writeFile(filePath, Buffer.concat(chunks));
+  return filePath;
+}
+
+async function maybeSaveOutputToDrive({ manifest, outputPath, userId }) {
+  if (!userId || !manifest?.output?.saveToGoogleDrive) return null;
+  const account = await googleAccount(userId);
+  if (!account) return null;
+  const tokenAccount = await requireGoogleAccount(userId);
+  const accessToken = await validGoogleAccessToken(userId, tokenAccount);
+  const folderId = await ensureDriveFolderPath({
+    accessToken,
+    parts: ["Toasty", "Productions", safeDriveFolderName(manifest.brandProfile?.name), safeDriveFolderName(manifest.title)]
+  });
+  const outputName = `${safeFileName(manifest.title || "toasty-production")}.mp4`;
+  const file = await uploadDriveFile({ accessToken, folderId, filePath: outputPath, name: outputName, mimeType: "video/mp4" });
+  await db("mark_production_output", {
+    id: manifest.productionId || randomUUID(),
+    ownerUserId: userId,
+    brandId: manifest.brandProfile?.id || null,
+    title: manifest.title || "Toasty production",
+    outputProvider: "google_drive",
+    outputProviderFileId: file.id,
+    outputReference: file.webViewLink || null,
+    metadata: { source: "render_worker" }
+  });
+  return file;
+}
+
+async function ensureDriveFolderPath({ accessToken, parts }) {
+  let parent = "root";
+  for (const rawPart of parts.filter(Boolean)) {
+    const name = safeDriveFolderName(rawPart);
+    const existing = await findDriveFolder({ accessToken, parent, name });
+    parent = existing?.id || (await createDriveFolder({ accessToken, parent, name })).id;
+  }
+  return parent;
+}
+
+async function findDriveFolder({ accessToken, parent, name }) {
+  const url = new URL("https://www.googleapis.com/drive/v3/files");
+  url.searchParams.set("q", [
+    "mimeType = 'application/vnd.google-apps.folder'",
+    "trashed = false",
+    `'${parent}' in parents`,
+    `name = '${name.replaceAll("'", "\\'")}'`
+  ].join(" and "));
+  url.searchParams.set("fields", "files(id,name)");
+  url.searchParams.set("pageSize", "1");
+  const result = await googleApiJson(url.toString(), accessToken);
+  return result.files?.[0] || null;
+}
+
+async function createDriveFolder({ accessToken, parent, name }) {
+  const response = await fetch("https://www.googleapis.com/drive/v3/files?fields=id,name", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      name,
+      mimeType: "application/vnd.google-apps.folder",
+      parents: [parent]
+    })
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw httpError(response.status, payload.error?.message || "Could not create Drive output folder.");
+  return payload;
+}
+
+async function uploadDriveFile({ accessToken, folderId, filePath, name, mimeType }) {
+  const boundary = `toasty-${randomUUID()}`;
+  const fileSize = (await stat(filePath)).size;
+  const metadata = JSON.stringify({ name, parents: [folderId] });
+  const header = Buffer.from(
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n` +
+    `--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`
+  );
+  const footer = Buffer.from(`\r\n--${boundary}--\r\n`);
+  const body = Readable.from((async function* () {
+    yield header;
+    for await (const chunk of createReadStream(filePath)) yield chunk;
+    yield footer;
+  })());
+  const response = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": `multipart/related; boundary=${boundary}`,
+      "Content-Length": String(header.length + fileSize + footer.length)
+    },
+    body,
+    duplex: "half"
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw httpError(response.status, payload.error?.message || "Could not save the finished MP4 to Google Drive.");
+  return payload;
 }
 
 async function renderProduction({ manifest, media, workDir }) {
@@ -601,6 +1659,28 @@ function cleanName(value) {
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function cleanDriveQuery(value) {
+  return String(value || "").trim().replace(/[\\\r\n]/g, " ").slice(0, 120);
+}
+
+function cleanDriveId(value) {
+  const id = String(value || "").trim();
+  return /^[a-zA-Z0-9_-]{6,200}$/.test(id) ? id : "";
+}
+
+function cleanPageToken(value) {
+  return String(value || "").trim().replace(/[^a-zA-Z0-9._/-]/g, "").slice(0, 500);
+}
+
+function cleanOptionalId(value) {
+  const id = String(value || "").trim();
+  return SAFE_ID.test(id) ? id : null;
+}
+
+function safeDriveFolderName(value) {
+  return String(value || "General").trim().replace(/[\\/:*?"<>|\r\n]+/g, "-").replace(/\s+/g, " ").slice(0, 80) || "General";
 }
 
 function httpError(statusCode, publicMessage) {

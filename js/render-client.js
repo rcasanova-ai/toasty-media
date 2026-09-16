@@ -1,4 +1,4 @@
-import { collectRenderMedia } from "./media-store.js";
+import { collectRenderMedia, mediaReferenceForAsset } from "./media-store.js";
 
 const LOCAL_RENDER_ENDPOINT = "http://127.0.0.1:4174/render";
 const PRODUCTION_RENDER_ENDPOINT = "https://render.toasty.media/render";
@@ -55,7 +55,13 @@ export async function renderProductionMp4({ project, productionSpec, brandProfil
     narrationAudio: project.audio,
     brandProfile,
     productionSpec,
-    assets: project.assets,
+    assets: project.assets.map((asset) => ({
+      ...asset,
+      mediaReference: mediaReferenceForAsset(asset)
+    })),
+    output: {
+      saveToGoogleDrive: Boolean(project.output?.saveToGoogleDrive)
+    },
     timeline
   };
 

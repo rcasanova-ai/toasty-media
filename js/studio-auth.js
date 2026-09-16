@@ -1,9 +1,10 @@
-const LOCAL_AUTH_ENDPOINT = "http://127.0.0.1:4174";
-const PRODUCTION_AUTH_ENDPOINT = "https://render.toasty.media";
+import { studioApiEndpoint } from "./studio-api.js";
+import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js";
 
 const state = {
   mode: "signup",
-  appLoaded: false
+  appLoaded: false,
+  brandTheme: getInitialBrandTheme()
 };
 
 const els = {};
@@ -26,6 +27,12 @@ document.addEventListener("DOMContentLoaded", () => {
     "authMessage"
   ].forEach((id) => { els[id] = document.getElementById(id); });
 
+  applyBrandTheme(state.brandTheme, {
+    root: document.body,
+    logoImg: document.querySelector(".public-brand img"),
+    poweredBy: document.querySelector("#publicPoweredBy"),
+    brandLink: document.querySelector(".public-brand")
+  });
   els.showSignup.addEventListener("click", () => setMode("signup"));
   els.showLogin.addEventListener("click", () => setMode("login"));
   els.signupForm.addEventListener("submit", (event) => {
@@ -115,8 +122,9 @@ function openStudio() {
   els.studioAppShell.hidden = false;
   document.body.classList.add("is-authenticated");
   if (!state.appLoaded) {
-    const query = window.location.search || "?brand=toasty";
-    els.studioAppFrame.src = `./director.html${query}`;
+    const query = new URLSearchParams(window.location.search);
+    query.set("brand", state.brandTheme);
+    els.studioAppFrame.src = `./director.html?${query}`;
     state.appLoaded = true;
   }
 }
@@ -169,7 +177,5 @@ async function request(path, options = {}) {
 }
 
 function authEndpoint() {
-  const host = window.location.hostname;
-  if (host === "localhost" || host === "127.0.0.1" || host === "") return LOCAL_AUTH_ENDPOINT;
-  return window.TOASTY_AUTH_ENDPOINT || PRODUCTION_AUTH_ENDPOINT;
+  return studioApiEndpoint();
 }

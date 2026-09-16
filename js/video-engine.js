@@ -34,15 +34,32 @@ export class VideoEngine {
     return null;
   }
 
-  mountRoomFrame(container,{roomId}) { return this.mountFrame(container,"room",{room:roomId,scene:"0",cleanoutput:"1",transparent:"1",showlabels:"1",muted:"1",mute:"1"}); }
-  mountGuestFrame(container,{roomId,guestName,backgroundMode}) { const suffix=Date.now().toString(36).slice(-4); const streamId=`${roomId}g${suffix}`.slice(0,24); return this.mountFrame(container,"guest",{room:roomId,push:streamId,label:guestName||"Guest",webcam:"1",showlabels:"1",cleanoutput:"0",effects:effectForBackground(backgroundMode)}); }
+  // slots=4 reserves 4 even grid cells regardless of how many are actually filled, and cover=1 crops
+  // each video to fill its cell instead of leaving letterbox bars — together these turn VDO.Ninja's
+  // default speaker+thumbnails auto-layout into a uniform, evenly-sized grid (both documented VDO.Ninja
+  // mixer parameters). Used everywhere scene=0 is mounted, so Director's own guest preview matches what
+  // Program Output actually shows.
+  mountRoomFrame(container,{roomId}) { return this.mountFrame(container,"room",{room:roomId,scene:"0",cleanoutput:"1",transparent:"1",showlabels:"1",muted:"1",mute:"1",slots:"4",cover:"1"}); }
+  // videoDeviceId/audioDeviceId come from the guest's own check-in device pickers (already granted
+  // permission for the local preview) — passing them through as videodevice/audiodevice plus autostart
+  // lets VDO.Ninja publish immediately with those devices instead of showing its own native
+  // device-selection screen (which is both off-brand and, on narrow viewports, wider than the iframe).
+  mountGuestFrame(container,{roomId,guestName,backgroundMode,videoDeviceId,audioDeviceId}) { const suffix=Date.now().toString(36).slice(-4); const streamId=`${roomId}g${suffix}`.slice(0,24); return this.mountFrame(container,"guest",{room:roomId,push:streamId,label:guestName||"Guest",webcam:"1",showlabels:"1",cleanoutput:"1",autostart:"1",videodevice:videoDeviceId||undefined,audiodevice:audioDeviceId||undefined,effects:effectForBackground(backgroundMode)}); }
   mountListenerFrame(container,{roomId}) { return this.mountFrame(container,"listener",{room:roomId,scene:"0",showlabels:"1",cleanoutput:"1"}); }
 
   // Hidden viewer-only frame used purely to query the room's live guest list (id + label) for the Program Output compositor.
   mountDirectorControlFrame(container,{roomId}) { return this.mountFrame(container,"control",{room:roomId,director:roomId,cleanoutput:"1",transparent:"1"}); }
 
-  // Solo (unmixed, no VDO.Ninja chrome/labels) single-stream view, used to place one participant into a Program Output tile.
-  mountSoloFrame(container,{roomId,streamId},frameId=streamId) { return this.mountFrame(container,frameId,{room:roomId,view:streamId,solo:true,cleanoutput:"1",transparent:"1",showlabels:"0",controls:"0"}); }
+  // Program Output's video layer: VDO.Ninja's own auto-mixed room grid (scene=0), showing whoever is
+  // currently live with VDO.Ninja's own name labels. Numbered director-controlled scenes (scene=1+) and
+  // solo/view mode were both tried for real per-seat control and both failed inside VDO.Ninja itself
+  // (confirmed via direct testing: solo hits a cross-origin localStorage bug in VDO.Ninja's own
+  // chooseBestTURN code; numbered scenes accept the director's addScene assignment over signaling but
+  // never actually negotiate media to the viewer) — scene=0 is the one mode that has reliably shown
+  // video end-to-end, so Program Output's branded chrome (logo/LIVE/topic/ticker) wraps this instead of
+  // compositing individual tiles. Unlike mountRoomFrame (Director's own muted local monitor of this same
+  // scene), this is unmuted: Program Output's audio is the real program audio for broadcast/recording.
+  mountProgramFrame(container,{roomId},frameId) { return this.mountFrame(container,frameId,{room:roomId,scene:"0",cleanoutput:"1",transparent:"1",showlabels:"1",controls:"0",slots:"4",cover:"1"}); }
 
   mountFrame(container,frameId,params) { const iframe=document.createElement("iframe"); iframe.allow=IFRAME_ALLOW; iframe.allowFullscreen=true; iframe.src=this.buildUrl(params); iframe.title=`Toasty Studio ${frameId}`; container.replaceChildren(iframe); container.removeAttribute("data-empty"); this.frames.set(frameId,iframe); return iframe; }
   buildUrl(params) { const url=new URL("/",this.baseUrl); const merged={...DEFAULT_PARAMS,...params}; Object.entries(merged).forEach(([key,value])=>{ if(value===true)url.searchParams.set(key,""); else if(value!==undefined&&value!==null&&value!==false&&value!=="")url.searchParams.set(key,value); }); return url.toString(); }

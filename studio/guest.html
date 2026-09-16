@@ -7,20 +7,20 @@
     <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@700;800;900&family=Permanent+Marker&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Manrope:wght@500;700;800&family=Montserrat:wght@700;800;900&family=Permanent+Marker&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../css/brand.css">
     <link rel="stylesheet" href="../css/studio.css">
+    <link rel="stylesheet" href="../css/studio-white-label.css">
     <script type="module" src="../js/guest.js"></script>
   </head>
   <body class="studio-shell guest-shell">
     <main class="guest-grid">
       <header class="guest-topbar">
-        <a class="brand-lockup brand-lockup--compact" href="../site/" aria-label="Toasty Media home">
+        <a class="brand-lockup brand-lockup--compact" id="studioBrandLink" href="../site/" aria-label="Studio brand home">
           <img
             id="studioBrandLogo"
             src="../shared/brand/toasty-media/ToastyMediaStudio.png"
             alt="Toasty Media Studio"
-            onerror="this.onerror=null;this.src='../shared/brand/toasty-media/ToastyMediaHLOGO.png';"
           >
           <span class="brand-text-lockup" id="studioBrandText" hidden>Toasty Studio</span>
         </a>
@@ -33,49 +33,61 @@
         </div>
       </header>
 
-      <section class="guest-preview-card" aria-labelledby="guestTitle">
-        <p class="eyebrow">Guest check-in · <span id="guestRoomLabel">Guest room</span></p>
-        <h1 id="guestTitle">Join the conversation</h1>
-        <p class="guest-lede">Set your name, devices, and background before entering Toasty Studio.</p>
+      <div id="guestCheckin">
+        <section class="guest-preview-card" aria-labelledby="guestTitle">
+          <p class="eyebrow">Guest check-in · <span id="guestRoomLabel">Guest room</span></p>
+          <h1 id="guestTitle">Join the conversation</h1>
+          <p class="guest-lede" data-brand-copy="guestLede">Set your name, devices, and background before entering Toasty Studio.</p>
 
-        <div class="preview-stage" id="previewStage" data-background="none">
-          <video id="cameraPreview" autoplay muted playsinline></video>
-          <div class="preview-overlay">
-            <img src="../shared/brand/toasty-media/ToastyMediaSM.png" alt="">
+          <div class="preview-stage" id="previewStage" data-background="none">
+            <video id="cameraPreview" autoplay muted playsinline></video>
+            <div class="preview-overlay">
+              <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="" data-brand-logo>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section class="guest-controls-card" aria-label="Guest setup">
-        <label>
-          <span>Guest name</span>
-          <input id="guestName" type="text" autocomplete="name" placeholder="Your name">
-        </label>
+        <section class="guest-controls-card" aria-label="Guest setup">
+          <label>
+            <span>Guest name</span>
+            <input id="guestName" type="text" autocomplete="name" placeholder="Your name">
+          </label>
 
-        <label>
-          <span>Microphone</span>
-          <select id="microphoneSelect"></select>
-        </label>
+          <label>
+            <span>Title</span>
+            <input id="guestTitleField" type="text" autocomplete="organization-title" placeholder="e.g. CEO">
+          </label>
 
-        <label>
-          <span>Camera</span>
-          <select id="cameraSelect"></select>
-        </label>
+          <label>
+            <span>Company</span>
+            <input id="guestCompany" type="text" autocomplete="organization" placeholder="e.g. Acme Inc.">
+          </label>
 
-        <div>
-          <p class="bg-picker-label">Background</p>
-          <div class="bg-picker" role="radiogroup" aria-label="Background">
-            <button type="button" class="bg-swatch" data-background="none" aria-pressed="true">No background</button>
-            <button type="button" class="bg-swatch" data-background="blur" aria-pressed="false">Blur</button>
-            <button type="button" class="bg-swatch" data-background="newsroom" aria-pressed="false">Newsroom</button>
-            <button type="button" class="bg-swatch" data-background="library" aria-pressed="false">Library</button>
-            <button type="button" class="bg-swatch" data-background="stage" aria-pressed="false">Fireside stage</button>
+          <label>
+            <span>Microphone</span>
+            <select id="microphoneSelect"></select>
+          </label>
+
+          <label>
+            <span>Camera</span>
+            <select id="cameraSelect"></select>
+          </label>
+
+          <div>
+            <p class="bg-picker-label">Background</p>
+            <div class="bg-picker" role="radiogroup" aria-label="Background">
+              <button type="button" class="bg-swatch" data-background="none" aria-pressed="true">No background</button>
+              <button type="button" class="bg-swatch" data-background="blur" aria-pressed="false">Blur</button>
+              <button type="button" class="bg-swatch" data-background="newsroom" aria-pressed="false">Newsroom</button>
+              <button type="button" class="bg-swatch" data-background="library" aria-pressed="false">Library</button>
+              <button type="button" class="bg-swatch" data-background="stage" aria-pressed="false">Fireside stage</button>
+            </div>
           </div>
-        </div>
 
-        <button id="joinStudio" class="btn btn-primary full-width" type="button">Join Studio</button>
-        <p class="control-note" id="guestStatus">Camera preview starts locally before joining. No account required.</p>
-      </section>
+          <button id="joinStudio" class="btn btn-primary full-width" type="button">Join Studio</button>
+          <p class="control-note" id="guestStatus">Camera preview starts locally before joining. No account required.</p>
+        </section>
+      </div>
 
       <section class="joined-room" id="joinedRoom" hidden aria-label="Live guest room">
         <div class="guest-live-controls">
@@ -93,16 +105,10 @@
             <span class="dock-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg></span>
             <span class="dock-label sr-only">Share screen</span>
           </button>
-          <button id="guestToggleRecording" class="danger-action" type="button" aria-pressed="false">Start recording</button>
           <button id="guestEndSession" class="dock-btn dock-btn-danger" type="button" title="Leave">
             <span class="dock-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1-1a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 17.72V21a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 3h3.28a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11z"></path><line x1="23" y1="1" x2="1" y2="23"></line></svg></span>
             <span class="dock-label sr-only">Leave</span>
           </button>
-        </div>
-        <div class="recording-pill guest-recording" id="guestRecordingState" data-active="false">
-          <span class="recording-dot" aria-hidden="true"></span>
-          <span id="guestRecordingLabel">Local capture ready</span>
-          <strong id="guestRecordingTimer">00:00:00</strong>
         </div>
         <div id="guestFrame" class="vdo-frame large-frame"></div>
       </section>

@@ -1,19 +1,15 @@
 import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js";
 import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js";
-import { LocalIsolatedRecorder } from "./recording.js";
 
 const state = {
   roomId: getRoomIdFromUrl(),
   brandTheme: getInitialBrandTheme(window.location.search, { useStorage: false }),
+  brandLabel: "Studio",
   previewStream: null,
   selectedBackground: BackgroundMode.NONE,
   micMuted: false,
   cameraOff: false,
-  screenSharing: false,
-  recordingActive: false,
-  recordingStartedAt: null,
-  timerId: null,
-  recorder: null
+  screenSharing: false
 };
 
 const engine = new VideoEngine();
@@ -21,12 +17,16 @@ const engine = new VideoEngine();
 const elements = {
   roomLabel: document.querySelector("#guestRoomLabel"),
   joinState: document.querySelector("#joinState"),
+  studioBrandLink: document.querySelector("#studioBrandLink"),
   studioBrandLogo: document.querySelector("#studioBrandLogo"),
   studioBrandText: document.querySelector("#studioBrandText"),
   poweredBy: document.querySelector("#poweredBy"),
   cameraPreview: document.querySelector("#cameraPreview"),
   previewStage: document.querySelector("#previewStage"),
+  guestCheckin: document.querySelector("#guestCheckin"),
   guestName: document.querySelector("#guestName"),
+  guestTitleField: document.querySelector("#guestTitleField"),
+  guestCompany: document.querySelector("#guestCompany"),
   microphoneSelect: document.querySelector("#microphoneSelect"),
   cameraSelect: document.querySelector("#cameraSelect"),
   joinStudio: document.querySelector("#joinStudio"),
@@ -36,22 +36,20 @@ const elements = {
   guestToggleMic: document.querySelector("#guestToggleMic"),
   guestToggleCamera: document.querySelector("#guestToggleCamera"),
   guestToggleScreen: document.querySelector("#guestToggleScreen"),
-  guestToggleRecording: document.querySelector("#guestToggleRecording"),
-  guestEndSession: document.querySelector("#guestEndSession"),
-  guestRecordingState: document.querySelector("#guestRecordingState"),
-  guestRecordingLabel: document.querySelector("#guestRecordingLabel"),
-  guestRecordingTimer: document.querySelector("#guestRecordingTimer")
+  guestEndSession: document.querySelector("#guestEndSession")
 };
 
 init();
 
 async function init() {
-  applyBrandTheme(state.brandTheme, {
+  const theme = applyBrandTheme(state.brandTheme, {
     root: document.body,
+    brandLink: elements.studioBrandLink,
     logoImg: elements.studioBrandLogo,
     logoText: elements.studioBrandText,
     poweredBy: elements.poweredBy
   });
+  state.brandLabel = theme.textLogo || `${theme.label} Studio`;
   elements.roomLabel.textContent = state.roomId ? state.roomId : "Missing room";
   elements.joinStudio.disabled = !isValidRoomId(state.roomId);
   if (!isValidRoomId(state.roomId)) {
@@ -60,10 +58,6 @@ async function init() {
   bindControls();
   engine.onMessage(handleVdoMessage);
   await startPreview();
-  if (!LocalIsolatedRecorder.isSupported()) {
-    elements.guestStatus.textContent = "Recording is unavailable in this browser. Use current Chrome for the recording proof.";
-    elements.guestToggleRecording.disabled = true;
-  }
 }
 
 function bindControls() {
@@ -82,7 +76,6 @@ function bindControls() {
   elements.guestToggleMic.addEventListener("click", toggleMic);
   elements.guestToggleCamera.addEventListener("click", toggleCamera);
   elements.guestToggleScreen.addEventListener("click", toggleScreen);
-  elements.guestToggleRecording.addEventListener("click", toggleRecording);
   elements.guestEndSession.addEventListener("click", leaveSession);
 }
 
@@ -91,10 +84,10 @@ async function startPreview() {
     stopPreview();
     const cameraBeforeHydration = elements.cameraSelect.value;
     const constraints = {
-      video: deviceConstraint(elements.cameraSelect.value),
-      audio: deviceConstraint(elements.microphoneSelect.value)
+      video: deviceConstraint(elements.cameraSelect.value, "video"),
+      audio: deviceConstraint(elements.microphoneSelect.value, "audio")
     };
-    state.previewStream = await navigator.mediaDevices.getUserMedia(constraints);
+    state.previewStream = await getUserMediaWithFallback(constraints);
     elements.cameraPreview.srcObject = state.previewStream;
     await hydrateDevices();
     if (elements.cameraSelect.value && elements.cameraSelect.value !== cameraBeforeHydration) {
@@ -151,11 +144,23 @@ async function replaceCamoDefault() {
 
 async function restartPreviewWithSelectedDevices() {
   stopPreview();
-  state.previewStream = await navigator.mediaDevices.getUserMedia({
-    video: deviceConstraint(elements.cameraSelect.value),
-    audio: deviceConstraint(elements.microphoneSelect.value)
+  state.previewStream = await getUserMediaWithFallback({
+    video: deviceConstraint(elements.cameraSelect.value, "video"),
+    audio: deviceConstraint(elements.microphoneSelect.value, "audio")
   });
   elements.cameraPreview.srcObject = state.previewStream;
+}
+
+async function getUserMediaWithFallback(constraints) {
+  try {
+    return await navigator.mediaDevices.getUserMedia(constraints);
+  } catch (error) {
+    // Some mobile browsers reject a specific deviceId/facingMode constraint outright (stale device
+    // list, camera in use by another app permission flow, etc). Retry with the loosest possible
+    // request so the guest still gets a preview and a populated, permission-unlocked device list
+    // instead of a black box and empty dropdowns.
+    return navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  }
 }
 
 function selectedDeviceLabel(select) {
@@ -164,7 +169,12 @@ function selectedDeviceLabel(select) {
 
 function preferredCamera(devices) {
   return (
+    // Phones report a "facing front"/"user"-style label — prefer the selfie camera for a guest join,
+    // since a rear-facing default (common browser behavior) points at whatever the phone is resting
+    // against and produces a black/useless preview.
+    devices.find((device) => /front|user[- ]?facing/i.test(device.label)) ||
     devices.find((device) => /facetime|studio display|built-?in|integrated/i.test(device.label)) ||
+    devices.find((device) => !isCamoCamera(device.label) && !/back|rear|environment/i.test(device.label)) ||
     devices.find((device) => !isCamoCamera(device.label)) ||
     devices[0]
   );
@@ -174,23 +184,38 @@ function isCamoCamera(label = "") {
   return /camo/i.test(label);
 }
 
-function deviceConstraint(deviceId) {
-  return deviceId ? { deviceId: { exact: deviceId } } : true;
+function deviceConstraint(deviceId, kind) {
+  if (deviceId) return { deviceId: { exact: deviceId } };
+  // Before device enumeration has populated the dropdown, there's no deviceId yet — for video, ask for
+  // the front/selfie camera explicitly (facingMode is video-only, meaningless for audio) rather than
+  // leaving it to the browser's own default, which on many phones is the rear camera.
+  return kind === "video" ? { facingMode: "user" } : true;
 }
 
 function joinStudio() {
   const guestName = elements.guestName.value.trim() || "Guest";
+  const guestTitle = elements.guestTitleField.value.trim();
+  const guestCompany = elements.guestCompany.value.trim();
+  const role = [guestTitle, guestCompany].filter(Boolean).join(", ");
+  const label = role ? `${guestName} · ${role}` : guestName;
   elements.joinState.textContent = "Joining";
   elements.joinStudio.disabled = true;
   const backgroundNote = getBackgroundNote(state.selectedBackground);
+  const videoDeviceId = elements.cameraSelect.value;
+  const audioDeviceId = elements.microphoneSelect.value;
   stopPreview();
   engine.mountGuestFrame(elements.guestFrame, {
     roomId: state.roomId,
-    guestName,
-    backgroundMode: state.selectedBackground
+    guestName: label,
+    backgroundMode: state.selectedBackground,
+    videoDeviceId,
+    audioDeviceId
   });
+  // The check-in form (name/title/company/device pickers/background swatches) has done its job —
+  // once joined, guests should see only the live feed and the mute/camera/screen-share dock.
+  elements.guestCheckin.hidden = true;
   elements.joinedRoom.hidden = false;
-  elements.guestStatus.textContent = backgroundNote || "Joined. The Toasty Studio room is open below.";
+  elements.guestStatus.textContent = backgroundNote || `Joined. The ${state.brandLabel} room is open below.`;
   elements.joinState.textContent = "Joined";
 }
 
@@ -217,47 +242,8 @@ function toggleScreen() {
   updatePressed(elements.guestToggleScreen, state.screenSharing, "Share screen", "Stop sharing");
 }
 
-async function toggleRecording() {
-  try {
-    if (state.recordingActive) {
-      elements.guestToggleRecording.disabled = true;
-      await state.recorder.stop();
-      state.recordingActive = false;
-      stopRecordingTimer();
-      updateRecordingUi();
-      elements.guestToggleRecording.disabled = false;
-      return;
-    }
-
-    state.recorder = new LocalIsolatedRecorder({
-      role: "guest-1",
-      roomId: state.roomId,
-      status: (message) => {
-        elements.guestStatus.textContent = message;
-      }
-    });
-    await state.recorder.start({
-      audioDeviceId: elements.microphoneSelect.value,
-      videoDeviceId: elements.cameraSelect.value
-    });
-    state.recordingActive = true;
-    state.recordingStartedAt = Date.now();
-    state.timerId = window.setInterval(updateRecordingTimer, 1000);
-    updateRecordingUi();
-  } catch (error) {
-    state.recordingActive = false;
-    stopRecordingTimer();
-    updateRecordingUi();
-    elements.guestStatus.textContent = `Recording failed: ${humanizeError(error)}`;
-    elements.guestToggleRecording.disabled = false;
-  }
-}
-
 function leaveSession() {
   engine.disconnectAll();
-  stopRecordingTimer();
-  state.recordingActive = false;
-  updateRecordingUi();
   elements.joinState.textContent = "Left";
   elements.guestStatus.textContent = "You left the Studio session.";
 }
@@ -274,34 +260,6 @@ function updatePressed(button, pressed, offLabel, onLabel) {
   }
 }
 
-function updateRecordingUi() {
-  elements.guestToggleRecording.setAttribute("aria-pressed", String(state.recordingActive));
-  elements.guestToggleRecording.textContent = state.recordingActive ? "Stop recording" : "Start recording";
-  elements.guestRecordingState.dataset.active = String(state.recordingActive);
-  elements.guestRecordingLabel.textContent = state.recordingActive ? "Recording locally" : "Local capture ready";
-  updateRecordingTimer();
-}
-
-function updateRecordingTimer() {
-  if (!state.recordingStartedAt) {
-    elements.guestRecordingTimer.textContent = "00:00:00";
-    return;
-  }
-  const elapsed = Math.floor((Date.now() - state.recordingStartedAt) / 1000);
-  const hours = String(Math.floor(elapsed / 3600)).padStart(2, "0");
-  const minutes = String(Math.floor((elapsed % 3600) / 60)).padStart(2, "0");
-  const seconds = String(elapsed % 60).padStart(2, "0");
-  elements.guestRecordingTimer.textContent = `${hours}:${minutes}:${seconds}`;
-}
-
-function stopRecordingTimer() {
-  if (state.timerId) {
-    window.clearInterval(state.timerId);
-    state.timerId = null;
-  }
-  state.recordingStartedAt = null;
-}
-
 function getBackgroundNote(background) {
   if (background === BackgroundMode.BLUR) {
     return "Joined with VDO.Ninja blur requested. Browser support depends on VDO.Ninja and device capability.";
@@ -310,13 +268,6 @@ function getBackgroundNote(background) {
     return "Joined. Preset backgrounds are preview-only in this hosted VDO.Ninja MVP; production replacement needs hosted image-list support.";
   }
   return "";
-}
-
-function humanizeError(error) {
-  if (error?.name === "NotAllowedError") return "camera or microphone permission was denied.";
-  if (error?.name === "NotFoundError") return "no camera or microphone device was found.";
-  if (error?.name === "NotReadableError") return "camera or microphone is already in use or unavailable.";
-  return error?.message || "unknown browser recording error.";
 }
 
 function handleVdoMessage(message) {
@@ -330,5 +281,3 @@ function handleVdoMessage(message) {
     elements.joinState.textContent = "Joined";
   }
 }
-
-updateRecordingUi();
