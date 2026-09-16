@@ -1,5 +1,5 @@
 import { LocalIsolatedRecorder } from "./recording.js";
-import { getBrandProfile, getBrandProfiles } from "./brand-profile.js?v=brand-20260916b";
+import { getBrandProfile, getBrandProfiles } from "./brand-profile.js?v=studio-20260916d";
 import { deleteMediaBlob, hydrateMediaUrls, saveMediaBlob } from "./media-store.js";
 import { checkProductionConsistency } from "./production-consistency.js";
 import { createProductionSpec, createProviderRequests, createScene, estimateDuration, upgradeScene } from "./production-spec.js";

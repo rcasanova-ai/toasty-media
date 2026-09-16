@@ -1,5 +1,5 @@
-import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js?v=studio-20260916c";
-import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js";
+import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js?v=studio-20260916d";
+import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js?v=studio-20260916d";
 
 const state = {
   roomId: getRoomIdFromUrl(),

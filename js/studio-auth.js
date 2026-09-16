@@ -1,5 +1,5 @@
 import { studioApiEndpoint } from "./studio-api.js";
-import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js";
+import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js?v=studio-20260916d";
 
 const state = {
   mode: "signup",

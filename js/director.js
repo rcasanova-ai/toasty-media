@@ -4,14 +4,14 @@ import {
   getOrCreateRoomId,
   getGuestInviteUrl,
   getListenerInviteUrl,
-} from "./video-engine.js?v=studio-20260916c";
+} from "./video-engine.js?v=studio-20260916d";
 import {
   applyBrandTheme,
   getInitialBrandTheme,
   normalizeBrandTheme,
   saveBrandTheme,
-} from "./brand-themes.js?v=brand-20260916b";
-import { AIProductionController } from "./ai-production.js?v=brand-20260916b";
+} from "./brand-themes.js?v=studio-20260916d";
+import { AIProductionController } from "./ai-production.js?v=studio-20260916d";
 import { LocalIsolatedRecorder } from "./recording.js";
 import { Soundboard } from "./soundboard.js";
 import { ToastyBroadcastController } from "./broadcast-client.js?v=auth-20260911";

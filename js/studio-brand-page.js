@@ -1,4 +1,4 @@
-import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js?v=brand-20260916b";
+import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js?v=studio-20260916d";
 
 document.addEventListener("DOMContentLoaded", () => {
   const brandTheme = getInitialBrandTheme();

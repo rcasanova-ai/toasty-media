@@ -1,4 +1,4 @@
-import { BRAND_THEMES, DEFAULT_BRAND_THEME, normalizeBrandTheme } from "./brand-themes.js?v=brand-20260916b";
+import { BRAND_THEMES, DEFAULT_BRAND_THEME, normalizeBrandTheme } from "./brand-themes.js?v=studio-20260916d";
 
 const STORAGE_KEY = "toastyBrandProfiles";
 

@@ -1,6 +1,6 @@
-import { applyBrandTheme, normalizeBrandTheme } from "./brand-themes.js";
-import { getBrandProfile } from "./brand-profile.js";
-import { VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js?v=studio-20260916c";
+import { applyBrandTheme, normalizeBrandTheme } from "./brand-themes.js?v=studio-20260916d";
+import { getBrandProfile } from "./brand-profile.js?v=studio-20260916d";
+import { VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js?v=studio-20260916d";
 import { ProgramSync } from "./program-sync.js";
 
 // Toasty Studio Program Output — the finished, audience-facing broadcast canvas.
