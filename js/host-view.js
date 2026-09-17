@@ -1,3 +1,7 @@
+// No ?v= cache-busting suffix on this file's own reference in director.js on purpose: the root
+// .htaccess forces Cache-Control: no-cache on every first-party .js/.css, so a deploy touching this
+// file is always visible on next load without anyone remembering to bump a version string. See
+// .htaccess.
 import { renderFeedEntry } from "./ai-producer.js";
 import { PushToTalkCapture } from "./talk-to-producer.js";
 
