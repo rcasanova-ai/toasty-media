@@ -104,8 +104,18 @@ async function startPreview() {
   }
 }
 
+// Name is REQUIRED — the HTML `required` attribute alone does nothing here since #joinStudio is a plain
+// button, not a <form> submit (no native constraint validation ever runs). Blocking here is what actually
+// stops a blank-name join, which previously fell through to a silent "Guest" default and showed up that
+// way in the sidebar and video label with no way to tell who had actually connected.
 function joinStudio() {
-  const guestName = elements.guestName.value.trim() || "Guest";
+  const guestName = elements.guestName.value.trim();
+  if (!guestName) {
+    elements.guestStatus.textContent = "Enter your name before joining.";
+    elements.guestStatus.dataset.error = "true";
+    elements.guestName.focus();
+    return;
+  }
   const guestTitle = elements.guestTitleField.value.trim();
   const guestCompany = elements.guestCompany.value.trim();
   const role = [guestTitle, guestCompany].filter(Boolean).join(", ");

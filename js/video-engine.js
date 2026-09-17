@@ -48,6 +48,23 @@ export class VideoEngine {
   // of us compositing tiles ourselves (scene=0 is a single merged feed; we cannot address host vs. screen
   // as separate DOM elements on our side).
   mountRoomFrame(container,{roomId,layout="grid"}) { return this.mountFrame(container,"room",{room:roomId,scene:"0",cleanoutput:"1",transparent:"1",showlabels:"1",muted:"1",mute:"1",...layoutParams(layout)}); }
+  // Toasty's own Source Registry / Layout Engine mounts ONE clean feed per participant instead of
+  // VDO.Ninja's own scene=0 room mixer — that mixer brings its OWN director-style chrome along with it
+  // (name-label overlay, connection state) no matter what "clean" flags are added, which is exactly what
+  // was leaking into Program Preview (see this repair pass's report). &view=<streamID>, used standalone
+  // (no &room/&scene — confirmed against VDO.Ninja's own docs: "Optional if you are publishing... &view
+  // in a room combined with &scene or &solo" is the OTHER, heavier pattern, not this one), is VDO.Ninja's
+  // plain single-stream viewer mode — simpler than the numbered-scene/solo approaches this codebase
+  // already found unreliable (see mountProgramFrame's comment), so this is deliberately NOT that. cleanoutput
+  // strips VDO's UI chrome; no &showlabels, since Toasty renders its OWN name/title/company label
+  // (.lv-video-tile-label) instead of VDO's redundant one. NOT yet verified end-to-end on a real two-device
+  // session — this is the one piece of this repair pass that genuinely needs Ricardo's next real test.
+  mountParticipantView(container,{streamId},frameId="participant-view") { return this.mountFrame(container,frameId,{view:streamId,cleanoutput:"1",transparent:"1",cover:"1"}); }
+  // Tears a mounted view back down to an empty container (used when a guest disconnects) without
+  // guessing at any VDO.Ninja "close" command — just stop pointing an iframe at it at all. emptyText
+  // restores the exact placeholder .vdo-frame[data-empty]::before renders (see css/studio.css) — passed
+  // in rather than hardcoded here since only the caller knows what that tile's placeholder copy is.
+  unmountFrame(container,frameId,emptyText="") { const iframe=this.frames.get(frameId); if(iframe)this.frames.delete(frameId); container.replaceChildren(); if(emptyText)container.dataset.empty=emptyText; }
   // videoDeviceId/audioDeviceId come from the guest's own check-in device pickers (already granted
   // permission for the local preview) — passing them through as videodevice/audiodevice plus autostart
   // lets VDO.Ninja publish immediately with those devices instead of showing its own native

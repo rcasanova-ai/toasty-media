@@ -1,51 +1,80 @@
-// Push-to-talk instruction capture. One SpeechRecognition instance per hold, deliberately non-continuous
-// (single utterance per hold-gesture, not per browser sentence-boundary) — reliability over always-
-// listening magic, per the product call to prioritize a hold-to-talk gesture over wake-word detection.
+// Push-to-talk instruction capture.
 //
-// The critical invariant this file exists to protect: the user's PHYSICAL hold state (`_held`) and the
-// SpeechRecognition engine's own lifecycle are two SEPARATE state machines. Browsers can and do end a
-// `continuous:true` recognition on their own — after a silence timeout, or (a well-documented Chrome
-// quirk) sometimes right after the first detected phrase despite continuous mode — and that must never
-// be read as "the user let go of the button." Only an explicit stop() (driven by the caller's own
-// pointerup/pointercancel handling) sets `_held = false`; an unexpected `end` while still held silently
-// restarts recognition instead.
+// The physical hold owns recording duration — NOT SpeechRecognition's lifecycle. Real-device testing
+// found SpeechRecognition can stop itself (~2s in, no user release) even with continuous:true and even
+// with this class's own restart-on-end logic from an earlier pass — evidently unreliably enough on real
+// hardware that it can't be trusted as the timer. MediaRecorder on a plain getUserMedia audio stream has
+// no such internal cutoff: it records for exactly as long as start()...stop() spans, full stop. So:
+//
+//   pointerdown -> held=true, MediaRecorder starts (this owns "how long")
+//   while held  -> recording continues no matter what SpeechRecognition does in the background
+//   pointerup   -> held=false, MediaRecorder stops, whatever transcript text exists is sent
+//
+// SpeechRecognition still runs, restarted freely on its own 'end' events, purely to produce the
+// interim/final TEXT — it just no longer has any power to end the hold early. See this class's own
+// report entry for the honest gap this leaves: there is no free speech-to-text-from-a-recorded-blob
+// backend in this codebase today, so the text sent to Hottie still comes from SpeechRecognition's
+// output, not from transcribing the MediaRecorder blob itself. The blob is kept (recordedAudioBlob on
+// the result) so a real transcription backend has something to plug into later without another rewrite.
 export class PushToTalkCapture {
-  static isSupported() { return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition); }
+  static isSupported() { return Boolean(navigator.mediaDevices?.getUserMedia); }
+  static hasSpeechRecognition() { return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition); }
 
-  // onInterim fires repeatedly with the best-guess-so-far transcript while the mic is open, so the UI
-  // can show "what Toasty is hearing" live during the LISTENING state. onResult fires once, on release,
-  // with the final transcript.
-  constructor({ onListening, onInterim, onResult, onError } = {}) {
+  constructor({ onListening, onInterim, onTranscribing, onResult, onError } = {}) {
     this.onListening = onListening;
     this.onInterim = onInterim;
+    this.onTranscribing = onTranscribing;
     this.onResult = onResult;
     this.onError = onError;
+    this._held = false;
+    this._micStream = null;
+    this._recorder = null;
+    this._chunks = [];
     this._recognition = null;
     this._finalText = "";
-    this._held = false;
     this._restartAttempts = 0;
   }
 
   get isHeld() { return this._held; }
 
-  start() {
-    const Impl = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Impl) {
+  async start() {
+    if (this._held) return; // guards any double-fire (e.g. a stray duplicate pointerdown)
+    if (!PushToTalkCapture.isSupported()) {
       this.onError?.(new Error("Voice capture isn't supported in this browser — type the instruction instead."));
       return;
     }
-    // Guards the mouse+touch compatibility-event double-fire this class used to be vulnerable to (a
-    // touchstart followed by a synthesized mousedown on the same physical press): a second start() while
-    // already held is a no-op, never a second recognition instance racing the first.
-    if (this._held) return;
     this._held = true;
     this._finalText = "";
+    this._chunks = [];
     this._restartAttempts = 0;
-    this._beginRecognition(Impl);
+    try {
+      this._micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      this._held = false;
+      const denied = error?.name === "NotAllowedError" || error?.name === "SecurityError";
+      this.onError?.(new Error(denied ? "Microphone access was denied — allow it in the browser, or type the instruction instead." : "Couldn't reach the microphone — try again or type the instruction."));
+      return;
+    }
+    // A user could release before getUserMedia's permission prompt even resolves — honor that instead of
+    // starting a recording nobody asked for anymore.
+    if (!this._held) { this._micStream.getTracks().forEach((t) => t.stop()); this._micStream = null; return; }
+
+    if (window.MediaRecorder) {
+      try {
+        this._recorder = new MediaRecorder(this._micStream);
+        this._recorder.addEventListener("dataavailable", (event) => { if (event.data?.size) this._chunks.push(event.data); });
+        this._recorder.start();
+      } catch (_) {
+        this._recorder = null; // best-effort — SpeechRecognition alone still works below if this fails
+      }
+    }
+    this._startSpeechRecognition();
     this.onListening?.();
   }
 
-  _beginRecognition(Impl) {
+  _startSpeechRecognition() {
+    const Impl = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Impl) return; // no interim/final text source, but the hold + recording still work correctly
     const recognition = new Impl();
     this._recognition = recognition;
     recognition.continuous = true;
@@ -60,47 +89,49 @@ export class PushToTalkCapture {
       }
       this.onInterim?.(`${this._finalText} ${interim}`.trim());
     });
-    recognition.addEventListener("error", (event) => {
-      if (event.error === "no-speech" || event.error === "aborted") return;
-      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-        this._held = false;
-        this.onError?.(new Error("Microphone access was denied — allow it in the browser, or type the instruction instead."));
-      }
-      // Any other error: don't decide anything here. The 'end' event that follows is what determines
-      // whether this was a real stop or something to transparently restart from.
+    recognition.addEventListener("error", () => {
+      // Never decide anything from 'error' alone (see the 'end' handler) — a lot of these fire together
+      // with a following 'end' as part of the same hiccup, and 'end' is the one place restart happens.
     });
     recognition.addEventListener("end", () => {
-      if (!this._held) return; // stop() already ran — this is the expected end of a real release, not a bug
-      if (this._restartAttempts >= 4) {
-        this._held = false;
-        this.onError?.(new Error("Voice capture kept stopping — try again or type the instruction."));
-        return;
-      }
+      if (!this._held) return; // a real stop() already ran — this is its expected trailing 'end', not a bug
+      if (this._restartAttempts >= 6) return; // give up quietly; the recording (and typed fallback) still work
       this._restartAttempts += 1;
-      try {
-        this._beginRecognition(Impl);
-      } catch (_) {
-        this._held = false;
-        this.onError?.(new Error("Voice capture stopped unexpectedly — try again or type the instruction."));
-      }
+      window.setTimeout(() => { if (this._held) this._startSpeechRecognition(); }, 150);
     });
-    try {
-      recognition.start();
-    } catch (_) {
-      // Thrown if invoked while a just-stopped prior instance hasn't finished tearing down yet — the
-      // 'end' handler above already owns retrying, so a thrown start() here is safe to swallow.
-    }
+    try { recognition.start(); } catch (_) {}
   }
 
-  // The only thing allowed to end a hold from the outside. Always resolves via onResult (non-empty
-  // transcript) or onError (empty) exactly once, whether the release was a clean pointerup or a
-  // pointercancel — see js/host-view.js's binding for why both route here identically.
-  stop() {
+  // The only thing allowed to end a hold from the outside (pointerup/pointercancel). Always resolves via
+  // onResult or onError exactly once.
+  async stop() {
     if (!this._held) return;
     this._held = false;
-    const text = this._finalText.trim();
+    this.onTranscribing?.();
+
+    const recorder = this._recorder;
+    const stream = this._micStream;
+    this._recorder = null;
+    this._micStream = null;
     try { this._recognition?.stop(); } catch (_) {}
-    if (text) this.onResult?.(text);
+
+    const recordedAudioBlob = await this._finalizeRecording(recorder);
+    stream?.getTracks().forEach((track) => track.stop());
+
+    const text = this._finalText.trim();
+    if (text) this.onResult?.(text, { recordedAudioBlob });
     else this.onError?.(new Error("Didn't catch that — hold the button and try again, or type it."));
+  }
+
+  _finalizeRecording(recorder) {
+    if (!recorder || recorder.state === "inactive") return Promise.resolve(this._blobFromChunks());
+    return new Promise((resolve) => {
+      recorder.addEventListener("stop", () => resolve(this._blobFromChunks()), { once: true });
+      try { recorder.stop(); } catch (_) { resolve(this._blobFromChunks()); }
+    });
+  }
+
+  _blobFromChunks() {
+    return this._chunks.length ? new Blob(this._chunks, { type: this._chunks[0].type || "audio/webm" }) : null;
   }
 }

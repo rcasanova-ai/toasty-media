@@ -35,10 +35,8 @@
       </header>
 
       <div id="guestCheckin">
-        <section class="guest-preview-card" aria-labelledby="guestTitle">
-          <p class="eyebrow">Guest check-in · <span id="guestRoomLabel">Guest room</span></p>
-          <h1 id="guestTitle">Join the conversation</h1>
-          <p class="guest-lede" data-brand-copy="guestLede">Set your name, devices, and background before entering Toasty Studio.</p>
+        <section class="guest-join-card" aria-label="Join Studio">
+          <p class="eyebrow" id="guestRoomEyebrow">Guest check-in · <span id="guestRoomLabel">Guest room</span></p>
 
           <div class="preview-stage" id="previewStage" data-background="none">
             <video id="cameraPreview" autoplay muted playsinline></video>
@@ -46,13 +44,25 @@
               <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="" data-brand-logo>
             </div>
           </div>
-        </section>
 
-        <section class="guest-controls-card" aria-label="Guest setup">
           <label>
-            <span>Guest name</span>
+            <span>Name</span>
             <input id="guestName" type="text" autocomplete="name" placeholder="Your name" required>
           </label>
+
+          <div class="guest-device-row">
+            <label>
+              <span>Camera</span>
+              <select id="cameraSelect"></select>
+            </label>
+            <label>
+              <span>Microphone</span>
+              <select id="microphoneSelect"></select>
+            </label>
+          </div>
+
+          <button id="joinStudio" class="btn btn-primary full-width" type="button">Join Studio</button>
+          <p class="control-note" id="guestStatus">Camera preview starts locally before joining. No account required.</p>
 
           <details class="guest-pro-details">
             <summary>Add professional details ▾</summary>
@@ -68,31 +78,17 @@
               <span>Logo (optional)</span>
               <input id="guestLogoUpload" type="file" accept="image/*">
             </label>
-          </details>
-
-          <label>
-            <span>Microphone</span>
-            <select id="microphoneSelect"></select>
-          </label>
-
-          <label>
-            <span>Camera</span>
-            <select id="cameraSelect"></select>
-          </label>
-
-          <div>
-            <p class="bg-picker-label">Background</p>
-            <div class="bg-picker" role="radiogroup" aria-label="Background">
-              <button type="button" class="bg-swatch" data-background="none" aria-pressed="true">No background</button>
-              <button type="button" class="bg-swatch" data-background="blur" aria-pressed="false">Blur</button>
-              <button type="button" class="bg-swatch" data-background="newsroom" aria-pressed="false">Newsroom</button>
-              <button type="button" class="bg-swatch" data-background="library" aria-pressed="false">Library</button>
-              <button type="button" class="bg-swatch" data-background="stage" aria-pressed="false">Fireside stage</button>
+            <div>
+              <p class="bg-picker-label">Background</p>
+              <div class="bg-picker" role="radiogroup" aria-label="Background">
+                <button type="button" class="bg-swatch" data-background="none" aria-pressed="true">No background</button>
+                <button type="button" class="bg-swatch" data-background="blur" aria-pressed="false">Blur</button>
+                <button type="button" class="bg-swatch" data-background="newsroom" aria-pressed="false">Newsroom</button>
+                <button type="button" class="bg-swatch" data-background="library" aria-pressed="false">Library</button>
+                <button type="button" class="bg-swatch" data-background="stage" aria-pressed="false">Fireside stage</button>
+              </div>
             </div>
-          </div>
-
-          <button id="joinStudio" class="btn btn-primary full-width" type="button">Join Studio</button>
-          <p class="control-note" id="guestStatus">Camera preview starts locally before joining. No account required.</p>
+          </details>
         </section>
       </div>
 

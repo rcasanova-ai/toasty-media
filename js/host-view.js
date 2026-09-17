@@ -230,8 +230,9 @@ export class HostView {
   }
 
   // ---- AI Producer ----
-  // States: READY -> LISTENING (live interim text under the button) -> THINKING (instruction retained,
-  // visible on the pending feed entry) -> RESULT (new entry flashes in, nothing else on the page moves).
+  // States: READY -> LISTENING (live interim text under the button, MediaRecorder-timed — see
+  // talk-to-producer.js) -> TRANSCRIBING (brief, while the recording/recognition finalize) -> THINKING
+  // (instruction retained, visible on the pending feed entry) -> RESULT (new entry flashes in).
 
   initAiProducer() {
     this._lastRenderedSignature = null;
@@ -245,6 +246,7 @@ export class HostView {
         this.elements.talkLive.textContent = "";
       },
       onInterim: (text) => { this.elements.talkLive.textContent = text; },
+      onTranscribing: () => this.setTalkState("transcribing"),
       onResult: (text) => { this.elements.talkLive.hidden = true; this.submitInstruction(text); },
       onError: (error) => {
         this.elements.talkLive.hidden = true;
@@ -294,9 +296,17 @@ export class HostView {
   // overwriting the button so a transient error can't get stuck looking like the button's permanent text.
   setTalkState(state, note) {
     this.elements.talkBtn.dataset.state = state;
-    this.elements.talkBtn.disabled = state === "thinking";
-    this.elements.talkBtn.textContent = state === "listening" ? "🔴 LISTENING — release to send" : state === "thinking" ? "Processing…" : "🎙 Talk to Hottie";
-    this.elements.talkState.textContent = note || (state === "listening" ? "Listening…" : state === "thinking" ? "Thinking…" : "Ready");
+    this.elements.talkBtn.disabled = state === "transcribing" || state === "thinking";
+    this.elements.talkBtn.textContent = {
+      listening: "🔴 LISTENING — release to send",
+      transcribing: "⏳ Transcribing…",
+      thinking: "🔥 Hottie is thinking…"
+    }[state] || "🎙 Talk to Hottie";
+    this.elements.talkState.textContent = note || {
+      listening: "Listening…",
+      transcribing: "Transcribing…",
+      thinking: "Thinking…"
+    }[state] || "Ready";
   }
 
   async submitInstruction(text) {

@@ -1314,6 +1314,10 @@
   margin: 0.6rem 0 0;
 }
 
+.control-note[data-error="true"] {
+  color: var(--studio-red-bright);
+}
+
 .recording-panel .waveform {
   grid-column: 1 / -1;
   margin-bottom: 0;
@@ -2832,8 +2836,7 @@
   letter-spacing: 0.03em;
 }
 
-.guest-preview-card,
-.guest-controls-card,
+.guest-join-card,
 .joined-room {
   background: var(--studio-surface);
   border: 1px solid var(--studio-line);
@@ -2841,19 +2844,27 @@
   padding: 1rem;
 }
 
-.guest-lede {
-  color: var(--studio-muted);
-  font-size: 0.92rem;
-  margin-top: 0.4rem;
+.guest-join-card {
+  display: grid;
+  gap: 0.75rem;
 }
 
+/* One phone screen, no scroll, is the whole point of this card (see this repair pass's report) — a
+   4:5 portrait preview alone used to eat roughly half of a 375x812 viewport. 16:10 keeps a real camera
+   check without doing that; .guest-device-row below buys back more of the same budget by putting
+   Camera/Mic side by side instead of stacked. */
 .preview-stage {
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 16 / 10;
   background: #100c0b;
   border-radius: 10px;
-  margin-top: 1rem;
   overflow: hidden;
   position: relative;
+}
+
+.guest-device-row {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: 1fr 1fr;
 }
 
 .preview-stage::before {
@@ -2912,16 +2923,11 @@
   width: auto;
 }
 
-.guest-controls-card {
-  display: grid;
-  gap: 1rem;
-}
-
 .guest-pro-details {
   border-top: 1px solid var(--studio-line);
   display: grid;
-  gap: 1rem;
-  padding-top: 1rem;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
 }
 
 .guest-pro-details summary {
@@ -2938,13 +2944,13 @@
   margin-bottom: 0.2rem;
 }
 
-.guest-controls-card label {
+.guest-join-card label {
   color: var(--studio-cream);
   display: grid;
   font-family: var(--font-heading);
   font-size: 0.78rem;
   font-weight: 800;
-  gap: 0.4rem;
+  gap: 0.3rem;
   letter-spacing: 0.02em;
 }
 
@@ -3243,6 +3249,29 @@
   .guest-shell .studio-grid,
   .guest-grid {
     max-width: 720px;
+  }
+}
+
+/* Phone-width budget: everything needed to join has to fit in one screen with no scroll (see this
+   repair pass's report) — tighter outer padding/gaps than the default buys back the room the preview
+   and card padding would otherwise cost. */
+@media (max-width: 480px) {
+  .guest-grid {
+    gap: 0.6rem;
+    padding: 0.75rem 0.75rem 1.25rem;
+  }
+
+  .guest-join-card {
+    gap: 0.55rem;
+    padding: 0.75rem;
+  }
+
+  .guest-topbar {
+    padding: 0 0 0.25rem;
+  }
+
+  .preview-stage {
+    aspect-ratio: 16 / 9;
   }
 }
 

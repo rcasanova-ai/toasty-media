@@ -260,7 +260,10 @@ export class LiveSession {
   // person's identity to exist, so they still mount immediately.
   start(containers) {
     this._containers = containers; // {host, roomPreview, control} — kept so layout changes can remount
-    this.engine.mountRoomFrame(containers.roomPreview, { roomId: this.roomId, layout: this.program.layout });
+    // roomPreview (the "guest" tile) is deliberately NOT mounted here — see _syncGuestVideoTile, which
+    // mounts a clean per-participant &view=<id> frame only once a real guest is actually detected, and
+    // tears it down again on disconnect. No VDO frame here at all beats mounting one that shows nobody.
+    this._mountedGuestViewId = null;
     this.engine.mountDirectorControlFrame(containers.control, { roomId: this.roomId });
     this.guestSeats = new Array(GUEST_SEAT_COUNT).fill(null);
     this._restartProgramSync();
@@ -366,8 +369,26 @@ export class LiveSession {
       }
     });
 
+    this._syncGuestVideoTile();
     this.emit("guests", this.guestCount());
     this.publishProgramState();
+  }
+
+  // Mounts/tears down the ONE clean per-participant view for the guest tile — see
+  // VideoEngine.mountParticipantView's own comment for why this replaced the old scene=0 room auto-mix.
+  // Only remounts when the actual guest id changes, not on every 4s poll tick, so a steady connection
+  // never flickers/reconnects.
+  _syncGuestVideoTile() {
+    const seat = this.guestSeats[0];
+    const container = this._containers?.roomPreview;
+    if (!container) return;
+    if (seat && this._mountedGuestViewId !== seat.id) {
+      this._mountedGuestViewId = seat.id;
+      this.engine.mountParticipantView(container, { streamId: seat.id }, "guestview");
+    } else if (!seat && this._mountedGuestViewId) {
+      this._mountedGuestViewId = null;
+      this.engine.unmountFrame(container, "guestview", "Waiting for guest to join");
+    }
   }
 
   guestCount() {
