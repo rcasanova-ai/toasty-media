@@ -1,3 +1,19 @@
+# First-party JS/CSS always revalidate instead of trusting a stored freshness lifetime, so a deploy
+# is never masked by a browser serving a week-old cached copy. The server's default static-file
+# policy (public, max-age=604800) is what caused that: once a file was cached, browsers wouldn't
+# even ask again for up to 7 days. `no-cache` still lets the browser keep a local copy, but forces
+# a conditional GET (If-Modified-Since) on every load — cheap (a 304 when nothing changed) and
+# always correct, because a real deploy overwrites the file and its Last-Modified changes with it.
+# This is deliberately one blanket rule by file extension rather than per-file query strings, so it
+# automatically covers every first-party script/stylesheet, present and future, with no manual
+# upkeep (see js/director.js and css/studio.css for the one-time comment proving this).
+<IfModule mod_headers.c>
+  <FilesMatch "\.(js|css)$">
+    Header set Cache-Control "no-cache"
+    Header unset Expires
+  </FilesMatch>
+</IfModule>
+
 RewriteEngine On
 
 RewriteRule ^studio$ /studio/director.html [L]

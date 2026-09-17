@@ -1,5 +1,9 @@
 /* Toasty Studio — dark production theme, scoped to .studio-shell */
 
+/* No ?v= cache-busting suffix on this file's <link> tags on purpose: the root .htaccess forces
+   Cache-Control: no-cache on every first-party .js/.css, so a deploy is always visible on next
+   load without anyone remembering to bump a version string here. See .htaccess. */
+
 .studio-shell {
   --studio-canvas: #0b0908;
   --studio-canvas-2: #0f0b0a;

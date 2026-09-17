@@ -1,6 +1,9 @@
-import { normalizeBrandTheme } from "./brand-themes.js?v=studio-20260916d";
-import { AIProductionController } from "./ai-production.js?v=studio-20260916d";
-import { ToastyBroadcastController } from "./broadcast-client.js?v=auth-20260911";
+// No ?v= cache-busting suffix on these imports on purpose: the root .htaccess forces
+// Cache-Control: no-cache on every first-party .js/.css, so a deploy is always visible on next
+// load without anyone remembering to bump a version string per file. See .htaccess.
+import { normalizeBrandTheme } from "./brand-themes.js";
+import { AIProductionController } from "./ai-production.js";
+import { ToastyBroadcastController } from "./broadcast-client.js";
 import { LiveSession } from "./live-session.js";
 import { HostView } from "./host-view.js";
 import { ProducerView } from "./producer-view.js";

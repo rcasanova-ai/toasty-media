@@ -10,7 +10,7 @@ import {
   getInitialBrandTheme,
   normalizeBrandTheme,
   saveBrandTheme,
-} from "./brand-themes.js?v=brand-20260916b";
+} from "./brand-themes.js";
 import { LocalIsolatedRecorder } from "./recording.js";
 import { ProgramSync } from "./program-sync.js";
 import { SessionPolicy } from "./session-policy.js";
