@@ -52,12 +52,42 @@ export class AIProducerService {
     this.session = session;
     this.feed = feed;
     this.provider = provider;
-    // Dev-only latency breakdown — never rendered in Host/Producer UI (see item 9: "expose timing in
-    // dev diagnostics, NOT Host UI"). Inspect via session.aiProducerService.diagnostics() in devtools.
+    // Latency breakdown — dev-only, never rendered in Host/Producer UI (item 9: "expose timing in dev
+    // diagnostics, NOT Host UI"). Inspect via session.aiProducerService.diagnostics() in devtools.
     this._diagnostics = [];
+    // Token/cost totals ARE meant to surface in Producer's UI (ProducerView's diagnostics panel) — see
+    // the class comment on ProducerFeed/renderFeedEntry for why that's still never visible in Host View.
+    // Only real-provider (DeepSeek/Anthropic) answers contribute; heuristic answers carry no usage and
+    // correctly add $0.
+    this._sessionTotals = { requests: 0, promptTokens: 0, cachedTokens: 0, completionTokens: 0, costUsd: 0, costKnown: true };
+    this._listeners = new Set();
   }
 
+  on(callback) { this._listeners.add(callback); return () => this._listeners.delete(callback); }
+  _emit() { this._listeners.forEach((cb) => cb(this._sessionTotals)); }
+
   diagnostics() { return this._diagnostics.slice(-20); }
+  sessionTotals() { return { ...this._sessionTotals }; }
+
+  resetSessionTotals() {
+    this._sessionTotals = { requests: 0, promptTokens: 0, cachedTokens: 0, completionTokens: 0, costUsd: 0, costKnown: true };
+    this._diagnostics = [];
+    this._emit();
+  }
+
+  _recordUsage(usage) {
+    if (!usage) return;
+    const totals = this._sessionTotals;
+    totals.requests += 1;
+    totals.promptTokens += usage.promptTokens || 0;
+    totals.cachedTokens += usage.cacheHitTokens || 0;
+    totals.completionTokens += usage.completionTokens || 0;
+    if (typeof usage.estimatedCostUsd === "number") totals.costUsd += usage.estimatedCostUsd;
+    else totals.costKnown = false; // e.g. Anthropic path: real tokens, no verified price to convert with
+    totals.lastProvider = usage.provider;
+    totals.lastModel = usage.model;
+    this._emit();
+  }
 
   // instructionReadyAt lets the caller (HostView) mark when speech/typed input actually finished, so
   // the diagnostic captures "speech complete -> result rendered", not just the AI call itself.
@@ -79,11 +109,13 @@ export class AIProducerService {
       const result = await this.provider.respond(instructionText, context);
       const providerCallEndedAt = performance.now();
       this.feed.replace(pending.id, { ...result, instruction: instructionText });
+      this._recordUsage(result.usage);
       this._diagnostics.push({
         instruction: instructionText,
         contextBuildMs: Math.round(contextBuiltAt - instructionReadyAt),
         providerCallMs: Math.round(providerCallEndedAt - providerCallStartedAt),
-        totalMs: Math.round(performance.now() - instructionReadyAt)
+        totalMs: Math.round(performance.now() - instructionReadyAt),
+        usage: result.usage || null
       });
       return this.feed.entries.find((e) => e.id === pending.id);
     } catch (error) {
@@ -344,7 +376,10 @@ export class BackendAIProducerProvider {
     if (!response.ok) throw new Error(`ai-producer-backend-${response.status}`);
     const parsed = await response.json();
     if (!Object.values(ProducerEntryType).includes(parsed.type)) parsed.type = ProducerEntryType.PRODUCTION_SUGGESTION;
-    return { type: parsed.type, title: parsed.title || "AI Producer", summary: parsed.summary || "", items: Array.isArray(parsed.items) ? parsed.items : [], sources: Array.isArray(parsed.sources) ? parsed.sources : [] };
+    // usage rides along on the entry for Producer diagnostics only (see AIProducerService._recordUsage
+    // and renderFeedEntry, which never reads it) — it never enters the {type,title,summary,items,sources}
+    // contract Host View actually renders from.
+    return { type: parsed.type, title: parsed.title || "AI Producer", summary: parsed.summary || "", items: Array.isArray(parsed.items) ? parsed.items : [], sources: Array.isArray(parsed.sources) ? parsed.sources : [], usage: parsed.usage || null };
   }
 }
 

@@ -29,7 +29,11 @@ export class ProducerView {
       feedListProducer: root.querySelector("#lvFeedListProducer"),
       demoModeToggle: root.querySelector("#lvDemoModeToggle"),
       demoModeNote: root.querySelector("#lvDemoModeNote"),
-      resetDemo: root.querySelector("#lvResetDemo")
+      resetDemo: root.querySelector("#lvResetDemo"),
+      aiDiagRequests: root.querySelector("#lvAiDiagRequests"),
+      aiDiagTokens: root.querySelector("#lvAiDiagTokens"),
+      aiDiagCost: root.querySelector("#lvAiDiagCost"),
+      aiDiagProvider: root.querySelector("#lvAiDiagProvider")
     };
   }
 
@@ -82,12 +86,24 @@ export class ProducerView {
     this.session.on("policy", () => this.renderRecordingGate());
     this.session.aiProducerFeed.on(() => this.renderFeedMirror());
     this.session.on("transcription", (state) => this.renderTranscriptionStatus(state));
+    this.session.aiProducerService.on((totals) => this.renderAiDiagnostics(totals));
 
     this.renderGuests();
     this.renderProgram(this.session.program);
     this.renderRecording(this.session.recording);
     this.renderRecordingGate();
     this.renderFeedMirror();
+    this.renderAiDiagnostics(this.session.aiProducerService.sessionTotals());
+  }
+
+  // Producer-only, deliberately: cost/token telemetry is exactly the "debug information" that must
+  // never reach Host View (HostView has no equivalent binding and never subscribes to this event).
+  renderAiDiagnostics(totals) {
+    this.elements.aiDiagRequests.textContent = `${totals.requests} request${totals.requests === 1 ? "" : "s"}`;
+    const totalTokens = totals.promptTokens + totals.completionTokens;
+    this.elements.aiDiagTokens.textContent = `${totalTokens.toLocaleString()} tokens`;
+    this.elements.aiDiagCost.textContent = totals.costKnown ? `$${totals.costUsd.toFixed(4)}` : `$${totals.costUsd.toFixed(4)}+ (partial)`;
+    this.elements.aiDiagProvider.textContent = totals.lastProvider ? `via ${totals.lastProvider}` : "";
   }
 
   // The Demo Mode checkbox reflects intent ("I want this on"), not live state — a policy change to

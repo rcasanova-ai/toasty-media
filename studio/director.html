@@ -441,6 +441,12 @@
 
             <aside class="lv-panel lv-ai-producer-pane" data-lv-only="producer" hidden aria-label="AI Producer">
               <div class="lv-panel-head"><span>AI Producer</span></div>
+              <div class="lv-ai-diagnostics" id="lvAiDiagnostics" aria-label="AI cost diagnostics">
+                <span id="lvAiDiagRequests">0 requests</span>
+                <span id="lvAiDiagTokens">0 tokens</span>
+                <span id="lvAiDiagCost">$0.0000</span>
+                <span id="lvAiDiagProvider" class="lv-ai-diag-provider"></span>
+              </div>
               <div class="lv-feed-list" id="lvFeedListProducer">
                 <p class="lv-placeholder">Host requests will appear here.</p>
               </div>

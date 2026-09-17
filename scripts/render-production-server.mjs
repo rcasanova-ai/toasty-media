@@ -52,6 +52,19 @@ const GOOGLE_DOWNLOAD_LIMIT_BYTES = Number(process.env.TOASTY_DRIVE_MAX_DOWNLOAD
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const ANTHROPIC_MODEL = process.env.TOASTY_AI_PRODUCER_MODEL || "claude-sonnet-5";
 const ANTHROPIC_TIMEOUT_MS = Number(process.env.TOASTY_AI_PRODUCER_TIMEOUT_MS || 12000);
+// DeepSeek is the PREFERRED real-AI provider when configured (see handleAiProducerRespond) — cheap
+// enough to actually afford per-show telemetry. Anthropic stays as a second real-AI option if someone
+// configures only that. Model/pricing verified against https://api-docs.deepseek.com (2026-09-18):
+// deepseek-flash is the current API name (legacy deepseek-v4-flash/deepseek-chat now alias to it).
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
+const DEEPSEEK_MODEL = process.env.TOASTY_AI_PRODUCER_DEEPSEEK_MODEL || "deepseek-flash";
+const DEEPSEEK_TIMEOUT_MS = Number(process.env.TOASTY_AI_PRODUCER_TIMEOUT_MS || 12000);
+// Per 1M tokens, from DeepSeek's official pricing page. Peak hours are 01:00-04:00 and 06:00-10:00 UTC,
+// Mon-Fri; off-peak is half price and covers most of a US-hours live show.
+const DEEPSEEK_PRICING = {
+  offPeak: { cacheHit: 0.003, cacheMiss: 0.15, output: 0.60 },
+  peak: { cacheHit: 0.006, cacheMiss: 0.30, output: 1.20 }
+};
 const SAFE_ID = /^[a-z0-9][a-z0-9._-]{0,80}$/i;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const scryptAsync = promisify(scrypt);
@@ -271,10 +284,12 @@ server.listen(PORT, HOST, () => {
   console.log(`Toasty render helper listening on http://${HOST}:${PORT}`);
 });
 
-// AI Producer proxy — the ONLY place the Anthropic key is used. The browser (js/ai-producer.js's
-// BackendAIProducerProvider) sends {instruction, context}; nothing here ever returns the API key or a
-// raw provider error to the client. Keep this prompt/schema in sync with js/ai-producer.js's heuristic
-// provider output shape ({type,title,summary,items,sources}) — the Host UI must not care which
+// AI Producer proxy — the ONLY place either API key is used. The browser (js/ai-producer.js's
+// BackendAIProducerProvider) sends {instruction, context}; nothing here ever returns a key, a raw
+// provider error, or debug detail to the client — only the structured entry plus a `usage` block (token
+// counts + an estimated dollar cost) that js/ai-producer.js is expected to surface in Producer
+// diagnostics ONLY, never in Host View. Keep this prompt/schema in sync with js/ai-producer.js's
+// heuristic provider output shape ({type,title,summary,items,sources}) — the Host UI must not care which
 // provider produced an entry.
 const AI_PRODUCER_SYSTEM_PROMPT = `You are Toasty Live's AI Producer: a private, behind-the-scenes assistant for the show's HOST. You are never shown to the audience or in Program Output.
 
@@ -292,40 +307,16 @@ Rules:
 const AI_PRODUCER_ENTRY_TYPES = new Set(["audience_questions", "context", "transition", "timing", "research", "production_suggestion"]);
 
 async function handleAiProducerRespond(req, res) {
-  if (!ANTHROPIC_API_KEY) throw httpError(503, "AI Producer isn't configured on the server.");
+  if (!DEEPSEEK_API_KEY && !ANTHROPIC_API_KEY) throw httpError(503, "AI Producer isn't configured on the server.");
   const body = await readJson(req);
   const instruction = String(body.instruction || "").trim().slice(0, 2000);
   if (!instruction) throw httpError(400, "Missing instruction.");
   const context = body.context && typeof body.context === "object" ? body.context : {};
+  const userContent = `HOST INSTRUCTION: ${instruction}\n\nSHOW CONTEXT:\n${JSON.stringify(context)}`;
 
-  let response;
-  try {
-    response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      signal: AbortSignal.timeout(ANTHROPIC_TIMEOUT_MS),
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
-        max_tokens: 700,
-        system: AI_PRODUCER_SYSTEM_PROMPT,
-        messages: [{ role: "user", content: `HOST INSTRUCTION: ${instruction}\n\nSHOW CONTEXT:\n${JSON.stringify(context)}` }]
-      })
-    });
-  } catch (error) {
-    console.error("AI Producer upstream request failed:", error);
-    throw httpError(502, "AI Producer request failed.");
-  }
-  if (!response.ok) {
-    console.error("AI Producer upstream error status:", response.status, await response.text().catch(() => ""));
-    throw httpError(502, "AI Producer request failed.");
-  }
+  // DeepSeek preferred whenever configured — see the DEEPSEEK_API_KEY comment above for why.
+  const { text, usage } = DEEPSEEK_API_KEY ? await callDeepSeek(userContent) : await callAnthropic(userContent);
 
-  const data = await response.json();
-  const text = data.content?.[0]?.text || "";
   let parsed;
   try {
     const cleaned = text.trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
@@ -341,8 +332,119 @@ async function handleAiProducerRespond(req, res) {
     title: String(parsed.title || "AI Producer").slice(0, 120),
     summary: String(parsed.summary || "").slice(0, 600),
     items: Array.isArray(parsed.items) ? parsed.items.slice(0, 6) : [],
-    sources: Array.isArray(parsed.sources) ? parsed.sources.slice(0, 20) : []
+    sources: Array.isArray(parsed.sources) ? parsed.sources.slice(0, 20) : [],
+    usage
   });
+}
+
+async function callDeepSeek(userContent) {
+  let response;
+  try {
+    response = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      signal: AbortSignal.timeout(DEEPSEEK_TIMEOUT_MS),
+      headers: { "content-type": "application/json", authorization: `Bearer ${DEEPSEEK_API_KEY}` },
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        // Non-thinking mode: deepseek-flash defaults to thinking-enabled, which costs more and is
+        // slower for zero benefit here — the heuristic pass already did the hard analytical work, this
+        // call just has to follow instructions and produce well-formed JSON.
+        thinking: { type: "disabled" },
+        response_format: { type: "json_object" },
+        stream: false,
+        messages: [
+          { role: "system", content: AI_PRODUCER_SYSTEM_PROMPT },
+          { role: "user", content: userContent }
+        ]
+      })
+    });
+  } catch (error) {
+    console.error("AI Producer (DeepSeek) upstream request failed:", error);
+    throw httpError(502, "AI Producer request failed.");
+  }
+  if (!response.ok) {
+    console.error("AI Producer (DeepSeek) upstream error status:", response.status, await response.text().catch(() => ""));
+    throw httpError(502, "AI Producer request failed.");
+  }
+  const data = await response.json();
+  const text = data.choices?.[0]?.message?.content || "";
+  const u = data.usage || {};
+  const cacheHitTokens = Number(u.prompt_cache_hit_tokens || 0);
+  const cacheMissTokens = Number(u.prompt_cache_miss_tokens || 0);
+  const completionTokens = Number(u.completion_tokens || 0);
+  const rates = deepSeekIsPeakNow() ? DEEPSEEK_PRICING.peak : DEEPSEEK_PRICING.offPeak;
+  const estimatedCostUsd = (cacheHitTokens / 1e6) * rates.cacheHit + (cacheMissTokens / 1e6) * rates.cacheMiss + (completionTokens / 1e6) * rates.output;
+  return {
+    text,
+    usage: {
+      provider: "deepseek",
+      model: DEEPSEEK_MODEL,
+      promptTokens: Number(u.prompt_tokens || cacheHitTokens + cacheMissTokens),
+      cacheHitTokens,
+      cacheMissTokens,
+      completionTokens,
+      totalTokens: Number(u.total_tokens || 0),
+      estimatedCostUsd,
+      peak: deepSeekIsPeakNow()
+    }
+  };
+}
+
+// Peak: 01:00-04:00 and 06:00-10:00 UTC, Monday-Friday. Everything else (including all weekend hours)
+// is off-peak, per DeepSeek's published pricing schedule.
+function deepSeekIsPeakNow() {
+  const now = new Date();
+  const day = now.getUTCDay();
+  const hour = now.getUTCHours();
+  if (day === 0 || day === 6) return false;
+  return (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10);
+}
+
+async function callAnthropic(userContent) {
+  let response;
+  try {
+    response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      signal: AbortSignal.timeout(ANTHROPIC_TIMEOUT_MS),
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 700,
+        system: AI_PRODUCER_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: userContent }]
+      })
+    });
+  } catch (error) {
+    console.error("AI Producer (Anthropic) upstream request failed:", error);
+    throw httpError(502, "AI Producer request failed.");
+  }
+  if (!response.ok) {
+    console.error("AI Producer (Anthropic) upstream error status:", response.status, await response.text().catch(() => ""));
+    throw httpError(502, "AI Producer request failed.");
+  }
+  const data = await response.json();
+  const text = data.content?.[0]?.text || "";
+  // No verified current Anthropic pricing on hand this session, so this reports real token counts
+  // without guessing a dollar figure — token counts are still genuinely useful, an invented cost isn't.
+  const u = data.usage || {};
+  return {
+    text,
+    usage: {
+      provider: "anthropic",
+      model: ANTHROPIC_MODEL,
+      promptTokens: Number(u.input_tokens || 0),
+      cacheHitTokens: Number(u.cache_read_input_tokens || 0),
+      cacheMissTokens: Number(u.input_tokens || 0) - Number(u.cache_read_input_tokens || 0),
+      completionTokens: Number(u.output_tokens || 0),
+      totalTokens: Number(u.input_tokens || 0) + Number(u.output_tokens || 0),
+      estimatedCostUsd: null,
+      peak: null
+    }
+  };
 }
 
 async function handleAgentFindExperts(req, res) {

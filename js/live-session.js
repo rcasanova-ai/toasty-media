@@ -162,6 +162,7 @@ export class LiveSession {
     this.audience.clear();
     this.transcript.clear();
     this.aiProducerFeed.clear();
+    this.aiProducerService.resetSessionTotals();
     this._startedAt = Date.now();
     this.emit("demo-reset", null);
   }

@@ -3775,3 +3775,21 @@
 .lv-feed-entry--flash {
   animation: lv-feed-flash 1.1s ease-out;
 }
+
+/* Producer-only cost/token telemetry — see js/producer-view.js's renderAiDiagnostics. Deliberately
+   quiet/small: useful to glance at, not a dashboard, and never present at all in Host View's markup. */
+.lv-ai-diagnostics {
+  border-bottom: 1px solid var(--studio-line);
+  color: var(--studio-muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+  gap: 0.6rem;
+  padding-bottom: 0.4rem;
+}
+
+.lv-ai-diag-provider {
+  color: var(--studio-cream-dim);
+  text-transform: uppercase;
+}
