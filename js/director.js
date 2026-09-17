@@ -1,71 +1,29 @@
-import {
-  VideoEngine,
-  createDisposableRoomId,
-  getOrCreateRoomId,
-  getGuestInviteUrl,
-  getListenerInviteUrl,
-} from "./video-engine.js?v=studio-20260916d";
-import {
-  applyBrandTheme,
-  getInitialBrandTheme,
-  normalizeBrandTheme,
-  saveBrandTheme,
-} from "./brand-themes.js?v=studio-20260916d";
+import { normalizeBrandTheme } from "./brand-themes.js?v=studio-20260916d";
 import { AIProductionController } from "./ai-production.js?v=studio-20260916d";
-import { LocalIsolatedRecorder } from "./recording.js";
-import { Soundboard } from "./soundboard.js";
 import { ToastyBroadcastController } from "./broadcast-client.js?v=auth-20260911";
-import { ProgramSync } from "./program-sync.js";
+import { LiveSession } from "./live-session.js";
+import { HostView } from "./host-view.js";
+import { ProducerView } from "./producer-view.js";
 
-const GUEST_SEAT_COUNT = 3;
-
-const state = {
-  roomId: getOrCreateRoomId(),
-  brandTheme: getInitialBrandTheme(),
-  micMuted: false,
-  cameraOff: false,
-  screenSharing: false,
-  recordingActive: false,
-  recordingStartedAt: null,
-  timerId: null,
-  recorder: null,
-  guestCount: 0
-};
-
-const program = {
-  scene: "holding",
-  topic: "",
-  tickerEnabled: false,
-  tickerText: "",
-  live: false,
-  // Stable seat -> {id,label} assignment for up to GUEST_SEAT_COUNT guests, independent of join/leave order
-  // noise. Used only to count active guests for the Participants panel — Program Output's video is
-  // VDO.Ninja's own auto-mixed room view (scene=0), not an individually-addressed per-seat composite (see
-  // video-engine.js's mountProgramFrame for why), so this no longer drives what Program Output shows.
-  guestSeats: new Array(GUEST_SEAT_COUNT).fill(null)
-};
-
-let programSync = null;
-let guestListTimerId = null;
-
-const engine = new VideoEngine();
+const session = new LiveSession();
+// Dev diagnostics only — never rendered in Host/Producer UI. In devtools: session.aiProducerService.diagnostics()
+// for the speech-complete -> result-rendered latency breakdown of recent AI Producer requests.
+window.__toastyLiveSession = session;
 
 const elements = {
-  hostFrame: document.querySelector("#hostFrame"),
-  guestFrame: document.querySelector("#guestFrame"),
+  liveConsole: document.querySelector("#liveConsole"),
+  viewButtons: [...document.querySelectorAll("[data-lv-view-btn]")],
+  onlyPanels: [...document.querySelectorAll("[data-lv-only]")],
+  hostFrame: document.querySelector("#lvHostFrame"),
+  guestFrame: document.querySelector("#lvGuestFrame"),
+  directorControlFrame: document.querySelector("#directorControlFrame"),
+  recChip: document.querySelector("#lvRecChip"),
+  recChipTime: document.querySelector("#lvRecChipTime"),
+  policyChip: document.querySelector("#lvPolicyChip"),
   sessionDate: document.querySelector("#sessionDate"),
   sessionTime: document.querySelector("#sessionTime"),
   connectionState: document.querySelector("#connectionState"),
   connectionChip: document.querySelector("#connectionChip"),
-  hostPanelStatus: document.querySelector("#hostPanelStatus"),
-  guestPanelStatus: document.querySelector("#guestPanelStatus"),
-  guestStageEmpty: document.querySelector("#guestStageEmpty"),
-  participantGuestDot: document.querySelector("#participantGuestDot"),
-  participantGuestStatus: document.querySelector("#participantGuestStatus"),
-  participantGuest2Dot: document.querySelector("#participantGuest2Dot"),
-  participantGuest2Status: document.querySelector("#participantGuest2Status"),
-  participantGuest3Dot: document.querySelector("#participantGuest3Dot"),
-  participantGuest3Status: document.querySelector("#participantGuest3Status"),
   guestInvite: document.querySelector("#guestInvite"),
   listenerInvite: document.querySelector("#listenerInvite"),
   inviteGuestBtn: document.querySelector("#inviteGuestBtn"),
@@ -80,200 +38,142 @@ const elements = {
   atmosphereProductWord: document.querySelector("#atmosphereProductWord"),
   atmosphereMark: document.querySelector(".atmosphere-mark"),
   newRoom: document.querySelector("#newRoom"),
-  toggleMic: document.querySelector("#toggleMic"),
-  toggleCamera: document.querySelector("#toggleCamera"),
-  toggleScreen: document.querySelector("#toggleScreen"),
   toggleScreenQuick: document.querySelector("#toggleScreenQuick"),
-  toggleRecording: document.querySelector("#toggleRecording"),
-  recordingState: document.querySelector("#recordingState"),
-  recordingLabel: document.querySelector("#recordingLabel"),
-  recordingTimer: document.querySelector("#recordingTimer"),
-  recordingNote: document.querySelector("#recordingNote"),
-  recordingWaveform: document.querySelector("#recordingWaveform"),
-  endSession: document.querySelector("#endSession"),
-  soundboard: document.querySelector("#soundboard"),
-  soundboardVolume: document.querySelector("#soundboardVolume"),
-  soundboardTabs: document.querySelector("#soundboardTabs"),
-  soundboardSearch: document.querySelector("#soundboardSearch"),
-  directorControlFrame: document.querySelector("#directorControlFrame"),
-  poTopic: document.querySelector("#poTopic"),
-  poSceneGroup: document.querySelector("#poSceneGroup"),
-  poTickerEnabled: document.querySelector("#poTickerEnabled"),
-  poTickerText: document.querySelector("#poTickerText")
+  lvSessionType: document.querySelector("#lvSessionType"),
+  lvJamPolicyFields: document.querySelector("#lvJamPolicyFields"),
+  lvJamPrivacy: document.querySelector("#lvJamPrivacy"),
+  lvJamCapturePolicy: document.querySelector("#lvJamCapturePolicy"),
+  lvJamAiAllowed: document.querySelector("#lvJamAiAllowed"),
+  lvJamRecordAllowed: document.querySelector("#lvJamRecordAllowed"),
+  lvForceHeuristic: document.querySelector("#lvForceHeuristic")
 };
 
 init();
 
 function init() {
   applySelectedBrand();
-  mountRoom();
-  bindControls();
-  new Soundboard({
-    container: elements.soundboard,
-    volumeInput: elements.soundboardVolume,
-    tabsContainer: elements.soundboardTabs,
-    searchInput: elements.soundboardSearch
-  });
+  session.start({ host: elements.hostFrame, roomPreview: elements.guestFrame, control: elements.directorControlFrame });
+
+  new HostView({ session }).init();
+  new ProducerView({ session }).init();
+
+  bindViewSwitch();
+  bindRailControls();
+  bindPolicyDrawer();
+  bindAiProviderDrawer();
+
+  session.on("recording", renderRecChip);
+  session.on("policy", renderPolicyChip);
+  session.on("connection", renderConnectionChip);
+  session.on("brand", () => { applySelectedBrand(); updateInviteFields(); });
+  session.on("room", updateInviteFields);
+
+  renderRecChip(session.recording);
+  renderPolicyChip(session.policy);
+  renderConnectionChip(session.connection);
+  updateInviteFields();
+  mountTimeOfDay();
+
   new AIProductionController({
-    getBrandTheme: () => state.brandTheme,
-    onBrandChange: changeBrandThemeFromProduction
+    getBrandTheme: () => session.brandTheme,
+    onBrandChange: (brandTheme) => { elements.brandThemeSelect.value = normalizeBrandTheme(brandTheme); session.changeBrandTheme(brandTheme); }
   }).init();
+
   new ToastyBroadcastController({
     getProgramUrl: () => elements.listenerInvite.value,
     requireLegacyAuthGate: false,
-    onStateChange: (broadcastState) => {
-      program.live = broadcastState === "live";
-      publishProgramState();
-    }
+    onStateChange: (broadcastState) => session.setLive(broadcastState === "live")
   }).init();
+}
 
-  engine.onMessage((message) => {
-    if (!message) return;
-    handleVdoMessage(message);
+function bindViewSwitch() {
+  elements.viewButtons.forEach((button) => {
+    button.addEventListener("click", () => setView(button.dataset.lvViewBtn));
   });
-
-  window.setInterval(() => engine.requestDetailedState(), 5000);
-  if (!LocalIsolatedRecorder.isSupported()) {
-    elements.recordingNote.textContent = "Recording is unavailable in this browser. Use current Chrome for the recording proof.";
-    elements.toggleRecording.disabled = true;
-  }
-
-  bindProgramOutputControls();
+  setView("host");
 }
 
-function mountRoom() {
-  const now = new Date();
-  elements.sessionDate.textContent = formatDate(now);
-  elements.sessionTime.textContent = formatClock(now);
-  elements.hostPanelStatus.textContent = "Live";
-  elements.hostPanelStatus.dataset.state = "connected";
-  engine.mountDirectorFrame(elements.hostFrame, {
-    roomId: state.roomId,
-    label: "Toasty Host"
-  });
-  engine.mountRoomFrame(elements.guestFrame, { roomId: state.roomId });
-  engine.mountDirectorControlFrame(elements.directorControlFrame, { roomId: state.roomId });
-
-  program.guestSeats = new Array(GUEST_SEAT_COUNT).fill(null);
-  restartProgramSync();
-  restartGuestListPolling();
-  updateInviteAndHistory();
-  publishProgramState();
+function setView(view) {
+  elements.liveConsole.dataset.lvView = view;
+  elements.viewButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.lvViewBtn === view)));
+  elements.onlyPanels.forEach((panel) => { panel.hidden = panel.dataset.lvOnly !== view; });
 }
 
-function restartProgramSync() {
-  programSync?.close();
-  programSync = new ProgramSync(state.roomId);
-  programSync.onMessage((message) => {
-    if (message?.type === "request-state") publishProgramState();
-  });
-}
-
-function restartGuestListPolling() {
-  if (guestListTimerId) window.clearInterval(guestListTimerId);
-  refreshGuestSeats();
-  guestListTimerId = window.setInterval(refreshGuestSeats, 4000);
-}
-
-// Sole source of truth for guest presence. Generic VDO.Ninja iframe/postMessage lifecycle events
-// (push-connection, getDetailedState, etc.) are NEVER trusted to mean "a guest joined" — they fire for
-// the director's own host/control frames too. Only an id returned by the room's real guest-list API,
-// with the host's own stream id excluded, counts as a guest. If that call is empty, times out, or
-// fails, engine.requestGuestList() resolves to [] (see video-engine.js) — so uncertain state always
-// reads as zero guests, never an invented one.
-async function refreshGuestSeats() {
-  const hostStreamId = `${state.roomId}h`;
-  const guests = (await engine.requestGuestList()).filter((entry) => entry.id !== hostStreamId);
-  const stillPresent = new Set(guests.map((guest) => guest.id));
-
-  // Keep existing seat holders steady so counts don't flicker; only backfill empty seats.
-  // A guest id already occupying a seat is left alone, so a duplicate/repeated entry in the list
-  // (e.g. a reconnect reusing the same id) never claims a second seat.
-  program.guestSeats = program.guestSeats.map((seat) => (seat && stillPresent.has(seat.id) ? seat : null));
-  guests.forEach((guest) => {
-    if (program.guestSeats.some((seat) => seat?.id === guest.id)) return;
-    const emptyIndex = program.guestSeats.findIndex((seat) => seat === null);
-    if (emptyIndex !== -1) program.guestSeats[emptyIndex] = guest;
-  });
-
-  updateGuestPresence(program.guestSeats.filter(Boolean).length);
-  publishProgramState();
-}
-
-function updateInviteAndHistory() {
-  elements.guestInvite.value = getGuestInviteUrl(state.roomId, state.brandTheme);
-  elements.listenerInvite.value = getListenerInviteUrl(state.roomId, state.brandTheme);
-  const url = new URL(window.location.href);
-  url.searchParams.set("room", state.roomId);
-  url.searchParams.set("brand", state.brandTheme);
-  history.replaceState({}, "", url);
-}
-
-function bindProgramOutputControls() {
-  elements.poTopic.addEventListener("input", () => { program.topic = elements.poTopic.value; publishProgramState(); });
-  elements.poTickerEnabled.addEventListener("change", () => {
-    program.tickerEnabled = elements.poTickerEnabled.checked;
-    elements.poTickerText.disabled = !program.tickerEnabled;
-    publishProgramState();
-  });
-  elements.poTickerText.addEventListener("input", () => { program.tickerText = elements.poTickerText.value; publishProgramState(); });
-  elements.poSceneGroup.querySelectorAll(".po-swatch").forEach((button) => {
-    button.addEventListener("click", () => {
-      program.scene = button.dataset.scene;
-      elements.poSceneGroup.querySelectorAll(".po-swatch").forEach((other) => other.setAttribute("aria-pressed", String(other === button)));
-      publishProgramState();
-    });
-  });
-}
-
-function publishProgramState() {
-  programSync.publishState({
-    roomId: state.roomId,
-    brandTheme: state.brandTheme,
-    scene: program.scene,
-    topic: program.topic,
-    ticker: { enabled: program.tickerEnabled, text: program.tickerText },
-    live: program.live,
-    // Lets Program Output tell "room is genuinely empty" apart from "video hasn't loaded yet" so it can
-    // show a real waiting-room placeholder instead of a blank frame. engine.frames.has("host") is true
-    // only once the host has actually clicked "Start camera & microphone" (see mountDirectorFrame).
-    hostStarted: engine.frames.has("host"),
-    guestCount: state.guestCount
-  });
-}
-
-function bindControls() {
+function bindRailControls() {
   elements.inviteGuestBtn.addEventListener("click", inviteGuest);
   elements.copyInvite.addEventListener("click", copyInvite);
   elements.copyListenerInvite.addEventListener("click", copyListenerInvite);
-  elements.brandThemeSelect.addEventListener("change", changeBrandTheme);
-  elements.newRoom.addEventListener("click", createNewRoom);
-  elements.toggleMic.addEventListener("click", toggleMic);
-  elements.toggleCamera.addEventListener("click", toggleCamera);
-  elements.toggleScreen.addEventListener("click", toggleScreen);
-  elements.toggleScreenQuick?.addEventListener("click", toggleScreen);
-  elements.toggleRecording.addEventListener("click", toggleRecording);
-  elements.endSession.addEventListener("click", endSession);
+  elements.brandThemeSelect.addEventListener("change", () => session.changeBrandTheme(elements.brandThemeSelect.value));
+  elements.newRoom.addEventListener("click", () => session.createNewRoom());
+  elements.toggleScreenQuick?.addEventListener("click", () => session.toggleScreenShare());
+  session.on("screenshare", (s) => {
+    if (elements.toggleScreenQuick) elements.toggleScreenQuick.setAttribute("aria-pressed", String(Boolean(s?.active)));
+  });
 }
 
-function changeBrandTheme() {
-  state.brandTheme = normalizeBrandTheme(elements.brandThemeSelect.value);
-  saveBrandTheme(state.brandTheme);
-  applySelectedBrand();
-  updateInviteAndHistory();
-  publishProgramState();
+function bindPolicyDrawer() {
+  elements.lvSessionType.addEventListener("change", () => {
+    session.setSessionType(elements.lvSessionType.value);
+    elements.lvJamPolicyFields.hidden = elements.lvSessionType.value !== "jam";
+    syncJamFieldsFromPolicy();
+  });
+  [elements.lvJamPrivacy, elements.lvJamCapturePolicy].forEach((select) => {
+    select.addEventListener("change", () => session.setPolicy({
+      privacy: elements.lvJamPrivacy.value,
+      capturePolicy: elements.lvJamCapturePolicy.value
+    }));
+  });
+  [elements.lvJamAiAllowed, elements.lvJamRecordAllowed].forEach((checkbox) => {
+    checkbox.addEventListener("change", () => session.setPolicy({
+      aiProcessingAllowed: elements.lvJamAiAllowed.checked,
+      jamRecordAllowed: elements.lvJamRecordAllowed.checked
+    }));
+  });
+  session.on("policy", syncJamFieldsFromPolicy);
 }
 
-function changeBrandThemeFromProduction(brandTheme) {
-  elements.brandThemeSelect.value = normalizeBrandTheme(brandTheme);
-  changeBrandTheme();
+function bindAiProviderDrawer() {
+  elements.lvForceHeuristic.checked = !session.aiUseBackend;
+  elements.lvForceHeuristic.addEventListener("change", () => {
+    session.setAiUseBackend(!elements.lvForceHeuristic.checked);
+  });
+}
+
+function syncJamFieldsFromPolicy() {
+  const state = session.policy.state;
+  elements.lvJamPrivacy.value = state.privacy || "confidential";
+  elements.lvJamCapturePolicy.value = state.capturePolicy;
+  elements.lvJamAiAllowed.checked = Boolean(state.aiProcessingAllowed);
+  elements.lvJamRecordAllowed.checked = Boolean(state.jamRecordAllowed);
+}
+
+function renderRecChip(recording) {
+  elements.recChip.hidden = !recording.active;
+  if (recording.active && recording.startedAt) {
+    const elapsed = Math.floor((Date.now() - recording.startedAt) / 1000);
+    const hours = String(Math.floor(elapsed / 3600)).padStart(2, "0");
+    const minutes = String(Math.floor((elapsed % 3600) / 60)).padStart(2, "0");
+    const seconds = String(elapsed % 60).padStart(2, "0");
+    elements.recChipTime.textContent = `${hours}:${minutes}:${seconds}`;
+  }
+}
+
+function renderPolicyChip(policy) {
+  const summary = policy.summary();
+  elements.policyChip.hidden = !summary;
+  if (summary) elements.policyChip.textContent = `${summary.icon} ${summary.label} · ${summary.detail}`;
+}
+
+function renderConnectionChip(connection) {
+  elements.connectionState.textContent = connection.label;
+  elements.connectionChip.dataset.state = connection.status;
 }
 
 async function inviteGuest() {
   const url = elements.guestInvite.value;
   if (navigator.share) {
     try {
-      await navigator.share({ title: `Join ${state.brandTheme === "toasty" ? "Toasty Studio" : elements.studioBrandLogo.alt}`, url });
+      await navigator.share({ title: `Join ${session.brandTheme === "toasty" ? "Toasty Studio" : elements.studioBrandLogo.alt}`, url });
       return;
     } catch (error) {
       if (error?.name === "AbortError") return;
@@ -285,169 +185,30 @@ async function inviteGuest() {
 async function copyInvite() {
   await navigator.clipboard.writeText(elements.guestInvite.value);
   setLabel(elements.copyInvite, "Copied");
-  window.setTimeout(() => {
-    setLabel(elements.copyInvite, "Copy Link");
-  }, 1400);
+  window.setTimeout(() => setLabel(elements.copyInvite, "Copy Link"), 1400);
 }
 
 async function copyListenerInvite() {
   await navigator.clipboard.writeText(elements.listenerInvite.value);
   setLabel(elements.copyListenerInvite, "Copied");
-  window.setTimeout(() => {
-    setLabel(elements.copyListenerInvite, "Copy Listener Link");
-  }, 1400);
-}
-
-function createNewRoom() {
-  state.roomId = createDisposableRoomId();
-  stopRecordingTimer();
-  Object.assign(state, {
-    micMuted: false,
-    cameraOff: false,
-    screenSharing: false,
-    recordingActive: false,
-    recordingStartedAt: null,
-    guestCount: 0
-  });
-  updatePressed(elements.toggleMic, false, "Mute mic", "Unmute mic");
-  updatePressed(elements.toggleCamera, false, "Camera off", "Camera on");
-  [elements.toggleScreen, elements.toggleScreenQuick].forEach((btn) => {
-    if (btn) updatePressed(btn, false, "Share screen", "Stop sharing");
-  });
-  updateRecordingUi();
-  updateGuestPresence(0);
-  setConnectionStatus("Ready", "idle");
-  mountRoom();
-}
-
-function toggleMic() {
-  state.micMuted = !state.micMuted;
-  engine.setMicrophone(!state.micMuted);
-  updatePressed(elements.toggleMic, state.micMuted, "Mute mic", "Unmute mic");
-}
-
-function toggleCamera() {
-  state.cameraOff = !state.cameraOff;
-  engine.setCamera(!state.cameraOff);
-  updatePressed(elements.toggleCamera, state.cameraOff, "Camera off", "Camera on");
-}
-
-function toggleScreen() {
-  state.screenSharing = !state.screenSharing;
-  engine.setScreenShare(state.screenSharing);
-  [elements.toggleScreen, elements.toggleScreenQuick].forEach((btn) => {
-    if (btn) updatePressed(btn, state.screenSharing, "Share screen", "Stop sharing");
-  });
-  publishProgramState();
-}
-
-async function toggleRecording() {
-  try {
-    if (state.recordingActive) {
-      elements.toggleRecording.disabled = true;
-      await state.recorder.stop();
-      state.recordingActive = false;
-      stopRecordingTimer();
-      updateRecordingUi();
-      elements.toggleRecording.disabled = false;
-      return;
-    }
-
-    state.recorder = new LocalIsolatedRecorder({
-      role: "host",
-      roomId: state.roomId,
-      status: (message) => {
-        elements.recordingNote.textContent = message;
-      }
-    });
-    await state.recorder.start();
-    state.recordingActive = true;
-    state.recordingStartedAt = Date.now();
-    state.timerId = window.setInterval(updateRecordingTimer, 1000);
-    updateRecordingUi();
-  } catch (error) {
-    state.recordingActive = false;
-    stopRecordingTimer();
-    updateRecordingUi();
-    elements.recordingNote.textContent = `Recording failed: ${humanizeError(error)}`;
-    elements.toggleRecording.disabled = false;
-  }
-}
-
-function endSession() {
-  engine.disconnectAll();
-  stopRecordingTimer();
-  state.recordingActive = false;
-  updateRecordingUi();
-  updateGuestPresence(0);
-  setConnectionStatus("Session ended", "idle");
+  window.setTimeout(() => setLabel(elements.copyListenerInvite, "Copy Listener Link"), 1400);
 }
 
 function setLabel(button, text) {
   const label = button.querySelector(".btn-label");
-  if (label) {
-    label.textContent = text;
-  } else {
-    button.textContent = text;
-  }
+  if (label) label.textContent = text;
+  else button.textContent = text;
 }
 
-function updatePressed(button, pressed, offLabel, onLabel) {
-  const label = pressed ? onLabel : offLabel;
-  button.setAttribute("aria-pressed", String(pressed));
-  button.setAttribute("title", label);
-  const labelEl = button.querySelector(".dock-label");
-  if (labelEl) {
-    labelEl.textContent = label;
-  } else {
-    button.textContent = label;
-  }
-}
-
-function updateRecordingUi() {
-  elements.toggleRecording.setAttribute("aria-pressed", String(state.recordingActive));
-  elements.toggleRecording.textContent = state.recordingActive ? "Stop recording" : "Start recording";
-  elements.recordingState.dataset.active = String(state.recordingActive);
-  elements.recordingLabel.textContent = state.recordingActive
-    ? "Recording isolated host media locally."
-    : "Record the host camera and microphone locally.";
-  elements.recordingTimer.hidden = !state.recordingActive;
-  elements.recordingWaveform.dataset.active = String(state.recordingActive);
-  if (!state.recordingActive && LocalIsolatedRecorder.isSupported()) {
-    elements.recordingNote.textContent = "Host track only here. Guest tracks are captured from the guest page.";
-  }
-  updateRecordingTimer();
-}
-
-function updateRecordingTimer() {
-  if (!state.recordingStartedAt) {
-    elements.recordingTimer.textContent = "00:00:00";
-    return;
-  }
-  const elapsed = Math.floor((Date.now() - state.recordingStartedAt) / 1000);
-  const hours = String(Math.floor(elapsed / 3600)).padStart(2, "0");
-  const minutes = String(Math.floor((elapsed % 3600) / 60)).padStart(2, "0");
-  const seconds = String(elapsed % 60).padStart(2, "0");
-  elements.recordingTimer.textContent = `${hours}:${minutes}:${seconds}`;
-}
-
-function stopRecordingTimer() {
-  if (state.timerId) {
-    window.clearInterval(state.timerId);
-    state.timerId = null;
-  }
-  state.recordingStartedAt = null;
-}
-
-function setConnectionStatus(text, level) {
-  elements.connectionState.textContent = text;
-  elements.connectionChip.dataset.state = level;
+function updateInviteFields() {
+  const urls = session.inviteUrls();
+  elements.guestInvite.value = urls.guest;
+  elements.listenerInvite.value = urls.listener;
 }
 
 function applySelectedBrand() {
-  state.brandTheme = normalizeBrandTheme(state.brandTheme);
-  elements.brandThemeSelect.value = state.brandTheme;
-  applyBrandTheme(state.brandTheme, {
+  elements.brandThemeSelect.value = session.brandTheme;
+  session.applyBrand({
     root: document.body,
     logoImg: elements.studioBrandLogo,
     logoText: elements.studioBrandText,
@@ -459,49 +220,8 @@ function applySelectedBrand() {
   });
 }
 
-function updateGuestPresence(count) {
-  state.guestCount = Math.max(0, Math.min(3, count));
-  const seats = [
-    [elements.participantGuestDot, elements.participantGuestStatus],
-    [elements.participantGuest2Dot, elements.participantGuest2Status],
-    [elements.participantGuest3Dot, elements.participantGuest3Status]
-  ];
-  seats.forEach(([dot, label], index) => {
-    const occupied = index < state.guestCount;
-    dot.dataset.state = occupied ? "active" : "idle";
-    label.textContent = occupied ? "Connected" : index === 0 ? "Waiting" : "Open";
-  });
-
-  const hasGuests = state.guestCount > 0;
-  elements.guestPanelStatus.textContent = `${state.guestCount} connected`;
-  elements.guestPanelStatus.dataset.state = hasGuests ? "connected" : "idle";
-  elements.guestStageEmpty.hidden = hasGuests;
+function mountTimeOfDay() {
+  const now = new Date();
+  elements.sessionDate.textContent = now.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+  elements.sessionTime.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
-
-function handleVdoMessage(message) {
-  // push-connection/view-connection fire for ANY of our frames (host, control, room, etc.), not just
-  // real guests — so they're only used as a hint to re-poll the authoritative guest-list API below.
-  // The actual guest count/seat assignment always comes from refreshGuestSeats(), never from this event.
-  if (message.action === "push-connection" || message.action === "view-connection") {
-    refreshGuestSeats();
-  } else if (message.action || message.getDetailedState) {
-    setConnectionStatus("Live", "connected");
-  }
-}
-
-function humanizeError(error) {
-  if (error?.name === "NotAllowedError") return "camera or microphone permission was denied.";
-  if (error?.name === "NotFoundError") return "no camera or microphone device was found.";
-  if (error?.name === "NotReadableError") return "camera or microphone is already in use or unavailable.";
-  return error?.message || "unknown browser recording error.";
-}
-
-function formatClock(date) {
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function formatDate(date) {
-  return date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
-}
-
-updateRecordingUi();

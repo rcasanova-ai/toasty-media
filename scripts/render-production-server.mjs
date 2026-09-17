@@ -49,6 +49,9 @@ const MAX_TOTAL_DURATION = Number(process.env.TOASTY_RENDER_MAX_DURATION || 180)
 const MAX_SCENES = Number(process.env.TOASTY_RENDER_MAX_SCENES || 40);
 const FFMPEG_TIMEOUT_MS = Number(process.env.TOASTY_RENDER_FFMPEG_TIMEOUT_MS || 120000);
 const GOOGLE_DOWNLOAD_LIMIT_BYTES = Number(process.env.TOASTY_DRIVE_MAX_DOWNLOAD_BYTES || MAX_FILE_BYTES);
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const ANTHROPIC_MODEL = process.env.TOASTY_AI_PRODUCER_MODEL || "claude-sonnet-5";
+const ANTHROPIC_TIMEOUT_MS = Number(process.env.TOASTY_AI_PRODUCER_TIMEOUT_MS || 12000);
 const SAFE_ID = /^[a-z0-9][a-z0-9._-]{0,80}$/i;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const scryptAsync = promisify(scrypt);
@@ -207,6 +210,11 @@ const server = createServer(async (req, res) => {
     await handleMicrotaskSettlement(req, res);
     return;
   }
+  if (req.method === "POST" && req.url === "/api/ai-producer/respond") {
+    if (!limit(req, res, "ai-producer-respond", 30, 5 * 60 * 1000)) return;
+    await handleAiProducerRespond(req, res);
+    return;
+  }
   if (req.method !== "POST" || req.url !== "/render") {
     sendJson(req, res, 404, { error: "Render helper is running. POST /render to create an MP4." });
     return;
@@ -262,6 +270,80 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`Toasty render helper listening on http://${HOST}:${PORT}`);
 });
+
+// AI Producer proxy — the ONLY place the Anthropic key is used. The browser (js/ai-producer.js's
+// BackendAIProducerProvider) sends {instruction, context}; nothing here ever returns the API key or a
+// raw provider error to the client. Keep this prompt/schema in sync with js/ai-producer.js's heuristic
+// provider output shape ({type,title,summary,items,sources}) — the Host UI must not care which
+// provider produced an entry.
+const AI_PRODUCER_SYSTEM_PROMPT = `You are Toasty Live's AI Producer: a private, behind-the-scenes assistant for the show's HOST. You are never shown to the audience or in Program Output.
+
+You will receive the host's spoken instruction plus a compact JSON ShowContext (current topic, agenda, a recent transcript window, recent audience messages, and your own recent responses).
+
+Respond with ONLY a single JSON object, no markdown fences, no prose outside it, matching exactly:
+{"type":"audience_questions|context|transition|timing|research|production_suggestion","title":"short label","summary":"one or two sentences","items":[{"from":"optional name","text":"short line"}],"suggestedAction":null,"sources":["optional audience message ids used"]}
+
+Rules:
+- For audience questions: filter junk/spam, ignore questions already answered in the transcript, merge near-duplicates, and return at most 3 items. Never expose a numeric score.
+- Ground every answer in the ShowContext given — never invent facts, names, or numbers not present in it.
+- Keep it glanceable: short summary, at most 3 items.
+- If the instruction is unrelated to producing the show, still return valid JSON with type "production_suggestion" and a brief, honest summary.`;
+
+const AI_PRODUCER_ENTRY_TYPES = new Set(["audience_questions", "context", "transition", "timing", "research", "production_suggestion"]);
+
+async function handleAiProducerRespond(req, res) {
+  if (!ANTHROPIC_API_KEY) throw httpError(503, "AI Producer isn't configured on the server.");
+  const body = await readJson(req);
+  const instruction = String(body.instruction || "").trim().slice(0, 2000);
+  if (!instruction) throw httpError(400, "Missing instruction.");
+  const context = body.context && typeof body.context === "object" ? body.context : {};
+
+  let response;
+  try {
+    response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      signal: AbortSignal.timeout(ANTHROPIC_TIMEOUT_MS),
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 700,
+        system: AI_PRODUCER_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: `HOST INSTRUCTION: ${instruction}\n\nSHOW CONTEXT:\n${JSON.stringify(context)}` }]
+      })
+    });
+  } catch (error) {
+    console.error("AI Producer upstream request failed:", error);
+    throw httpError(502, "AI Producer request failed.");
+  }
+  if (!response.ok) {
+    console.error("AI Producer upstream error status:", response.status, await response.text().catch(() => ""));
+    throw httpError(502, "AI Producer request failed.");
+  }
+
+  const data = await response.json();
+  const text = data.content?.[0]?.text || "";
+  let parsed;
+  try {
+    const cleaned = text.trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
+    parsed = JSON.parse(cleaned);
+  } catch (error) {
+    console.error("AI Producer returned malformed JSON:", text);
+    throw httpError(502, "AI Producer returned an unusable response.");
+  }
+  if (!AI_PRODUCER_ENTRY_TYPES.has(parsed.type)) parsed.type = "production_suggestion";
+
+  sendJson(req, res, 200, {
+    type: parsed.type,
+    title: String(parsed.title || "AI Producer").slice(0, 120),
+    summary: String(parsed.summary || "").slice(0, 600),
+    items: Array.isArray(parsed.items) ? parsed.items.slice(0, 6) : [],
+    sources: Array.isArray(parsed.sources) ? parsed.sources.slice(0, 20) : []
+  });
+}
 
 async function handleAgentFindExperts(req, res) {
   if (!TOASTY_EXPERT_DISCOVERY_RECIPIENT) {

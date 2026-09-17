@@ -21,6 +21,9 @@ export function getListenerInviteUrl(roomId, brandTheme) { const url=new URL("..
 export class VideoEngine {
   constructor(options={}) { this.baseUrl=options.baseUrl||VDO_ORIGIN; this.frames=new Map(); this.listeners=new Set(); window.addEventListener("message",event=>this.handleMessage(event)); }
 
+  // cover=1 matches mountRoomFrame/mountProgramFrame's crop-to-fill behavior — without it, VDO.Ninja
+  // letterboxes the local preview (object-fit:contain) inside .vdo-frame's fixed aspect box, so the host's
+  // own tile showed black bars while guest tiles (which already had cover=1) filled cleanly.
   mountDirectorFrame(container,{roomId,label="Host"}) {
     const streamId=`${roomId}h`;
     container.dataset.empty="true";
@@ -40,7 +43,7 @@ export class VideoEngine {
     start.className="btn btn-primary";
     start.textContent="Enable camera & microphone";
     start.setAttribute("aria-label","Start Live Studio camera and microphone");
-    start.addEventListener("click",()=>this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:true,vdo:HOST_CAMERA_HINT,showlabels:"1"}),{once:true});
+    start.addEventListener("click",()=>this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:true,vdo:HOST_CAMERA_HINT,showlabels:"1",cover:"1"}),{once:true});
     launch.appendChild(start);
     container.replaceChildren(launch);
     container.removeAttribute("data-empty");
@@ -52,12 +55,19 @@ export class VideoEngine {
   // default speaker+thumbnails auto-layout into a uniform, evenly-sized grid (both documented VDO.Ninja
   // mixer parameters). Used everywhere scene=0 is mounted, so Director's own guest preview matches what
   // Program Output actually shows.
-  mountRoomFrame(container,{roomId}) { return this.mountFrame(container,"room",{room:roomId,scene:"0",cleanoutput:"1",transparent:"1",showlabels:"1",muted:"1",mute:"1",slots:"4",cover:"1"}); }
+  //
+  // layout="screen-dominant" deliberately OMITS slots/cover instead of adding new params: without them,
+  // VDO.Ninja's mixer falls back to its native "speaker + thumbnails" auto-layout, which already promotes
+  // an active screen-share to the dominant tile and shrinks camera participants to thumbnails — the exact
+  // behavior the screen-dominant/PiP requirement asks for, achieved with VDO.Ninja's own default instead
+  // of us compositing tiles ourselves (scene=0 is a single merged feed; we cannot address host vs. screen
+  // as separate DOM elements on our side).
+  mountRoomFrame(container,{roomId,layout="grid"}) { return this.mountFrame(container,"room",{room:roomId,scene:"0",cleanoutput:"1",transparent:"1",showlabels:"1",muted:"1",mute:"1",...layoutParams(layout)}); }
   // videoDeviceId/audioDeviceId come from the guest's own check-in device pickers (already granted
   // permission for the local preview) — passing them through as videodevice/audiodevice plus autostart
   // lets VDO.Ninja publish immediately with those devices instead of showing its own native
   // device-selection screen (which is both off-brand and, on narrow viewports, wider than the iframe).
-  mountGuestFrame(container,{roomId,guestName,backgroundMode,videoDeviceId,audioDeviceId}) { const suffix=Date.now().toString(36).slice(-4); const streamId=`${roomId}g${suffix}`.slice(0,24); return this.mountFrame(container,"guest",{room:roomId,push:streamId,label:guestName||"Guest",webcam:"1",showlabels:"1",cleanoutput:"1",autostart:"1",videodevice:videoDeviceId||undefined,audiodevice:audioDeviceId||undefined,effects:effectForBackground(backgroundMode)}); }
+  mountGuestFrame(container,{roomId,guestName,backgroundMode,videoDeviceId,audioDeviceId}) { const suffix=Date.now().toString(36).slice(-4); const streamId=`${roomId}g${suffix}`.slice(0,24); return this.mountFrame(container,"guest",{room:roomId,push:streamId,label:guestName||"Guest",webcam:"1",showlabels:"1",cleanoutput:"1",autostart:"1",cover:"1",videodevice:videoDeviceId||undefined,audiodevice:audioDeviceId||undefined,effects:effectForBackground(backgroundMode)}); }
   mountListenerFrame(container,{roomId}) { return this.mountFrame(container,"listener",{room:roomId,scene:"0",showlabels:"1",cleanoutput:"1"}); }
 
   // Hidden viewer-only frame used purely to query the room's live guest list (id + label) for the Program Output compositor.
@@ -72,7 +82,7 @@ export class VideoEngine {
   // video end-to-end, so Program Output's branded chrome (logo/LIVE/topic/ticker) wraps this instead of
   // compositing individual tiles. Unlike mountRoomFrame (Director's own muted local monitor of this same
   // scene), this is unmuted: Program Output's audio is the real program audio for broadcast/recording.
-  mountProgramFrame(container,{roomId},frameId) { return this.mountFrame(container,frameId,{room:roomId,scene:"0",cleanoutput:"1",transparent:"1",showlabels:"1",controls:"0",slots:"4",cover:"1"}); }
+  mountProgramFrame(container,{roomId,layout="grid"},frameId) { return this.mountFrame(container,frameId,{room:roomId,scene:"0",cleanoutput:"1",transparent:"1",showlabels:"1",controls:"0",...layoutParams(layout)}); }
 
   mountFrame(container,frameId,params) { const iframe=document.createElement("iframe"); iframe.allow=IFRAME_ALLOW; iframe.allowFullscreen=true; iframe.src=this.buildUrl(params); iframe.title=`Toasty Studio ${frameId}`; container.replaceChildren(iframe); container.removeAttribute("data-empty"); this.frames.set(frameId,iframe); return iframe; }
   buildUrl(params) { const url=new URL("/",this.baseUrl); const merged={...DEFAULT_PARAMS,...params}; Object.entries(merged).forEach(([key,value])=>{ if(value===true)url.searchParams.set(key,""); else if(value!==undefined&&value!==null&&value!==false&&value!=="")url.searchParams.set(key,value); }); return url.toString(); }
@@ -83,7 +93,25 @@ export class VideoEngine {
   setGuestMicrophone(enabled){return this.send("guest",{mic:enabled});}
   setGuestCamera(enabled){return this.send("guest",{camera:enabled});}
   setGuestScreenShare(enabled){return this.send("guest",{screenshare:enabled});}
-  disconnectAll(){this.frames.forEach((_,frameId)=>{this.send(frameId,{hangup:true});this.send(frameId,{disconnect:true});});}
+
+  // Targets ONE remote participant by id, over the director-control frame's signaling channel — not a
+  // per-guest iframe (Director never mounts one; scene=0 is a single merged view). Sent under UUID,
+  // streamID and target simultaneously because VDO.Ninja's own director-command addressing key has
+  // varied across versions and we have no live second-participant harness in this environment to pin
+  // down which one this deployed VDO.Ninja build expects — verify against a real two-browser session
+  // before depending on this in a demo.
+  sendToGuest(guestId,command,frameId="control"){ return this.send(frameId,{...command,UUID:guestId,streamID:guestId,target:guestId}); }
+  setGuestRemoteMicrophone(guestId,enabled){ return this.sendToGuest(guestId,{mic:enabled}); }
+  setGuestRemoteCamera(guestId,enabled){ return this.sendToGuest(guestId,{camera:enabled}); }
+  setGuestRemoteVolume(guestId,volume0to1){ return this.sendToGuest(guestId,{volume:Math.round(Math.max(0,Math.min(1,volume0to1))*100)}); }
+  forceGuestHangup(guestId){ return this.sendToGuest(guestId,{hangup:true,disconnect:true}); }
+
+  // "Leave Studio" (host): disconnects only frames THIS browser mounted (own push frame, local room
+  // monitor, control frame). Never touches a remote guest's connection or the show's live state.
+  disconnectLocalFrames(){ this.frames.forEach((_,frameId)=>{ this.send(frameId,{hangup:true}); this.send(frameId,{disconnect:true}); }); }
+  // "End Show" (producer): same local cleanup, PLUS a best-effort remote hangup to every known guest id.
+  // Only the local half is guaranteed — see sendToGuest's caveat above for the remote half.
+  disconnectAll(guestIds=[]){ this.disconnectLocalFrames(); guestIds.forEach((id)=>this.forceGuestHangup(id)); }
   requestDetailedState(frameId="host"){return this.send(frameId,{getDetailedState:true});}
 
   // Asks the hidden director-control frame for the room's current guest list. Resolves to a normalized
@@ -111,3 +139,8 @@ export class VideoEngine {
 }
 
 function effectForBackground(backgroundMode){if(backgroundMode===BackgroundMode.BLUR)return"3";return"0";}
+// "grid" = today's always-on behavior (uniform cropped 4-slot grid). "screen-dominant" intentionally
+// returns no slots/cover so VDO.Ninja's own auto-layout (speaker+thumbnails) takes over — see the
+// mountRoomFrame/mountProgramFrame comments above for why that's the right way to get a dominant screen
+// share without us compositing tiles ourselves.
+function layoutParams(layout){ return layout==="screen-dominant" ? {} : {slots:"4",cover:"1"}; }

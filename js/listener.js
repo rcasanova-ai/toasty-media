@@ -19,6 +19,7 @@ const roomId = getRoomIdFromUrl();
 const engine = new VideoEngine();
 let sync = null;
 let programMounted = false;
+let mountedLayout = null;
 let tickerRafId = null;
 let lastProgramState = null;
 // Browsers block autoplay of unmuted <video> without a user gesture in that frame. The program frame
@@ -117,20 +118,26 @@ function renderLiveStage(programState) {
     elements.audioGate.hidden = true; // no real media yet, nothing to unlock
     return;
   }
+  const layout = programState.layout || "grid";
+  // A layout change (e.g. host starts/stops screen share) needs the mixer re-mounted with different
+  // VDO.Ninja params (see mountProgramFrame) — there's no live postMessage to reconfigure slots/cover on
+  // an already-connected mixer frame, so this accepts a brief reconnect blip on layout changes.
+  if (programMounted && mountedLayout !== layout) clearStage();
   elements.audioGate.hidden = audioUnlocked; // real video is due — show the gate until it's clicked
-  mountProgramVideo();
+  mountProgramVideo(layout);
 }
 
-function mountProgramVideo() {
+function mountProgramVideo(layout = "grid") {
   if (programMounted) return;
   if (!audioUnlocked) {
     elements.stage.replaceChildren(buildTile(false));
     return;
   }
   programMounted = true;
+  mountedLayout = layout;
   const tile = buildTile(true);
   elements.stage.replaceChildren(tile);
-  engine.mountProgramFrame(tile.querySelector(".po-tile-video"), { roomId }, "program");
+  engine.mountProgramFrame(tile.querySelector(".po-tile-video"), { roomId, layout }, "program");
 }
 
 function buildTile(withVideo) {
@@ -174,6 +181,7 @@ function clearStage() {
     engine.frames.get("program")?.remove();
     engine.frames.delete("program");
     programMounted = false;
+    mountedLayout = null;
   }
   elements.stage.replaceChildren();
 }

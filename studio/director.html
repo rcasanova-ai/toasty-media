@@ -340,87 +340,172 @@
           </section>
         </section>
 
-        <div class="video-grid live-studio-panel" aria-label="Studio video area">
-          <article class="video-panel">
-            <div class="panel-label">
-              <span>Director</span>
-              <span class="panel-status" id="hostPanelStatus">Loading</span>
+        <section class="live-console live-studio-panel" id="liveConsole" data-lv-view="host" aria-label="Live Studio console">
+          <header class="lv-topbar">
+            <nav class="lv-view-switch" aria-label="Studio view">
+              <button type="button" class="lv-view-btn" data-lv-view-btn="host" aria-pressed="true">Host</button>
+              <button type="button" class="lv-view-btn" data-lv-view-btn="producer" aria-pressed="false">Producer</button>
+            </nav>
+            <div class="lv-topbar-status">
+              <span class="lv-rec-chip" id="lvRecChip" hidden>
+                <span class="lv-rec-dot" aria-hidden="true"></span>
+                <span id="lvRecChipTime">00:00:00</span>
+              </span>
+              <span class="lv-policy-chip" id="lvPolicyChip" hidden></span>
             </div>
-            <div id="hostFrame" class="vdo-frame" data-empty="Loading host feed"></div>
-            <span class="corner-mark corner-mark--tl" aria-hidden="true"></span>
-            <span class="corner-mark corner-mark--br" aria-hidden="true"></span>
-          </article>
-          <article class="video-panel">
-            <div class="panel-label">
-              <span>Guests</span>
-              <span class="panel-status" id="guestPanelStatus">Waiting</span>
-            </div>
-            <div id="guestFrame" class="vdo-frame" data-empty="Waiting for guest to join"></div>
-            <div class="stage-empty" id="guestStageEmpty" aria-hidden="true">
-              <span class="stage-empty-ring"></span>
-              <p>Waiting for guest to join</p>
-            </div>
-            <span class="corner-mark corner-mark--tl" aria-hidden="true"></span>
-            <span class="corner-mark corner-mark--br" aria-hidden="true"></span>
-          </article>
-        </div>
+          </header>
 
-        <section class="recording-panel live-studio-panel" id="recordingState" data-active="false" aria-label="Recording">
-          <div>
-            <p class="rail-eyebrow">Recording</p>
-            <p class="recording-purpose" id="recordingLabel">Record the host camera and microphone locally.</p>
-          </div>
-          <div class="recording-actions">
-            <strong id="recordingTimer" class="recording-timer" hidden>00:00:00</strong>
-            <button id="toggleRecording" class="rec-toggle" type="button" aria-pressed="false">Start recording</button>
-          </div>
-          <div class="waveform" id="recordingWaveform" data-active="false" aria-hidden="true">
-            <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
-          </div>
-          <p class="control-note" id="recordingNote">Host track only here. Guest tracks are captured from the guest page.</p>
-        </section>
+          <div class="lv-body">
+            <section class="lv-panel lv-program" aria-label="Program preview">
+              <div class="lv-panel-head">
+                <span>Program Preview</span>
+                <span class="lv-chip" id="lvHostPanelStatus">Loading</span>
+              </div>
+              <div class="lv-video-row">
+                <article class="lv-video-article">
+                  <div class="vdo-frame lv-video-tile" id="lvHostFrame" data-empty="Loading host feed"></div>
+                </article>
+                <article class="lv-video-article">
+                  <div class="vdo-frame lv-video-tile" id="lvGuestFrame" data-empty="Waiting for guest to join"></div>
+                  <div class="stage-empty" id="lvGuestStageEmpty" aria-hidden="true">
+                    <span class="stage-empty-ring"></span>
+                    <p>Waiting for guest to join</p>
+                  </div>
+                  <span class="lv-video-tile-label" id="lvGuestPanelStatus">Waiting</span>
+                </article>
+              </div>
+              <div class="lv-host-controls" data-lv-only="host">
+                <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
+                <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>
+                <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Share screen">Screen</button>
+                <button id="lvLeaveStudio" class="lv-icon-btn lv-icon-btn-danger" type="button" title="Leave Studio">Leave Studio</button>
+              </div>
+            </section>
 
-        <div class="control-dock live-studio-panel" role="group" aria-label="Call controls">
-          <button id="toggleMic" class="dock-btn" type="button" aria-pressed="false" title="Mute mic">
-            <span class="dock-icon dock-icon-on" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg></span>
-            <span class="dock-icon dock-icon-off" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"></line><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"></path><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg></span>
-            <span class="dock-label sr-only">Mute mic</span>
-          </button>
-          <button id="toggleCamera" class="dock-btn" type="button" aria-pressed="false" title="Camera off">
-            <span class="dock-icon dock-icon-on" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg></span>
-            <span class="dock-icon dock-icon-off" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 16v1a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"></path><path d="M9 5h5a2 2 0 0 1 2 2v5"></path><polygon points="23 7 16 12 23 17 23 7"></polygon><line x1="1" y1="1" x2="23" y2="23"></line></svg></span>
-            <span class="dock-label sr-only">Camera off</span>
-          </button>
-          <button id="toggleScreen" class="dock-btn" type="button" aria-pressed="false" title="Share screen">
-            <span class="dock-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg></span>
-            <span class="dock-label sr-only">Share screen</span>
-          </button>
-          <span class="dock-divider" aria-hidden="true"></span>
-          <button id="endSession" class="dock-btn dock-btn-danger" type="button" title="End session">
-            <span class="dock-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1-1a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 17.72V21a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 3h3.28a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11z"></path><line x1="23" y1="1" x2="1" y2="23"></line></svg></span>
-            <span class="dock-label sr-only">End session</span>
-          </button>
-        </div>
+            <!-- HOST-only panels -->
+            <aside class="lv-panel lv-ai-producer" data-lv-only="host" aria-label="AI Producer">
+              <div class="lv-panel-head"><span>AI Producer</span></div>
+              <div class="lv-feed-list" id="lvFeedListHost">
+                <p class="lv-placeholder">Following conversation…</p>
+                <p class="lv-placeholder lv-placeholder-sub">No producer requests yet.</p>
+              </div>
+              <div class="lv-talk-row">
+                <button id="lvTalkBtn" class="lv-talk-btn" type="button" data-state="ready">🎙 Talk to Producer</button>
+                <span class="lv-talk-state" id="lvTalkState">Ready</span>
+              </div>
+              <p class="lv-talk-live" id="lvTalkLive" hidden></p>
+              <form id="lvTalkTextForm" class="lv-talk-text-form">
+                <input id="lvTalkTextInput" type="text" placeholder="Or type an instruction…" aria-label="Type an instruction to the AI Producer">
+                <button type="submit" class="btn btn-ghost btn-small">Send</button>
+              </form>
+            </aside>
+            <section class="lv-panel lv-run-of-show" data-lv-only="host" aria-label="Run of show">
+              <div class="lv-panel-head">
+                <span>Run of Show</span>
+                <button id="lvAgendaNext" class="lv-mini-btn" type="button">Next →</button>
+              </div>
+              <ul class="lv-agenda-list" id="lvAgendaList"></ul>
+              <form id="lvAgendaAddForm" class="lv-agenda-add">
+                <input id="lvAgendaAddInput" type="text" placeholder="Add topic…" aria-label="Add agenda topic">
+                <button type="submit" class="lv-mini-btn">Add</button>
+              </form>
+            </section>
+            <aside class="lv-panel lv-audience" data-lv-only="host" aria-label="Audience">
+              <div class="lv-panel-head"><span>Audience</span><span class="lv-chip" id="lvAudienceCount">0</span></div>
+              <div class="lv-audience-list" id="lvAudienceList">
+                <p class="lv-placeholder">Live chat and questions land here.</p>
+              </div>
+            </aside>
+            <div class="lv-guest-context" id="lvGuestContext" data-lv-only="host" aria-label="Guests"></div>
 
-        <section class="soundboard-panel live-studio-panel" aria-label="Soundboard">
-          <div class="soundboard-head">
-            <p class="rail-card-title">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
-              Sound Board
-            </p>
-            <label class="volume-control" for="soundboardVolume">
-              <span>Volume</span>
-              <input id="soundboardVolume" type="range" min="0" max="1" value="0.65" step="0.05">
-            </label>
+            <!-- PRODUCER-only panels -->
+            <section class="lv-panel lv-sources" data-lv-only="producer" hidden aria-label="Sources">
+              <div class="lv-panel-head"><span>Sources</span></div>
+              <div class="lv-source-row">
+                <span class="lv-source-name">Host (you)</span>
+                <span class="lv-source-status" id="lvSourceHostStatus">—</span>
+              </div>
+              <div class="lv-guest-rows" id="lvGuestRows"></div>
+            </section>
+
+            <section class="lv-panel lv-scenes" data-lv-only="producer" hidden aria-label="Layout">
+              <div class="lv-panel-head"><span>Layout</span><span class="lv-chip" id="lvLayoutModeChip">Grid</span></div>
+              <div class="lv-button-row" id="lvLayoutGroup">
+                <button type="button" class="lv-mini-btn" data-layout="grid" aria-pressed="true">Grid</button>
+                <button type="button" class="lv-mini-btn" data-layout="screen-dominant" aria-pressed="false">Screen Dominant</button>
+              </div>
+              <p class="control-note">Screen share auto-switches this. A manual choice here sticks until screen share ends.</p>
+            </section>
+
+            <aside class="lv-panel lv-ai-producer-pane" data-lv-only="producer" hidden aria-label="AI Producer">
+              <div class="lv-panel-head"><span>AI Producer</span></div>
+              <div class="lv-feed-list" id="lvFeedListProducer">
+                <p class="lv-placeholder">Host requests will appear here.</p>
+              </div>
+            </aside>
+
+            <section class="lv-panel lv-graphics" data-lv-only="producer" hidden aria-label="Program Output">
+              <div class="lv-panel-head"><span>Program Output</span></div>
+              <label class="po-field">Show / topic
+                <input id="lvPoTopic" type="text" placeholder="e.g. Podcast Episode #47" maxlength="120">
+              </label>
+              <div class="po-button-group" id="lvPoSceneGroup" role="radiogroup" aria-label="Program scene">
+                <button type="button" class="po-swatch" data-scene="holding" aria-pressed="true">Starting Soon</button>
+                <button type="button" class="po-swatch" data-scene="live" aria-pressed="false">Live</button>
+                <button type="button" class="po-swatch" data-scene="ending" aria-pressed="false">Ending</button>
+              </div>
+              <label class="po-field po-ticker-toggle">
+                <input id="lvPoTickerEnabled" type="checkbox">
+                Show ticker
+              </label>
+              <label class="po-field">Ticker text
+                <input id="lvPoTickerText" type="text" placeholder="Breaking: ..." maxlength="220" disabled>
+              </label>
+              <button id="lvOpenProgramOutput" class="btn btn-ghost btn-small" type="button">Open Program Output</button>
+            </section>
+
+            <section class="lv-panel lv-record" data-lv-only="producer" hidden aria-label="Recording">
+              <div class="lv-panel-head"><span>Recording</span></div>
+              <div class="recording-actions">
+                <strong id="lvRecordTimer" class="recording-timer" hidden>00:00:00</strong>
+                <button id="lvRecordToggle" class="rec-toggle" type="button" aria-pressed="false">Start recording</button>
+              </div>
+              <p class="control-note" id="lvRecordNote">Host track only here. Guest tracks are captured from the guest page.</p>
+            </section>
+
+            <section class="lv-panel lv-audio" data-lv-only="producer" hidden aria-label="Soundboard">
+              <div class="soundboard-head">
+                <p class="rail-card-title">Sound Board</p>
+                <label class="volume-control" for="lvSoundboardVolume">
+                  <span>Volume</span>
+                  <input id="lvSoundboardVolume" type="range" min="0" max="1" value="0.65" step="0.05">
+                </label>
+              </div>
+              <div class="soundboard-tabs" id="lvSoundboardTabs" role="tablist" aria-label="Sound categories"></div>
+              <input id="lvSoundboardSearch" type="search" class="soundboard-search" placeholder="Search sounds…" aria-label="Search sounds">
+              <div class="soundboard-grid" id="lvSoundboard"></div>
+            </section>
+
+            <section class="lv-panel lv-show-actions" data-lv-only="producer" hidden aria-label="Show actions">
+              <div class="lv-panel-head"><span>Show</span></div>
+              <label class="po-field po-ticker-toggle">
+                <input id="lvDemoModeToggle" type="checkbox">
+                Demo Mode (seeded audience + transcript)
+              </label>
+              <p class="control-note" id="lvDemoModeNote">Drips a seeded audience feed and transcript so AI Producer can be demoed without live mic/chat.</p>
+              <button id="lvResetDemo" class="btn btn-ghost btn-small" type="button">Reset Demo</button>
+              <p class="control-note">Back to Opening/Canada/Thailand(current)/Vietnam/Closing with empty audience, transcript and AI Producer feed. Dev/demo only.</p>
+              <button id="lvEndShow" class="btn btn-danger" type="button">End Show</button>
+              <p class="control-note">Ends the broadcast and disconnects guests. Cannot be undone.</p>
+            </section>
           </div>
-          <div class="soundboard-tabs" id="soundboardTabs" role="tablist" aria-label="Sound categories"></div>
-          <input id="soundboardSearch" type="search" class="soundboard-search" placeholder="Search sounds…" aria-label="Search sounds">
-          <div class="soundboard-grid" id="soundboard"></div>
         </section>
       </section>
 
-      <aside class="rail rail-right" aria-label="Production info">
-        <section class="production-panel">
+      <aside class="rail rail-right" aria-label="Advanced">
+        <details class="production-panel lv-advanced-drawer">
+          <summary class="rail-eyebrow">Advanced / Settings</summary>
+
           <div class="panel-section" aria-label="Session">
             <p class="rail-eyebrow">Session</p>
             <div class="rail-row">
@@ -434,58 +519,51 @@
             <button id="newRoom" class="link-action" type="button">New invite room</button>
           </div>
 
-          <div class="panel-section" aria-label="Participants">
-            <p class="rail-eyebrow">Participants</p>
-            <div class="participant-row">
-              <span class="participant-dot" data-state="active" aria-hidden="true"></span>
-              <span class="participant-name">Director</span>
-              <span class="participant-role">You</span>
-            </div>
-            <div class="participant-row">
-              <span class="participant-dot" id="participantGuestDot" data-state="idle" aria-hidden="true"></span>
-              <span class="participant-name">Guest 1</span>
-              <span class="participant-role" id="participantGuestStatus">Waiting</span>
-            </div>
-            <div class="participant-row">
-              <span class="participant-dot" id="participantGuest2Dot" data-state="idle" aria-hidden="true"></span>
-              <span class="participant-name">Guest 2</span>
-              <span class="participant-role" id="participantGuest2Status">Open</span>
-            </div>
-            <div class="participant-row">
-              <span class="participant-dot" id="participantGuest3Dot" data-state="idle" aria-hidden="true"></span>
-              <span class="participant-name">Guest 3</span>
-              <span class="participant-role" id="participantGuest3Status">Open</span>
-            </div>
-            <div class="participant-row">
-              <span class="participant-dot" data-state="listener" aria-hidden="true"></span>
-              <span class="participant-name">Listeners</span>
-              <span class="participant-role">View only</span>
-            </div>
-          </div>
-
-          <div class="panel-section program-output-panel" aria-label="Program Output">
-            <p class="rail-eyebrow">Program Output</p>
-            <label class="po-field">Show / topic
-              <input id="poTopic" type="text" placeholder="e.g. Podcast Episode #47" maxlength="120">
-            </label>
-
-            <p class="po-subhead">Scene</p>
-            <div class="po-button-group" id="poSceneGroup" role="radiogroup" aria-label="Program scene">
-              <button type="button" class="po-swatch" data-scene="holding" aria-pressed="true">Starting Soon</button>
-              <button type="button" class="po-swatch" data-scene="live" aria-pressed="false">Live</button>
-              <button type="button" class="po-swatch" data-scene="ending" aria-pressed="false">Ending</button>
-            </div>
-
+          <div class="panel-section" aria-label="AI Producer provider">
+            <p class="rail-eyebrow">AI Producer Provider</p>
             <label class="po-field po-ticker-toggle">
-              <input id="poTickerEnabled" type="checkbox">
-              Show ticker
+              <input id="lvForceHeuristic" type="checkbox">
+              Force heuristic (skip backend)
             </label>
-            <label class="po-field">Ticker text
-              <input id="poTickerText" type="text" placeholder="Breaking: ..." maxlength="220" disabled>
-            </label>
+            <p class="control-note" id="lvAiProviderNote">By default, requests try Toasty's backend (server-side Claude) first and silently fall back to the built-in heuristic producer if it's unreachable. No API key ever lives in this browser.</p>
           </div>
 
-        </section>
+          <div class="panel-section" aria-label="Session policy">
+            <p class="rail-eyebrow">Session Policy</p>
+            <label class="po-field">Session type
+              <select id="lvSessionType">
+                <option value="live" selected>Live show (unrestricted)</option>
+                <option value="jam">Toasty Peeps Jam (confidential)</option>
+              </select>
+            </label>
+            <div id="lvJamPolicyFields" hidden>
+              <label class="po-field">Privacy
+                <select id="lvJamPrivacy">
+                  <option value="confidential" selected>Confidential</option>
+                  <option value="private">Private</option>
+                  <option value="blind">Blind</option>
+                </select>
+              </label>
+              <label class="po-field">Capture policy
+                <select id="lvJamCapturePolicy">
+                  <option value="none" selected>None</option>
+                  <option value="transcript">Transcript only</option>
+                  <option value="recording">Recording only</option>
+                  <option value="recording_and_transcript">Recording + transcript</option>
+                </select>
+              </label>
+              <label class="po-field po-ticker-toggle">
+                <input id="lvJamAiAllowed" type="checkbox">
+                AI Producer may process transcript
+              </label>
+              <label class="po-field po-ticker-toggle">
+                <input id="lvJamRecordAllowed" type="checkbox">
+                Jam Record allowed
+              </label>
+            </div>
+            <p class="control-note">Jam sessions default to locked down. Recording/AI Producer controls elsewhere enforce this, not just hide.</p>
+          </div>
+        </details>
       </aside>
     </div>
 
