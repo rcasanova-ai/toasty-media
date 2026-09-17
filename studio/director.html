@@ -79,6 +79,7 @@
               <option value="8alta">8alta</option>
               <option value="santati">Santati</option>
               <option value="optimai">OptimAI Network</option>
+              <option value="tangem">Tangem</option>
             </select>
           </label>
           <button id="inviteGuestBtn" class="btn btn-primary" type="button">
@@ -133,6 +134,7 @@
                 <option value="8alta">8alta</option>
                 <option value="santati">Santati</option>
                 <option value="optimai">OptimAI Network</option>
+                <option value="tangem">Tangem</option>
               </select>
               <strong>Brand ✓</strong>
             </label>
@@ -522,10 +524,10 @@
           <div class="panel-section" aria-label="AI Producer provider">
             <p class="rail-eyebrow">AI Producer Provider</p>
             <label class="po-field po-ticker-toggle">
-              <input id="lvForceHeuristic" type="checkbox">
-              Force heuristic (skip backend)
+              <input id="lvUseBackend" type="checkbox">
+              Try Toasty backend AI (may incur API cost)
             </label>
-            <p class="control-note" id="lvAiProviderNote">By default, requests try Toasty's backend (server-side Claude) first and silently fall back to the built-in heuristic producer if it's unreachable. No API key ever lives in this browser.</p>
+            <p class="control-note" id="lvAiProviderNote">Off by default — the free, built-in heuristic producer handles every request. Turning this on tries Toasty's server-side backend first and falls back to the heuristic automatically if it's unreachable. No API key ever lives in this browser either way.</p>
           </div>
 
           <div class="panel-section" aria-label="Session policy">

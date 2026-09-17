@@ -8,6 +8,12 @@ export const BRAND_THEMES = Object.freeze({
   toasty: Object.freeze({
     id: "toasty", label: "Toasty Media", showPoweredBy: false,
     logoSrc: "../shared/brand/toasty-media/ToastyMediaStudio.png", logoAlt: "Toasty Media Studio",
+    // homeUrl/faviconSrc are set explicitly (not left to fall back to "whatever a previous brand set")
+    // because applyBrandTheme only assigns these when the theme defines them — Toasty is the one brand
+    // every other theme's switch has to be able to land back on cleanly, so its own reset targets can't
+    // be optional. Without these two, switching 8alta -> toasty left the brand-lockup link and the
+    // favicon pointing at 8alta's, since nothing ever told them to change back.
+    homeUrl: "../site/", faviconSrc: "../shared/brand/toasty-media/ToastyTransparent.png",
     textLogo: "Toasty Studio", atmosphereBrand: "TOASTY", atmosphereProduct: "STUDIO",
     copy: Object.freeze({
       studioName: "Toasty Studio",
@@ -111,6 +117,39 @@ export const BRAND_THEMES = Object.freeze({
       "--brand-primary":"#5eed87","--brand-secondary":"#f6f655","--brand-accent":"#baf46e","--brand-background":"#0a0a0a","--brand-surface":"#121614","--brand-surface-alt":"#18201b","--brand-text":"#ffffff","--brand-text-muted":"#939393","--brand-border":"rgba(255, 255, 255, 0.10)","--brand-button":"#5eed87","--brand-button-text":"#000000","--brand-focus":"#f6f655","--brand-gradient":"linear-gradient(90deg, #f6f655, #5eed87)","--brand-heading-font":"Plus Jakarta Sans, Inter, system-ui, sans-serif","--brand-body-font":"Plus Jakarta Sans, Inter, system-ui, sans-serif",
       "--studio-canvas":"#0a0a0a","--studio-canvas-2":"#0d100e","--studio-surface":"#121614","--studio-surface-2":"#18201b","--studio-surface-raised":"#202a23","--studio-line":"rgba(255, 255, 255, 0.09)","--studio-line-strong":"rgba(94, 237, 135, 0.28)","--studio-line-warm":"rgba(246, 246, 85, 0.30)","--studio-cream":"#ffffff","--studio-cream-dim":"#d4d4d4","--studio-muted":"#939393","--studio-orange":"#5eed87","--studio-orange-bright":"#baf46e","--studio-amber":"#f6f655","--studio-burnt":"#48b96c","--studio-brown":"#18201b","--studio-green":"#5eed87","--studio-client-glow":"rgba(94, 237, 135, 0.18)","--studio-button-text":"#000000","--studio-button-shadow":"rgba(94, 237, 135, 0.22)","--studio-button-shadow-hover":"rgba(94, 237, 135, 0.34)","--studio-atmosphere-stroke":"rgba(94, 237, 135, 0.075)","--studio-atmosphere-stroke-2":"rgba(246, 246, 85, 0.055)","--studio-mark-opacity":"0.045"
     })
+  }),
+  // Colors verified live against tangem.com (2026-09-17): #0099ff is their actual CTA/accent blue
+  // (every "Buy Tangem" button on the site), #000 background, #fff text, ~#6c6c70 muted text. No
+  // logoSrc on purpose — their real logo is an inline currentColor SVG on their own site and their only
+  // public "media kit" is an unlisted Google Drive folder, not a stable hostable asset URL, so this
+  // leans on brand-themes.js's own existing textLogo fallback (see applyBrandTheme) instead of
+  // scraping/rehosting anything. Body font is Inter (already loaded here) rather than their licensed
+  // Graphik LC Web, which this app has no rights to load.
+  tangem: Object.freeze({
+    id: "tangem", label: "Tangem", showPoweredBy: true,
+    homeUrl: "https://tangem.com", faviconSrc: "https://tangem.com/favicon.ico",
+    textLogo: "Tangem Studio", atmosphereBrand: "TANGEM", atmosphereProduct: "STUDIO",
+    copy: Object.freeze({
+      studioName: "Tangem Studio",
+      publicHeroTitle: "Security, produced with the same restraint you build with.",
+      publicHeroSupport: "Turn product walkthroughs, briefings, and raw recordings into precise, on-brand media—consistently produced from first frame to final export.",
+      publicHeroTagline: "Hold the keys. Control the story.",
+      quickLabel: "Fast Production",
+      quickTitle: "Bring the source. Leave with a clean signal.",
+      quickBody: "Upload raw media and build a restrained Tangem production with intros, lower thirds, captions, and export-ready formats.",
+      liveBody: "Invite guests, direct the session, record, and keep every production detail inside one Tangem workspace.",
+      aiBody: "Start from a briefing, a link, or raw material and move through a controlled production workflow.",
+      memoryBody: "Keep Tangem colors, logo use, voice, lower thirds, and calls to action consistent across every production.",
+      guestLede: "Set your name and devices before entering the Tangem Studio.",
+      productionTitle: "Security, produced with the same restraint you build with.",
+      productionSubtitle: "Upload your source material. The Studio handles a clean, brand-consistent production.",
+      preparedTitle: "Your Tangem production is prepared.",
+      conciergePrefix: "Tangem Studio suggests:"
+    }),
+    vars: Object.freeze({
+      "--brand-primary":"#0099ff","--brand-secondary":"#ffffff","--brand-accent":"#33aaff","--brand-background":"#000000","--brand-surface":"#0d0d0f","--brand-surface-alt":"#16161a","--brand-text":"#ffffff","--brand-text-muted":"#6c6c70","--brand-border":"rgba(255, 255, 255, 0.10)","--brand-button":"#0099ff","--brand-button-text":"#ffffff","--brand-focus":"#33aaff","--brand-gradient":"linear-gradient(135deg, #33aaff, #0099ff)","--brand-heading-font":"Inter, system-ui, sans-serif","--brand-body-font":"Inter, system-ui, -apple-system, sans-serif",
+      "--studio-canvas":"#000000","--studio-canvas-2":"#0d0d0f","--studio-surface":"#0d0d0f","--studio-surface-2":"#16161a","--studio-surface-raised":"#1e1e22","--studio-line":"rgba(255, 255, 255, 0.10)","--studio-line-strong":"rgba(0, 153, 255, 0.32)","--studio-line-warm":"rgba(0, 153, 255, 0.42)","--studio-cream":"#ffffff","--studio-cream-dim":"#c7c7ca","--studio-muted":"#6c6c70","--studio-orange":"#0099ff","--studio-orange-bright":"#33aaff","--studio-amber":"#66bbff","--studio-burnt":"#0077cc","--studio-brown":"#16161a","--studio-green":"#0099ff","--studio-client-glow":"rgba(0, 153, 255, 0.18)","--studio-button-text":"#ffffff","--studio-button-shadow":"rgba(0, 153, 255, 0.24)","--studio-button-shadow-hover":"rgba(0, 153, 255, 0.36)","--studio-atmosphere-stroke":"rgba(0, 153, 255, 0.07)","--studio-atmosphere-stroke-2":"rgba(255, 255, 255, 0.045)","--studio-mark-opacity":"0.04"
+    })
   })
 });
 
@@ -128,10 +167,13 @@ export function getInitialBrandTheme(search = window.location.search, options = 
   try { return normalizeBrandTheme(window.localStorage.getItem(THEME_STORAGE_KEY)); } catch { return DEFAULT_BRAND_THEME; }
 }
 export function saveBrandTheme(themeId) { try { window.localStorage.setItem(THEME_STORAGE_KEY, normalizeBrandTheme(themeId)); } catch {} }
+// Toasty is always a listed option, on every brand, on purpose: it's the native Studio identity, not a
+// client — the one-click way back out of any client immersion has to always be reachable from the
+// dropdown itself (see applyBrandTheme's homeUrl/faviconSrc comment for the other half of this).
 export function populateBrandThemeSelect(select, activeThemeId = DEFAULT_BRAND_THEME) {
   if (!select) return;
   const activeId = normalizeBrandTheme(activeThemeId);
-  const themes = Object.values(BRAND_THEMES).filter((theme)=>activeId === DEFAULT_BRAND_THEME || theme.id !== DEFAULT_BRAND_THEME);
+  const themes = Object.values(BRAND_THEMES);
   select.replaceChildren(...themes.map((theme)=>{
     const option=document.createElement("option");
     option.value=theme.id;
@@ -143,7 +185,12 @@ export function populateBrandThemeSelect(select, activeThemeId = DEFAULT_BRAND_T
 export function applyBrandTheme(themeId, elements = {}) {
   const theme = BRAND_THEMES[normalizeBrandTheme(themeId)]; const root = elements.root || document.body; root.dataset.brandTheme = theme.id;
   Object.entries(theme.vars).forEach(([property,value])=>root.style.setProperty(property,value));
-  root.style.setProperty("--studio-mark-image", `url("${theme.logoSrc || "../shared/brand/toasty-media/ToastyTransparent.png"}")`);
+  // Only defaults to Toasty's own flame mark for the toasty theme itself. A client theme with no
+  // logoSrc of its own (Tangem, deliberately, over hotlinking/rehosting an asset we don't have rights
+  // to) must NOT fall through to Toasty's mark either — that would leak Toasty's own brand as a faint
+  // watermark inside an immersive client workspace, which is exactly the stale-branding failure mode
+  // this theme system exists to prevent.
+  root.style.setProperty("--studio-mark-image", theme.logoSrc ? `url("${theme.logoSrc}")` : theme.id === "toasty" ? `url("../shared/brand/toasty-media/ToastyTransparent.png")` : "none");
   root.style.setProperty("--po-font-heading", theme.vars["--brand-heading-font"]);
   root.style.setProperty("--po-font-body", theme.vars["--brand-body-font"]);
   if (elements.logoImg) { if (theme.logoSrc) { elements.logoImg.hidden=false; elements.logoImg.src=theme.logoSrc; elements.logoImg.alt=theme.logoAlt||`${theme.label} Studio`; } else elements.logoImg.hidden=true; }

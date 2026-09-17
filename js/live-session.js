@@ -21,7 +21,11 @@ import { createTranscriptionProvider } from "./transcription.js";
 import { ProducerFeed, AIProducerService, createAIProducerProvider } from "./ai-producer.js";
 
 const USE_BACKEND_STORAGE_KEY = "toasty.ai-producer.use-backend";
-function loadUseBackendPreference() { try { const v = localStorage.getItem(USE_BACKEND_STORAGE_KEY); return v === null ? true : v === "1"; } catch (_) { return true; } }
+// Defaults OFF: no budget for paid API usage right now, so a fresh browser must never silently start
+// spending money the moment the backend happens to get a real key deployed. Trying the backend is an
+// explicit opt-in (Advanced drawer), not an opt-out from it — the heuristic provider is free and stays
+// the default demo path regardless of backend availability.
+function loadUseBackendPreference() { try { const v = localStorage.getItem(USE_BACKEND_STORAGE_KEY); return v === "1"; } catch (_) { return false; } }
 function saveUseBackendPreference(useBackend) { try { localStorage.setItem(USE_BACKEND_STORAGE_KEY, useBackend ? "1" : "0"); } catch (_) {} }
 
 const GUEST_SEAT_COUNT = 3;

@@ -45,7 +45,7 @@ const elements = {
   lvJamCapturePolicy: document.querySelector("#lvJamCapturePolicy"),
   lvJamAiAllowed: document.querySelector("#lvJamAiAllowed"),
   lvJamRecordAllowed: document.querySelector("#lvJamRecordAllowed"),
-  lvForceHeuristic: document.querySelector("#lvForceHeuristic")
+  lvUseBackend: document.querySelector("#lvUseBackend")
 };
 
 init();
@@ -133,9 +133,9 @@ function bindPolicyDrawer() {
 }
 
 function bindAiProviderDrawer() {
-  elements.lvForceHeuristic.checked = !session.aiUseBackend;
-  elements.lvForceHeuristic.addEventListener("change", () => {
-    session.setAiUseBackend(!elements.lvForceHeuristic.checked);
+  elements.lvUseBackend.checked = session.aiUseBackend;
+  elements.lvUseBackend.addEventListener("change", () => {
+    session.setAiUseBackend(elements.lvUseBackend.checked);
   });
 }
 

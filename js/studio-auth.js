@@ -4,7 +4,12 @@ import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js?v=studi
 const state = {
   mode: "signup",
   appLoaded: false,
-  brandTheme: getInitialBrandTheme()
+  // useStorage:false on purpose: this is the LOGGED-OUT public gate. localStorage's saved brand is
+  // authenticated-session state (set when a signed-in host picks a brand inside director.js) — reading
+  // it here would leak a previous session's client immersion onto a bare, logged-out /studio visit.
+  // An explicit ?brand= link (a genuine client invite) still works; getInitialBrandTheme checks the URL
+  // before ever considering storage. Bare /studio with no param and no prior explicit choice = Toasty.
+  brandTheme: getInitialBrandTheme(window.location.search, { useStorage: false })
 };
 
 const els = {};
@@ -122,8 +127,12 @@ function openStudio() {
   els.studioAppShell.hidden = false;
   document.body.classList.add("is-authenticated");
   if (!state.appLoaded) {
+    // Once we're actually inside an authenticated session, storage IS a legitimate source for brand
+    // (this is "remember my last choice across a refresh while logged in", not the logged-out leak) —
+    // state.brandTheme itself stays storage-free so the public gate never flashes stale client branding.
+    const authenticatedBrand = getInitialBrandTheme(window.location.search, { useStorage: true });
     const query = new URLSearchParams(window.location.search);
-    query.set("brand", state.brandTheme);
+    query.set("brand", authenticatedBrand);
     els.studioAppFrame.src = `./director.html?${query}`;
     state.appLoaded = true;
   }
