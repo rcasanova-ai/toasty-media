@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Camera B Experiment — Toasty Studio</title>
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="stylesheet" href="../css/brand.css">
+    <link rel="stylesheet" href="../css/studio.css">
+    <link rel="stylesheet" href="../css/camera-b-experiment.css">
+    <script type="module" src="../js/camera-b-experiment.js"></script>
+  </head>
+  <body class="studio-shell camera-b-shell">
+    <main class="camera-b-page">
+      <header class="camera-b-header">
+        <span class="camera-b-flag">EXPERIMENTAL — not part of Live Studio</span>
+        <h1>Synthetic Camera B</h1>
+        <p class="camera-b-lede">A host-only technical spike: can Toasty produce an authorized, clearly-labeled AI alternate camera angle from a single webcam? This page is not linked from anywhere in the product and does nothing to any live show, guest, or broadcast.</p>
+      </header>
+
+      <section id="cameraBGate" class="camera-b-card" aria-live="polite">
+        <p>Checking Studio sign-in…</p>
+      </section>
+
+      <section id="cameraBApp" class="camera-b-card" hidden>
+        <div class="camera-b-badge">AI / Synthetic Camera — never a physical camera</div>
+
+        <label class="camera-b-consent">
+          <input id="cameraBConsent" type="checkbox">
+          I consent to capturing a single reference photo of myself, stored only in this browser tab, for this experiment.
+        </label>
+
+        <div class="camera-b-stage">
+          <video id="cameraBPreview" autoplay muted playsinline hidden></video>
+          <canvas id="cameraBCanvas" hidden></canvas>
+          <img id="cameraBReferenceImg" alt="Captured reference frame" hidden>
+          <p id="cameraBStageEmpty" class="camera-b-stage-empty">No reference captured yet.</p>
+        </div>
+
+        <div class="camera-b-actions">
+          <button id="cameraBCapture" class="btn btn-primary" type="button" disabled>Capture Reference</button>
+          <button id="cameraBGenerate" class="btn btn-ghost" type="button" disabled title="See the research note below">Generate/Test Camera B</button>
+        </div>
+
+        <p id="cameraBStatus" class="control-note">Check the consent box, then capture a reference frame from your own camera.</p>
+
+        <details class="camera-b-source-debug">
+          <summary>Source record (debug — not sent anywhere)</summary>
+          <pre id="cameraBSourceJson">null</pre>
+        </details>
+
+        <div class="camera-b-research">
+          <h2>Why "Generate/Test" is disabled</h2>
+          <p>No zero-cost, in-session-testable path produced a genuinely convincing alternate camera angle — see the engineering comparison in this session's report. The honest options were: (1) a real neural reangle model (LivePortrait-class), which needs a GPU server Toasty doesn't currently have; (2) a paid real-time avatar API, which needs a signup/spend decision this spike isn't authorized to make; (3) browser-only face-mesh warping, which is buildable without cost but is a from-scratch rendering project, not a button click, and this page won't fake that result. This page stops at reference capture + the data model so the decision is informed, not guessed at.</p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

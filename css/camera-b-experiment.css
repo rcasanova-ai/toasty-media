@@ -1,0 +1,140 @@
+/* Isolated stylesheet for studio/experimental-camera-b.html only — never loaded by director.html,
+   guest.html, or any other Live Studio page. Reuses css/studio.css's --studio-* tokens and .btn/
+   .control-note components for visual consistency; adds nothing to that shared file. */
+
+.camera-b-page {
+  box-sizing: border-box;
+  margin: 0 auto;
+  max-width: 640px;
+  padding: 2rem 1.25rem 4rem;
+}
+
+.camera-b-header {
+  margin-bottom: 1.5rem;
+}
+
+.camera-b-flag {
+  background: color-mix(in srgb, var(--studio-red) 22%, transparent);
+  border: 1px solid var(--studio-red);
+  border-radius: 999px;
+  color: var(--studio-red-bright);
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.75rem;
+  padding: 0.3em 0.8em;
+  text-transform: uppercase;
+}
+
+.camera-b-lede {
+  color: var(--studio-muted);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.camera-b-card {
+  background: var(--studio-surface);
+  border: 1px solid var(--studio-line);
+  border-radius: 16px;
+  padding: 1.5rem;
+}
+
+.camera-b-badge {
+  background: color-mix(in srgb, var(--studio-orange) 14%, transparent);
+  border: 1px solid var(--studio-orange);
+  border-radius: 8px;
+  color: var(--studio-orange-bright);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-bottom: 1.25rem;
+  padding: 0.5em 0.75em;
+  text-transform: uppercase;
+}
+
+.camera-b-consent {
+  align-items: flex-start;
+  color: var(--studio-cream);
+  display: flex;
+  font-size: 0.82rem;
+  gap: 0.6rem;
+  line-height: 1.4;
+  margin-bottom: 1.25rem;
+}
+
+.camera-b-consent input {
+  margin-top: 0.2rem;
+}
+
+.camera-b-stage {
+  align-items: center;
+  background: var(--studio-canvas-2);
+  border-radius: 12px;
+  display: flex;
+  justify-content: center;
+  min-height: 220px;
+  overflow: hidden;
+  position: relative;
+}
+
+.camera-b-stage video,
+.camera-b-stage img {
+  height: auto;
+  max-width: 100%;
+}
+
+.camera-b-stage-empty {
+  color: var(--studio-muted);
+  font-size: 0.82rem;
+  margin: 0;
+}
+
+.camera-b-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin: 1.25rem 0 0.75rem;
+}
+
+.camera-b-source-debug {
+  border-top: 1px solid var(--studio-line);
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.camera-b-source-debug summary {
+  color: var(--studio-orange-bright);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.camera-b-source-debug pre {
+  background: var(--studio-canvas-2);
+  border-radius: 8px;
+  color: var(--studio-cream-dim);
+  font-size: 0.72rem;
+  margin-top: 0.6rem;
+  overflow-x: auto;
+  padding: 0.75rem;
+}
+
+.camera-b-research {
+  border-top: 1px solid var(--studio-line);
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+}
+
+.camera-b-research h2 {
+  color: var(--studio-cream);
+  font-size: 0.88rem;
+  margin: 0 0 0.5rem;
+}
+
+.camera-b-research p {
+  color: var(--studio-muted);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  margin: 0;
+}
