@@ -1,4 +1,5 @@
 import { buildShowContext } from "./show-context.js";
+import { ProducerActionType, normalizeActionType, normalizeAutonomy, ProducerAutonomy } from "./producer-persona.js";
 
 let uid = 0;
 function nextId(prefix) { return `${prefix}-${Date.now().toString(36)}-${(uid++).toString(36)}`; }
@@ -122,12 +123,27 @@ export class AIProducerService {
     // fresh per request (not cached) so it engages the instant the running total crosses the line, and
     // self-enforces afterward since heuristic answers never add more cost.
     const activeProvider = this.sessionTotals().hardCutoff ? this._heuristicProvider : this.provider;
+    // Persona/relationship/tone/autonomy — see js/producer-persona.js. Every provider (DeepSeek via the
+    // backend, or the heuristic) gets the SAME persona object; only this line changes which provider
+    // answers, never who Toasty Producer sounds like.
+    const persona = this.session.persona();
     try {
       const providerCallStartedAt = performance.now();
-      const result = await activeProvider.respond(instructionText, context);
+      const result = await activeProvider.respond(instructionText, context, persona);
       const providerCallEndedAt = performance.now();
-      this.feed.replace(pending.id, { ...result, instruction: instructionText });
+      result.action = normalizeActionType(result.action);
+      this.feed.replace(pending.id, { ...result, instruction: instructionText, actionStatus: result.action === ProducerActionType.SEND_TO_PROGRAM ? "pending" : null });
       this._recordUsage(result.usage);
+      // Autonomy enforcement lives HERE, client-side, never inside a provider response — a model saying
+      // "send_to_program" only ever produces a draft unless autonomy is AUTONOMOUS. See sendEntryToProgram.
+      if (result.action === ProducerActionType.SEND_TO_PROGRAM && normalizeAutonomy(persona.autonomy) === ProducerAutonomy.AUTONOMOUS) {
+        this.sendEntryToProgram(pending.id);
+      }
+      // Purely a visual flag on the Host's audience list (see AudienceStore.markSurfaced) — never a
+      // publish/routing action, so this is safe regardless of autonomy setting.
+      if (result.action === ProducerActionType.SURFACE_QUESTION && result.sources?.length) {
+        this.session.audience.markSurfaced(result.sources);
+      }
       this._diagnostics.push({
         instruction: instructionText,
         contextBuildMs: Math.round(contextBuiltAt - instructionReadyAt),
@@ -148,6 +164,18 @@ export class AIProducerService {
       throw error;
     }
   }
+
+  // The ONLY path that ever exposes a Producer message beyond the host: called automatically for
+  // AUTONOMOUS autonomy, or by a manual Host/Producer click for DRAFT_ONLY/ASK_HOST (see
+  // renderFeedEntry's "Send to Program" button). Deliberately plugs into the EXISTING Program Output
+  // ticker rather than any new renderer or external posting — see js/producer-persona.js's action model
+  // notes on why external X/YT/TG posting isn't wired yet.
+  sendEntryToProgram(entryId) {
+    const entry = this.feed.entries.find((e) => e.id === entryId);
+    if (!entry || entry.action !== ProducerActionType.SEND_TO_PROGRAM || entry.actionStatus === "sent") return;
+    this.session.setTicker({ enabled: true, text: entry.summary });
+    this.feed.replace(entryId, { actionStatus: "sent" });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +186,12 @@ export class AIProducerService {
 // ---------------------------------------------------------------------------
 
 export class HeuristicAIProducerProvider {
-  async respond(instruction, context) {
+  // persona is accepted for interface parity with the LLM-backed providers (see AIProducerService.
+  // handleInstruction, which passes the same persona object to whichever provider is active) but isn't
+  // used to vary phrasing today: these responses are template-built from real ShowContext data, not
+  // generated text, so there's little genuine persona expression to apply without it reading as noise.
+  // Every response still defaults to the "private" action via normalizeActionType in handleInstruction.
+  async respond(instruction, context, persona) {
     const intent = classifyIntent(instruction);
     if (intent === "audience_questions") return curateAudienceQuestions(instruction, context);
     if (intent === "uncovered") return findUncoveredContext(context);
@@ -379,13 +412,16 @@ export class BackendAIProducerProvider {
     this.timeoutMs = timeoutMs;
   }
 
-  async respond(instruction, context) {
+  // persona (relationship/tone/autonomy — see js/producer-persona.js) rides in the request body so the
+  // backend can compose a persona-aware system prompt itself. The backend is still the ONLY place either
+  // provider's API key lives; this never gives the browser a way to reach DeepSeek/Anthropic directly.
+  async respond(instruction, context, persona) {
     let response;
     try {
       response = await fetch(getAiProducerEndpoint(), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ instruction, context }),
+        body: JSON.stringify({ instruction, context, persona }),
         signal: AbortSignal.timeout(this.timeoutMs)
       });
     } catch (error) {
@@ -397,7 +433,7 @@ export class BackendAIProducerProvider {
     // usage rides along on the entry for Producer diagnostics only (see AIProducerService._recordUsage
     // and renderFeedEntry, which never reads it) — it never enters the {type,title,summary,items,sources}
     // contract Host View actually renders from.
-    return { type: parsed.type, title: parsed.title || "AI Producer", summary: parsed.summary || "", items: Array.isArray(parsed.items) ? parsed.items : [], sources: Array.isArray(parsed.sources) ? parsed.sources : [], usage: parsed.usage || null };
+    return { type: parsed.type, title: parsed.title || "AI Producer", summary: parsed.summary || "", items: Array.isArray(parsed.items) ? parsed.items : [], action: parsed.action, sources: Array.isArray(parsed.sources) ? parsed.sources : [], usage: parsed.usage || null };
   }
 }
 
@@ -410,12 +446,12 @@ export class FallbackAIProducerProvider {
     this.fallback = fallback;
   }
 
-  async respond(instruction, context) {
+  async respond(instruction, context, persona) {
     try {
-      return await this.primary.respond(instruction, context);
+      return await this.primary.respond(instruction, context, persona);
     } catch (error) {
       console.warn("AI Producer backend unavailable, falling back to heuristic:", error?.message || error);
-      return this.fallback.respond(instruction, context);
+      return this.fallback.respond(instruction, context, persona);
     }
   }
 }
@@ -430,7 +466,13 @@ export function createAIProducerProvider({ useBackend = true } = {}) {
 // both places (only the mirror in ProducerView omits dismiss/pin controls).
 // ---------------------------------------------------------------------------
 
-export function renderFeedEntry(entry, { onDismiss, onPin } = {}) {
+const ACTION_LABELS = {
+  [ProducerActionType.SURFACE_QUESTION]: "Surfaced for host",
+  [ProducerActionType.DRAFT_AUDIENCE_REPLY]: "Draft audience reply",
+  [ProducerActionType.SEND_TO_PROGRAM]: "Program Output"
+};
+
+export function renderFeedEntry(entry, { onDismiss, onPin, onSendToProgram } = {}) {
   const el = document.createElement("article");
   el.className = "lv-feed-entry";
   el.dataset.type = entry.type;
@@ -498,6 +540,29 @@ export function renderFeedEntry(entry, { onDismiss, onPin } = {}) {
       list.appendChild(li);
     });
     el.appendChild(list);
+  }
+
+  // PRIVATE (the default) never renders a badge — that's the normal, expected case and shouldn't
+  // compete for attention. Only the three audience-facing actions get a visible marker, and only
+  // SEND_TO_PROGRAM while still pending gets a confirm control — see AIProducerService.sendEntryToProgram
+  // for why this button, not autonomy, is what actually gates anything reaching Program Output.
+  if (entry.action && entry.action !== ProducerActionType.PRIVATE) {
+    const actionRow = document.createElement("div");
+    actionRow.className = "lv-feed-entry-action";
+    const badge = document.createElement("span");
+    badge.className = "lv-feed-action-badge";
+    badge.dataset.action = entry.action;
+    badge.textContent = entry.actionStatus === "sent" ? "Sent to Program" : (ACTION_LABELS[entry.action] || entry.action);
+    actionRow.appendChild(badge);
+    if (entry.action === ProducerActionType.SEND_TO_PROGRAM && entry.actionStatus === "pending" && onSendToProgram) {
+      const sendBtn = document.createElement("button");
+      sendBtn.type = "button";
+      sendBtn.className = "lv-feed-mini-btn";
+      sendBtn.textContent = "Send to Program";
+      sendBtn.addEventListener("click", () => onSendToProgram(entry.id));
+      actionRow.appendChild(sendBtn);
+    }
+    el.appendChild(actionRow);
   }
 
   return el;

@@ -24,6 +24,22 @@ export class AudienceStore {
 
   recent(limit = 200) { return this.messages.slice(-limit); }
   questions() { return this.messages.filter((m) => m.type === AudienceMessageType.QUESTION); }
+
+  // Backs the "surface_question" Producer action (see js/producer-persona.js's action model) — a purely
+  // visual flag for Host View's audience list, not a routing/publish mechanism. Marking something
+  // surfaced never sends anything anywhere by itself.
+  markSurfaced(ids = []) {
+    const idSet = new Set(ids);
+    if (!idSet.size) return;
+    let changed = false;
+    this.messages = this.messages.map((m) => {
+      if (!idSet.has(m.id) || m.surfaced) return m;
+      changed = true;
+      return { ...m, surfaced: true };
+    });
+    if (changed) this._emit(null);
+  }
+
   clear() { this.messages = []; this._emit(null); }
 }
 

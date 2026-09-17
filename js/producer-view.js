@@ -119,8 +119,10 @@ export class ProducerView {
       : "Audience feed is still dripping, but transcript capture is blocked by this session's capture policy.";
   }
 
-  // Read-only mirror of the SAME ProducerFeed HostView renders — no dismiss/pin here, no separate
-  // AI state. The human Producer sees exactly what the host asked and what AI Producer said back.
+  // Read-only mirror of the SAME ProducerFeed HostView renders — no dismiss/pin here, no separate AI
+  // state. The human Producer sees exactly what the host asked and what AI Producer said back. The one
+  // exception is "Send to Program": that's a production decision, not a private-feed curation one, so
+  // Producer (who owns broadcast/Program Output per the Host-vs-Producer split) can confirm it here too.
   renderFeedMirror() {
     const entries = this.session.aiProducerFeed.visible();
     if (!entries.length) {
@@ -130,7 +132,9 @@ export class ProducerView {
       this.elements.feedListProducer.replaceChildren(p);
       return;
     }
-    this.elements.feedListProducer.replaceChildren(...entries.map((entry) => renderFeedEntry(entry)));
+    this.elements.feedListProducer.replaceChildren(...entries.map((entry) => renderFeedEntry(entry, {
+      onSendToProgram: (id) => this.session.aiProducerService.sendEntryToProgram(id)
+    })));
   }
 
   renderGuests() {

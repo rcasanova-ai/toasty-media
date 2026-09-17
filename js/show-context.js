@@ -56,6 +56,10 @@ export function buildShowContext(session) {
     previousTopics: runOfShow.completed().map((item) => ({ title: item.title, notes: item.notes })),
     transcript: session.transcript.recent(60),
     speakers: session.transcript.speakers(),
+    // Structured guest metadata (see live-session.js's parseGuestLabel) — lets the Producer reference a
+    // connected guest by name/title before they've said a word, e.g. "you haven't asked Kristine about
+    // grid capacity yet". Empty when no guest has joined; never fabricated.
+    guests: session.guestSeats.filter(Boolean).map((seat) => ({ displayName: seat.displayName || seat.label, title: seat.title || "", company: seat.company || "" })),
     audienceMessages: session.audience.recent(200),
     producerHistory: session.aiProducerFeed.recent(10).map((entry) => ({ type: entry.type, title: entry.title, summary: entry.summary, instruction: entry.instruction, sources: entry.sources }))
   };

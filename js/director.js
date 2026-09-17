@@ -47,7 +47,10 @@ const elements = {
   lvJamCapturePolicy: document.querySelector("#lvJamCapturePolicy"),
   lvJamAiAllowed: document.querySelector("#lvJamAiAllowed"),
   lvJamRecordAllowed: document.querySelector("#lvJamRecordAllowed"),
-  lvForceHeuristicMode: document.querySelector("#lvForceHeuristicMode")
+  lvForceHeuristicMode: document.querySelector("#lvForceHeuristicMode"),
+  lvHostRelationship: document.querySelector("#lvHostRelationship"),
+  lvShowTone: document.querySelector("#lvShowTone"),
+  lvProducerAutonomy: document.querySelector("#lvProducerAutonomy")
 };
 
 init();
@@ -77,6 +80,7 @@ function init() {
   bindRailControls();
   bindPolicyDrawer();
   bindAiProviderDrawer();
+  bindPersonaDrawer();
 
   session.on("recording", renderRecChip);
   session.on("policy", renderPolicyChip);
@@ -145,6 +149,18 @@ function bindAiProviderDrawer() {
   elements.lvForceHeuristicMode.addEventListener("change", () => {
     session.setAiUseBackend(!elements.lvForceHeuristicMode.checked);
   });
+}
+
+// Producer Persona controls (see js/producer-persona.js) — pure Toasty configuration, live-adjustable.
+// Switching relationship/tone/autonomy here changes what system prompt the NEXT AI Producer request
+// gets; nothing in this file knows or cares which provider ends up answering it.
+function bindPersonaDrawer() {
+  elements.lvHostRelationship.value = session.hostRelationship;
+  elements.lvShowTone.value = session.showTone;
+  elements.lvProducerAutonomy.value = session.producerAutonomy;
+  elements.lvHostRelationship.addEventListener("change", () => session.setHostRelationship(elements.lvHostRelationship.value));
+  elements.lvShowTone.addEventListener("change", () => session.setShowTone(elements.lvShowTone.value));
+  elements.lvProducerAutonomy.addEventListener("change", () => session.setProducerAutonomy(elements.lvProducerAutonomy.value));
 }
 
 function syncJamFieldsFromPolicy() {

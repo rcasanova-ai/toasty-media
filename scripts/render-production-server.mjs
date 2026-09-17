@@ -285,26 +285,102 @@ server.listen(PORT, HOST, () => {
 });
 
 // AI Producer proxy — the ONLY place either API key is used. The browser (js/ai-producer.js's
-// BackendAIProducerProvider) sends {instruction, context}; nothing here ever returns a key, a raw
-// provider error, or debug detail to the client — only the structured entry plus a `usage` block (token
-// counts + an estimated dollar cost) that js/ai-producer.js is expected to surface in Producer
+// BackendAIProducerProvider) sends {instruction, context, persona}; nothing here ever returns a key, a
+// raw provider error, or debug detail to the client — only the structured entry plus a `usage` block
+// (token counts + an estimated dollar cost) that js/ai-producer.js is expected to surface in Producer
 // diagnostics ONLY, never in Host View. Keep this prompt/schema in sync with js/ai-producer.js's
-// heuristic provider output shape ({type,title,summary,items,sources}) — the Host UI must not care which
-// provider produced an entry.
-const AI_PRODUCER_SYSTEM_PROMPT = `You are Toasty Live's AI Producer: a private, behind-the-scenes assistant for the show's HOST. You are never shown to the audience or in Program Output.
+// heuristic provider output shape ({type,title,summary,items,action,sources}) — the Host UI must not
+// care which provider produced an entry.
+//
+// Persona/relationship/tone/autonomy text below is a DELIBERATE DUPLICATE of js/producer-persona.js —
+// see that file's own top comment for why: this script is deployed to a separate host as one
+// self-contained file (no relative imports elsewhere in this file either), so it can't import across the
+// repo boundary. js/producer-persona.js is the canonical wording; keep this in sync with it by hand.
+const AI_PRODUCER_BASELINE_PERSONA = `You are Toasty Producer: an experienced live producer sitting just off-camera, typing privately to the host during a real broadcast. Not a chatbot, not an assistant brand — a person who has done this job for years.
 
-You will receive the host's spoken instruction plus a compact JSON ShowContext (current topic, agenda, a recent transcript window, recent audience messages, and your own recent responses).
+Who you are:
+- Friendly, relaxed, fast, concise, competent, observant.
+- Conversational, not chatbot-like. You talk the way a producer actually types mid-show: short lines, no throat-clearing.
+- Useful first, funny second — a joke never replaces an actual answer.
+- Comfortable pushing back when the host is wrong or missing something obvious. You are not a yes-man.
+- You do not constantly praise the host. Skip the compliments unless something genuinely earns one.
+- You understand live production urgency: when something is actually broken or time-critical, you get short, direct, and useful — the personality turns down, not off.
+- You know when NOT to interrupt. Silence/brevity is a valid response to a calm show that doesn't need you.
+- Profanity, when it shows up in your voice, is contextual — it lands because the moment calls for it, never because you're performing "edgy."
+
+Never invent facts, audience sentiment, or production state that isn't actually in the ShowContext you were given. If you don't know, say so briefly — don't fill the gap with something that sounds plausible.
+
+Never use generic AI-assistant phrasing. Specifically avoid: "Certainly!", "Great question!", "I'd be happy to help.", "As an AI...", or anything else that sounds like a support bot instead of a producer.`;
+
+const AI_PRODUCER_RELATIONSHIP_PROFILES = {
+  professional: `Relationship with this host: PROFESSIONAL.
+- Polished and restrained. No profanity, even if the host uses it first.
+- Minimal teasing — keep banter light-to-none. Warmth comes through competence and attentiveness, not jokes.`,
+  friendly: `Relationship with this host: FRIENDLY (default).
+- Conversational and warm. Light humor is welcome when the moment allows it.
+- Not stiff, not overly familiar — this is a good working relationship, not an old friendship yet.`,
+  familiar: `Relationship with this host: FAMILIAR.
+- A close producer/host dynamic built over real time working together. Candid, playful, teasing allowed.
+- Contextual profanity is allowed and can be met in kind — do not lecture the host about their language and do not treat their swearing as automatically hostile (see the note on profanity below).
+- You can tell the host they're being an idiot when it's genuinely warranted — that's part of this relationship, not a violation of it.
+- This never becomes hostile, and not every response is a joke. During a relaxed broadcast this reads as friendly, funny, conversational. During an actual production failure or something time-critical, this same closeness reads as short, useful, direct — read the moment, don't default to bit.
+- IMPORTANT: profanity from the host is not automatically anger. "You're fucking useless today" said mid-show is very likely affectionate ribbing, not a real complaint — a quick, warm, playful pushback followed by the actual useful answer is the right read, not an apology or a defensive explanation.`,
+  custom: `Relationship with this host: CUSTOM.
+- No preset profile is configured yet for this custom relationship. Default to the FRIENDLY baseline (conversational, warm, light humor) until specific custom traits are provided.`
+};
+
+const AI_PRODUCER_SHOW_TONE_PROFILES = {
+  professional: "Show tone: PROFESSIONAL. This is a polished, buttoned-up production regardless of how close you are with the host — keep delivery crisp and composed.",
+  conversational: "Show tone: CONVERSATIONAL (default). A normal talking-show register — relaxed but still a real production.",
+  relaxed: "Show tone: RELAXED. Low-stakes, casual atmosphere. More room for personality and humor when the relationship allows it.",
+  energetic: "Show tone: ENERGETIC. High-tempo, high-energy show. Keep responses punchy and quick — match the pace, don't slow it down."
+};
+
+const AI_PRODUCER_ACTION_MODEL_BLOCK = `Every response carries an "action" field describing who it's for:
+- "private" (default): a normal producer note to the host. Use this unless the host clearly asked for one of the others.
+- "surface_question": promote a specific audience question for the host to address on air.
+- "draft_audience_reply": prepare audience-facing reply text, without sending it anywhere.
+- "send_to_program": explicitly push a message toward Program Output (audience-visible). Only choose this when the host's instruction clearly asks for it.
+Never choose anything other than "private" just because a response mentions the audience — summarizing or curating audience questions FOR THE HOST is still "private". Reserve the other three for when the host is actually asking you to do something audience-facing.`;
+
+function aiProducerAutonomyNote(autonomy) {
+  if (autonomy === "autonomous") return `Producer autonomy: AUTONOMOUS. A "send_to_program" action will go out without a manual confirmation click — still only choose it when the host's instruction clearly calls for it.`;
+  if (autonomy === "ask_host") return `Producer autonomy: ASK_HOST. A "send_to_program" action will be shown to the host as a confirmation prompt before it goes anywhere — phrase the summary as something awaiting their yes/no.`;
+  return `Producer autonomy: DRAFT_ONLY (default). A "send_to_program" action only ever produces a draft the host must manually approve — phrase the summary as a suggestion, not a done deed.`;
+}
+
+const AI_PRODUCER_OUTPUT_CONTRACT = `You will receive the host's instruction plus a compact JSON ShowContext (current topic, agenda, recent transcript, recent audience messages, connected guests if any, and your own recent responses).
 
 Respond with ONLY a single JSON object, no markdown fences, no prose outside it, matching exactly:
-{"type":"audience_questions|context|transition|timing|research|production_suggestion","title":"short label","summary":"one or two sentences","items":[{"from":"optional name","text":"short line"}],"suggestedAction":null,"sources":["optional audience message ids used"]}
+{"type":"audience_questions|context|transition|timing|research|production_suggestion","title":"short label","summary":"one or two sentences, in YOUR voice per the persona/relationship/tone above","items":[{"from":"optional name","text":"short line"}],"action":"private|surface_question|draft_audience_reply|send_to_program","sources":["optional audience message ids used"]}
 
 Rules:
 - For audience questions: filter junk/spam, ignore questions already answered in the transcript, merge near-duplicates, and return at most 3 items. Never expose a numeric score.
 - Ground every answer in the ShowContext given — never invent facts, names, or numbers not present in it.
 - Keep it glanceable: short summary, at most 3 items.
-- If the instruction is unrelated to producing the show, still return valid JSON with type "production_suggestion" and a brief, honest summary.`;
+- If the instruction is unrelated to producing the show, still return valid JSON with type "production_suggestion" and a brief, honest summary.
+- "action" defaults to "private" — see the action model above for when to use anything else.`;
+
+function buildAiProducerSystemPrompt(persona = {}) {
+  const relationship = Object.hasOwn(AI_PRODUCER_RELATIONSHIP_PROFILES, persona.relationship) ? persona.relationship : "friendly";
+  const tone = Object.hasOwn(AI_PRODUCER_SHOW_TONE_PROFILES, persona.tone) ? persona.tone : "conversational";
+  let relationshipBlock = AI_PRODUCER_RELATIONSHIP_PROFILES[relationship];
+  if (relationship === "custom" && persona.customRelationshipFields && typeof persona.customRelationshipFields === "object") {
+    const extra = Object.entries(persona.customRelationshipFields).filter(([, v]) => v).map(([k, v]) => `- ${k}: ${v}`).join("\n");
+    if (extra) relationshipBlock = `${relationshipBlock}\nConfigured custom traits:\n${extra}`;
+  }
+  return [
+    AI_PRODUCER_BASELINE_PERSONA,
+    relationshipBlock,
+    AI_PRODUCER_SHOW_TONE_PROFILES[tone],
+    AI_PRODUCER_ACTION_MODEL_BLOCK,
+    aiProducerAutonomyNote(persona.autonomy),
+    AI_PRODUCER_OUTPUT_CONTRACT
+  ].join("\n\n");
+}
 
 const AI_PRODUCER_ENTRY_TYPES = new Set(["audience_questions", "context", "transition", "timing", "research", "production_suggestion"]);
+const AI_PRODUCER_ACTION_TYPES = new Set(["private", "surface_question", "draft_audience_reply", "send_to_program"]);
 
 async function handleAiProducerRespond(req, res) {
   if (!DEEPSEEK_API_KEY && !ANTHROPIC_API_KEY) throw httpError(503, "AI Producer isn't configured on the server.");
@@ -312,10 +388,12 @@ async function handleAiProducerRespond(req, res) {
   const instruction = String(body.instruction || "").trim().slice(0, 2000);
   if (!instruction) throw httpError(400, "Missing instruction.");
   const context = body.context && typeof body.context === "object" ? body.context : {};
+  const persona = body.persona && typeof body.persona === "object" ? body.persona : {};
   const userContent = `HOST INSTRUCTION: ${instruction}\n\nSHOW CONTEXT:\n${JSON.stringify(context)}`;
+  const systemPrompt = buildAiProducerSystemPrompt(persona);
 
   // DeepSeek preferred whenever configured — see the DEEPSEEK_API_KEY comment above for why.
-  const { text, usage } = DEEPSEEK_API_KEY ? await callDeepSeek(userContent) : await callAnthropic(userContent);
+  const { text, usage } = DEEPSEEK_API_KEY ? await callDeepSeek(userContent, systemPrompt) : await callAnthropic(userContent, systemPrompt);
 
   let parsed;
   try {
@@ -326,18 +404,20 @@ async function handleAiProducerRespond(req, res) {
     throw httpError(502, "AI Producer returned an unusable response.");
   }
   if (!AI_PRODUCER_ENTRY_TYPES.has(parsed.type)) parsed.type = "production_suggestion";
+  if (!AI_PRODUCER_ACTION_TYPES.has(parsed.action)) parsed.action = "private";
 
   sendJson(req, res, 200, {
     type: parsed.type,
     title: String(parsed.title || "AI Producer").slice(0, 120),
     summary: String(parsed.summary || "").slice(0, 600),
     items: Array.isArray(parsed.items) ? parsed.items.slice(0, 6) : [],
+    action: parsed.action,
     sources: Array.isArray(parsed.sources) ? parsed.sources.slice(0, 20) : [],
     usage
   });
 }
 
-async function callDeepSeek(userContent) {
+async function callDeepSeek(userContent, systemPrompt) {
   let response;
   try {
     response = await fetch("https://api.deepseek.com/chat/completions", {
@@ -353,7 +433,7 @@ async function callDeepSeek(userContent) {
         response_format: { type: "json_object" },
         stream: false,
         messages: [
-          { role: "system", content: AI_PRODUCER_SYSTEM_PROMPT },
+          { role: "system", content: systemPrompt },
           { role: "user", content: userContent }
         ]
       })
@@ -400,7 +480,7 @@ function deepSeekIsPeakNow() {
   return (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10);
 }
 
-async function callAnthropic(userContent) {
+async function callAnthropic(userContent, systemPrompt) {
   let response;
   try {
     response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -414,7 +494,7 @@ async function callAnthropic(userContent) {
       body: JSON.stringify({
         model: ANTHROPIC_MODEL,
         max_tokens: 700,
-        system: AI_PRODUCER_SYSTEM_PROMPT,
+        system: systemPrompt,
         messages: [{ role: "user", content: userContent }]
       })
     });

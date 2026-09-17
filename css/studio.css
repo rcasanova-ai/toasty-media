@@ -3728,6 +3728,10 @@
   color: var(--studio-orange-bright);
 }
 
+.lv-audience-item[data-surfaced="true"] {
+  background: color-mix(in srgb, var(--studio-orange) 8%, transparent);
+}
+
 .lv-audience-name {
   font-weight: 700;
   margin-right: 0.35em;
@@ -3848,6 +3852,42 @@
 .lv-feed-entry-items strong {
   color: var(--studio-orange-bright);
   font-size: 0.72rem;
+}
+
+.lv-feed-entry-action {
+  align-items: center;
+  border-top: 1px solid var(--studio-line);
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+}
+
+.lv-feed-action-badge {
+  border-radius: 999px;
+  background: var(--studio-surface-2);
+  color: var(--studio-cream-dim);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 0.2em 0.6em;
+  text-transform: uppercase;
+}
+
+.lv-feed-action-badge[data-action="send_to_program"] {
+  color: var(--studio-orange-bright);
+}
+
+.lv-feed-entry-action .lv-feed-mini-btn {
+  background: var(--studio-surface-2);
+  border-radius: 999px;
+  color: var(--studio-cream);
+  padding: 0.2em 0.65em;
+}
+
+.lv-feed-entry-action .lv-feed-mini-btn:hover {
+  background: var(--studio-orange);
+  color: var(--studio-button-text);
 }
 
 .lv-talk-row {

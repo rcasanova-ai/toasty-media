@@ -540,6 +540,33 @@
             <p class="control-note" id="lvAiProviderNote">DeepSeek answers automatically when reachable, falling back to the free built-in heuristic on any failure — no key ever lives in this browser. Check this to skip DeepSeek entirely (demos, testing, or if you want zero API cost for this show).</p>
           </div>
 
+          <div class="panel-section" aria-label="Producer persona">
+            <p class="rail-eyebrow">Producer Persona</p>
+            <label class="po-field">Host relationship
+              <select id="lvHostRelationship">
+                <option value="professional">Professional</option>
+                <option value="friendly" selected>Friendly</option>
+                <option value="familiar">Familiar</option>
+              </select>
+            </label>
+            <label class="po-field">Show tone
+              <select id="lvShowTone">
+                <option value="professional">Professional</option>
+                <option value="conversational" selected>Conversational</option>
+                <option value="relaxed">Relaxed</option>
+                <option value="energetic">Energetic</option>
+              </select>
+            </label>
+            <label class="po-field">Producer autonomy
+              <select id="lvProducerAutonomy">
+                <option value="draft_only" selected>Draft only</option>
+                <option value="ask_host">Ask host</option>
+                <option value="autonomous">Autonomous</option>
+              </select>
+            </label>
+            <p class="control-note">Shapes how Toasty Producer talks — same DeepSeek backend either way. Autonomy only affects the "Send to Program" action; it never posts anywhere external.</p>
+          </div>
+
           <div class="panel-section" aria-label="Session policy">
             <p class="rail-eyebrow">Session Policy</p>
             <label class="po-field">Session type

@@ -97,7 +97,7 @@ function defaultAgenda() {
   return [
     { id: nextId("topic"), title: "Opening", notes: "", preparedQuestions: [], status: TopicStatus.COMPLETED, estimatedMinutes: 5, startedAt: now - 20 * 60000, completedAt: now - 15 * 60000 },
     { id: nextId("topic"), title: "Canada", notes: "", preparedQuestions: [], status: TopicStatus.COMPLETED, estimatedMinutes: 8, startedAt: now - 15 * 60000, completedAt: now - 8 * 60000 },
-    { id: nextId("topic"), title: "Thailand", notes: "Announced AI data-centre pipeline and whether the grid has capacity for it; distinguishing real AI facilities from traditional cloud/data centres.", preparedQuestions: [], status: TopicStatus.CURRENT, estimatedMinutes: 10, startedAt: now - 8 * 60000, completedAt: null },
+    { id: nextId("topic"), title: "Thailand", notes: "Announced AI data-centre pipeline and whether the grid has capacity for it; distinguishing real AI facilities from traditional cloud/data centres.", preparedQuestions: ["Ask Kristine (CIO) whether the grid actually has spare capacity for the announced AI data-centre pipeline."], status: TopicStatus.CURRENT, estimatedMinutes: 10, startedAt: now - 8 * 60000, completedAt: null },
     { id: nextId("topic"), title: "Vietnam", notes: "Manufacturing shift and power/grid buildout to support it.", preparedQuestions: [], status: TopicStatus.UPCOMING, estimatedMinutes: 10, startedAt: null, completedAt: null },
     { id: nextId("topic"), title: "Closing", notes: "", preparedQuestions: [], status: TopicStatus.UPCOMING, estimatedMinutes: 5, startedAt: null, completedAt: null }
   ];

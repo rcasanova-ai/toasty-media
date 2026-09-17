@@ -19,8 +19,24 @@ import { AudienceStore, DemoAudienceFeed } from "./audience.js";
 import { TranscriptStore } from "./show-context.js";
 import { createTranscriptionProvider } from "./transcription.js";
 import { ProducerFeed, AIProducerService, createAIProducerProvider } from "./ai-producer.js";
+import {
+  DEFAULT_HOST_RELATIONSHIP_MODE,
+  DEFAULT_SHOW_TONE,
+  DEFAULT_PRODUCER_AUTONOMY,
+  normalizeRelationshipMode,
+  normalizeShowTone,
+  normalizeAutonomy
+} from "./producer-persona.js";
 
 const USE_BACKEND_STORAGE_KEY = "toasty.ai-producer.use-backend";
+const HOST_RELATIONSHIP_STORAGE_KEY = "toasty.ai-producer.host-relationship";
+const SHOW_TONE_STORAGE_KEY = "toasty.ai-producer.show-tone";
+const PRODUCER_AUTONOMY_STORAGE_KEY = "toasty.ai-producer.autonomy";
+
+function loadPersonaSetting(key, normalize, fallback) {
+  try { const v = localStorage.getItem(key); return v === null ? fallback : normalize(v); } catch (_) { return fallback; }
+}
+function savePersonaSetting(key, value) { try { localStorage.setItem(key, value); } catch (_) {} }
 // Defaults ON: DeepSeek is now the configured, cheap, real backend (see AIProducerService's
 // SOFT_WARNING_USD/HARD_CUTOFF_USD guardrail, which is what actually caps runaway spend — not this
 // flag). "Force offline / heuristic mode" in Advanced is the opt-OUT, not an opt-in to try the backend;
@@ -100,6 +116,12 @@ export class LiveSession {
     this.transcript = new TranscriptStore();
     this.aiProducerFeed = new ProducerFeed();
     this.aiUseBackend = loadUseBackendPreference();
+    // Producer Persona layer (see js/producer-persona.js) — Toasty CONFIGURATION, never something a
+    // provider call hardcodes. Default relationship is FRIENDLY per spec; a given show can be set to
+    // FAMILIAR (e.g. for a Ricardo demo) via setHostRelationship, same mechanism either way.
+    this.hostRelationship = loadPersonaSetting(HOST_RELATIONSHIP_STORAGE_KEY, normalizeRelationshipMode, DEFAULT_HOST_RELATIONSHIP_MODE);
+    this.showTone = loadPersonaSetting(SHOW_TONE_STORAGE_KEY, normalizeShowTone, DEFAULT_SHOW_TONE);
+    this.producerAutonomy = loadPersonaSetting(PRODUCER_AUTONOMY_STORAGE_KEY, normalizeAutonomy, DEFAULT_PRODUCER_AUTONOMY);
     this.aiProducerService = new AIProducerService({
       session: this,
       feed: this.aiProducerFeed,
@@ -123,6 +145,40 @@ export class LiveSession {
     saveUseBackendPreference(useBackend);
     this.aiProducerService.provider = createAIProducerProvider({ useBackend });
     this.emit("ai-provider", useBackend);
+  }
+
+  // ---- Producer Persona (see js/producer-persona.js) ----
+  // These three settings are the ONLY inputs that shape Toasty Producer's voice — no provider call
+  // hardcodes personality. Changing them takes effect on the very next instruction; nothing about an
+  // in-flight request or past feed entries is rewritten.
+
+  setHostRelationship(mode, customFields = null) {
+    this.hostRelationship = normalizeRelationshipMode(mode);
+    this.hostRelationshipCustomFields = this.hostRelationship === "custom" ? (customFields || {}) : null;
+    savePersonaSetting(HOST_RELATIONSHIP_STORAGE_KEY, this.hostRelationship);
+    this.emit("persona", this.persona());
+  }
+
+  setShowTone(tone) {
+    this.showTone = normalizeShowTone(tone);
+    savePersonaSetting(SHOW_TONE_STORAGE_KEY, this.showTone);
+    this.emit("persona", this.persona());
+  }
+
+  setProducerAutonomy(autonomy) {
+    this.producerAutonomy = normalizeAutonomy(autonomy);
+    savePersonaSetting(PRODUCER_AUTONOMY_STORAGE_KEY, this.producerAutonomy);
+    this.emit("persona", this.persona());
+  }
+
+  // The one object every provider call is built from — see AIProducerService.handleInstruction.
+  persona() {
+    return {
+      relationship: this.hostRelationship,
+      customRelationshipFields: this.hostRelationshipCustomFields || null,
+      tone: this.showTone,
+      autonomy: this.producerAutonomy
+    };
   }
 
   sendToProducer(instructionText, options) {

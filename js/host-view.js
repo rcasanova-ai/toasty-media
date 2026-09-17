@@ -190,9 +190,10 @@ export class HostView {
       const row = document.createElement("div");
       row.className = "lv-audience-item";
       row.dataset.type = message.type;
+      if (message.surfaced) row.dataset.surfaced = "true";
       const name = document.createElement("span");
       name.className = "lv-audience-name";
-      name.textContent = message.displayName;
+      name.textContent = message.surfaced ? `★ ${message.displayName}` : message.displayName;
       const text = document.createElement("span");
       text.className = "lv-audience-message";
       text.textContent = message.message;
@@ -274,7 +275,8 @@ export class HostView {
     const isFreshResult = signature !== this._lastRenderedSignature && entries[0].type !== "working";
     this.elements.feedList.replaceChildren(...entries.map((entry) => renderFeedEntry(entry, {
       onDismiss: (id) => this.session.aiProducerFeed.dismiss(id),
-      onPin: (id) => this.session.aiProducerFeed.togglePin(id)
+      onPin: (id) => this.session.aiProducerFeed.togglePin(id),
+      onSendToProgram: (id) => this.session.aiProducerService.sendEntryToProgram(id)
     })));
     if (isFreshResult) {
       const newestEl = this.elements.feedList.firstElementChild;
