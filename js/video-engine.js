@@ -3,7 +3,6 @@ const IFRAME_ALLOW =
   "camera; microphone; display-capture; autoplay; fullscreen; picture-in-picture; web-share";
 
 const DEFAULT_PARAMS = { api: "1" };
-const HOST_CAMERA_HINT = "FaceTime";
 
 export const BackgroundMode = Object.freeze({ NONE:"none", BLUR:"blur", NEWSROOM:"newsroom", LIBRARY:"library", STAGE:"stage" });
 
@@ -24,30 +23,16 @@ export class VideoEngine {
   // cover=1 matches mountRoomFrame/mountProgramFrame's crop-to-fill behavior — without it, VDO.Ninja
   // letterboxes the local preview (object-fit:contain) inside .vdo-frame's fixed aspect box, so the host's
   // own tile showed black bars while guest tiles (which already had cover=1) filled cleanly.
-  mountDirectorFrame(container,{roomId,label="Host"}) {
+  //
+  // No longer generates its own "Enable camera & microphone" launch card + click-to-start-VDO's-own-setup
+  // flow — that was VDO.Ninja's raw device-selection/green-START-button UI leaking straight into the
+  // product (see this repair pass's report). js/host-prejoin.js now owns that prejoin experience the same
+  // way guest.html already does for guests, and calls this with the device IDs it already collected —
+  // videodevice/audiodevice + autostart mirror mountGuestFrame exactly so VDO.Ninja auto-publishes
+  // silently instead of showing its own setup screen.
+  mountDirectorFrame(container,{roomId,label="Host",videoDeviceId,audioDeviceId}) {
     const streamId=`${roomId}h`;
-    container.dataset.empty="true";
-    const launch=document.createElement("div");
-    launch.className="camera-launch-card";
-    launch.innerHTML=`
-      <span class="camera-launch-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="13" height="14" rx="3"></rect><path d="m16 10 5-3v10l-5-3"></path></svg>
-      </span>
-      <span class="camera-launch-copy">
-        <strong>Ready when you are</strong>
-        <small>Camera and microphone stay off until you continue.</small>
-      </span>
-    `;
-    const start=document.createElement("button");
-    start.type="button";
-    start.className="btn btn-primary";
-    start.textContent="Enable camera & microphone";
-    start.setAttribute("aria-label","Start Live Studio camera and microphone");
-    start.addEventListener("click",()=>this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:true,vdo:HOST_CAMERA_HINT,showlabels:"1",cover:"1"}),{once:true});
-    launch.appendChild(start);
-    container.replaceChildren(launch);
-    container.removeAttribute("data-empty");
-    return null;
+    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cover:"1",autostart:"1",videodevice:videoDeviceId||undefined,audiodevice:audioDeviceId||undefined});
   }
 
   // slots=4 reserves 4 even grid cells regardless of how many are actually filled, and cover=1 crops
@@ -115,7 +100,18 @@ export class VideoEngine {
   requestDetailedState(frameId="host"){return this.send(frameId,{getDetailedState:true});}
 
   // Asks the hidden director-control frame for the room's current guest list. Resolves to a normalized
-  // [{id,label}] array (tolerant of the VDO.Ninja response using id/streamID/UUID and label/name keys).
+  // [{id,label}] array (tolerant of the VDO.Ninja response using id/streamID/UUID and label/name keys, and
+  // of the response being either an array or an object keyed by slot number "1","2",... — VDO.Ninja's own
+  // reference describes the latter).
+  //
+  // ROOT CAUSE of "0 connected" despite real video working (found this repair pass): this used to send
+  // {action:"getGuestList", cib}. VDO.Ninja's IFRAME API commands are boolean/value flags directly on the
+  // message object ({mic:true}, {hangup:true}, {getDetailedState:true} — see every other command in this
+  // file), never an {action:"..."} envelope. getGuestList follows that same pattern, so the old shape was
+  // never recognized: VDO.Ninja never replied, this always hit the 2500ms timeout and resolved to [],
+  // and guestSeats could never populate no matter how real the connection was. Confirmed against
+  // VDO.Ninja's own IFRAME API reference and the author's Companion-Ninja docs — NOT yet confirmed against
+  // a live two-device session (this environment can't run one); re-verify on the next real guest test.
   requestGuestList(frameId="control",timeoutMs=2500) {
     return new Promise((resolve) => {
       const cib = `guestlist-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
@@ -123,19 +119,26 @@ export class VideoEngine {
       const finish = (list) => { if(done) return; done=true; clearTimeout(timer); off(); resolve(list); };
       const off = this.onMessage((message) => {
         if (message?.cib !== cib) return;
-        const raw = message.guestList || message.list || message.guests || [];
-        finish(raw.map((entry) => ({
-          id: entry.id || entry.streamID || entry.UUID || entry.uuid || entry.streamId,
-          label: entry.label || entry.name || entry.title || ""
-        })).filter((entry) => entry.id));
+        const wrapped = message.guestList ?? message.list ?? message.guests;
+        const raw = wrapped !== undefined ? wrapped : Object.fromEntries(Object.entries(message).filter(([key]) => key !== "cib"));
+        finish(normalizeGuestListEntries(raw));
       });
       const timer = setTimeout(() => finish([]), timeoutMs);
-      if (!this.send(frameId, { action: "getGuestList", cib })) finish([]);
+      if (!this.send(frameId, { getGuestList: true, cib })) finish([]);
     });
   }
 
   onMessage(callback){this.listeners.add(callback);return()=>this.listeners.delete(callback);}
   handleMessage(event){if(event.origin!==this.baseUrl)return;this.listeners.forEach(callback=>callback(event.data));}
+}
+
+function normalizeGuestListEntries(raw) {
+  if (!raw) return [];
+  const entries = Array.isArray(raw) ? raw : Object.values(raw);
+  return entries.map((entry) => ({
+    id: entry?.id || entry?.streamID || entry?.UUID || entry?.uuid || entry?.streamId,
+    label: entry?.label || entry?.name || entry?.title || ""
+  })).filter((entry) => entry.id);
 }
 
 function effectForBackground(backgroundMode){if(backgroundMode===BackgroundMode.BLUR)return"3";return"0";}

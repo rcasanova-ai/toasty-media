@@ -687,6 +687,32 @@
   gap: 0.55rem;
 }
 
+.rail-guests {
+  background: color-mix(in srgb, var(--studio-surface) 88%, transparent);
+  border-radius: 10px;
+  padding: 0.65rem 0.7rem;
+}
+
+.rail-guests-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.3rem;
+}
+
+.rail-guests-head .rail-eyebrow {
+  margin: 0;
+}
+
+.rail-guests .lv-guest-context {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.rail-guests .lv-placeholder {
+  font-size: 0.72rem;
+}
+
 .invite-url {
   background: none !important;
   border: 0 !important;
@@ -3395,6 +3421,78 @@
   width: 100%;
 }
 
+/* Toasty-native Host prejoin — sits over #lvHostFrame until Join Studio is clicked (see
+   js/host-prejoin.js); VDO.Ninja's own frame only ever mounts after this is filled in and hidden, so its
+   raw setup UI never appears here the way it used to. */
+.lv-host-prejoin {
+  background: color-mix(in srgb, var(--studio-canvas-2) 96%, transparent);
+  border-radius: 8px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  inset: 0;
+  overflow-y: auto;
+  padding: 0.6rem;
+  position: absolute;
+  z-index: 3;
+}
+
+.lv-host-prejoin-video {
+  background: #000;
+  border-radius: 6px;
+  flex: 0 0 auto;
+  height: auto;
+  max-height: 96px;
+  object-fit: cover;
+  width: 100%;
+}
+
+.lv-host-prejoin-form {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.lv-host-prejoin-title {
+  color: var(--studio-cream);
+  font-family: var(--font-heading);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.lv-host-prejoin-form label {
+  color: var(--studio-cream-dim);
+  display: grid;
+  font-size: 0.68rem;
+  font-weight: 700;
+  gap: 0.2rem;
+}
+
+.lv-host-prejoin-form input,
+.lv-host-prejoin-form select {
+  background: var(--studio-surface-2);
+  border: 1px solid var(--studio-line);
+  border-radius: 6px;
+  box-sizing: border-box;
+  color: var(--studio-cream);
+  font: inherit;
+  min-height: 32px;
+  padding: 0.3rem 0.5rem;
+  width: 100%;
+}
+
+.lv-host-prejoin-form .btn {
+  margin-top: 0.2rem;
+  width: 100%;
+}
+
+.lv-host-prejoin-form .control-note {
+  margin: 0;
+}
+
 .lv-video-tile-label {
   background: rgba(9, 7, 6, 0.7);
   border-radius: 6px;
@@ -3461,10 +3559,6 @@
   gap: 0.2rem;
   justify-content: center;
   min-height: 80px;
-}
-
-.lv-guests {
-  grid-column: 1 / -1;
 }
 
 .lv-guest-context {
@@ -3714,6 +3808,28 @@
   overflow-y: auto;
 }
 
+/* Demo Mode only — see js/host-view.js's renderAudience for the session.demoMode gate. */
+.lv-audience-demo-breakdown {
+  border-bottom: 1px solid var(--studio-line);
+  display: grid;
+  gap: 0.15rem;
+  margin-bottom: 0.4rem;
+  padding-bottom: 0.4rem;
+}
+
+.lv-audience-demo-row {
+  color: var(--studio-cream-dim);
+  display: flex;
+  font-size: 0.72rem;
+  justify-content: space-between;
+}
+
+.lv-audience-demo-row span:last-child {
+  color: var(--studio-cream);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
 .lv-audience-item {
   border-bottom: 1px solid var(--studio-line);
   font-size: 0.76rem;
@@ -3906,6 +4022,9 @@
   font-size: 0.78rem;
   font-weight: 800;
   padding: 0.55rem 1rem;
+  /* touch-action:none stops mobile browsers from treating a held finger as a scroll/pan gesture — without
+     it, a real touch hold can be hijacked mid-gesture before pointerup ever fires. */
+  touch-action: none;
   user-select: none;
 }
 

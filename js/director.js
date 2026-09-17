@@ -7,6 +7,7 @@ import { ToastyBroadcastController } from "./broadcast-client.js";
 import { LiveSession } from "./live-session.js";
 import { HostView } from "./host-view.js";
 import { ProducerView } from "./producer-view.js";
+import { HostPrejoin } from "./host-prejoin.js";
 
 const session = new LiveSession();
 // Dev diagnostics only — never rendered in Host/Producer UI. In devtools: session.aiProducerService.diagnostics()
@@ -61,6 +62,7 @@ function init() {
 
   new HostView({ session }).init();
   new ProducerView({ session }).init();
+  new HostPrejoin({ session }).init();
 
   new AIProductionController({
     getBrandTheme: () => session.brandTheme,

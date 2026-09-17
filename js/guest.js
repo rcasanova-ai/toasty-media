@@ -1,5 +1,6 @@
 import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js";
 import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js";
+import { startDevicePreview } from "./device-picker.js";
 
 const state = {
   roomId: getRoomIdFromUrl(),
@@ -91,115 +92,16 @@ function bindControls() {
 
 async function startPreview() {
   try {
-    stopPreview();
-    const cameraBeforeHydration = elements.cameraSelect.value;
-    const constraints = {
-      video: deviceConstraint(elements.cameraSelect.value, "video"),
-      audio: deviceConstraint(elements.microphoneSelect.value, "audio")
-    };
-    state.previewStream = await getUserMediaWithFallback(constraints);
-    elements.cameraPreview.srcObject = state.previewStream;
-    await hydrateDevices();
-    if (elements.cameraSelect.value && elements.cameraSelect.value !== cameraBeforeHydration) {
-      await restartPreviewWithSelectedDevices();
-    } else {
-      await replaceCamoDefault();
-    }
+    state.previewStream = await startDevicePreview({
+      videoEl: elements.cameraPreview,
+      cameraSelect: elements.cameraSelect,
+      microphoneSelect: elements.microphoneSelect,
+      previousStream: state.previewStream
+    });
     elements.guestStatus.textContent = "Preview ready. Choose a background, then join.";
   } catch (error) {
     elements.guestStatus.textContent = "Camera or microphone permission is needed before joining.";
   }
-}
-
-async function hydrateDevices() {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  fillSelect(
-    elements.microphoneSelect,
-    devices.filter((device) => device.kind === "audioinput"),
-    "Microphone"
-  );
-  fillSelect(
-    elements.cameraSelect,
-    devices.filter((device) => device.kind === "videoinput"),
-    "Camera"
-  );
-}
-
-function fillSelect(select, devices, fallbackLabel) {
-  const selected = select.value;
-  const preferredDeviceId = fallbackLabel === "Camera" ? preferredCamera(devices)?.deviceId : "";
-  select.replaceChildren(
-    ...devices.map((device, index) => {
-      const option = document.createElement("option");
-      option.value = device.deviceId;
-      option.textContent = device.label || `${fallbackLabel} ${index + 1}`;
-      return option;
-    })
-  );
-  if (devices.some((device) => device.deviceId === selected)) {
-    select.value = selected;
-  } else if (preferredDeviceId) {
-    select.value = preferredDeviceId;
-  }
-}
-
-async function replaceCamoDefault() {
-  const selectedCamera = selectedDeviceLabel(elements.cameraSelect);
-  if (!selectedCamera || !isCamoCamera(selectedCamera)) return;
-  const betterCamera = [...elements.cameraSelect.options].find((option) => !isCamoCamera(option.textContent));
-  if (!betterCamera) return;
-  elements.cameraSelect.value = betterCamera.value;
-  await restartPreviewWithSelectedDevices();
-}
-
-async function restartPreviewWithSelectedDevices() {
-  stopPreview();
-  state.previewStream = await getUserMediaWithFallback({
-    video: deviceConstraint(elements.cameraSelect.value, "video"),
-    audio: deviceConstraint(elements.microphoneSelect.value, "audio")
-  });
-  elements.cameraPreview.srcObject = state.previewStream;
-}
-
-async function getUserMediaWithFallback(constraints) {
-  try {
-    return await navigator.mediaDevices.getUserMedia(constraints);
-  } catch (error) {
-    // Some mobile browsers reject a specific deviceId/facingMode constraint outright (stale device
-    // list, camera in use by another app permission flow, etc). Retry with the loosest possible
-    // request so the guest still gets a preview and a populated, permission-unlocked device list
-    // instead of a black box and empty dropdowns.
-    return navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-  }
-}
-
-function selectedDeviceLabel(select) {
-  return select.selectedOptions[0]?.textContent || "";
-}
-
-function preferredCamera(devices) {
-  return (
-    // Phones report a "facing front"/"user"-style label — prefer the selfie camera for a guest join,
-    // since a rear-facing default (common browser behavior) points at whatever the phone is resting
-    // against and produces a black/useless preview.
-    devices.find((device) => /front|user[- ]?facing/i.test(device.label)) ||
-    devices.find((device) => /facetime|studio display|built-?in|integrated/i.test(device.label)) ||
-    devices.find((device) => !isCamoCamera(device.label) && !/back|rear|environment/i.test(device.label)) ||
-    devices.find((device) => !isCamoCamera(device.label)) ||
-    devices[0]
-  );
-}
-
-function isCamoCamera(label = "") {
-  return /camo/i.test(label);
-}
-
-function deviceConstraint(deviceId, kind) {
-  if (deviceId) return { deviceId: { exact: deviceId } };
-  // Before device enumeration has populated the dropdown, there's no deviceId yet — for video, ask for
-  // the front/selfie camera explicitly (facingMode is video-only, meaningless for audio) rather than
-  // leaving it to the browser's own default, which on many phones is the rear camera.
-  return kind === "video" ? { facingMode: "user" } : true;
 }
 
 function joinStudio() {

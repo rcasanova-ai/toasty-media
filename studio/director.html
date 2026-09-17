@@ -99,6 +99,11 @@
           <input id="listenerInvite" class="invite-url" type="hidden" readonly aria-label="Listener invite link">
         </section>
 
+        <section class="rail-guests" aria-label="Guests">
+          <div class="rail-guests-head"><p class="rail-eyebrow">Guests</p><span class="lv-chip" id="lvGuestCount">0</span></div>
+          <div class="lv-guest-context" id="lvGuestContext"></div>
+        </section>
+
         <nav class="quick-actions" aria-label="Quick actions">
           <p class="rail-eyebrow">Quick Actions</p>
           <button id="toggleScreenQuick" type="button" class="quick-action-row" aria-pressed="false">
@@ -367,6 +372,19 @@
               <div class="lv-video-row">
                 <article class="lv-video-article">
                   <div class="vdo-frame lv-video-tile" id="lvHostFrame" data-empty="Loading host feed"></div>
+                  <div class="lv-host-prejoin" id="lvHostPrejoin">
+                    <video id="lvHostPrejoinPreview" class="lv-host-prejoin-video" autoplay muted playsinline></video>
+                    <div class="lv-host-prejoin-form">
+                      <p class="lv-host-prejoin-title">Set up your camera</p>
+                      <label>Name<input id="lvHostPrejoinName" type="text" autocomplete="name" placeholder="Your name"></label>
+                      <label>Title<input id="lvHostPrejoinTitle" type="text" autocomplete="organization-title" placeholder="e.g. Host"></label>
+                      <label>Company<input id="lvHostPrejoinCompany" type="text" autocomplete="organization" placeholder="e.g. Toasty Media"></label>
+                      <label>Camera<select id="lvHostPrejoinCamera"></select></label>
+                      <label>Microphone<select id="lvHostPrejoinMic"></select></label>
+                      <button id="lvHostPrejoinJoin" class="btn btn-primary" type="button" disabled>Join Studio</button>
+                      <p class="control-note" id="lvHostPrejoinStatus">Requesting camera preview…</p>
+                    </div>
+                  </div>
                 </article>
                 <article class="lv-video-article">
                   <div class="vdo-frame lv-video-tile" id="lvGuestFrame" data-empty="Waiting for guest to join"></div>
@@ -393,7 +411,7 @@
                 <p class="lv-placeholder lv-placeholder-sub">No producer requests yet.</p>
               </div>
               <div class="lv-talk-row">
-                <button id="lvTalkBtn" class="lv-talk-btn" type="button" data-state="ready">🎙 Talk to Producer</button>
+                <button id="lvTalkBtn" class="lv-talk-btn" type="button" data-state="ready">🎙 Talk to Hottie</button>
                 <span class="lv-talk-state" id="lvTalkState">Ready</span>
               </div>
               <p class="lv-talk-live" id="lvTalkLive" hidden></p>
@@ -415,14 +433,11 @@
             </section>
             <aside class="lv-panel lv-audience" data-lv-only="host" aria-label="Audience">
               <div class="lv-panel-head"><span>Audience</span><span class="lv-chip" id="lvAudienceCount">0</span></div>
+              <div class="lv-audience-demo-breakdown" id="lvAudienceDemoBreakdown" hidden></div>
               <div class="lv-audience-list" id="lvAudienceList">
                 <p class="lv-placeholder">Live chat and questions land here.</p>
               </div>
             </aside>
-            <section class="lv-panel lv-guests" data-lv-only="host" aria-label="Guests">
-              <div class="lv-panel-head"><span>Guests</span><span class="lv-chip" id="lvGuestCount">0</span></div>
-              <div class="lv-guest-context" id="lvGuestContext"></div>
-            </section>
 
             <!-- PRODUCER-only panels -->
             <section class="lv-panel lv-sources" data-lv-only="producer" hidden aria-label="Sources">

@@ -74,6 +74,19 @@ export class DemoAudienceFeed {
   }
 }
 
+// Simulated per-platform viewer counts for Demo Mode ONLY — never conflated with a real connected-guest
+// or real-audience-provider count. The individual seeded messages below are a small SAMPLE of chatter
+// from these simulated viewers, not the viewer count itself (28 seeded messages vs. 247 "viewers" is
+// intentional — that's how live chat volume actually looks relative to viewership). Session/host-view.js
+// gates any rendering of this behind session.demoMode explicitly; nothing here touches real telemetry.
+export const DEMO_AUDIENCE_PLATFORM_BREAKDOWN = Object.freeze([
+  { platform: "youtube", label: "YouTube", count: 128 },
+  { platform: "telegram", label: "Telegram", count: 74 },
+  { platform: "x", label: "X", count: 31 },
+  { platform: "toasty", label: "Toasty", count: 14 }
+]);
+export const DEMO_AUDIENCE_TOTAL = DEMO_AUDIENCE_PLATFORM_BREAKDOWN.reduce((sum, p) => sum + p.count, 0);
+
 const DEMO_AUDIENCE_SCRIPT = [
   { displayName: "Maria", message: "Does Thailand have enough grid capacity for the announced AI data-centre pipeline?", type: AudienceMessageType.QUESTION },
   { displayName: "Somchai", message: "loving this episode from Bangkok!!", type: AudienceMessageType.COMMENT },

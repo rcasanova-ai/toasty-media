@@ -98,6 +98,10 @@ export class LiveSession {
     // confirmation back to the director, so this is optimistic local UI state layered on a best-effort
     // remote command (see VideoEngine.sendToGuest's caveat).
     this.guestSeats = new Array(GUEST_SEAT_COUNT).fill(null);
+    // Set once js/host-prejoin.js calls joinAsHost() — see that method for why this uses the same
+    // {displayName,title,company} shape as a guest seat instead of a separate host-profile model.
+    this.hostProfile = null;
+    this._hostDevices = {};
 
     this._programSync = null;
     this._guestListTimerId = null;
@@ -250,9 +254,12 @@ export class LiveSession {
 
   // ---- Room lifecycle ----
 
+  // Does NOT mount the host's own camera frame — that only happens once js/host-prejoin.js calls
+  // joinAsHost() below with a name/title/company and chosen devices, same as a guest only ever gets
+  // mounted after their own native prejoin. Room preview and the hidden control frame don't need a
+  // person's identity to exist, so they still mount immediately.
   start(containers) {
     this._containers = containers; // {host, roomPreview, control} — kept so layout changes can remount
-    this.engine.mountDirectorFrame(containers.host, { roomId: this.roomId, label: "Toasty Host" });
     this.engine.mountRoomFrame(containers.roomPreview, { roomId: this.roomId, layout: this.program.layout });
     this.engine.mountDirectorControlFrame(containers.control, { roomId: this.roomId });
     this.guestSeats = new Array(GUEST_SEAT_COUNT).fill(null);
@@ -263,6 +270,25 @@ export class LiveSession {
     this.emit("room", { roomId: this.roomId });
   }
 
+  // ---- Host identity ----
+  // Same field shape as a guest seat's structured metadata (see parseGuestLabel/js/show-context.js) —
+  // deliberately NOT a separate host-profile model, so lower thirds/Program Output/AI Producer context/
+  // recordings/Dub can all treat "who is this person" identically whether they're the host or a guest.
+
+  joinAsHost({ displayName, title = "", company = "", videoDeviceId, audioDeviceId } = {}) {
+    const name = (displayName || "").trim() || "Host";
+    this.hostProfile = { displayName: name, title: title.trim(), company: company.trim() };
+    const role = [this.hostProfile.title, this.hostProfile.company].filter(Boolean).join(", ");
+    const label = role ? `${name} · ${role}` : name;
+    this._hostDevices = { videoDeviceId, audioDeviceId };
+    this.engine.mountDirectorFrame(this._containers.host, { roomId: this.roomId, label, videoDeviceId, audioDeviceId });
+    this.emit("host-profile", this.hostProfile);
+  }
+
+  // A fresh room id means a fresh push stream id, so the host's camera frame always has to remount here
+  // — but re-running the whole prejoin UI for a device choice that hasn't changed would be a step
+  // backwards, so this replays the same identity/devices joinAsHost already collected instead of asking
+  // js/host-prejoin.js to show its form again.
   createNewRoom() {
     this.roomId = createDisposableRoomId();
     this._stopRecordingTimer();
@@ -273,6 +299,7 @@ export class LiveSession {
     this.emit("recording", this.recording);
     this.emit("connection", this.connection);
     this.start(this._containers);
+    if (this.hostProfile) this.joinAsHost({ ...this.hostProfile, ...this._hostDevices });
   }
 
   inviteUrls() {

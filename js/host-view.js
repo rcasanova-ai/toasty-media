@@ -4,6 +4,7 @@
 // .htaccess.
 import { renderFeedEntry } from "./ai-producer.js";
 import { PushToTalkCapture } from "./talk-to-producer.js";
+import { DEMO_AUDIENCE_PLATFORM_BREAKDOWN, DEMO_AUDIENCE_TOTAL } from "./audience.js";
 
 // HostView: a thin control surface over LiveSession for running the conversation. It owns no state of
 // its own beyond DOM bindings — everything it shows comes from session.* and its events. Keep this file
@@ -30,6 +31,7 @@ export class HostView {
       agendaAddInput: root.querySelector("#lvAgendaAddInput"),
       audienceList: root.querySelector("#lvAudienceList"),
       audienceCount: root.querySelector("#lvAudienceCount"),
+      audienceDemoBreakdown: root.querySelector("#lvAudienceDemoBreakdown"),
       feedList: root.querySelector("#lvFeedListHost"),
       talkBtn: root.querySelector("#lvTalkBtn"),
       talkState: root.querySelector("#lvTalkState"),
@@ -176,12 +178,37 @@ export class HostView {
 
   initAudience() {
     this.session.audience.on(() => this.renderAudience());
+    // Demo Mode toggling changes what the count/breakdown MEANS (simulated vs. real), not just whether
+    // messages are dripping — see renderAudience's own comment for why this can never render outside an
+    // explicit session.demoMode check.
+    this.session.on("demo-mode", () => this.renderAudience());
     this.renderAudience();
   }
 
+  // Simulated per-platform viewer counts (see js/audience.js's DEMO_AUDIENCE_PLATFORM_BREAKDOWN) render
+  // ONLY while session.demoMode is true, and only ever alongside a visible "DEMO" marker — this is the
+  // one explicit gate the whole feature is required to have, so a simulated number can never be mistaken
+  // for real production telemetry (see this repair pass's report).
   renderAudience() {
     const messages = this.session.audience.recent(40);
-    this.elements.audienceCount.textContent = String(this.session.audience.messages.length);
+    if (this.session.demoMode) {
+      this.elements.audienceCount.textContent = `${DEMO_AUDIENCE_TOTAL} · DEMO`;
+      this.elements.audienceDemoBreakdown.hidden = false;
+      this.elements.audienceDemoBreakdown.replaceChildren(...DEMO_AUDIENCE_PLATFORM_BREAKDOWN.map((p) => {
+        const row = document.createElement("div");
+        row.className = "lv-audience-demo-row";
+        const label = document.createElement("span");
+        label.textContent = p.label;
+        const count = document.createElement("span");
+        count.textContent = String(p.count);
+        row.append(label, count);
+        return row;
+      }));
+    } else {
+      this.elements.audienceCount.textContent = String(this.session.audience.messages.length);
+      this.elements.audienceDemoBreakdown.hidden = true;
+      this.elements.audienceDemoBreakdown.replaceChildren();
+    }
     if (!messages.length) {
       this.elements.audienceList.replaceChildren(placeholder("Live chat and questions land here."));
       return;
@@ -225,13 +252,33 @@ export class HostView {
       }
     });
 
-    const start = () => this.elements.talkBtn.disabled ? null : this._capture.start();
-    const stop = () => this._capture.stop();
-    this.elements.talkBtn.addEventListener("mousedown", start);
-    this.elements.talkBtn.addEventListener("touchstart", start, { passive: true });
-    this.elements.talkBtn.addEventListener("mouseup", stop);
-    this.elements.talkBtn.addEventListener("mouseleave", stop);
-    this.elements.talkBtn.addEventListener("touchend", stop);
+    // Pointer Events (not mousedown/touchstart+mouseup/touchend/mouseleave) on purpose: the old bindings
+    // fired start() from BOTH touchstart and its synthesized mousedown on touch devices, and mouseleave
+    // released the hold the instant the cursor drifted off the button — a real failure mode, not a
+    // hypothetical one (see this repair pass's report). setPointerCapture keeps this ONE pointer's events
+    // routed to the button even if it visually leaves the element's box, and one pointerId is tracked at
+    // a time so a second finger/click mid-hold can't start a competing capture.
+    const btn = this.elements.talkBtn;
+    let activePointerId = null;
+    const endHold = (event) => {
+      if (event.pointerId !== activePointerId) return;
+      activePointerId = null;
+      this._capture.stop();
+    };
+    btn.addEventListener("pointerdown", (event) => {
+      if (btn.disabled || activePointerId !== null) return;
+      event.preventDefault();
+      activePointerId = event.pointerId;
+      // Best-effort: capture is what keeps the hold alive if the pointer drifts off the button, but it
+      // must never be able to block the hold from starting at all if the browser refuses it for any
+      // reason (e.g. no active pointer session for that id) — the capture below always runs regardless.
+      try { btn.setPointerCapture(event.pointerId); } catch (_) {}
+      this._capture.start();
+    });
+    btn.addEventListener("pointerup", endHold);
+    btn.addEventListener("pointercancel", endHold);
+    btn.addEventListener("lostpointercapture", endHold);
+    btn.addEventListener("contextmenu", (event) => event.preventDefault());
 
     this.elements.talkTextForm.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -242,9 +289,13 @@ export class HostView {
     });
   }
 
+  // Idle/Held/Released copy is the button's OWN label per this repair pass's UX spec — `note` (used for
+  // error text such as "microphone access denied") only ever goes to the small side label below it, never
+  // overwriting the button so a transient error can't get stuck looking like the button's permanent text.
   setTalkState(state, note) {
     this.elements.talkBtn.dataset.state = state;
     this.elements.talkBtn.disabled = state === "thinking";
+    this.elements.talkBtn.textContent = state === "listening" ? "🔴 LISTENING — release to send" : state === "thinking" ? "Processing…" : "🎙 Talk to Hottie";
     this.elements.talkState.textContent = note || (state === "listening" ? "Listening…" : state === "thinking" ? "Thinking…" : "Ready");
   }
 
