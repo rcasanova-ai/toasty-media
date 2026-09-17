@@ -14,6 +14,12 @@ export const ProducerEntryType = Object.freeze({
   ERROR: "error"
 });
 
+// Simple constants, not billing infrastructure: a per-session dollar ceiling on paid-provider spend.
+// Soft warning is just a UI color change; hard cutoff silently routes subsequent requests to the free
+// heuristic provider for the rest of the session — never an error, never a Host-visible interruption.
+export const SOFT_WARNING_USD = 0.25;
+export const HARD_CUTOFF_USD = 1.00;
+
 // The host/producer-facing panel is a live PRODUCER FEED, not a chat transcript — a list of typed
 // entries, newest first. HostView and ProducerView both read this SAME instance (via session); neither
 // keeps its own copy.
@@ -52,6 +58,9 @@ export class AIProducerService {
     this.session = session;
     this.feed = feed;
     this.provider = provider;
+    // Always available as the hard-cutoff escape hatch below, independent of whatever `provider` is
+    // currently configured to (Fallback-wrapping-DeepSeek, or forced-heuristic via the Advanced toggle).
+    this._heuristicProvider = new HeuristicAIProducerProvider();
     // Latency breakdown — dev-only, never rendered in Host/Producer UI (item 9: "expose timing in dev
     // diagnostics, NOT Host UI"). Inspect via session.aiProducerService.diagnostics() in devtools.
     this._diagnostics = [];
@@ -64,10 +73,14 @@ export class AIProducerService {
   }
 
   on(callback) { this._listeners.add(callback); return () => this._listeners.delete(callback); }
-  _emit() { this._listeners.forEach((cb) => cb(this._sessionTotals)); }
+  _emit() { this._listeners.forEach((cb) => cb(this.sessionTotals())); }
 
   diagnostics() { return this._diagnostics.slice(-20); }
-  sessionTotals() { return { ...this._sessionTotals }; }
+  // softWarning/hardCutoff are derived, not stored, so they can never drift out of sync with costUsd.
+  sessionTotals() {
+    const costUsd = this._sessionTotals.costUsd;
+    return { ...this._sessionTotals, softWarning: costUsd >= SOFT_WARNING_USD, hardCutoff: costUsd >= HARD_CUTOFF_USD };
+  }
 
   resetSessionTotals() {
     this._sessionTotals = { requests: 0, promptTokens: 0, cachedTokens: 0, completionTokens: 0, costUsd: 0, costKnown: true };
@@ -104,9 +117,14 @@ export class AIProducerService {
     const context = buildShowContext(this.session);
     const contextBuiltAt = performance.now();
     const pending = this.feed.push({ type: ProducerEntryType.WORKING, title: "Thinking…", summary: "", instruction: instructionText });
+    // Hard cost cutoff: once this session has spent $HARD_CUTOFF_USD on paid-provider calls, silently
+    // route to the free heuristic from here on — never an error, never a pause in the show. Checked
+    // fresh per request (not cached) so it engages the instant the running total crosses the line, and
+    // self-enforces afterward since heuristic answers never add more cost.
+    const activeProvider = this.sessionTotals().hardCutoff ? this._heuristicProvider : this.provider;
     try {
       const providerCallStartedAt = performance.now();
-      const result = await this.provider.respond(instructionText, context);
+      const result = await activeProvider.respond(instructionText, context);
       const providerCallEndedAt = performance.now();
       this.feed.replace(pending.id, { ...result, instruction: instructionText });
       this._recordUsage(result.usage);

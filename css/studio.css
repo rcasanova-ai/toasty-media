@@ -3793,3 +3793,13 @@
   color: var(--studio-cream-dim);
   text-transform: uppercase;
 }
+
+#lvAiDiagCost[data-level="warning"] {
+  color: var(--studio-amber);
+  font-weight: 700;
+}
+
+#lvAiDiagCost[data-level="cutoff"] {
+  color: var(--studio-red-bright);
+  font-weight: 700;
+}

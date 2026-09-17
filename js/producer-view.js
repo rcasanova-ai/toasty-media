@@ -103,7 +103,10 @@ export class ProducerView {
     const totalTokens = totals.promptTokens + totals.completionTokens;
     this.elements.aiDiagTokens.textContent = `${totalTokens.toLocaleString()} tokens`;
     this.elements.aiDiagCost.textContent = totals.costKnown ? `$${totals.costUsd.toFixed(4)}` : `$${totals.costUsd.toFixed(4)}+ (partial)`;
-    this.elements.aiDiagProvider.textContent = totals.lastProvider ? `via ${totals.lastProvider}` : "";
+    // Visual only — the actual enforcement (silently routing to heuristic past HARD_CUTOFF_USD) lives
+    // in AIProducerService.handleInstruction, not here. This just tells the Producer what's happening.
+    this.elements.aiDiagCost.dataset.level = totals.hardCutoff ? "cutoff" : totals.softWarning ? "warning" : "ok";
+    this.elements.aiDiagProvider.textContent = totals.hardCutoff ? "cost cutoff — heuristic only" : totals.lastProvider ? `via ${totals.lastProvider}` : "";
   }
 
   // The Demo Mode checkbox reflects intent ("I want this on"), not live state — a policy change to

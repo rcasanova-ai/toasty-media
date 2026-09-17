@@ -530,10 +530,10 @@
           <div class="panel-section" aria-label="AI Producer provider">
             <p class="rail-eyebrow">AI Producer Provider</p>
             <label class="po-field po-ticker-toggle">
-              <input id="lvUseBackend" type="checkbox">
-              Try Toasty backend AI (may incur API cost)
+              <input id="lvForceHeuristicMode" type="checkbox">
+              Force offline / heuristic mode
             </label>
-            <p class="control-note" id="lvAiProviderNote">Off by default — the free, built-in heuristic producer handles every request. Turning this on tries Toasty's server-side backend first and falls back to the heuristic automatically if it's unreachable. No API key ever lives in this browser either way.</p>
+            <p class="control-note" id="lvAiProviderNote">DeepSeek answers automatically when reachable, falling back to the free built-in heuristic on any failure — no key ever lives in this browser. Check this to skip DeepSeek entirely (demos, testing, or if you want zero API cost for this show).</p>
           </div>
 
           <div class="panel-section" aria-label="Session policy">
