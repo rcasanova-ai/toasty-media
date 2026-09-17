@@ -485,7 +485,10 @@
   z-index: 1;
 }
 
-.on-air-sign[data-state="connected"] {
+/* Real broadcast state, not a VDO.Ninja room-connection heuristic — see js/director.js's
+   renderBroadcastChip. OFFLINE/READY never animate; only genuinely-live pulses. */
+
+.on-air-sign[data-state="live"] {
   background:
     radial-gradient(circle at 74% 50%, rgba(255, 246, 220, 0.28), transparent 35%),
     linear-gradient(180deg, #ff4b35, #b9140d 62%, #550905);
@@ -497,12 +500,12 @@
     0 14px 28px rgba(0, 0, 0, 0.56);
 }
 
-.on-air-sign[data-state="connected"] .on-air-bulb {
+.on-air-sign[data-state="live"] .on-air-bulb {
   animation: on-air-flash 1.15s ease-in-out infinite;
   opacity: 1;
 }
 
-.on-air-sign[data-state="connected"] .on-air-text {
+.on-air-sign[data-state="live"] .on-air-text {
   color: #fff4e2;
   filter: saturate(1.08);
   text-shadow:
@@ -511,8 +514,80 @@
     0 0 18px rgba(255, 198, 112, 0.32);
 }
 
-.on-air-sign[data-state="idle"] {
-  opacity: 0.88;
+.on-air-sign[data-state="offline"] {
+  opacity: 0.62;
+}
+
+.on-air-sign[data-state="offline"] .on-air-bulb {
+  opacity: 0.28;
+}
+
+.on-air-sign[data-state="ready"] {
+  border-color: #8a7150;
+  background:
+    radial-gradient(circle at 74% 50%, rgba(255, 214, 140, 0.22), transparent 35%),
+    linear-gradient(180deg, #33110d, #120706 64%, #070403),
+    #140807;
+}
+
+.on-air-sign[data-state="ready"] .on-air-bulb {
+  background: radial-gradient(circle at 35% 30%, #fff3d6, #f5a623 30%, #93630c 63%, #2b1c04);
+  box-shadow:
+    inset 0 -3px 7px rgba(60, 40, 0, 0.7),
+    0 0 0 4px rgba(28, 20, 10, 0.9),
+    0 0 8px rgba(245, 166, 35, 0.35);
+  opacity: 0.9;
+}
+
+.on-air-sign[data-state="ready"] .on-air-text {
+  color: rgba(255, 214, 140, 0.85);
+}
+
+.on-air-sign[data-state="error"] {
+  border-color: #8b3a2f;
+  background:
+    radial-gradient(circle at 74% 50%, rgba(255, 120, 90, 0.25), transparent 35%),
+    linear-gradient(180deg, #3a1410, #1a0806 64%, #0a0403),
+    #170807;
+}
+
+.on-air-sign[data-state="error"] .on-air-bulb {
+  background: radial-gradient(circle at 35% 30%, #ffdcd4, #ff6a4a 30%, #8a1c0c 63%, #2b0805);
+  opacity: 0.95;
+}
+
+.on-air-sign[data-state="error"] .on-air-text {
+  color: #ffb7a3;
+}
+
+.on-air-sign--compact {
+  margin-top: 0;
+  min-width: 0;
+  padding: 0.4rem 0.6rem 0.36rem;
+  position: absolute;
+  right: clamp(1rem, 2.5vw, 2.25rem);
+  top: 1.5rem;
+  transform: scale(0.76);
+  transform-origin: top right;
+  z-index: 2;
+}
+
+.on-air-sign--compact .on-air-bulb {
+  height: 1rem;
+  width: 1rem;
+}
+
+.on-air-sign--compact .on-air-text {
+  font-size: 0.86rem;
+}
+
+@media (max-width: 640px) {
+  .on-air-sign--compact {
+    position: static;
+    transform: none;
+    justify-self: center;
+    margin: 0.4rem auto 0;
+  }
 }
 
 @keyframes on-air-flash {
@@ -2812,6 +2887,27 @@
   gap: 1rem;
 }
 
+.guest-pro-details {
+  border-top: 1px solid var(--studio-line);
+  display: grid;
+  gap: 1rem;
+  padding-top: 1rem;
+}
+
+.guest-pro-details summary {
+  color: var(--studio-orange-bright);
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.guest-pro-details[open] summary {
+  margin-bottom: 0.2rem;
+}
+
 .guest-controls-card label {
   color: var(--studio-cream);
   display: grid;
@@ -3281,8 +3377,18 @@
   position: relative;
 }
 
+/* Overrides .vdo-frame's aspect-ratio:4/3 for this dense layout specifically: with a definite
+   min-height (from studio-shell-v2.css's brand-scoped .vdo-frame rule) but no definite width, the
+   browser computes width FROM the aspect ratio and height instead of from the flex column — at
+   realistic viewport heights (e.g. min-height ~426px at 887px tall) that produced a ~568px-wide tile
+   inside a ~269px flex column, overflowing across Program Preview into AI Producer. Forcing width:100%
+   makes the flex column's own width authoritative again; aspect-ratio:unset stops it fighting that.
+   cover=1 (see video-engine.js) still crops the feed to fill whatever box results, so geometry intent
+   from the original black-bar fix is unchanged. */
 .lv-video-tile {
+  aspect-ratio: unset;
   min-height: min(30vh, 300px);
+  width: 100%;
 }
 
 .lv-video-tile-label {
@@ -3353,26 +3459,55 @@
   min-height: 80px;
 }
 
-.lv-guest-context {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
+.lv-guests {
   grid-column: 1 / -1;
 }
 
-.lv-guest-pill {
-  background: var(--studio-surface);
-  border: 1px solid var(--studio-line);
-  border-radius: 999px;
-  color: var(--studio-cream-dim);
-  font-size: 0.7rem;
-  font-weight: 700;
-  padding: 0.3em 0.75em;
+.lv-guest-context {
+  display: grid;
+  gap: 0.3rem;
 }
 
-.lv-guest-pill[data-state="active"] {
-  border-color: var(--studio-green);
-  color: var(--studio-green);
+.lv-guest-row {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.15rem 0;
+}
+
+.lv-guest-dot {
+  border-radius: 50%;
+  flex: 0 0 auto;
+  height: 0.5rem;
+  width: 0.5rem;
+}
+
+.lv-guest-row[data-status="connected"] .lv-guest-dot {
+  background: var(--studio-green);
+}
+
+.lv-guest-row[data-status="connecting"] .lv-guest-dot {
+  background: var(--studio-amber);
+}
+
+.lv-guest-row[data-status="invited"] .lv-guest-dot {
+  background: var(--studio-cream-dim);
+  opacity: 0.55;
+}
+
+.lv-guest-row[data-status="problem"] .lv-guest-dot {
+  background: var(--studio-red-bright);
+}
+
+.lv-guest-name {
+  color: var(--studio-cream);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.lv-guest-role {
+  color: var(--studio-muted);
+  font-size: 0.72rem;
 }
 
 .lv-source-row {

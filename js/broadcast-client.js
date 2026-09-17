@@ -1,10 +1,11 @@
 const DEFAULT_ENDPOINT = window.TOASTY_BROADCAST_ENDPOINT || "https://broadcast.toasty.media";
 
 export class ToastyBroadcastController {
-  constructor({ getProgramUrl, requireLegacyAuthGate = true, onStateChange } = {}) {
+  constructor({ getProgramUrl, requireLegacyAuthGate = true, onStateChange, onError } = {}) {
     this.getProgramUrl = getProgramUrl;
     this.requireLegacyAuthGate = requireLegacyAuthGate;
     this.onStateChange = onStateChange;
+    this.onError = onError;
     this.endpoint = localStorage.getItem("toasty.broadcast.endpoint") || DEFAULT_ENDPOINT;
     this.broadcastId = null;
     this.abortController = null;
@@ -31,24 +32,43 @@ export class ToastyBroadcastController {
     const panel = document.createElement("section");
     panel.className = "broadcast-panel";
     panel.id = "broadcastPanel";
+    panel.dataset.lvOnly = "producer";
+    panel.hidden = true;
     panel.innerHTML = `
       <div class="broadcast-head">
         <div><p class="rail-eyebrow">Broadcast</p><h3>Stream the production live</h3></div>
         <span id="broadcastBadge" class="broadcast-badge" data-state="offline">OFFLINE</span>
       </div>
-      <button id="openProgramOutput" class="btn btn-ghost broadcast-wide" type="button">Open Program Output</button>
-      <label>Broadcast service<input id="broadcastEndpoint" type="url" value="${escapeHtml(this.endpoint)}"></label>
-      <label>Destination<select id="broadcastDestination"><option value="x">X Live</option><option value="youtube">YouTube</option><option value="twitch">Twitch</option><option value="custom" selected>Custom RTMP</option></select></label>
-      <label>RTMP / RTMPS URL<input id="broadcastStreamUrl" type="url" placeholder="rtmps://..."></label>
-      <label>Stream key<input id="broadcastStreamKey" type="password" autocomplete="off" placeholder="Paste stream key"></label>
-      <div class="broadcast-settings">
-        <label>Resolution<select id="broadcastResolution"><option value="1280x720">720p</option><option value="1920x1080" selected>1080p</option></select></label>
-        <label>Bitrate<select id="broadcastBitrate"><option value="3500">3.5 Mbps</option><option value="6000" selected>6 Mbps</option><option value="8000">8 Mbps</option></select></label>
+
+      <div class="broadcast-section">
+        <p class="rail-eyebrow">Program</p>
+        <button id="openProgramOutput" class="btn btn-ghost broadcast-wide" type="button">Preview Program</button>
+        <p class="broadcast-section-note">Opens Program Output in another window. This does not broadcast externally.</p>
       </div>
-      <p id="broadcastHelp" class="broadcast-help">Open Program Output first. When you go live, select that browser tab and enable tab audio.</p>
-      <div class="broadcast-actions"><button id="testBroadcast" class="btn btn-ghost" type="button">Test service</button><button id="toggleBroadcast" class="btn btn-primary" type="button">Go Live</button></div>
+
+      <div class="broadcast-section">
+        <p class="rail-eyebrow">Destination</p>
+        <label>Broadcast service<input id="broadcastEndpoint" type="url" value="${escapeHtml(this.endpoint)}"></label>
+        <label>Destination<select id="broadcastDestination"><option value="x">X Live</option><option value="youtube">YouTube</option><option value="twitch">Twitch</option><option value="custom" selected>Custom RTMP</option></select></label>
+        <label>RTMP / RTMPS URL<input id="broadcastStreamUrl" type="url" placeholder="rtmps://..."></label>
+        <label>Stream key<input id="broadcastStreamKey" type="password" autocomplete="off" placeholder="Paste stream key"></label>
+        <div class="broadcast-settings">
+          <label>Resolution<select id="broadcastResolution"><option value="1280x720">720p</option><option value="1920x1080" selected>1080p</option></select></label>
+          <label>Bitrate<select id="broadcastBitrate"><option value="3500">3.5 Mbps</option><option value="6000" selected>6 Mbps</option><option value="8000">8 Mbps</option></select></label>
+        </div>
+        <button id="testBroadcast" class="btn btn-ghost broadcast-wide" type="button">Test Connection</button>
+        <p class="broadcast-section-note">Tests the configured RTMP destination. This does not start a public broadcast.</p>
+      </div>
+
+      <div class="broadcast-section">
+        <p class="rail-eyebrow">Status</p>
+        <p id="broadcastHelp" class="broadcast-help">Preview Program first. When you go live, select that browser tab and enable tab audio.</p>
+        <div class="broadcast-metrics" id="broadcastMetrics" hidden><span id="broadcastDuration">00:00:00</span><span id="broadcastStateText">Connecting</span></div>
+      </div>
+
+      <button id="toggleBroadcast" class="btn btn-primary broadcast-go-live" type="button">Go Live</button>
+
       <div class="broadcast-session"><span id="studioUser">Signed in</span><button id="studioLogout" class="broadcast-link" type="button">Sign out</button></div>
-      <div class="broadcast-metrics" id="broadcastMetrics" hidden><span id="broadcastDuration">00:00:00</span><span id="broadcastStateText">Connecting</span></div>
     `;
     (document.querySelector(".rail-right") || document.querySelector(".rail-left") || document.body).appendChild(panel);
     ["broadcastBadge","openProgramOutput","broadcastEndpoint","broadcastDestination","broadcastStreamUrl","broadcastStreamKey","broadcastResolution","broadcastBitrate","broadcastHelp","testBroadcast","toggleBroadcast","broadcastMetrics","broadcastDuration","broadcastStateText","studioUser","studioLogout"].forEach((id) => { this.elements[id] = document.getElementById(id); });
@@ -142,7 +162,7 @@ export class ToastyBroadcastController {
     try {
       const response = await this.request("/health", { method: "GET" });
       this.setHelp(`Broadcast service online. ${response.activeBroadcasts || 0} active broadcast(s).`);
-    } catch (error) { this.setHelp(`Broadcast service unavailable: ${error.message}`, true); }
+    } catch (error) { this.setHelp(`Broadcast service unavailable: ${error.message}`, true); this.onError?.(); }
   }
 
   async start() {
@@ -167,10 +187,13 @@ export class ToastyBroadcastController {
       this.timer = window.setInterval(() => this.updateDuration(), 1000);
       this.updateUi("live");
     } catch (error) {
+      // stop() already calls updateUi("offline") — no need to repeat it here. Calling onError() last
+      // (after that offline transition, not before it) is what lets the ERROR chip actually stay
+      // visible instead of being instantly overwritten by the offline state in the same tick.
       await this.stop({ quiet: true });
       if (/login required/i.test(error.message)) this.lock();
       this.setHelp(`Could not start broadcast: ${error.message}`, true);
-      this.updateUi("offline");
+      this.onError?.();
     }
   }
 
@@ -259,7 +282,7 @@ export class ToastyBroadcastController {
     const style = document.createElement("style");
     style.id = "toastyBroadcastStyles";
     style.textContent = `
-      .broadcast-panel{margin-top:18px;padding:16px;border:1px solid rgba(255,255,255,.12);border-radius:18px;background:rgba(10,10,12,.72);display:grid;gap:12px}.broadcast-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.broadcast-head h3{margin:2px 0 0;font-size:16px}.broadcast-badge{font-size:10px;font-weight:800;letter-spacing:.09em;padding:6px 8px;border-radius:999px;background:rgba(255,255,255,.08)}.broadcast-badge[data-state="live"]{background:#ff3b30;color:#fff}.broadcast-badge[data-state="connecting"]{background:#f5a623;color:#111}.broadcast-panel label{display:grid;gap:6px;font-size:11px;font-weight:700;color:rgba(255,255,255,.72)}.broadcast-panel input,.broadcast-panel select{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.13);border-radius:10px;background:#111216;color:#fff;padding:10px;font:inherit}.broadcast-settings,.broadcast-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}.broadcast-wide{width:100%}.broadcast-help{margin:0;font-size:11px;line-height:1.45;color:rgba(255,255,255,.58)}.broadcast-help[data-error="true"]{color:#ff8d86}.broadcast-metrics,.broadcast-session{display:flex;justify-content:space-between;align-items:center;font-variant-numeric:tabular-nums;font-size:11px;color:rgba(255,255,255,.58)}.broadcast-link{border:0;background:none;color:#fff;font:inherit;cursor:pointer;padding:0}
+      .broadcast-panel{margin-top:18px;padding:16px;border:1px solid rgba(255,255,255,.12);border-radius:18px;background:rgba(10,10,12,.72);display:grid;gap:14px}.broadcast-panel[hidden]{display:none}.broadcast-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.broadcast-head h3{margin:2px 0 0;font-size:16px}.broadcast-badge{font-size:10px;font-weight:800;letter-spacing:.09em;padding:6px 8px;border-radius:999px;background:rgba(255,255,255,.08)}.broadcast-badge[data-state="live"]{background:#ff3b30;color:#fff}.broadcast-badge[data-state="connecting"]{background:#f5a623;color:#111}.broadcast-panel label{display:grid;gap:6px;font-size:11px;font-weight:700;color:rgba(255,255,255,.72)}.broadcast-panel input,.broadcast-panel select{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.13);border-radius:10px;background:#111216;color:#fff;padding:10px;font:inherit}.broadcast-settings{display:grid;grid-template-columns:1fr 1fr;gap:10px}.broadcast-wide{width:100%}.broadcast-section{display:grid;gap:10px;padding-top:12px;border-top:1px solid rgba(255,255,255,.08)}.broadcast-section:first-of-type{padding-top:0;border-top:0}.broadcast-section-note{margin:0;font-size:10px;line-height:1.4;color:rgba(255,255,255,.42)}.broadcast-help{margin:0;font-size:11px;line-height:1.45;color:rgba(255,255,255,.58)}.broadcast-help[data-error="true"]{color:#ff8d86}.broadcast-go-live{width:100%;padding:14px 16px;font-size:14px;font-weight:900;letter-spacing:.03em;text-transform:uppercase;border:0;border-radius:12px;background:linear-gradient(135deg,#ff8a1f,#ff3b30 65%,#c9184a);box-shadow:0 16px 34px rgba(255,59,48,.32)}.broadcast-metrics,.broadcast-session{display:flex;justify-content:space-between;align-items:center;font-variant-numeric:tabular-nums;font-size:11px;color:rgba(255,255,255,.58)}.broadcast-link{border:0;background:none;color:#fff;font:inherit;cursor:pointer;padding:0}
       .toasty-login-gate{position:fixed;inset:0;z-index:99999;display:grid;place-items:center;overflow:hidden;background:radial-gradient(circle at 50% 0%,#25202c 0,#100f13 42%,#070708 100%);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#fff}.toasty-login-gate[hidden]{display:none}.toasty-login-glow{position:absolute;width:42vw;height:42vw;border-radius:999px;filter:blur(90px);opacity:.18;pointer-events:none}.glow-a{background:#ff7a18;top:-25%;left:-8%}.glow-b{background:#c94cff;right:-18%;bottom:-32%}.toasty-login-card{position:relative;width:min(420px,calc(100vw - 36px));box-sizing:border-box;padding:42px;border:1px solid rgba(255,255,255,.12);border-radius:28px;background:rgba(15,14,18,.82);box-shadow:0 30px 100px rgba(0,0,0,.45);backdrop-filter:blur(24px)}.toasty-login-mark{width:52px;height:52px;display:grid;place-items:center;border-radius:15px;background:linear-gradient(135deg,#ff8a1f,#ff4f7b 55%,#9f55ff);font-size:26px;font-weight:900;box-shadow:0 12px 36px rgba(255,92,95,.28)}.toasty-login-kicker{margin:26px 0 8px;font-size:10px;font-weight:800;letter-spacing:.22em;color:rgba(255,255,255,.5)}.toasty-login-card h1{margin:0;font-size:34px;letter-spacing:-.04em}.toasty-login-copy{margin:8px 0 28px;color:rgba(255,255,255,.52)}.toasty-login-card label{display:grid;gap:8px;margin-top:14px;font-size:12px;font-weight:700;color:rgba(255,255,255,.68)}.toasty-login-card input{box-sizing:border-box;width:100%;border:1px solid rgba(255,255,255,.12);border-radius:14px;background:#0b0b0e;color:#fff;padding:14px 15px;outline:none;font:inherit}.toasty-login-card input:focus{border-color:rgba(255,126,70,.75);box-shadow:0 0 0 3px rgba(255,126,70,.1)}.toasty-login-card button{width:100%;margin-top:22px;border:0;border-radius:14px;padding:14px 16px;background:linear-gradient(135deg,#ff8a1f,#ff4f70);color:#fff;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 12px 30px rgba(255,83,91,.22)}.toasty-login-card button:disabled{opacity:.6;cursor:wait}.toasty-login-error{min-height:18px;margin:14px 0 0;text-align:center;color:#ff8d86;font-size:12px}
     `;
     document.head.appendChild(style);

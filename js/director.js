@@ -13,7 +13,6 @@ window.__toastyLiveSession = session;
 const elements = {
   liveConsole: document.querySelector("#liveConsole"),
   viewButtons: [...document.querySelectorAll("[data-lv-view-btn]")],
-  onlyPanels: [...document.querySelectorAll("[data-lv-only]")],
   hostFrame: document.querySelector("#lvHostFrame"),
   guestFrame: document.querySelector("#lvGuestFrame"),
   directorControlFrame: document.querySelector("#directorControlFrame"),
@@ -57,6 +56,20 @@ function init() {
   new HostView({ session }).init();
   new ProducerView({ session }).init();
 
+  new AIProductionController({
+    getBrandTheme: () => session.brandTheme,
+    onBrandChange: (brandTheme) => { elements.brandThemeSelect.value = normalizeBrandTheme(brandTheme); session.changeBrandTheme(brandTheme); }
+  }).init();
+
+  // Mounted before bindViewSwitch()'s initial setView("host") call, so its Producer-only broadcast
+  // panel (data-lv-only="producer") exists in the DOM the first time [data-lv-only] elements are queried.
+  new ToastyBroadcastController({
+    getProgramUrl: () => elements.listenerInvite.value,
+    requireLegacyAuthGate: false,
+    onStateChange: (broadcastState) => session.setLive(broadcastState === "live"),
+    onError: () => renderBroadcastError()
+  }).init();
+
   bindViewSwitch();
   bindRailControls();
   bindPolicyDrawer();
@@ -64,26 +77,16 @@ function init() {
 
   session.on("recording", renderRecChip);
   session.on("policy", renderPolicyChip);
-  session.on("connection", renderConnectionChip);
+  session.on("connection", renderBroadcastChip);
+  session.on("program", renderBroadcastChip);
   session.on("brand", () => { applySelectedBrand(); updateInviteFields(); });
   session.on("room", updateInviteFields);
 
   renderRecChip(session.recording);
   renderPolicyChip(session.policy);
-  renderConnectionChip(session.connection);
+  renderBroadcastChip();
   updateInviteFields();
   mountTimeOfDay();
-
-  new AIProductionController({
-    getBrandTheme: () => session.brandTheme,
-    onBrandChange: (brandTheme) => { elements.brandThemeSelect.value = normalizeBrandTheme(brandTheme); session.changeBrandTheme(brandTheme); }
-  }).init();
-
-  new ToastyBroadcastController({
-    getProgramUrl: () => elements.listenerInvite.value,
-    requireLegacyAuthGate: false,
-    onStateChange: (broadcastState) => session.setLive(broadcastState === "live")
-  }).init();
 }
 
 function bindViewSwitch() {
@@ -96,7 +99,9 @@ function bindViewSwitch() {
 function setView(view) {
   elements.liveConsole.dataset.lvView = view;
   elements.viewButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.lvViewBtn === view)));
-  elements.onlyPanels.forEach((panel) => { panel.hidden = panel.dataset.lvOnly !== view; });
+  // Queried live (not cached at init time) so panels mounted later by other controllers — e.g. the
+  // Producer-only broadcast card injected into .rail-right — are still gated correctly.
+  document.querySelectorAll("[data-lv-only]").forEach((panel) => { panel.hidden = panel.dataset.lvOnly !== view; });
 }
 
 function bindRailControls() {
@@ -164,9 +169,26 @@ function renderPolicyChip(policy) {
   if (summary) elements.policyChip.textContent = `${summary.icon} ${summary.label} · ${summary.detail}`;
 }
 
-function renderConnectionChip(connection) {
-  elements.connectionState.textContent = connection.label;
-  elements.connectionChip.dataset.state = connection.status;
+// Real broadcast state, not a VDO.Ninja room-connection ping: session.connection tracks whether the
+// Studio room itself is up (distinguishes OFFLINE from READY); session.program.live is the actual RTMP
+// broadcast flag set by ToastyBroadcastController via session.setLive() (distinguishes READY from ON
+// AIR). ERROR is set directly by the broadcast controller's onError callback and persists until the
+// next real connection/program change overwrites it — see broadcast-client.js's start()/testService().
+function renderBroadcastChip() {
+  const state = session.program.live ? "live" : session.connection.status === "connected" ? "ready" : "offline";
+  const label = state === "live" ? "On air" : state === "ready" ? "Ready" : session.connection.label;
+  setBroadcastChip(state, label);
+}
+
+function renderBroadcastError() {
+  setBroadcastChip("error", "Broadcast error");
+}
+
+function setBroadcastChip(state, label) {
+  elements.connectionChip.dataset.state = state;
+  elements.connectionState.textContent = label;
+  const textEl = elements.connectionChip.querySelector(".on-air-text");
+  if (textEl) textEl.textContent = state === "live" ? "ON AIR" : state === "ready" ? "READY" : state === "error" ? "ERROR" : "OFFLINE";
 }
 
 async function inviteGuest() {

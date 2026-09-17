@@ -28,6 +28,21 @@ const USE_BACKEND_STORAGE_KEY = "toasty.ai-producer.use-backend";
 function loadUseBackendPreference() { try { const v = localStorage.getItem(USE_BACKEND_STORAGE_KEY); return v === null ? true : v === "1"; } catch (_) { return true; } }
 function saveUseBackendPreference(useBackend) { try { localStorage.setItem(USE_BACKEND_STORAGE_KEY, useBackend ? "1" : "0"); } catch (_) {} }
 
+// guest.js formats the single VDO.Ninja label field as "Name · Title, Company" (see joinStudio()) since
+// that field is the only channel that round-trips through VDO.Ninja's own guest-list query back to the
+// director — there's no separate metadata side-channel. This unpacks that same convention back into
+// structured fields for Program Output / lower-third consumption, without changing what guests transmit.
+function parseGuestLabel(label) {
+  const raw = String(label || "").trim();
+  const [namePart, rolePart] = raw.split(" · ");
+  const [title = "", company = ""] = (rolePart || "").split(", ").map((part) => part.trim());
+  return {
+    displayName: (namePart || raw || "Guest").trim(),
+    title: rolePart ? title : "",
+    company: rolePart ? company : ""
+  };
+}
+
 const GUEST_SEAT_COUNT = 3;
 
 // LiveSession is the single shared production core behind Host View and Producer View. Both views are
@@ -254,7 +269,17 @@ export class LiveSession {
       if (this.guestSeats.some((seat) => seat?.id === guest.id)) return;
       const emptyIndex = this.guestSeats.findIndex((seat) => seat === null);
       if (emptyIndex !== -1) {
-        this.guestSeats[emptyIndex] = { id: guest.id, label: guest.label, mic: true, camera: true, onProgram: true, volume: 1 };
+        this.guestSeats[emptyIndex] = {
+          id: guest.id,
+          label: guest.label,
+          ...parseGuestLabel(guest.label),
+          logoUrl: null,
+          connectionStatus: "connected",
+          mic: true,
+          camera: true,
+          onProgram: true,
+          volume: 1
+        };
       }
     });
 

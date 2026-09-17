@@ -609,16 +609,49 @@ body.studio-public-shell[data-brand-theme] {
   letter-spacing: .12em;
 }
 
-.studio-shell[data-brand-theme] .on-air-sign[data-state="connected"] {
+.studio-shell[data-brand-theme] .on-air-sign[data-state="live"] {
   background: color-mix(in srgb, #e95454 11%, var(--ui-panel-2));
   border-color: color-mix(in srgb, #e95454 32%, var(--ui-line));
   box-shadow: none;
 }
 
-.studio-shell[data-brand-theme] .on-air-sign[data-state="connected"] .on-air-text {
+.studio-shell[data-brand-theme] .on-air-sign[data-state="live"] .on-air-text {
   color: var(--ui-text);
   filter: none;
   text-shadow: none;
+}
+
+/* OFFLINE/READY/ERROR never pulse or read as "live" — see js/director.js's renderBroadcastChip, which
+   drives this off the real broadcast flag, not a VDO.Ninja room-connection ping. */
+
+.studio-shell[data-brand-theme] .on-air-sign[data-state="ready"] {
+  background: color-mix(in srgb, #f5a623 11%, var(--ui-panel-2));
+  border-color: color-mix(in srgb, #f5a623 32%, var(--ui-line));
+}
+
+.studio-shell[data-brand-theme] .on-air-sign[data-state="ready"] .on-air-bulb {
+  background: #f5a623;
+}
+
+.studio-shell[data-brand-theme] .on-air-sign[data-state="ready"] .on-air-text {
+  color: var(--ui-text);
+}
+
+.studio-shell[data-brand-theme] .on-air-sign[data-state="error"] {
+  background: color-mix(in srgb, #ff8a3d 11%, var(--ui-panel-2));
+  border-color: color-mix(in srgb, #ff8a3d 32%, var(--ui-line));
+}
+
+.studio-shell[data-brand-theme] .on-air-sign[data-state="error"] .on-air-bulb {
+  background: #ff8a3d;
+}
+
+.studio-shell[data-brand-theme] .on-air-sign[data-state="error"] .on-air-text {
+  color: var(--ui-text);
+}
+
+.studio-shell[data-brand-theme] .on-air-sign[data-state="offline"] {
+  opacity: 0.7;
 }
 
 .studio-shell[data-brand-theme] .rail-invite {

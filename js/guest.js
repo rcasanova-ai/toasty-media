@@ -6,6 +6,7 @@ const state = {
   brandTheme: getInitialBrandTheme(window.location.search, { useStorage: false }),
   brandLabel: "Studio",
   previewStream: null,
+  guestLogoUrl: null,
   selectedBackground: BackgroundMode.NONE,
   micMuted: false,
   cameraOff: false,
@@ -27,6 +28,7 @@ const elements = {
   guestName: document.querySelector("#guestName"),
   guestTitleField: document.querySelector("#guestTitleField"),
   guestCompany: document.querySelector("#guestCompany"),
+  guestLogoUpload: document.querySelector("#guestLogoUpload"),
   microphoneSelect: document.querySelector("#microphoneSelect"),
   cameraSelect: document.querySelector("#cameraSelect"),
   joinStudio: document.querySelector("#joinStudio"),
@@ -72,6 +74,14 @@ function bindControls() {
 
   elements.cameraSelect.addEventListener("change", startPreview);
   elements.microphoneSelect.addEventListener("change", startPreview);
+  // Local-only for now: there is no metadata side-channel from guest to director yet (VDO.Ninja's
+  // label field, the only thing that round-trips, can't carry an image). Kept on state so it's at
+  // least available to this page and ready to wire up once a real channel exists.
+  elements.guestLogoUpload.addEventListener("change", () => {
+    const file = elements.guestLogoUpload.files?.[0];
+    if (state.guestLogoUrl) URL.revokeObjectURL(state.guestLogoUrl);
+    state.guestLogoUrl = file ? URL.createObjectURL(file) : null;
+  });
   elements.joinStudio.addEventListener("click", joinStudio);
   elements.guestToggleMic.addEventListener("click", toggleMic);
   elements.guestToggleCamera.addEventListener("click", toggleCamera);

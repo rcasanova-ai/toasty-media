@@ -16,6 +16,7 @@ export class HostView {
       toggleScreen: root.querySelector("#lvToggleScreen"),
       leaveStudio: root.querySelector("#lvLeaveStudio"),
       guestContext: root.querySelector("#lvGuestContext"),
+      guestCount: root.querySelector("#lvGuestCount"),
       hostPanelStatus: root.querySelector("#lvHostPanelStatus"),
       guestPanelStatus: root.querySelector("#lvGuestPanelStatus"),
       guestStageEmpty: root.querySelector("#lvGuestStageEmpty"),
@@ -72,17 +73,36 @@ export class HostView {
 
   renderGuestContext() {
     const seats = this.session.guestSeats;
-    const count = seats.filter(Boolean).length;
-    this.elements.guestPanelStatus.textContent = `${count} connected`;
-    this.elements.guestPanelStatus.dataset.state = count > 0 ? "connected" : "idle";
-    this.elements.guestStageEmpty.hidden = count > 0;
+    const connected = seats.filter(Boolean);
+    this.elements.guestPanelStatus.textContent = `${connected.length} connected`;
+    this.elements.guestPanelStatus.dataset.state = connected.length > 0 ? "connected" : "idle";
+    this.elements.guestStageEmpty.hidden = connected.length > 0;
+    this.elements.guestCount.textContent = String(connected.length);
 
-    this.elements.guestContext.replaceChildren(...seats.map((seat, index) => {
-      const pill = document.createElement("span");
-      pill.className = "lv-guest-pill";
-      pill.dataset.state = seat ? "active" : "idle";
-      pill.textContent = seat ? (seat.label || `Guest ${index + 1}`) : `Guest ${index + 1} · Open`;
-      return pill;
+    if (!connected.length) {
+      this.elements.guestContext.replaceChildren(placeholder("No guests connected yet."));
+      return;
+    }
+
+    this.elements.guestContext.replaceChildren(...connected.map((seat) => {
+      const row = document.createElement("div");
+      row.className = "lv-guest-row";
+      row.dataset.status = seat.connectionStatus || "connected";
+      const dot = document.createElement("span");
+      dot.className = "lv-guest-dot";
+      dot.setAttribute("aria-hidden", "true");
+      const name = document.createElement("span");
+      name.className = "lv-guest-name";
+      name.textContent = seat.displayName || seat.label || "Guest";
+      row.append(dot, name);
+      const role = [seat.title, seat.company].filter(Boolean).join(", ");
+      if (role) {
+        const roleEl = document.createElement("span");
+        roleEl.className = "lv-guest-role";
+        roleEl.textContent = `· ${role}`;
+        row.appendChild(roleEl);
+      }
+      return row;
     }));
   }
 

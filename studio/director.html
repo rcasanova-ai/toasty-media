@@ -46,6 +46,12 @@
           <strong>AI Production</strong>
         </button>
       </section>
+
+      <div class="on-air-sign on-air-sign--compact" id="connectionChip" data-state="offline">
+        <span class="on-air-bulb" aria-hidden="true"></span>
+        <span class="on-air-text" aria-hidden="true">OFFLINE</span>
+        <span id="connectionState" class="sr-only">Ready</span>
+      </div>
     </header>
 
     <div class="studio-grid">
@@ -64,16 +70,8 @@
             <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Media Studio">
           </span>
 
-          <div class="on-air-sign" id="connectionChip" data-state="idle">
-            <span class="on-air-bulb" aria-hidden="true"></span>
-            <span class="on-air-text" aria-hidden="true">ON AIR</span>
-            <span id="connectionState" class="sr-only">Ready</span>
-          </div>
-        </div>
-
-        <section class="rail-invite" aria-label="Session invite">
           <label class="brand-switcher" for="brandThemeSelect">
-            <span>Brand</span>
+            <span>Workspace</span>
             <select id="brandThemeSelect">
               <option value="toasty">Toasty Media</option>
               <option value="8alta">8alta</option>
@@ -82,6 +80,9 @@
               <option value="tangem">Tangem</option>
             </select>
           </label>
+        </div>
+
+        <section class="rail-invite" aria-label="Session invite">
           <button id="inviteGuestBtn" class="btn btn-primary" type="button">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><line x1="20" y1="8" x2="20" y2="14"></line><line x1="23" y1="11" x2="17" y2="11"></line></svg>
             Invite Guest
@@ -418,7 +419,10 @@
                 <p class="lv-placeholder">Live chat and questions land here.</p>
               </div>
             </aside>
-            <div class="lv-guest-context" id="lvGuestContext" data-lv-only="host" aria-label="Guests"></div>
+            <section class="lv-panel lv-guests" data-lv-only="host" aria-label="Guests">
+              <div class="lv-panel-head"><span>Guests</span><span class="lv-chip" id="lvGuestCount">0</span></div>
+              <div class="lv-guest-context" id="lvGuestContext"></div>
+            </section>
 
             <!-- PRODUCER-only panels -->
             <section class="lv-panel lv-sources" data-lv-only="producer" hidden aria-label="Sources">
@@ -498,9 +502,9 @@
               <div class="lv-panel-head"><span>Show</span></div>
               <label class="po-field po-ticker-toggle">
                 <input id="lvDemoModeToggle" type="checkbox">
-                Demo Mode (seeded audience + transcript)
+                Load Demo Data
               </label>
-              <p class="control-note" id="lvDemoModeNote">Drips a seeded audience feed and transcript so AI Producer can be demoed without live mic/chat.</p>
+              <p class="control-note" id="lvDemoModeNote">Seeds Run of Show, transcript, and audience feed so AI Producer can be demoed without a live mic or chat. Never starts a broadcast or recording.</p>
               <button id="lvResetDemo" class="btn btn-ghost btn-small" type="button">Reset Demo</button>
               <p class="control-note">Back to Opening/Canada/Thailand(current)/Vietnam/Closing with empty audience, transcript and AI Producer feed. Dev/demo only.</p>
               <button id="lvEndShow" class="btn btn-danger" type="button">End Show</button>
