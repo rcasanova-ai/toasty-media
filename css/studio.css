@@ -3119,3 +3119,659 @@
     max-width: 720px;
   }
 }
+
+/* ===========================================================================
+   Live Console — Host/Producer, Phase 1
+   Dense broadcast-console density on purpose: compact panels, small chips,
+   tight gaps. See director.js/live-session.js for the data behind this.
+   =========================================================================== */
+
+.live-console {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+/* Every lv-* panel/chip sets its own `display` (flex/grid) for layout, which — because author rules
+   always beat the UA stylesheet regardless of specificity — silently defeats the plain `[hidden]`
+   attribute those same elements rely on for view switching (see director.js's setView). This is the one
+   rule that makes `hidden` win back, deliberately with !important since that's exactly the contract
+   `hidden` is supposed to guarantee. */
+.live-console [hidden] {
+  display: none !important;
+}
+
+.lv-topbar {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.lv-view-switch {
+  background: var(--studio-surface);
+  border: 1px solid var(--studio-line);
+  border-radius: 999px;
+  display: inline-flex;
+  gap: 0.15rem;
+  padding: 0.2rem;
+}
+
+.lv-view-btn {
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: var(--studio-cream-dim);
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 0.4rem 1rem;
+  text-transform: uppercase;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.lv-view-btn[aria-pressed="true"] {
+  background: var(--studio-orange);
+  color: var(--studio-button-text);
+}
+
+.lv-topbar-status {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.lv-rec-chip {
+  align-items: center;
+  background: rgba(229, 56, 44, 0.12);
+  border: 1px solid rgba(229, 56, 44, 0.35);
+  border-radius: 999px;
+  color: var(--studio-red-bright);
+  display: flex;
+  font-family: var(--font-heading);
+  font-size: 0.68rem;
+  font-weight: 800;
+  gap: 0.4em;
+  letter-spacing: 0.04em;
+  padding: 0.3em 0.7em;
+}
+
+.lv-rec-dot {
+  animation: rec-pulse 1.6s ease-in-out infinite;
+  background: var(--studio-red);
+  border-radius: 50%;
+  display: block;
+  height: 0.55em;
+  width: 0.55em;
+}
+
+.lv-policy-chip {
+  background: var(--studio-surface-2);
+  border: 1px solid var(--studio-line-strong);
+  border-radius: 999px;
+  color: var(--studio-amber);
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.3em 0.75em;
+}
+
+.lv-body {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: 1.6fr 1fr;
+}
+
+/* No card border by design — a production cockpit reads as monitors in a grid, not stacked SaaS
+   cards. Panels are told apart by a faint background shift and spacing alone; the eye should land on
+   the CONTENT (video, the current topic, the newest producer line), not on box outlines. */
+.lv-panel {
+  background: color-mix(in srgb, var(--studio-surface) 88%, transparent);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.55rem 0.65rem;
+}
+
+.lv-panel-head {
+  align-items: center;
+  color: var(--studio-muted);
+  display: flex;
+  font-family: var(--font-heading);
+  font-size: 0.64rem;
+  font-weight: 700;
+  justify-content: space-between;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.lv-chip {
+  background: var(--studio-surface-2);
+  border-radius: 999px;
+  color: var(--studio-cream-dim);
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 0.2em 0.6em;
+  text-transform: none;
+}
+
+.lv-chip[data-state="connected"] {
+  color: var(--studio-green);
+}
+
+.lv-program {
+  grid-column: 1;
+}
+
+.live-console[data-lv-view="producer"] .lv-program,
+.live-console[data-lv-view="producer"] .lv-sources {
+  grid-column: 1 / -1;
+}
+
+.lv-video-row {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.lv-video-article {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.lv-video-tile {
+  min-height: min(30vh, 300px);
+}
+
+.lv-video-tile-label {
+  background: rgba(9, 7, 6, 0.7);
+  border-radius: 6px;
+  color: var(--studio-cream-dim);
+  font-size: 0.66rem;
+  font-weight: 700;
+  left: 8px;
+  padding: 0.2em 0.55em;
+  position: absolute;
+  top: 8px;
+  z-index: 2;
+}
+
+.lv-host-controls {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.lv-icon-btn {
+  background: var(--studio-surface-2);
+  border: 1px solid var(--studio-line);
+  border-radius: 8px;
+  color: var(--studio-cream);
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.45rem 0.8rem;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.lv-icon-btn:hover {
+  border-color: var(--studio-line-warm);
+}
+
+.lv-icon-btn[aria-pressed="true"] {
+  background: var(--studio-orange);
+  color: var(--studio-button-text);
+}
+
+.lv-icon-btn-danger {
+  color: var(--studio-red-bright);
+  margin-left: auto;
+}
+
+.lv-icon-btn-danger:hover {
+  border-color: var(--studio-red);
+}
+
+.lv-placeholder {
+  color: var(--studio-muted);
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+.lv-placeholder-sub {
+  font-size: 0.72rem;
+}
+
+.lv-ai-feed {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  justify-content: center;
+  min-height: 80px;
+}
+
+.lv-guest-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  grid-column: 1 / -1;
+}
+
+.lv-guest-pill {
+  background: var(--studio-surface);
+  border: 1px solid var(--studio-line);
+  border-radius: 999px;
+  color: var(--studio-cream-dim);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.3em 0.75em;
+}
+
+.lv-guest-pill[data-state="active"] {
+  border-color: var(--studio-green);
+  color: var(--studio-green);
+}
+
+.lv-source-row {
+  align-items: center;
+  border-top: 1px solid var(--studio-line);
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.45rem 0;
+}
+
+.lv-source-row:first-child {
+  border-top: 0;
+}
+
+.lv-source-name {
+  flex: 1;
+  font-size: 0.78rem;
+  font-weight: 700;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lv-source-status {
+  color: var(--studio-muted);
+  font-size: 0.7rem;
+}
+
+.lv-mini-btn {
+  background: var(--studio-surface-2);
+  border: 1px solid var(--studio-line);
+  border-radius: 6px;
+  color: var(--studio-cream);
+  cursor: pointer;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.3em 0.6em;
+}
+
+.lv-mini-btn[aria-pressed="true"] {
+  border-color: var(--studio-red);
+  color: var(--studio-red-bright);
+}
+
+.lv-mini-btn--program[aria-pressed="true"] {
+  border-color: var(--studio-orange);
+  color: var(--studio-orange-bright);
+}
+
+.lv-mini-slider {
+  width: 70px;
+}
+
+.lv-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.lv-button-row .lv-mini-btn[aria-pressed="true"] {
+  background: var(--studio-orange);
+  border-color: var(--studio-orange);
+  color: var(--studio-button-text);
+}
+
+.lv-advanced-drawer summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.lv-advanced-drawer[open] summary {
+  margin-bottom: 0.6rem;
+}
+
+@media (max-width: 900px) {
+  .lv-body {
+    grid-template-columns: 1fr;
+  }
+
+  .live-console[data-lv-view="producer"] .lv-program,
+  .live-console[data-lv-view="producer"] .lv-sources {
+    grid-column: 1;
+  }
+
+  .lv-video-row {
+    flex-direction: column;
+  }
+}
+
+/* ===========================================================================
+   Run of Show, Audience, AI Producer feed, Talk to Producer — see run-of-show.js,
+   audience.js, ai-producer.js.
+   =========================================================================== */
+
+.lv-agenda-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  list-style: none;
+  margin: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.lv-agenda-item {
+  align-items: center;
+  border-radius: 6px;
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.25rem 0.3rem;
+}
+
+.lv-agenda-item[data-status="current"] {
+  background: rgba(255, 122, 41, 0.1);
+}
+
+.lv-agenda-status {
+  background: transparent;
+  border: 0;
+  color: var(--studio-muted);
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: 0.85rem;
+  width: 1.2em;
+}
+
+.lv-agenda-item[data-status="completed"] .lv-agenda-status {
+  color: var(--studio-green);
+}
+
+.lv-agenda-item[data-status="current"] .lv-agenda-status {
+  color: var(--studio-orange-bright);
+}
+
+.lv-agenda-title {
+  flex: 1;
+  font-size: 0.78rem;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lv-agenda-item[data-status="completed"] .lv-agenda-title {
+  color: var(--studio-muted);
+  text-decoration: line-through;
+}
+
+.lv-agenda-timer {
+  color: var(--studio-orange-bright);
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.lv-agenda-row-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.1rem;
+  opacity: 0.5;
+  transition: opacity 120ms ease;
+}
+
+.lv-agenda-item:hover .lv-agenda-row-actions {
+  opacity: 1;
+}
+
+.lv-agenda-row-actions button {
+  background: transparent;
+  border: 0;
+  color: var(--studio-cream-dim);
+  cursor: pointer;
+  font-size: 0.68rem;
+  line-height: 1;
+  padding: 0.15rem 0.3rem;
+}
+
+.lv-agenda-row-actions button:hover {
+  color: var(--studio-orange-bright);
+}
+
+.lv-agenda-add {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.lv-agenda-add input {
+  flex: 1;
+  min-width: 0;
+}
+
+.lv-audience-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.lv-audience-item {
+  border-bottom: 1px solid var(--studio-line);
+  font-size: 0.76rem;
+  padding: 0.25rem 0;
+}
+
+.lv-audience-item:last-child {
+  border-bottom: 0;
+}
+
+.lv-audience-item[data-type="question"] .lv-audience-name {
+  color: var(--studio-orange-bright);
+}
+
+.lv-audience-name {
+  font-weight: 700;
+  margin-right: 0.35em;
+}
+
+.lv-audience-message {
+  color: var(--studio-cream-dim);
+}
+
+.lv-feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.lv-feed-entry {
+  background: var(--studio-surface-2);
+  border-left: 3px solid var(--studio-line-strong);
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+}
+
+/* The newest entry is the one thing a talking host should be able to catch peripherally — give it
+   real size and full contrast. Everything below it is "still here if you need it," not competing for
+   attention: smaller and dimmer on purpose. */
+.lv-feed-list > .lv-feed-entry:first-child {
+  padding: 0.65rem 0.75rem;
+}
+
+.lv-feed-list > .lv-feed-entry:first-child .lv-feed-entry-title {
+  font-size: 0.8rem;
+}
+
+.lv-feed-list > .lv-feed-entry:first-child .lv-feed-entry-summary,
+.lv-feed-list > .lv-feed-entry:first-child .lv-feed-entry-items {
+  font-size: 0.9rem;
+}
+
+.lv-feed-list > .lv-feed-entry:not(:first-child) {
+  opacity: 0.62;
+  padding: 0.35rem 0.6rem;
+}
+
+.lv-feed-list > .lv-feed-entry:not(:first-child) .lv-feed-entry-summary,
+.lv-feed-list > .lv-feed-entry:not(:first-child) .lv-feed-entry-items {
+  font-size: 0.72rem;
+}
+
+.lv-feed-entry[data-type="audience_questions"] { border-left-color: var(--studio-orange); }
+.lv-feed-entry[data-type="transition"] { border-left-color: var(--studio-amber); }
+.lv-feed-entry[data-type="timing"] { border-left-color: var(--studio-green); }
+.lv-feed-entry[data-type="context"] { border-left-color: var(--studio-cream-dim); }
+.lv-feed-entry[data-type="error"] { border-left-color: var(--studio-red); }
+.lv-feed-entry[data-type="working"] { border-left-color: var(--studio-muted); opacity: 0.75; }
+.lv-feed-entry[data-pinned="true"] { border-left-color: var(--studio-orange-bright); box-shadow: 0 0 0 1px rgba(255, 171, 92, 0.25); }
+
+.lv-feed-entry-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.lv-feed-entry-title {
+  font-family: var(--font-heading);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.lv-feed-entry-actions {
+  display: flex;
+  gap: 0.2rem;
+}
+
+.lv-feed-mini-btn {
+  background: transparent;
+  border: 0;
+  color: var(--studio-muted);
+  cursor: pointer;
+  font-size: 0.65rem;
+  padding: 0.1rem 0.3rem;
+}
+
+.lv-feed-mini-btn:hover {
+  color: var(--studio-orange-bright);
+}
+
+.lv-feed-entry-instruction {
+  color: var(--studio-muted);
+  font-size: 0.7rem;
+  font-style: italic;
+  margin: 0.2rem 0;
+}
+
+.lv-feed-entry-summary {
+  font-size: 0.78rem;
+  margin: 0.2rem 0;
+}
+
+.lv-feed-entry-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  list-style: none;
+  margin: 0.3rem 0 0;
+  padding: 0;
+}
+
+.lv-feed-entry-items li {
+  display: flex;
+  flex-direction: column;
+}
+
+.lv-feed-entry-items strong {
+  color: var(--studio-orange-bright);
+  font-size: 0.72rem;
+}
+
+.lv-talk-row {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.lv-talk-btn {
+  background: var(--studio-orange);
+  border: 0;
+  border-radius: 8px;
+  color: var(--studio-button-text);
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-size: 0.78rem;
+  font-weight: 800;
+  padding: 0.55rem 1rem;
+  user-select: none;
+}
+
+.lv-talk-btn[data-state="listening"] {
+  animation: rec-pulse 1.2s ease-in-out infinite;
+  background: var(--studio-red);
+}
+
+.lv-talk-btn[data-state="thinking"] {
+  background: var(--studio-surface-2);
+  color: var(--studio-cream-dim);
+  cursor: default;
+}
+
+.lv-talk-state {
+  color: var(--studio-muted);
+  font-size: 0.72rem;
+}
+
+.lv-talk-live {
+  background: var(--studio-surface-2);
+  border-left: 2px solid var(--studio-red);
+  border-radius: 4px;
+  color: var(--studio-cream-dim);
+  font-size: 0.76rem;
+  font-style: italic;
+  margin: 0;
+  padding: 0.3rem 0.5rem;
+}
+
+.lv-talk-text-form {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.lv-talk-text-form input {
+  flex: 1;
+  min-width: 0;
+}
+
+@keyframes lv-feed-flash {
+  0% { background: rgba(255, 122, 41, 0.32); }
+  100% { background: var(--studio-surface-2); }
+}
+
+.lv-feed-entry--flash {
+  animation: lv-feed-flash 1.1s ease-out;
+}
