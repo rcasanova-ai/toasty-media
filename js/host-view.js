@@ -32,6 +32,7 @@ export class HostView {
       audienceList: root.querySelector("#lvAudienceList"),
       audienceCount: root.querySelector("#lvAudienceCount"),
       audienceDemoBreakdown: root.querySelector("#lvAudienceDemoBreakdown"),
+      audienceDemoToggle: root.querySelector("#lvAudienceDemoToggle"),
       feedList: root.querySelector("#lvFeedListHost"),
       talkBtn: root.querySelector("#lvTalkBtn"),
       talkState: root.querySelector("#lvTalkState"),
@@ -176,12 +177,15 @@ export class HostView {
 
   // ---- Audience ----
 
+  // Demo Mode's ONLY other control lived inside Producer -> Show actions (data-lv-only="producer",
+  // hidden by default) — a host on the default Host view landing on a fresh session had no way to find
+  // it at all, which is exactly why a real production test showed Audience stuck at 0 (see this repair
+  // pass's report). This toggle is Host-visible right where its effect shows up, and stays in sync with
+  // the Producer one either way since both just call session.setDemoMode/read session.demoMode.
   initAudience() {
     this.session.audience.on(() => this.renderAudience());
-    // Demo Mode toggling changes what the count/breakdown MEANS (simulated vs. real), not just whether
-    // messages are dripping — see renderAudience's own comment for why this can never render outside an
-    // explicit session.demoMode check.
     this.session.on("demo-mode", () => this.renderAudience());
+    this.elements.audienceDemoToggle.addEventListener("change", () => this.session.setDemoMode(this.elements.audienceDemoToggle.checked));
     this.renderAudience();
   }
 
@@ -190,6 +194,7 @@ export class HostView {
   // one explicit gate the whole feature is required to have, so a simulated number can never be mistaken
   // for real production telemetry (see this repair pass's report).
   renderAudience() {
+    this.elements.audienceDemoToggle.checked = this.session.demoMode;
     const messages = this.session.audience.recent(40);
     if (this.session.demoMode) {
       this.elements.audienceCount.textContent = `${DEMO_AUDIENCE_TOTAL} · DEMO`;

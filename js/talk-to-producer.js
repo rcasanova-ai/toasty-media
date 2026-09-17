@@ -8,14 +8,40 @@
 //
 //   pointerdown -> held=true, MediaRecorder starts (this owns "how long")
 //   while held  -> recording continues no matter what SpeechRecognition does in the background
-//   pointerup   -> held=false, MediaRecorder stops, whatever transcript text exists is sent
+//   pointerup   -> held=false, MediaRecorder stops, recorded blob POSTed to /api/transcribe
 //
-// SpeechRecognition still runs, restarted freely on its own 'end' events, purely to produce the
-// interim/final TEXT — it just no longer has any power to end the hold early. See this class's own
-// report entry for the honest gap this leaves: there is no free speech-to-text-from-a-recorded-blob
-// backend in this codebase today, so the text sent to Hottie still comes from SpeechRecognition's
-// output, not from transcribing the MediaRecorder blob itself. The blob is kept (recordedAudioBlob on
-// the result) so a real transcription backend has something to plug into later without another rewrite.
+// The RECORDED AUDIO is the authoritative source when a transcription backend is available (see
+// transcribeAudio below) — SpeechRecognition only supplies live interim captions and a same-session
+// fallback transcript if the backend call fails or isn't configured. See this session's report for why
+// no transcription provider is wired in server-side yet (no free/local option exists in this codebase
+// today; the real choices all need either a paid API key or VPS access this environment doesn't have) —
+// scripts/render-production-server.mjs's /api/transcribe honestly returns "not configured" until that
+// decision is made, rather than this silently only ever using SpeechRecognition and calling it done.
+const LOCAL_TRANSCRIBE_ENDPOINT = "http://127.0.0.1:4174/api/transcribe";
+const PRODUCTION_TRANSCRIBE_ENDPOINT = "https://render.toasty.media/api/transcribe";
+
+function getTranscribeEndpoint() {
+  if (window.TOASTY_TRANSCRIBE_ENDPOINT) return window.TOASTY_TRANSCRIBE_ENDPOINT;
+  const host = window.location.hostname;
+  return (host === "localhost" || host === "127.0.0.1" || host === "") ? LOCAL_TRANSCRIBE_ENDPOINT : PRODUCTION_TRANSCRIBE_ENDPOINT;
+}
+
+async function transcribeAudio(blob) {
+  try {
+    const response = await fetch(getTranscribeEndpoint(), {
+      method: "POST",
+      headers: { "content-type": blob.type || "audio/webm" },
+      body: blob,
+      signal: AbortSignal.timeout(10000)
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) return { ok: false, error: body.error || `transcribe-backend-${response.status}` };
+    return { ok: true, text: String(body.transcript || "").trim() };
+  } catch (error) {
+    return { ok: false, error: "transcribe-backend-unreachable" };
+  }
+}
+
 export class PushToTalkCapture {
   static isSupported() { return Boolean(navigator.mediaDevices?.getUserMedia); }
   static hasSpeechRecognition() { return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition); }
@@ -102,8 +128,9 @@ export class PushToTalkCapture {
     try { recognition.start(); } catch (_) {}
   }
 
-  // The only thing allowed to end a hold from the outside (pointerup/pointercancel). Always resolves via
-  // onResult or onError exactly once.
+  // The only thing allowed to end a hold from the outside (pointerup/pointercancel/user cancellation).
+  // Always resolves via onResult or onError exactly once, and onResult is only ever called once per hold
+  // — there is exactly one path to it below, never a race between a transcription result and a fallback.
   async stop() {
     if (!this._held) return;
     this._held = false;
@@ -118,8 +145,25 @@ export class PushToTalkCapture {
     const recordedAudioBlob = await this._finalizeRecording(recorder);
     stream?.getTracks().forEach((track) => track.stop());
 
-    const text = this._finalText.trim();
-    if (text) this.onResult?.(text, { recordedAudioBlob });
+    // Empty recording (e.g. an instant tap-release with no audio captured at all) — nothing to
+    // transcribe and nothing to fall back to.
+    if (!recordedAudioBlob || recordedAudioBlob.size === 0) {
+      this.onError?.(new Error("Didn't catch that — hold the button and try again, or type it."));
+      return;
+    }
+
+    const transcription = await transcribeAudio(recordedAudioBlob);
+    if (transcription.ok && transcription.text) {
+      this.onResult?.(transcription.text, { recordedAudioBlob, source: "transcription" });
+      return;
+    }
+
+    // Transcription backend unavailable, not configured, or returned nothing usable — fall back to
+    // whatever SpeechRecognition captured live during this SAME hold rather than losing the instruction
+    // outright. This is explicitly a fallback, not the authoritative path (see this file's top comment).
+    if (!transcription.ok) console.warn("Recorded-audio transcription unavailable, falling back to live captions:", transcription.error);
+    const fallbackText = this._finalText.trim();
+    if (fallbackText) this.onResult?.(fallbackText, { recordedAudioBlob, source: "speech-recognition-fallback" });
     else this.onError?.(new Error("Didn't catch that — hold the button and try again, or type it."));
   }
 

@@ -73,6 +73,9 @@ export class ProducerView {
       }
     });
     this.elements.demoModeToggle.addEventListener("change", () => this.session.setDemoMode(this.elements.demoModeToggle.checked));
+    // Kept in sync with Host View's own Demo toggle (see host-view.js) — either one can turn it on/off,
+    // both should visually agree, since this is the SAME session.demoMode either way.
+    this.session.on("demo-mode", (enabled) => { this.elements.demoModeToggle.checked = enabled; });
     this.elements.resetDemo.addEventListener("click", () => {
       this.session.resetDemo();
       this.elements.demoModeToggle.checked = false;

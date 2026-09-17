@@ -432,7 +432,14 @@
               </form>
             </section>
             <aside class="lv-panel lv-audience" data-lv-only="host" aria-label="Audience">
-              <div class="lv-panel-head"><span>Audience</span><span class="lv-chip" id="lvAudienceCount">0</span></div>
+              <div class="lv-panel-head">
+                <span>Audience</span>
+                <label class="lv-audience-demo-toggle">
+                  <input id="lvAudienceDemoToggle" type="checkbox">
+                  Demo
+                </label>
+                <span class="lv-chip" id="lvAudienceCount">0</span>
+              </div>
               <div class="lv-audience-demo-breakdown" id="lvAudienceDemoBreakdown" hidden></div>
               <div class="lv-audience-list" id="lvAudienceList">
                 <p class="lv-placeholder">Live chat and questions land here.</p>

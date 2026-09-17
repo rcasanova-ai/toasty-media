@@ -228,6 +228,11 @@ const server = createServer(async (req, res) => {
     await handleAiProducerRespond(req, res);
     return;
   }
+  if (req.method === "POST" && req.url === "/api/transcribe") {
+    if (!limit(req, res, "transcribe", 30, 5 * 60 * 1000)) return;
+    await handleTranscribe(req, res);
+    return;
+  }
   if (req.method !== "POST" || req.url !== "/render") {
     sendJson(req, res, 404, { error: "Render helper is running. POST /render to create an MP4." });
     return;
@@ -415,6 +420,46 @@ async function handleAiProducerRespond(req, res) {
     sources: Array.isArray(parsed.sources) ? parsed.sources.slice(0, 20) : [],
     usage
   });
+}
+
+// Push-to-talk recorded-audio transcription (see js/talk-to-producer.js's top comment for the full
+// picture: MediaRecorder owns the physical hold's duration client-side; this endpoint is where that
+// recorded blob is SUPPOSED to become the authoritative transcript instead of live SpeechRecognition).
+//
+// Deliberately a stub, not a silently-added paid dependency: no free/local transcription path exists
+// anywhere in this codebase or on this VPS today (confirmed — DeepSeek's API is text-only, no audio
+// endpoint; there is no whisper.cpp/faster-whisper install here, and installing one needs VPS access
+// this session didn't have). Real options, for a human decision, not this code to make:
+//   1. OpenAI's Whisper API — ~$0.006/min (a few seconds of PTT audio costs a fraction of a cent),
+//      simple POST-the-audio-bytes call, server-side key just like DEEPSEEK_API_KEY. Lowest complexity.
+//   2. Self-hosted whisper.cpp/faster-whisper on this same VPS — $0 marginal cost, but needs installing
+//      a model + binary (SSH access), and CPU-only inference latency on a modest droplet is unverified —
+//      could easily be slower than the OpenAI round trip for short clips.
+//   3. Browser-only WASM Whisper (e.g. transformers.js) — $0 cost, no server change at all, but a real
+//      new client-side ML dependency (tens of MB model download, first-use warm-up) that needs its own
+//      cross-device testing before it could be trusted for a real host's PTT.
+// Until one is chosen, this returns 503 so the client's own documented fallback (SpeechRecognition's live
+// transcript from the SAME hold) takes over — see PushToTalkCapture.stop().
+const TRANSCRIBE_PROVIDER = process.env.TOASTY_TRANSCRIBE_PROVIDER || "";
+
+async function handleTranscribe(req, res) {
+  if (!TRANSCRIBE_PROVIDER) throw httpError(503, "Recorded-audio transcription isn't configured on the server yet.");
+  // No provider wired in — see the comment above. Whichever of the three options above gets chosen would
+  // read the raw audio bytes (readBinaryBody(req, MAX_TRANSCRIBE_AUDIO_BYTES)) and call that provider here.
+  throw httpError(503, "Recorded-audio transcription isn't configured on the server yet.");
+}
+
+const MAX_TRANSCRIBE_AUDIO_BYTES = 8 * 1024 * 1024;
+
+async function readBinaryBody(req, maxBytes) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maxBytes) throw httpError(413, "Recording is too large.");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }
 
 async function callDeepSeek(userContent, systemPrompt) {

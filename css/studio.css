@@ -3837,6 +3837,24 @@
   overflow-y: auto;
 }
 
+.lv-audience-demo-toggle {
+  align-items: center;
+  color: var(--studio-cream-dim);
+  display: flex;
+  font-size: 0.62rem;
+  font-weight: 700;
+  gap: 0.3rem;
+  letter-spacing: 0.03em;
+  text-transform: none;
+}
+
+.lv-audience-demo-toggle input {
+  height: auto;
+  margin: 0;
+  min-height: auto;
+  width: auto;
+}
+
 /* Demo Mode only — see js/host-view.js's renderAudience for the session.demoMode gate. */
 .lv-audience-demo-breakdown {
   border-bottom: 1px solid var(--studio-line);
