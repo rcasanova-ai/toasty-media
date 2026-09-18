@@ -106,14 +106,18 @@
             </div>
           </details>
         </section>
+      </div>
 
-        <!-- TEMPORARY real-device diagnostics — mirrors js/prejoin-diagnostics.js's Host pattern. Remove
-             this block and its wiring in js/guest.js once real publish confirmation is verified on
-             hardware for both a phone guest and the desktop's own view of that guest. -->
-        <div class="lv-prejoin-diag">
-          <p class="lv-prejoin-diag-title">Guest connection diagnostics (temporary)</p>
-          <div class="lv-prejoin-diag-log" id="guestDiagLog"></div>
-        </div>
+      <!-- TEMPORARY real-device diagnostics — mirrors js/prejoin-diagnostics.js's Host pattern. Deliberately
+           OUTSIDE #guestCheckin (moved here from inside it): that whole card gets `hidden` the instant Join
+           succeeds (see js/guest.js's joinStudio), which was silently hiding this exact log right when it's
+           needed most — post-join, watching remote media come up. A sibling of both #guestCheckin and
+           #joinedRoom, so it stays visible in both states. Remove this block and its wiring in js/guest.js
+           once real publish confirmation is verified on hardware for both a phone guest and the desktop's
+           own view of that guest. -->
+      <div class="lv-prejoin-diag">
+        <p class="lv-prejoin-diag-title">Guest connection diagnostics (temporary)</p>
+        <div class="lv-prejoin-diag-log" id="guestDiagLog"></div>
       </div>
 
       <!-- Transport-only: VDO.Ninja's guest push/publish connection lives here, never as visible product
