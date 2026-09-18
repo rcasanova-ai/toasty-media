@@ -19,6 +19,7 @@ import { AudienceStore, DemoAudienceFeed } from "./audience.js";
 import { TranscriptStore } from "./show-context.js";
 import { createTranscriptionProvider } from "./transcription.js";
 import { ParticipantRegistry, createParticipant, ParticipantRole, ConnectionStatus, SourceKind } from "./participant-registry.js";
+import { HostState } from "./host-state.js";
 import { ProducerFeed, AIProducerService, createAIProducerProvider } from "./ai-producer.js";
 import {
   DEFAULT_HOST_RELATIONSHIP_MODE,
@@ -110,6 +111,11 @@ export class LiveSession {
     // Canonical participant/source model — see js/participant-registry.js. Populated for the Host below;
     // guest entries are deliberate follow-up work, not part of this pass.
     this.participants = new ParticipantRegistry();
+    // Explicit Host lifecycle state — see js/host-state.js. js/host-prejoin.js drives PREJOIN_LOADING/
+    // PREJOIN_READY/JOINING; joinAsHost below confirms IN_STUDIO; leaveStudio drives LEAVING. Every
+    // control that should only appear once the Host has actually joined (Leave Studio, Talk to Hottie)
+    // reads this, not incidental DOM/session existence — see js/host-view.js's renderHostState.
+    this.hostState = HostState.PREJOIN_LOADING;
 
     this._programSync = null;
     this._guestListTimerId = null;
@@ -314,7 +320,13 @@ export class LiveSession {
       audioSource: { kind: SourceKind.NATIVE_MEDIA_STREAM, stream: this._hostPreviewStream },
       transportSourceId: `${this.roomId}h`
     }));
+    this.setHostState(HostState.IN_STUDIO);
     this.emit("host-profile", this.hostProfile);
+  }
+
+  setHostState(state) {
+    this.hostState = state;
+    this.emit("host-state", state);
   }
 
   // Creates (once) and (always) refreshes the Toasty-owned <video> that IS the visible Host tile — never
@@ -637,11 +649,21 @@ export class LiveSession {
 
   // HOST "Leave Studio": disconnects only THIS browser's own frames. Guests keep talking, the show stays
   // live, Program Output is untouched. Equivalent to hanging up a personal call, not ending the show.
+  // STATE 5 (LEAVING) per the Host state machine: stop the native tracks, destroy the hidden VDO
+  // transport, remove the Host's own registry entry, then hand control back to js/director.js (listening
+  // for HostState.LEAVING) to re-show prejoin and request a fresh preview — a real, user-triggered
+  // getUserMedia call, not a leftover one, since the previous stream's tracks are genuinely stopped here.
   leaveStudio() {
+    this.setHostState(HostState.LEAVING);
     this.engine.disconnectLocalFrames();
+    if (this._containers?.hostTransport) this.engine.unmountFrame(this._containers.hostTransport, "host", "");
     this._stopRecordingTimer();
+    this._hostPreviewStream?.getTracks().forEach((track) => track.stop());
+    this._hostPreviewStream = null;
+    this.participants.remove("host");
     this.connection = { status: "idle", label: "Left Studio" };
     this.emit("connection", this.connection);
+    this.setHostState(HostState.PREJOIN_LOADING);
   }
 
   // PRODUCER "End Show": ends the production for everyone. Flips Program Output to the Ending scene

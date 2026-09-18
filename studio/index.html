@@ -143,7 +143,13 @@
 
     <section id="studioAppShell" class="studio-app-shell" hidden>
       <button id="studioLogout" class="studio-logout" type="button">Sign out</button>
-      <iframe id="studioAppFrame" title="Studio application" src="about:blank"></iframe>
+      <!-- allow: without this, the Host's own native getUserMedia call in js/host-prejoin.js — which runs
+           inside THIS iframe once studio-auth.js sets its src to director.html — has no delegated
+           permission to request camera/microphone at all, same-origin or not. Every VDO.Ninja iframe
+           already gets this (see video-engine.js's IFRAME_ALLOW); this same-origin app-shell iframe was
+           the one place it was missing, which is a real, provable explanation for "camera never turns on
+           during prejoin" independent of anything in the prejoin code itself. -->
+      <iframe id="studioAppFrame" title="Studio application" src="about:blank" allow="camera; microphone; autoplay"></iframe>
     </section>
   </body>
 </html>

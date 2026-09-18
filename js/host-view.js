@@ -5,6 +5,7 @@
 import { renderFeedEntry } from "./ai-producer.js";
 import { PushToTalkCapture } from "./talk-to-producer.js";
 import { DEMO_AUDIENCE_PLATFORM_BREAKDOWN, DEMO_AUDIENCE_TOTAL } from "./audience.js";
+import { HostState } from "./host-state.js";
 
 // HostView: a thin control surface over LiveSession for running the conversation. It owns no state of
 // its own beyond DOM bindings — everything it shows comes from session.* and its events. Keep this file
@@ -34,6 +35,7 @@ export class HostView {
       audienceDemoBreakdown: root.querySelector("#lvAudienceDemoBreakdown"),
       audienceDemoToggle: root.querySelector("#lvAudienceDemoToggle"),
       feedList: root.querySelector("#lvFeedListHost"),
+      talkRow: root.querySelector(".lv-talk-row"),
       talkBtn: root.querySelector("#lvTalkBtn"),
       talkState: root.querySelector("#lvTalkState"),
       talkLive: root.querySelector("#lvTalkLive"),
@@ -53,11 +55,13 @@ export class HostView {
     this.session.on("screenshare", (s) => this.renderScreenShare(s));
     this.session.on("guests", () => this.renderGuestContext());
     this.session.on("connection", (c) => this.renderConnection(c));
+    this.session.on("host-state", (state) => this.renderHostState(state));
 
     this.renderAv(this.session.av);
     this.renderScreenShare(this.session.screenShare);
     this.renderGuestContext();
     this.renderConnection(this.session.connection);
+    this.renderHostState(this.session.hostState);
 
     this.initRunOfShow();
     this.initAudience();
@@ -76,6 +80,20 @@ export class HostView {
   renderConnection(connection) {
     this.elements.hostPanelStatus.textContent = connection.status === "connected" ? "Live" : connection.label;
     this.elements.hostPanelStatus.dataset.state = connection.status;
+  }
+
+  // The single place Leave Studio's and Talk to Hottie's visibility are decided — driven ONLY by
+  // session.hostState (see js/host-state.js), never by whether this page happens to be open or whether a
+  // form was submitted. Before this existed neither control was gated on anything at all: both were plain
+  // always-visible/always-enabled markup, which is exactly why a real-device test caught "Leave Studio"
+  // showing before the Host had ever joined.
+  renderHostState(state) {
+    const inStudio = state === HostState.IN_STUDIO;
+    this.elements.leaveStudio.hidden = !inStudio;
+    this.elements.talkRow.hidden = !inStudio;
+    this.elements.talkTextForm.hidden = !inStudio;
+    this.elements.talkBtn.disabled = !inStudio;
+    this.elements.talkTextInput.disabled = !inStudio;
   }
 
   renderGuestContext() {

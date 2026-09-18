@@ -405,7 +405,7 @@
                 <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
                 <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>
                 <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Share screen">Screen</button>
-                <button id="lvLeaveStudio" class="lv-icon-btn lv-icon-btn-danger" type="button" title="Leave Studio">Leave Studio</button>
+                <button id="lvLeaveStudio" class="lv-icon-btn lv-icon-btn-danger" type="button" title="Leave Studio" hidden>Leave Studio</button>
               </div>
             </section>
 
@@ -416,13 +416,13 @@
                 <p class="lv-placeholder">Following conversation…</p>
                 <p class="lv-placeholder lv-placeholder-sub">No producer requests yet.</p>
               </div>
-              <div class="lv-talk-row">
-                <button id="lvTalkBtn" class="lv-talk-btn" type="button" data-state="ready">🎙 Talk to Hottie</button>
+              <div class="lv-talk-row" hidden>
+                <button id="lvTalkBtn" class="lv-talk-btn" type="button" data-state="ready" disabled>🎙 Talk to Hottie</button>
                 <span class="lv-talk-state" id="lvTalkState">Ready</span>
               </div>
               <p class="lv-talk-live" id="lvTalkLive" hidden></p>
-              <form id="lvTalkTextForm" class="lv-talk-text-form">
-                <input id="lvTalkTextInput" type="text" placeholder="Or type an instruction…" aria-label="Type an instruction to the AI Producer">
+              <form id="lvTalkTextForm" class="lv-talk-text-form" hidden>
+                <input id="lvTalkTextInput" type="text" placeholder="Or type an instruction…" aria-label="Type an instruction to the AI Producer" disabled>
                 <button type="submit" class="btn btn-ghost btn-small">Send</button>
               </form>
             </aside>

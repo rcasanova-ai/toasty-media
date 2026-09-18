@@ -8,6 +8,7 @@ import { LiveSession } from "./live-session.js";
 import { HostView } from "./host-view.js";
 import { ProducerView } from "./producer-view.js";
 import { HostPrejoin } from "./host-prejoin.js";
+import { HostState } from "./host-state.js";
 
 const session = new LiveSession();
 // Dev diagnostics only — never rendered in Host/Producer UI. In devtools: session.aiProducerService.diagnostics()
@@ -63,7 +64,12 @@ function init() {
 
   new HostView({ session }).init();
   new ProducerView({ session }).init();
-  new HostPrejoin({ session }).init();
+  const hostPrejoin = new HostPrejoin({ session });
+  hostPrejoin.init();
+  // The one place LEAVING is ever emitted is LiveSession.leaveStudio() — see js/host-state.js — so this
+  // can't double-fire against startPreview()'s own routine PREJOIN_LOADING transitions (device changes,
+  // first load) and trigger a second, redundant getUserMedia call.
+  session.on("host-state", (state) => { if (state === HostState.LEAVING) hostPrejoin.resume(); });
 
   new AIProductionController({
     getBrandTheme: () => session.brandTheme,
