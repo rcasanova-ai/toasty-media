@@ -61,18 +61,23 @@ export class VideoEngine {
   // of us compositing tiles ourselves (scene=0 is a single merged feed; we cannot address host vs. screen
   // as separate DOM elements on our side).
   mountRoomFrame(container,{roomId,layout="grid"}) { return this.mountFrame(container,"room",{room:roomId,scene:"0",cleanoutput:"1",transparent:"1",showlabels:"1",muted:"1",mute:"1",...layoutParams(layout)}); }
-  // Toasty's own Source Registry / Layout Engine mounts ONE clean feed per participant instead of
-  // VDO.Ninja's own scene=0 room mixer — that mixer brings its OWN director-style chrome along with it
-  // (name-label overlay, connection state) no matter what "clean" flags are added, which is exactly what
-  // was leaking into Program Preview (see this repair pass's report). &view=<streamID>, used standalone
-  // (no &room/&scene — confirmed against VDO.Ninja's own docs: "Optional if you are publishing... &view
-  // in a room combined with &scene or &solo" is the OTHER, heavier pattern, not this one), is VDO.Ninja's
-  // plain single-stream viewer mode — simpler than the numbered-scene/solo approaches this codebase
-  // already found unreliable (see mountProgramFrame's comment), so this is deliberately NOT that. cleanoutput
-  // strips VDO's UI chrome; no &showlabels, since Toasty renders its OWN name/title/company label
-  // (.lv-video-tile-label) instead of VDO's redundant one. NOT yet verified end-to-end on a real two-device
-  // session — this is the one piece of this repair pass that genuinely needs Ricardo's next real test.
-  mountParticipantView(container,{streamId},frameId="participant-view") { return this.mountFrame(container,frameId,{view:streamId,cleanoutput:"1",transparent:"1",cover:"1"}); }
+  // ROOT CAUSE of "remote viewer iframe created but produces no visible video" (real two-device test,
+  // this pass): this used to mount &view=<streamID> completely standalone (no &room, no &scene) — an
+  // earlier comment here misread VDO.Ninja's own docs as saying that was the lighter, correct path. The
+  // docs' actual example is `?room=roomname&scene&view=streamid1,streamid2` — &view is documented as
+  // working "within rooms combined with &scene or &solo" (session.solo is dead code in VDO.Ninja's current
+  // source, confirmed by reading it — never read anywhere after being set, so that half is moot); &view
+  // alone is only "optional" when you are ALSO publishing into that same room, not a standalone mode on
+  // its own. Traced why standalone failed: with no &room, session.roomid stays false, but session.scene
+  // still defaults to 0 (not false) even with no &scene param, so &view alone routes into VDO's room/scene
+  // auto-mixer code path (updateMixerRun) anyway — just without the room context that path's layout logic
+  // depends on, so the WebRTC connection can succeed while the video element never gets sized/shown.
+  // Fixed by sending exactly the documented combination: &room (real room context) + bare &scene (opts
+  // into the mixer without requesting the full auto-mix or a director-assigned numbered scene — both of
+  // which this codebase already found unreliable, see mountProgramFrame's comment) + &view=<streamID>
+  // (filters the mixer to just this one participant). cleanoutput strips VDO's UI chrome; no &showlabels,
+  // since Toasty renders its OWN name/title/company label instead of VDO's redundant one.
+  mountParticipantView(container,{roomId,streamId},frameId="participant-view") { return this.mountFrame(container,frameId,{room:roomId,scene:true,view:streamId,cleanoutput:"1",transparent:"1",cover:"1"}); }
   // Tears a mounted view back down to an empty container (used when a guest disconnects) without
   // guessing at any VDO.Ninja "close" command — just stop pointing an iframe at it at all. emptyText
   // restores the exact placeholder .vdo-frame[data-empty]::before renders (see css/studio.css) — passed
@@ -195,6 +200,33 @@ export class VideoEngine {
   // handleMessage below. Used by live-session.js's guest-view diagnostics to know whether a given VDO
   // postMessage actually came from the mounted remote-guest-view iframe specifically, not just "some" frame.
   getFrameWindow(frameId){return this.frames.get(frameId)?.contentWindow;}
+
+  // DIAGNOSTIC ONLY — never used to gate a UI transition (see js/guest.js's own history: a previous pass
+  // gated Join on a similar check and that was the wrong lesson; this is a different situation — reporting
+  // the REAL state of an already-mounted remote view, not blocking anything on it). Asks a mounted
+  // &view=<id> frame for ITS OWN detailed state and returns the specific peer entry, so a caller can tell
+  // "iframe loaded" apart from "actually receiving a visible video track" — see
+  // scripts/../this pass's report ("MEDIA STATE MODEL"). Reads videoVisible/videoMuted, confirmed against
+  // VDO.Ninja's own source (lib.js's getDetailedState): for a remote peer, videoVisible specifically checks
+  // session.rpcs[UUID].videoElement.checkVisibility() — a real DOM-visibility signal, not just connection
+  // state — while videoTrack/localStream (used and found unreliable in an earlier pass) only exist on that
+  // frame's OWN self entry, meaningless for a pure viewer with nothing of its own to publish.
+  async requestPeerVideoState(frameId, peerStreamId, timeoutMs = 2500) {
+    const state = await new Promise((resolve) => {
+      const cib = `peerstate-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
+      let done = false;
+      const finish = (value) => { if(done) return; done=true; clearTimeout(timer); off(); resolve(value); };
+      const off = this.onMessage((message) => {
+        if (message?.cib !== cib) return;
+        finish(message.detailedState || null);
+      });
+      const timer = setTimeout(() => finish(null), timeoutMs);
+      if (!this.send(frameId, { getDetailedState: true, cib })) finish(null);
+    });
+    if (!state) return null;
+    const entries = Object.values(state);
+    return entries.find((entry) => entry?.streamID === peerStreamId) || null;
+  }
 
   onMessage(callback){this.listeners.add(callback);return()=>this.listeners.delete(callback);}
   // event.source (the iframe's window) is now passed as a second argument — additive, existing callbacks

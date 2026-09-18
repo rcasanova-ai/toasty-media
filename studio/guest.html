@@ -138,9 +138,14 @@
                  its own z-index paints above a plain data-empty ::before/::after, so a "still connecting"
                  state needs an explicit, independently z-indexed sibling like Host's own #lvGuestStageEmpty
                  already uses for the identical problem. -->
+            <!-- Text is set dynamically from RemoteMediaState (js/remote-media-state.js), not the static
+                 "Waiting for host to join" this had before — that stayed shown even once presence confirmed
+                 the Host had genuinely joined, which is exactly the failure mode this pass's diagnostics
+                 exist to stop hiding (presence and media are different layers; either can be true while
+                 the other is still false). -->
             <div class="stage-empty" id="guestRemoteStageEmpty" aria-hidden="true">
               <span class="stage-empty-ring"></span>
-              <p>Waiting for host to join</p>
+              <p id="guestRemoteStageEmptyText">Waiting for someone to join</p>
             </div>
           </article>
         </div>

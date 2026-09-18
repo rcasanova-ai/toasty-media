@@ -21,6 +21,7 @@ import { createTranscriptionProvider } from "./transcription.js";
 import { ParticipantRegistry, createParticipant, ParticipantRole, ConnectionStatus, SourceKind } from "./participant-registry.js";
 import { HostState } from "./host-state.js";
 import { RoomPresence } from "./room-presence.js";
+import { RemoteMediaState } from "./remote-media-state.js";
 import { ProducerFeed, AIProducerService, createAIProducerProvider } from "./ai-producer.js";
 import {
   DEFAULT_HOST_RELATIONSHIP_MODE,
@@ -161,6 +162,9 @@ export class LiveSession {
     // instead of guessing again. Remove this block, its emit() calls, and host-view.js's rendering once the
     // remote tile is confirmed working on real hardware.
     this.guestDiagnostics = { raw: null, registry: [], mount: null };
+    // See js/remote-media-state.js and _setRemoteMediaState below.
+    this.remoteMediaState = RemoteMediaState.WAITING_FOR_PARTICIPANT;
+    this._remoteMediaTimerId = null;
     this.engine.onMessage((message, source) => {
       if (source && source === this.engine.getFrameWindow("guestview")) {
         this.guestDiagnostics.mount = { ...this.guestDiagnostics.mount, lastMessage: message, lastMessageAt: Date.now() };
@@ -529,16 +533,56 @@ export class LiveSession {
     if (seat && this._mountedGuestViewId !== seat.id) {
       this._mountedGuestViewId = seat.id;
       this.guestDiagnostics.mount = { requestedAt: Date.now(), streamId: seat.id, iframeCreated: false, loaded: false, lastMessage: null, lastMessageAt: null };
-      const iframe = this.engine.mountParticipantView(container, { streamId: seat.id }, "guestview");
+      this._setRemoteMediaState(RemoteMediaState.CONNECTING_REMOTE_MEDIA);
+      const iframe = this.engine.mountParticipantView(container, { roomId: this.roomId, streamId: seat.id }, "guestview");
       this.guestDiagnostics.mount.iframeCreated = Boolean(iframe);
       iframe?.addEventListener("load", () => {
         this.guestDiagnostics.mount = { ...this.guestDiagnostics.mount, loaded: true, loadedAt: Date.now() };
         this.emit("guest-diagnostics", this.guestDiagnostics);
       });
+      this._startRemoteMediaPolling(seat.id);
     } else if (!seat && this._mountedGuestViewId) {
       this._mountedGuestViewId = null;
       this.guestDiagnostics.mount = null;
+      this._stopRemoteMediaPolling();
+      this._setRemoteMediaState(RemoteMediaState.WAITING_FOR_PARTICIPANT);
       this.engine.unmountFrame(container, "guestview", "Waiting for guest to join");
+    }
+  }
+
+  // Same model and same reasoning as js/guest.js's mirror-image version (see js/remote-media-state.js) —
+  // presence confirming a guest is a DIFFERENT fact from their video actually being visible; this makes the
+  // gap between those two visible instead of leaving Director looking "connected" with a blank tile and no
+  // way to tell why. videoVisible comes from the mounted guestview frame's OWN getDetailedState (see
+  // VideoEngine.requestPeerVideoState) — not capturable any other way, since that iframe is cross-origin.
+  _setRemoteMediaState(next) {
+    if (this.remoteMediaState === next) return;
+    this.remoteMediaState = next;
+    this.emit("remote-media-state", next);
+  }
+
+  async _pollRemoteMediaState(streamId, startedAt) {
+    const entry = await this.engine.requestPeerVideoState("guestview", streamId);
+    this.guestDiagnostics.mount = { ...this.guestDiagnostics.mount, peerVideoState: entry };
+    this.emit("guest-diagnostics", this.guestDiagnostics);
+    if (entry?.videoVisible) {
+      this._setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_LIVE);
+      this._stopRemoteMediaPolling();
+    } else if (Date.now() - startedAt > 15000) {
+      this._setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_ERROR);
+    }
+  }
+
+  _startRemoteMediaPolling(streamId) {
+    this._stopRemoteMediaPolling();
+    const startedAt = Date.now();
+    this._remoteMediaTimerId = window.setInterval(() => this._pollRemoteMediaState(streamId, startedAt), 2000);
+  }
+
+  _stopRemoteMediaPolling() {
+    if (this._remoteMediaTimerId) {
+      window.clearInterval(this._remoteMediaTimerId);
+      this._remoteMediaTimerId = null;
     }
   }
 

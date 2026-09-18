@@ -2,6 +2,7 @@ import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./
 import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js";
 import { startDevicePreview } from "./device-picker.js";
 import { RoomPresence } from "./room-presence.js";
+import { RemoteMediaState, REMOTE_MEDIA_STATE_LABEL } from "./remote-media-state.js";
 
 // INSTRUMENTATION BUILD MARKER — bump this string on every deploy meant to be checked against a real
 // device screenshot. A phone showing an OLD value here (or the debug panel missing entirely) means the
@@ -45,6 +46,8 @@ const state = {
   // renderRemoteParticipants can tell "still the same remote person, leave it mounted" apart from "a
   // different remote source now, remount" instead of tearing down/rebuilding on every roster poll tick.
   mountedRemote: null,
+  remoteMediaState: RemoteMediaState.WAITING_FOR_PARTICIPANT,
+  remoteMediaTimerId: null,
   presence: null,
   selfLabel: null,
   lifecycle: GuestLifecycle.PREJOIN_LOADING,
@@ -81,6 +84,7 @@ const elements = {
   guestParticipantStage: document.querySelector("#guestParticipantStage"),
   guestRemoteFrame: document.querySelector("#guestRemoteFrame"),
   guestRemoteStageEmpty: document.querySelector("#guestRemoteStageEmpty"),
+  guestRemoteStageEmptyText: document.querySelector("#guestRemoteStageEmptyText"),
   guestLiveIdentityName: document.querySelector("#guestLiveIdentityName"),
   guestLiveIdentityRole: document.querySelector("#guestLiveIdentityRole"),
   guestToggleMic: document.querySelector("#guestToggleMic"),
@@ -442,11 +446,12 @@ function renderRemoteParticipants(roster) {
   const remote = others[0] || null;
 
   if (!remote || !remote.transportSourceId) {
-    elements.guestRemoteStageEmpty.hidden = false;
+    setRemoteMediaState(RemoteMediaState.WAITING_FOR_PARTICIPANT);
     elements.guestLiveIdentityName.textContent = "";
     elements.guestLiveIdentityRole.textContent = "";
     if (state.mountedRemote) {
-      engine.unmountFrame(elements.guestRemoteFrame, "remoteview", "Waiting for host to join");
+      stopRemoteMediaPolling();
+      engine.unmountFrame(elements.guestRemoteFrame, "remoteview", "");
       state.mountedRemote = null;
     }
     return;
@@ -459,20 +464,65 @@ function renderRemoteParticipants(roster) {
 
   if (state.mountedRemote?.transportSourceId === remote.transportSourceId) return; // already showing them
 
-  diag(`mounting remote participant view — participantId="${remote.participantId}" transportSourceId="${remote.transportSourceId}"`);
-  elements.guestRemoteStageEmpty.hidden = false;
-  const iframe = engine.mountParticipantView(elements.guestRemoteFrame, { streamId: remote.transportSourceId }, "remoteview");
+  diag(`transportSourceId: ${remote.transportSourceId}`);
+  diag(`viewer params: room=${state.roomId}&scene&view=${remote.transportSourceId} (see video-engine.js's mountParticipantView comment for why room+scene are required, not optional)`);
+  setRemoteMediaState(RemoteMediaState.CONNECTING_REMOTE_MEDIA);
+  const iframe = engine.mountParticipantView(elements.guestRemoteFrame, { roomId: state.roomId, streamId: remote.transportSourceId }, "remoteview");
+  diag(`iframe created — src="${iframe.src}"`);
+  iframe.addEventListener("load", () => diag("remoteview iframe 'load' event fired"));
   state.mountedRemote = { participantId: remote.participantId, transportSourceId: remote.transportSourceId };
   // Tracked so leaveSession can unsubscribe — without this, rejoining (Leave, then Join again) would stack
   // a new listener on top of the old one every cycle instead of replacing it.
   state.hostViewUnsub?.();
   state.hostViewUnsub = engine.onMessage((message, source) => {
     if (source !== iframe.contentWindow) return;
-    diag(`remoteview message: ${JSON.stringify(message).slice(0, 160)}`);
-    if (message?.action === "view-connection") {
-      elements.guestRemoteStageEmpty.hidden = Boolean(message.value);
-    }
+    if (message?.action !== "tally") diag(`remoteview message (VDO connection state): ${JSON.stringify(message).slice(0, 160)}`);
   });
+
+  startRemoteMediaPolling(remote.transportSourceId);
+}
+
+function setRemoteMediaState(next) {
+  if (state.remoteMediaState === next) return;
+  state.remoteMediaState = next;
+  diag(`remote media state -> ${next}`);
+  elements.guestRemoteStageEmptyText.textContent = REMOTE_MEDIA_STATE_LABEL[next] || "";
+  elements.guestRemoteStageEmpty.hidden = next === RemoteMediaState.REMOTE_MEDIA_LIVE;
+}
+
+const REMOTE_MEDIA_POLL_MS = 2000;
+const REMOTE_MEDIA_ERROR_AFTER_MS = 15000;
+
+// "remote video track present"/"video element count"/"video.readyState"/"videoWidth/videoHeight" —
+// several of the specific fields asked for in this pass's report are NOT capturable from here: the
+// mounted &view= iframe is cross-origin (vdo.ninja, not toasty.media), and browsers categorically block
+// reading another origin's DOM/video-element internals — there is no API-level exception for this, iframe
+// or not. What IS real and used here: VDO.Ninja's own getDetailedState response for the remoteview frame's
+// OWN peer connection, specifically its videoVisible field (session.rpcs[UUID].videoElement
+// .checkVisibility() — confirmed by reading VDO.Ninja's source, not guessed), the closest real signal to
+// "a video element for this peer actually exists and is visible" that its iframe API exposes at all.
+async function pollRemoteMediaState(streamId, startedAt) {
+  const entry = await engine.requestPeerVideoState("remoteview", streamId);
+  diag(`peer video state (from remoteview's own getDetailedState): ${JSON.stringify(entry)}`);
+  if (entry?.videoVisible) {
+    setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_LIVE);
+    stopRemoteMediaPolling();
+  } else if (Date.now() - startedAt > REMOTE_MEDIA_ERROR_AFTER_MS) {
+    setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_ERROR);
+  }
+}
+
+function startRemoteMediaPolling(streamId) {
+  stopRemoteMediaPolling();
+  const startedAt = Date.now();
+  state.remoteMediaTimerId = window.setInterval(() => pollRemoteMediaState(streamId, startedAt), REMOTE_MEDIA_POLL_MS);
+}
+
+function stopRemoteMediaPolling() {
+  if (state.remoteMediaTimerId) {
+    window.clearInterval(state.remoteMediaTimerId);
+    state.remoteMediaTimerId = null;
+  }
 }
 
 // Remounts the SAME push connection (same streamId — see mountGuestFrame's comment) with the next camera
@@ -546,9 +596,12 @@ async function leaveSession() {
   await state.presence?.leave();
   state.presence = null;
   state.mountedRemote = null;
+  stopRemoteMediaPolling();
+  state.remoteMediaState = RemoteMediaState.WAITING_FOR_PARTICIPANT;
   state.hostViewUnsub?.();
   state.hostViewUnsub = null;
-  engine.unmountFrame(elements.guestRemoteFrame, "remoteview", "Waiting for host to join");
+  engine.unmountFrame(elements.guestRemoteFrame, "remoteview", "");
+  elements.guestRemoteStageEmptyText.textContent = REMOTE_MEDIA_STATE_LABEL[RemoteMediaState.WAITING_FOR_PARTICIPANT];
   elements.guestLiveIdentityName.textContent = "";
   elements.guestLiveIdentityRole.textContent = "";
   elements.joinState.textContent = "Left";

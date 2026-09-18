@@ -3581,9 +3581,26 @@
   z-index: 6;
 }
 
-.lv-participant-stage--in-studio .lv-stage-pip .lv-video-tile,
-.joined-room .lv-stage-pip .preview-stage {
-  aspect-ratio: 3 / 4;
+/* ROOT CAUSE of "tall narrow floating strip" (Host, desktop) — real-device screenshot, confirmed by
+   review, not guessed: this was aspect-ratio: 3/4, a TALL/portrait ratio, for what's supposed to be a
+   normal landscape webcam PiP. 4/3 (wider than tall) is what actually looks like a bounded camera PiP. */
+.lv-participant-stage--in-studio .lv-stage-pip .lv-video-tile {
+  aspect-ratio: 4 / 3;
+  max-height: none;
+  min-height: 0;
+}
+
+/* ROOT CAUSE of "wide distorted pill" (Guest, phone) — a SEPARATE, confirmed bug: on studio/guest.html,
+   .lv-stage-pip and .preview-stage are two classes on the SAME element (js/guest.js adds lv-stage-pip
+   directly to #previewStage), never parent and child. The old selector
+   ".joined-room .lv-stage-pip .preview-stage" required a descendant relationship that could never exist
+   here, so this rule never matched anything on the guest page at all — the PiP was silently falling back
+   to the prejoin-sized base .preview-stage rule (aspect-ratio: 16/10, wider still, with none of the
+   min-width/max-width bounds .lv-stage-pip sets on the article-wrapped Host equivalent). Fixed by
+   targeting the actual element directly and matching the Host PiP's own 4/3 ratio, so both platforms
+   render the same shape. */
+.joined-room .lv-stage-pip.preview-stage {
+  aspect-ratio: 4 / 3;
   max-height: none;
   min-height: 0;
 }

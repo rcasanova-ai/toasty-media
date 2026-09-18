@@ -6,6 +6,7 @@ import { renderFeedEntry } from "./ai-producer.js";
 import { PushToTalkCapture } from "./talk-to-producer.js";
 import { DEMO_AUDIENCE_PLATFORM_BREAKDOWN, DEMO_AUDIENCE_TOTAL } from "./audience.js";
 import { HostState } from "./host-state.js";
+import { RemoteMediaState, REMOTE_MEDIA_STATE_LABEL } from "./remote-media-state.js";
 
 // HostView: a thin control surface over LiveSession for running the conversation. It owns no state of
 // its own beyond DOM bindings — everything it shows comes from session.* and its events. Keep this file
@@ -28,6 +29,7 @@ export class HostView {
       hostPanelStatus: root.querySelector("#lvHostPanelStatus"),
       guestPanelStatus: root.querySelector("#lvGuestPanelStatus"),
       guestStageEmpty: root.querySelector("#lvGuestStageEmpty"),
+      guestStageEmptyText: root.querySelector("#lvGuestStageEmptyText"),
       agendaList: root.querySelector("#lvAgendaList"),
       agendaNext: root.querySelector("#lvAgendaNext"),
       agendaAddForm: root.querySelector("#lvAgendaAddForm"),
@@ -59,6 +61,7 @@ export class HostView {
     this.session.on("connection", (c) => this.renderConnection(c));
     this.session.on("host-state", (state) => this.renderHostState(state));
     this.session.on("guest-diagnostics", (d) => this.renderGuestDiagnostics(d));
+    this.session.on("remote-media-state", (s) => this.renderRemoteMediaState(s));
 
     this.renderAv(this.session.av);
     this.renderScreenShare(this.session.screenShare);
@@ -66,6 +69,7 @@ export class HostView {
     this.renderConnection(this.session.connection);
     this.renderHostState(this.session.hostState);
     this.renderGuestDiagnostics(this.session.guestDiagnostics);
+    this.renderRemoteMediaState(this.session.remoteMediaState);
 
     this.initRunOfShow();
     this.initAudience();
@@ -110,7 +114,9 @@ export class HostView {
     const connected = seats.filter(Boolean);
     this.elements.guestPanelStatus.textContent = `${connected.length} connected`;
     this.elements.guestPanelStatus.dataset.state = connected.length > 0 ? "connected" : "idle";
-    this.elements.guestStageEmpty.hidden = connected.length > 0;
+    // guestStageEmpty's visibility/text is now driven by renderRemoteMediaState (see below), not just
+    // "is someone connected" — a connected guest with unconfirmed video is a real, different state (see
+    // js/remote-media-state.js) that used to be indistinguishable from "no one's here."
     this.elements.guestCount.textContent = String(connected.length);
 
     if (!connected.length) {
@@ -138,6 +144,19 @@ export class HostView {
       }
       return row;
     }));
+  }
+
+  // See js/remote-media-state.js — presence/connection confirming a guest is a DIFFERENT fact from their
+  // video actually being visible. Drives BOTH the stage-empty placeholder's visibility (only hidden once
+  // REMOTE_MEDIA_LIVE, not just "someone's connected") and its text, so "connected but no video yet" reads
+  // differently from "no one's here" instead of both showing the same static message.
+  renderRemoteMediaState(mediaState) {
+    if (!this.elements.guestStageEmpty) return;
+    const state = mediaState || RemoteMediaState.WAITING_FOR_PARTICIPANT;
+    this.elements.guestStageEmpty.hidden = state === RemoteMediaState.REMOTE_MEDIA_LIVE;
+    if (this.elements.guestStageEmptyText) {
+      this.elements.guestStageEmptyText.textContent = REMOTE_MEDIA_STATE_LABEL[state] || "Waiting for guest to join";
+    }
   }
 
   // TEMPORARY — see js/live-session.js's guestDiagnostics and this pass's report. Renders the exact id
@@ -183,6 +202,7 @@ export class HostView {
       lines.push(`  iframe 'load' event fired: ${diag.mount.loaded ? "YES" : "NO"}${diag.mount.loadedAt ? ` (${new Date(diag.mount.loadedAt).toLocaleTimeString()})` : ""}`);
       lines.push(`  last postMessage FROM this iframe: ${diag.mount.lastMessage ? JSON.stringify(diag.mount.lastMessage).slice(0, 200) : "(none received yet)"}`);
       if (diag.mount.lastMessageAt) lines.push(`    at ${new Date(diag.mount.lastMessageAt).toLocaleTimeString()}`);
+      lines.push(`  peer video state (from THIS frame's own getDetailedState — see VideoEngine.requestPeerVideoState): ${diag.mount.peerVideoState ? JSON.stringify(diag.mount.peerVideoState) : "(not polled yet)"}`);
     }
     // Cross-check, spelled out rather than left implicit: does the raw entry's streamID match what
     // REGISTRY/MOUNT are keyed on? A mismatch here (not "not yet confirmed") is the smoking gun for a

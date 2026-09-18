@@ -419,9 +419,14 @@
                 <div class="lv-hidden-transport" id="lvHostTransportFrame" aria-hidden="true"></div>
                 <article class="lv-video-article lv-stage-main">
                   <div class="vdo-frame lv-video-tile" id="lvGuestFrame" data-empty="Waiting for guest to join"></div>
+                  <!-- Text is set dynamically from RemoteMediaState (js/remote-media-state.js) by
+                       js/host-view.js's renderRemoteMediaState — presence/connection confirming a guest is
+                       a DIFFERENT fact from their video actually being visible; this box now distinguishes
+                       "no one's connected yet" from "connected, still bringing video up" instead of a
+                       single static message covering both. -->
                   <div class="stage-empty" id="lvGuestStageEmpty" aria-hidden="true">
                     <span class="stage-empty-ring"></span>
-                    <p>Waiting for guest to join</p>
+                    <p id="lvGuestStageEmptyText">Waiting for guest to join</p>
                   </div>
                   <span class="lv-video-tile-label" id="lvGuestPanelStatus">Waiting</span>
                 </article>
