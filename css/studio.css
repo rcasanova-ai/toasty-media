@@ -48,7 +48,7 @@
   background:
     radial-gradient(1100px 620px at 8% -8%, var(--studio-client-glow), transparent 58%),
     radial-gradient(900px 520px at 100% 4%, var(--studio-client-glow), transparent 55%),
-    radial-gradient(700px 500px at 50% 100%, rgba(255, 198, 112, 0.05), transparent 60%),
+    radial-gradient(700px 500px at 50% 100%, color-mix(in srgb, var(--studio-amber) 5%, transparent), transparent 60%),
     var(--studio-canvas);
   color: var(--studio-cream);
   min-height: 100vh;
@@ -63,6 +63,28 @@
   pointer-events: none;
   position: absolute;
   z-index: -1;
+}
+
+.studio-atmosphere::before {
+  background: var(--studio-silhouette-image, none) center bottom / min(78vw, 1040px) auto no-repeat;
+  bottom: -6%;
+  content: "";
+  height: 48%;
+  left: 50%;
+  opacity: var(--studio-silhouette-opacity, 0);
+  pointer-events: none;
+  position: absolute;
+  transform: translateX(-50%);
+  width: 92%;
+}
+
+.studio-atmosphere::after {
+  background: var(--studio-artwork-image, none) center / cover no-repeat;
+  content: "";
+  inset: 0;
+  opacity: var(--studio-decorative-opacity, 0);
+  pointer-events: none;
+  position: absolute;
 }
 
 .atmosphere-word {
@@ -93,11 +115,11 @@
 }
 
 .atmosphere-mark {
-  background: var(--studio-mark-image, url("../shared/brand/toasty-media/ToastyTransparent.png")) center / contain no-repeat;
+  background: var(--studio-mark-image, none) center / contain no-repeat;
   bottom: -10vw;
-  filter: grayscale(0.35);
+  filter: var(--studio-watermark-filter, grayscale(0.35));
   height: min(40vw, 560px);
-  opacity: var(--studio-mark-opacity);
+  opacity: var(--studio-watermark-opacity, var(--studio-mark-opacity));
   position: absolute;
   right: -6vw;
   width: min(40vw, 560px);
@@ -107,14 +129,14 @@
   background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   background-size: 160px 160px;
   inset: 0;
-  mix-blend-mode: overlay;
-  opacity: 0.05;
+  mix-blend-mode: var(--studio-grain-blend, overlay);
+  opacity: var(--studio-grain-opacity, 0.05);
   position: absolute;
 }
 
 .studio-shell .button-primary,
 .studio-shell .primary-action {
-  color: #1c0f06;
+  color: var(--studio-button-text, #1c0f06);
 }
 
 .studio-shell .danger-action {
@@ -340,14 +362,17 @@
 }
 
 .studio-shell:not([data-brand-theme="toasty"]) .brand-lockup {
-  justify-content: flex-start;
+  justify-content: var(--studio-logo-justify, flex-start);
   min-height: 94px;
 }
 
 .studio-shell:not([data-brand-theme="toasty"]) .brand-lockup img {
-  max-height: 82px;
+  height: var(--studio-logo-max-height, 82px);
+  max-height: var(--studio-logo-max-height, 82px);
+  max-width: var(--studio-logo-max-width, 210px);
   object-fit: contain;
-  width: min(210px, 100%);
+  object-position: var(--studio-logo-object-position, left center);
+  width: auto;
 }
 
 .studio-shell:not([data-brand-theme="toasty"]) .powered-by {
@@ -1092,7 +1117,7 @@
 }
 
 .stage-empty::before {
-  background: var(--studio-mark-image, url("../shared/brand/toasty-media/ToastyTransparent.png")) center / 150px no-repeat;
+  background: var(--studio-mark-image, none) center / 150px no-repeat;
   content: "";
   inset: 0;
   opacity: 0.07;

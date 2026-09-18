@@ -34,7 +34,14 @@ export function buildTimeline({ project, productionSpec, brandProfile }) {
         creatorHandle: brandProfile.creatorHandle || "",
         website: brandProfile.website || "",
         defaultCTA: brandProfile.defaultCTA || brandProfile.ctaStyle,
-        lowerThirdStyle: brandProfile.lowerThirdStyle
+        lowerThirdStyle: brandProfile.lowerThirdStyle,
+        logoTreatment: brandProfile.logoTreatment || "",
+        lowerThirdTreatment: brandProfile.lowerThirdTreatment || "",
+        titleCardTreatment: brandProfile.titleCardTreatment || "",
+        introTreatment: brandProfile.introTreatment || "",
+        outroTreatment: brandProfile.outroTreatment || "",
+        backgroundWatermark: brandProfile.backgroundWatermark || "",
+        backgroundSilhouette: brandProfile.backgroundSilhouette || ""
       }
     };
     cursor += segment.duration;

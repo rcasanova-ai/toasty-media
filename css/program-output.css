@@ -241,16 +241,25 @@ html, body {
 
 .po-lower-third-name,
 .po-lower-third-title {
-  background: rgba(9, 7, 6, 0.72);
+  background: var(--studio-title-card-fill, rgba(9, 7, 6, 0.72));
   backdrop-filter: blur(6px);
   overflow: hidden;
   padding: 0.32em 0.7em;
+  position: relative;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.po-lower-third-name::before,
+.po-lower-third-title::before {
+  background: var(--studio-identity-stripe, var(--studio-orange-bright));
+  content: "";
+  inset: 0 auto 0 0;
+  position: absolute;
+  width: var(--studio-identity-stripe-width, 3px);
+}
+
 .po-lower-third-name {
-  border-left: 3px solid var(--studio-orange-bright);
   border-radius: 4px 4px 0 0;
   color: var(--po-video-text);
   font-family: var(--po-font-heading);
@@ -259,7 +268,6 @@ html, body {
 }
 
 .po-lower-third-title {
-  border-left: 3px solid var(--studio-orange-bright);
   border-radius: 0 0 4px 4px;
   color: var(--po-video-text-dim);
   font-size: clamp(0.6rem, 1.1vw, 0.82rem);
@@ -271,7 +279,8 @@ html, body {
 .po-scene-screen {
   align-items: center;
   background:
-    radial-gradient(120% 90% at 50% 20%, color-mix(in srgb, var(--studio-orange) 20%, transparent), transparent 60%),
+    var(--studio-surface-gradient, linear-gradient(transparent, transparent)),
+    radial-gradient(120% 90% at 50% 20%, var(--studio-client-glow), transparent 60%),
     var(--studio-canvas);
   display: none;
   flex-direction: column;

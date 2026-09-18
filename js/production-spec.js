@@ -64,9 +64,17 @@ export function createProductionSpec({ project, brandProfile, angle, script, sce
       lowerThirdStyle: brandProfile.lowerThirdStyle,
       introStyle: brandProfile.introStyle,
       outroStyle: brandProfile.outroStyle,
+      ctaStyle: brandProfile.ctaStyle,
       primaryColor: brandProfile.primaryColor,
       secondaryColor: brandProfile.secondaryColor,
-      accentColor: brandProfile.accentColor
+      accentColor: brandProfile.accentColor,
+      logoTreatment: brandProfile.logoTreatment || "",
+      lowerThirdTreatment: brandProfile.lowerThirdTreatment || "",
+      titleCardTreatment: brandProfile.titleCardTreatment || "",
+      introTreatment: brandProfile.introTreatment || "",
+      outroTreatment: brandProfile.outroTreatment || "",
+      backgroundWatermark: brandProfile.backgroundWatermark || "",
+      backgroundSilhouette: brandProfile.backgroundSilhouette || ""
     },
     createdAt: project.spec?.createdAt || now,
     updatedAt: now

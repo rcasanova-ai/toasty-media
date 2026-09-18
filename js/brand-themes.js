@@ -173,36 +173,36 @@ export const BRAND_THEMES = Object.freeze({
       preparedTitle: "Your Superteam Thailand production is prepared.",
       conciergePrefix: "Superteam Thailand Studio suggests:"
     }),
-    vars: Object.freeze({
-      "--brand-primary":"#9945ff","--brand-secondary":"#14f195","--brand-accent":"#00e5ff","--brand-background":"#070b1c","--brand-surface":"#10183a","--brand-surface-alt":"#162050","--brand-text":"#f4f7ff","--brand-text-muted":"#9aa6c7","--brand-border":"rgba(153, 69, 255, 0.28)","--brand-button":"#9945ff","--brand-button-text":"#ffffff","--brand-focus":"#00e5ff","--brand-gradient":"linear-gradient(135deg, #9945ff 0%, #14f195 100%)","--brand-heading-font":"Inter, system-ui, sans-serif","--brand-body-font":"Inter, system-ui, -apple-system, sans-serif",
-      "--studio-canvas":"#070b1c","--studio-canvas-2":"#0a1028","--studio-surface":"#10183a","--studio-surface-2":"#162050","--studio-surface-raised":"#1c2a62","--studio-line":"rgba(244, 247, 255, 0.12)","--studio-line-strong":"rgba(153, 69, 255, 0.36)","--studio-line-warm":"rgba(20, 241, 149, 0.32)","--studio-cream":"#f4f7ff","--studio-cream-dim":"#c5cce0","--studio-muted":"#9aa6c7","--studio-orange":"#9945ff","--studio-orange-bright":"#00e5ff","--studio-amber":"#14f195","--studio-burnt":"#6c2bd4","--studio-brown":"#162050","--studio-green":"#14f195","--studio-client-glow":"rgba(153, 69, 255, 0.22)","--studio-button-text":"#ffffff","--studio-button-shadow":"rgba(153, 69, 255, 0.28)","--studio-button-shadow-hover":"rgba(153, 69, 255, 0.40)","--studio-atmosphere-stroke":"rgba(0, 229, 255, 0.08)","--studio-atmosphere-stroke-2":"rgba(20, 241, 149, 0.06)","--studio-mark-opacity":"0.05"
-    })
-  }),
-  alice: Object.freeze({
-    id: "alice", label: "Alice in Cryptoland", showPoweredBy: true,
-    logoSrc: "../shared/brand/clients/alice-cryptoland/logo.png", logoAlt: "Alice in Cryptoland",
-    faviconSrc: "../shared/brand/clients/alice-cryptoland/logo.png", homeUrl: "#",
-    textLogo: "Alice in Cryptoland Studio", atmosphereBrand: "ALICE", atmosphereProduct: "CRYPTOLAND",
-    copy: Object.freeze({
-      studioName: "Alice in Cryptoland Studio",
-      publicHeroTitle: "Curiosity pays.",
-      publicHeroSupport: "Turn interviews, explainers, and live crypto conversations into clear, on-brand Alice in Cryptoland productions.",
-      publicHeroTagline: "Follow. Learn. Explore. Build.",
-      quickLabel: "Fast Production",
-      quickTitle: "Follow the idea. Leave with a production.",
-      quickBody: "Upload raw media and produce Alice in Cryptoland intros, lower thirds, captions, and export-ready formats.",
-      liveBody: "Invite guests, direct the session, record, and keep every production detail inside one Alice in Cryptoland workspace.",
-      aiBody: "Start from a question, a briefing, a link, or raw material and move through a clear educational production workflow.",
-      memoryBody: "Keep Alice in Cryptoland colors, logo use, voice, lower thirds, and calls to action consistent across every production.",
-      guestLede: "Set your name and devices before entering the Alice in Cryptoland Studio.",
-      productionTitle: "Curiosity pays.",
-      productionSubtitle: "Upload the source. Alice in Cryptoland Studio turns it into a clear, on-brand production.",
-      preparedTitle: "Your Alice in Cryptoland production is prepared.",
-      conciergePrefix: "Alice in Cryptoland Studio suggests:"
+    artwork: Object.freeze({
+      backgroundWatermark: "../shared/brand/clients/superteam-thailand/watermark-elephant.png",
+      backgroundSilhouette: "../shared/brand/clients/superteam-thailand/silhouette-skyline.png",
+      brandPattern: "",
+      backgroundArtwork: "",
+      surfaceGradient: "radial-gradient(920px 480px at 100% -8%, rgba(196, 30, 90, 0.11), transparent 58%), linear-gradient(165deg, rgba(165, 25, 49, 0.07) 0%, transparent 26%, rgba(8, 16, 48, 0.55) 100%)",
+      accentGradient: "linear-gradient(180deg, #f4f7fc 0%, #d7deea 100%)",
+      decorativeOpacity: 0.04,
+      watermarkOpacity: 0.055,
+      silhouetteOpacity: 0.05,
+      titleCardFill: "rgba(7, 11, 28, 0.86)",
+      grainBlend: "overlay",
+      watermarkFilter: "grayscale(0.15)",
+      identityStripe: "linear-gradient(180deg, #a51931 0 16%, #ffffff 16% 32%, #2d2a6a 32% 68%, #ffffff 68% 84%, #a51931 84% 100%)",
+      identityStripeWidth: "3px",
+      logoMaxHeight: "88px",
+      logoMaxWidth: "260px",
+      logoObjectPosition: "center center",
+      logoJustify: "center",
+      cardRadius: "14px",
+      grainOpacity: 0.03,
+      logoTreatment: "centered-mark",
+      lowerThirdTreatment: "navy-flag-bar",
+      titleCardTreatment: "navy-depth",
+      introTreatment: "navy-open",
+      outroTreatment: "flag-close"
     }),
     vars: Object.freeze({
-      "--brand-primary":"#2ec8e0","--brand-secondary":"#7b6cff","--brand-accent":"#5ee7ff","--brand-background":"#051820","--brand-surface":"#0b2a36","--brand-surface-alt":"#0e3544","--brand-text":"#e8f6fb","--brand-text-muted":"#8fb3bf","--brand-border":"rgba(46, 200, 224, 0.24)","--brand-button":"#2ec8e0","--brand-button-text":"#042028","--brand-focus":"#7b6cff","--brand-gradient":"linear-gradient(135deg, #2ec8e0, #7b6cff)","--brand-heading-font":"Plus Jakarta Sans, Inter, system-ui, sans-serif","--brand-body-font":"Plus Jakarta Sans, Inter, system-ui, -apple-system, sans-serif",
-      "--studio-canvas":"#051820","--studio-canvas-2":"#07222c","--studio-surface":"#0b2a36","--studio-surface-2":"#0e3544","--studio-surface-raised":"#144556","--studio-line":"rgba(232, 246, 251, 0.12)","--studio-line-strong":"rgba(46, 200, 224, 0.34)","--studio-line-warm":"rgba(123, 108, 255, 0.38)","--studio-cream":"#e8f6fb","--studio-cream-dim":"#c3dce4","--studio-muted":"#8fb3bf","--studio-orange":"#2ec8e0","--studio-orange-bright":"#5ee7ff","--studio-amber":"#e8c15a","--studio-burnt":"#1a8fa3","--studio-brown":"#0e3544","--studio-green":"#2ec8e0","--studio-client-glow":"rgba(46, 200, 224, 0.18)","--studio-button-text":"#042028","--studio-button-shadow":"rgba(46, 200, 224, 0.24)","--studio-button-shadow-hover":"rgba(46, 200, 224, 0.36)","--studio-atmosphere-stroke":"rgba(46, 200, 224, 0.08)","--studio-atmosphere-stroke-2":"rgba(123, 108, 255, 0.06)","--studio-mark-opacity":"0.045"
+      "--brand-primary":"#c8102e","--brand-secondary":"#f4f7fc","--brand-accent":"#c41e5a","--brand-background":"#050814","--brand-surface":"#0b1328","--brand-surface-alt":"#101a34","--brand-text":"#f3f6fb","--brand-text-muted":"#8b97b0","--brand-border":"rgba(243, 246, 251, 0.12)","--brand-button":"#f4f7fc","--brand-button-text":"#070b1c","--brand-focus":"#8eb4ff","--brand-gradient":"linear-gradient(180deg, #f4f7fc 0%, #d7deea 100%)","--brand-heading-font":"Inter, system-ui, sans-serif","--brand-body-font":"Inter, system-ui, -apple-system, sans-serif",
+      "--studio-canvas":"#050814","--studio-canvas-2":"#070b1c","--studio-surface":"#0b1328","--studio-surface-2":"#101a34","--studio-surface-raised":"#162040","--studio-line":"rgba(243, 246, 251, 0.10)","--studio-line-strong":"rgba(142, 180, 255, 0.28)","--studio-line-warm":"rgba(165, 25, 49, 0.55)","--studio-cream":"#f3f6fb","--studio-cream-dim":"#c5cde0","--studio-muted":"#8b97b0","--studio-orange":"#8eb4ff","--studio-orange-bright":"#f4f7fc","--studio-amber":"#14f195","--studio-burnt":"#a51931","--studio-brown":"#101a34","--studio-green":"#14f195","--studio-client-glow":"rgba(196, 30, 90, 0.10)","--studio-button-text":"#070b1c","--studio-button-shadow":"rgba(244, 247, 252, 0.16)","--studio-button-shadow-hover":"rgba(244, 247, 252, 0.28)","--studio-atmosphere-stroke":"rgba(196, 30, 90, 0.09)","--studio-atmosphere-stroke-2":"rgba(243, 246, 251, 0.05)","--studio-mark-opacity":"0.06"
     })
   }),
   peeps: Object.freeze({
@@ -212,24 +212,51 @@ export const BRAND_THEMES = Object.freeze({
     textLogo: "Toasty Peeps Studio", atmosphereBrand: "TOASTY", atmosphereProduct: "PEEPS",
     copy: Object.freeze({
       studioName: "Toasty Peeps Studio",
-      publicHeroTitle: "People first. Expertise on the record.",
-      publicHeroSupport: "Capture expert conversations, discovery sessions, and collaborations as branded Toasty Peeps productions—from first hello to final export.",
+      publicHeroTitle: "People. Expertise. Conversation.",
+      publicHeroSupport: "Capture expert conversations, discovery, and collaboration as branded Toasty Peeps productions—from first hello to final export.",
       publicHeroTagline: "Find the people. Keep the conversation.",
       quickLabel: "Fast Production",
       quickTitle: "Bring the conversation. We'll make it Peeps.",
       quickBody: "Upload raw media and turn expert conversations into Toasty Peeps productions with intros, outros, lower thirds, captions, and export-ready formats.",
       liveBody: "Invite experts, manage the session, record, and keep the conversation in one Toasty Peeps workspace.",
-      aiBody: "Start from a booking, a brief, notes, or raw material, then move through idea, script, record, scenes, assets, assemble, review, and export.",
+      aiBody: "Start from a brief, notes, or raw material, then move through idea, script, record, scenes, assets, assemble, review, and export.",
       memoryBody: "Keep Toasty Peeps colors, logo behavior, lower thirds, voice, and calls to action consistent across every expert production.",
       guestLede: "Set your name, devices, and background before entering Toasty Peeps Studio.",
       productionTitle: "Bring the conversation. We'll make it Peeps.",
-      productionSubtitle: "Video, clips, photos or audio. Toasty Peeps handles the people-first production.",
+      productionSubtitle: "People, expertise, and opportunities — produced with Toasty Peeps warmth.",
       preparedTitle: "Toasty Peeps prepared your production.",
       conciergePrefix: "Toasty Peeps suggests:"
     }),
+    artwork: Object.freeze({
+      backgroundArtwork: "",
+      backgroundWatermark: "../shared/brand/toasty-peeps/watermark-mascot.png",
+      backgroundSilhouette: "",
+      brandPattern: "",
+      surfaceGradient: "linear-gradient(180deg, rgba(255, 253, 248, 0.94) 0%, rgba(247, 237, 224, 0.55) 48%, rgba(255, 197, 61, 0.10) 100%)",
+      titleCardFill: "rgba(61, 36, 21, 0.86)",
+      grainBlend: "multiply",
+      accentGradient: "linear-gradient(135deg, #ffe08a, #ff7a29 58%, #e85a12)",
+      decorativeOpacity: 0.07,
+      watermarkOpacity: 0.09,
+      silhouetteOpacity: 0,
+      watermarkFilter: "grayscale(0)",
+      identityStripe: "linear-gradient(180deg, #ffc53d 0%, #ff7a29 52%, #c1470f 100%)",
+      identityStripeWidth: "3px",
+      logoMaxHeight: "84px",
+      logoMaxWidth: "280px",
+      logoObjectPosition: "center center",
+      logoJustify: "center",
+      cardRadius: "18px",
+      grainOpacity: 0.035,
+      logoTreatment: "warm-lockup",
+      lowerThirdTreatment: "cream-orange-bar",
+      titleCardTreatment: "warm-card",
+      introTreatment: "people-first",
+      outroTreatment: "conversation-close"
+    }),
     vars: Object.freeze({
-      "--brand-primary":"#e56a1a","--brand-secondary":"#f4c38a","--brand-accent":"#f08a3a","--brand-background":"#16100c","--brand-surface":"#221812","--brand-surface-alt":"#2c1e16","--brand-text":"#fbf4ea","--brand-text-muted":"#b89a82","--brand-border":"rgba(229, 106, 26, 0.22)","--brand-button":"#e56a1a","--brand-button-text":"#1c0f06","--brand-focus":"#f08a3a","--brand-gradient":"linear-gradient(135deg, #f4c38a, #e56a1a 58%, #a33d0c)","--brand-heading-font":"Montserrat, Inter, system-ui, sans-serif","--brand-body-font":"Inter, system-ui, -apple-system, sans-serif",
-      "--studio-canvas":"#16100c","--studio-canvas-2":"#1a130e","--studio-surface":"#221812","--studio-surface-2":"#2c1e16","--studio-surface-raised":"#3a281c","--studio-line":"rgba(251, 244, 234, 0.12)","--studio-line-strong":"rgba(240, 138, 58, 0.32)","--studio-line-warm":"rgba(163, 61, 12, 0.38)","--studio-cream":"#fbf4ea","--studio-cream-dim":"#e4d3bf","--studio-muted":"#b89a82","--studio-orange":"#e56a1a","--studio-orange-bright":"#f08a3a","--studio-amber":"#f4c38a","--studio-burnt":"#a33d0c","--studio-brown":"#3d2914","--studio-green":"#34c77b","--studio-client-glow":"rgba(229, 106, 26, 0.22)","--studio-button-text":"#1c0f06","--studio-button-shadow":"rgba(229, 106, 26, 0.30)","--studio-button-shadow-hover":"rgba(229, 106, 26, 0.42)","--studio-atmosphere-stroke":"rgba(240, 138, 58, 0.07)","--studio-atmosphere-stroke-2":"rgba(251, 244, 234, 0.045)","--studio-mark-opacity":"0.05"
+      "--brand-primary":"#ff7a29","--brand-secondary":"#ffc53d","--brand-accent":"#e85a12","--brand-background":"#fbf6ee","--brand-surface":"#fff9f1","--brand-surface-alt":"#fffdf8","--brand-text":"#3d2415","--brand-text-muted":"#8b6548","--brand-border":"rgba(61, 36, 21, 0.12)","--brand-button":"#ff7a29","--brand-button-text":"#3d2415","--brand-focus":"#ffc53d","--brand-gradient":"linear-gradient(135deg, #ffe08a, #ff7a29 58%, #e85a12)","--brand-heading-font":"Montserrat, Inter, system-ui, sans-serif","--brand-body-font":"Inter, system-ui, -apple-system, sans-serif",
+      "--studio-canvas":"#fbf6ee","--studio-canvas-2":"#f3e6d4","--studio-surface":"#fff9f1","--studio-surface-2":"#fffdf8","--studio-surface-raised":"#ffffff","--studio-line":"rgba(61, 36, 21, 0.12)","--studio-line-strong":"rgba(255, 122, 41, 0.34)","--studio-line-warm":"rgba(193, 71, 15, 0.38)","--studio-cream":"#3d2415","--studio-cream-dim":"#5c4030","--studio-muted":"#8b6548","--studio-orange":"#ff7a29","--studio-orange-bright":"#e85a12","--studio-amber":"#ffc53d","--studio-burnt":"#c1470f","--studio-brown":"#3d2415","--studio-green":"#2f9e6a","--studio-client-glow":"rgba(255, 122, 41, 0.20)","--studio-button-text":"#3d2415","--studio-button-shadow":"rgba(255, 122, 41, 0.28)","--studio-button-shadow-hover":"rgba(255, 122, 41, 0.40)","--studio-atmosphere-stroke":"rgba(61, 36, 21, 0.10)","--studio-atmosphere-stroke-2":"rgba(232, 90, 18, 0.08)","--studio-mark-opacity":"0.09"
     })
   })
 });
@@ -244,8 +271,6 @@ const THEME_ALIASES = Object.freeze({
   superteamthailand: "superteam",
   stthailand: "superteam",
   superteamthai: "superteam",
-  aliceincryptoland: "alice",
-  cryptoland: "alice",
   toastypeeps: "peeps"
 });
 
@@ -280,6 +305,7 @@ export function populateBrandThemeSelect(select, activeThemeId = DEFAULT_BRAND_T
 export function applyBrandTheme(themeId, elements = {}) {
   const theme = BRAND_THEMES[normalizeBrandTheme(themeId)]; const root = elements.root || document.body; root.dataset.brandTheme = theme.id;
   Object.entries(theme.vars).forEach(([property,value])=>root.style.setProperty(property,value));
+  applyArtworkTokens(root, theme);
   // Only defaults to Toasty's own flame mark for the toasty theme itself. A client theme with no
   // logoSrc of its own (Tangem, deliberately, over hotlinking/rehosting an asset we don't have rights
   // to) must NOT fall through to Toasty's mark either — that would leak Toasty's own brand as a faint
@@ -315,8 +341,45 @@ export function applyBrandTheme(themeId, elements = {}) {
   return theme;
 }
 
+function applyArtworkTokens(root, theme) {
+  const art = theme.artwork || {};
+  root.style.setProperty("--studio-artwork-image", cssImage(art.backgroundArtwork));
+  root.style.setProperty("--studio-watermark-image", cssImage(art.backgroundWatermark));
+  root.style.setProperty("--studio-silhouette-image", cssImage(art.backgroundSilhouette));
+  root.style.setProperty("--studio-pattern-image", cssImage(art.brandPattern));
+  root.style.setProperty("--studio-surface-gradient", art.surfaceGradient || "linear-gradient(transparent, transparent)");
+  root.style.setProperty("--studio-accent-gradient", art.accentGradient || theme.vars["--brand-gradient"]);
+  root.style.setProperty("--studio-decorative-opacity", String(art.decorativeOpacity ?? 0));
+  root.style.setProperty("--studio-watermark-opacity", String(art.watermarkOpacity ?? theme.vars["--studio-mark-opacity"] ?? 0.025));
+  root.style.setProperty("--studio-silhouette-opacity", String(art.silhouetteOpacity ?? 0));
+  root.style.setProperty("--studio-watermark-filter", art.watermarkFilter || "grayscale(1)");
+  root.style.setProperty("--studio-identity-stripe", art.identityStripe || "transparent");
+  root.style.setProperty("--studio-identity-stripe-width", art.identityStripeWidth || "0px");
+  root.style.setProperty("--studio-logo-max-height", art.logoMaxHeight || "48px");
+  root.style.setProperty("--studio-logo-max-width", art.logoMaxWidth || "180px");
+  root.style.setProperty("--studio-logo-object-position", art.logoObjectPosition || "left center");
+  root.style.setProperty("--studio-logo-justify", art.logoJustify || "flex-start");
+  root.style.setProperty("--studio-card-radius", art.cardRadius || "16px");
+  root.style.setProperty("--ui-radius", art.cardRadius || "16px");
+  root.style.setProperty("--studio-grain-opacity", String(art.grainOpacity ?? 0.018));
+  root.style.setProperty("--studio-grain-blend", art.grainBlend || "overlay");
+  root.style.setProperty("--studio-title-card-fill", art.titleCardFill || "rgba(9, 7, 6, 0.72)");
+  const treatments = ["logoTreatment", "lowerThirdTreatment", "titleCardTreatment", "introTreatment", "outroTreatment"];
+  treatments.forEach((key) => {
+    const value = art[key];
+    if (value) root.dataset[key] = value;
+    else delete root.dataset[key];
+  });
+}
+
+function cssImage(path) {
+  return path ? `url("${path}")` : "none";
+}
+
 function studioMarkImage(theme) {
-  if (theme.logoSrc) return `url("${theme.logoSrc}")`;
+  const watermark = theme.artwork?.backgroundWatermark;
+  if (watermark) return `url("${watermark}")`;
+  if (theme.logoSrc && theme.id === "toasty") return `url("${theme.logoSrc}")`;
   if (theme.id === "toasty") return `url("../shared/brand/toasty-media/ToastyTransparent.png")`;
   return "none";
 }

@@ -5,10 +5,14 @@ body[data-brand-theme]:not([data-brand-theme="toasty"]) {
   --font-body: var(--brand-body-font);
 }
 
-.studio-shell:not([data-brand-theme="toasty"]) .powered-by,
-.program-output:not([data-brand-theme="toasty"]) .powered-by,
-.studio-public-shell:not([data-brand-theme="toasty"]) .powered-by,
-.expert-network-shell:not([data-brand-theme="toasty"]) .powered-by {
+.powered-by[hidden] {
+  display: none !important;
+}
+
+.studio-shell:not([data-brand-theme="toasty"]) .powered-by:not([hidden]),
+.program-output:not([data-brand-theme="toasty"]) .powered-by:not([hidden]),
+.studio-public-shell:not([data-brand-theme="toasty"]) .powered-by:not([hidden]),
+.expert-network-shell:not([data-brand-theme="toasty"]) .powered-by:not([hidden]) {
   align-items: center;
   border: 0;
   color: var(--studio-muted, var(--public-muted, #999));
@@ -37,8 +41,8 @@ body[data-brand-theme]:not([data-brand-theme="toasty"]) {
 }
 
 .studio-shell:not([data-brand-theme="toasty"]) .brand-lockup img {
-  max-height: 64px;
-  max-width: 205px;
+  max-height: var(--studio-logo-max-height, 64px);
+  max-width: var(--studio-logo-max-width, 205px);
 }
 
 .studio-shell[data-brand-theme="8alta"] .brand-lockup img,

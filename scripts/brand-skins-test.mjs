@@ -13,7 +13,6 @@ const SELECTOR_IDS = [
   "santati",
   "tangem",
   "superteam",
-  "alice",
   "peeps"
 ];
 const FROZEN_SKINS = Object.freeze({
@@ -184,17 +183,20 @@ function projectFixture(brandProfile) {
 console.log("Brand skins\n");
 
 assert(DEFAULT_BRAND_THEME === "toasty", "default brand theme remains Toasty");
-assert(SELECTOR_IDS.every((id) => BRAND_THEMES[id]), "all 7 requested profiles exist in BRAND_THEMES");
+assert(SELECTOR_IDS.every((id) => BRAND_THEMES[id]), "all requested profiles exist in BRAND_THEMES");
+assert(!BRAND_THEMES.alice, "Alice in Cryptoland is permanently retired from BRAND_THEMES");
+assert(!BRAND_THEME_IDS.includes("alice"), "Alice is not in BRAND_THEME_IDS");
 assert(BRAND_THEME_IDS.includes("optimai"), "existing OptimAI skin remains registered");
 
 const profiles = getBrandProfiles();
 const profileIds = profiles.map((profile) => profile.id);
+assert(!profileIds.includes("alice"), "getBrandProfiles does not resurrect Alice");
 SELECTOR_IDS.forEach((id) => {
   const theme = BRAND_THEMES[id];
   const profile = getBrandProfile(id);
   assert(theme.id === id, `${id} theme resolves`);
   assert(profile.id === id, `${id} BrandProfile resolves`);
-  if (["superteam", "alice", "peeps"].includes(id)) {
+  if (["superteam", "peeps"].includes(id)) {
     assert(profile.name === theme.label, `${id} profile name matches theme label`);
   }
   assert(profile.primaryColor === theme.vars["--brand-primary"], `${id} primary color is wired from theme`);
@@ -207,9 +209,9 @@ const select = createElement("select");
 populateBrandThemeSelect(select, "toasty");
 const optionIds = select.children.map((option) => option.value);
 const optionLabels = select.children.map((option) => option.textContent);
-assert(SELECTOR_IDS.every((id) => optionIds.includes(id)), `selector exposes all 7 skins (${optionIds.join(", ")})`);
+assert(SELECTOR_IDS.every((id) => optionIds.includes(id)), `selector exposes all skins (${optionIds.join(", ")})`);
+assert(!optionIds.includes("alice"), "selector does not include Alice");
 assert(optionLabels.includes("Superteam Thailand"), "selector label includes Superteam Thailand");
-assert(optionLabels.includes("Alice in Cryptoland"), "selector label includes Alice in Cryptoland");
 assert(optionLabels.includes("Toasty Peeps"), "selector label includes Toasty Peeps");
 assert(select.value === "toasty", "selector selects the active theme");
 
@@ -223,31 +225,40 @@ assert(chrome.root.style.getPropertyValue("--brand-primary") === "#ff7a29", "Toa
 
 applyBrandTheme("superteam", chrome);
 assert(chrome.root.dataset.brandTheme === "superteam", "switching to Superteam updates immediately");
-assert(chrome.root.style.getPropertyValue("--brand-primary") === "#9945ff", "Superteam primary replaces Toasty orange");
-assert(chrome.root.style.getPropertyValue("--studio-mark-image").includes("superteam-thailand"), "Superteam mark does not leak Toasty");
+assert(chrome.root.style.getPropertyValue("--brand-primary") === "#c8102e", "Superteam primary is Thai red, not purple");
+assert(chrome.root.style.getPropertyValue("--studio-canvas") === "#050814", "Superteam structural canvas is deep navy");
+assert(chrome.root.style.getPropertyValue("--brand-primary") !== "#9945ff", "Superteam does not use Solana purple as primary");
+assert(chrome.root.style.getPropertyValue("--studio-mark-image").includes("watermark-elephant.png"), "Superteam watermark is the elephant cutout");
+assert(chrome.root.style.getPropertyValue("--studio-silhouette-image").includes("silhouette-skyline.png"), "Superteam silhouette token is set");
+assert(chrome.root.style.getPropertyValue("--studio-identity-stripe").includes("#a51931"), "Superteam identity stripe uses Thai flag colors");
+assert(chrome.root.dataset.logoTreatment === "centered-mark", "Superteam logo treatment is declarative");
+assert(chrome.root.dataset.lowerThirdTreatment === "navy-flag-bar", "Superteam lower-third treatment is declarative");
 assert(chrome.logoImg.src.includes("superteam-thailand/logo.png"), "Superteam logo is applied");
 assert(chrome.poweredBy.hidden === false, "Superteam shows Powered by Toasty");
 
-applyBrandTheme("alice", chrome);
-assert(chrome.root.dataset.brandTheme === "alice", "switching to Alice updates immediately");
-assert(chrome.root.style.getPropertyValue("--brand-primary") === "#2ec8e0", "Alice cyan replaces prior primary");
-assert(!chrome.root.style.getPropertyValue("--brand-primary").includes("ff7a29"), "Alice does not keep Toasty orange");
-
 applyBrandTheme("peeps", chrome);
 assert(chrome.root.dataset.brandTheme === "peeps", "switching to Toasty Peeps updates immediately");
-assert(chrome.root.style.getPropertyValue("--brand-primary") === "#e56a1a", "Peeps uses its own copper, not Toasty #ff7a29");
+assert(chrome.root.style.getPropertyValue("--studio-canvas") === "#fbf6ee", "Peeps canvas is warm cream, not dark Toasty");
+assert(chrome.root.style.getPropertyValue("--brand-background") === "#fbf6ee", "Peeps brand background is cream");
+assert(chrome.root.style.getPropertyValue("--brand-text") === "#3d2415", "Peeps text is dark chocolate");
+assert(chrome.root.style.getPropertyValue("--studio-mark-image").includes("watermark-mascot.png"), "Peeps watermark is the mascot cutout");
+assert(chrome.root.dataset.logoTreatment === "warm-lockup", "Peeps logo treatment is declarative");
+assert(chrome.root.dataset.introTreatment === "people-first", "Peeps intro treatment is declarative");
 assert(chrome.poweredBy.hidden === true, "Peeps does not show client Powered by chrome");
 assert(chrome.atmosphereProductWord.textContent === "PEEPS", "Peeps atmosphere product is distinct from STUDIO");
+assert(chrome.root.style.getPropertyValue("--studio-canvas") !== BRAND_THEMES.toasty.vars["--studio-canvas"], "Peeps is not a dark Toasty clone");
 
 applyBrandTheme("toasty", chrome);
 assert(chrome.root.style.getPropertyValue("--brand-primary") === "#ff7a29", "switching back to Toasty restores Toasty primary");
 assert(chrome.brandLink.href.includes("site"), "switching back to Toasty restores the Toasty home URL");
+assert(!chrome.root.dataset.logoTreatment, "switching back to Toasty clears Superteam/Peeps treatments");
 
-saveBrandTheme("alice");
-assert(getInitialBrandTheme("", { useStorage: true }) === "alice", "selected skin persists in localStorage");
+saveBrandTheme("peeps");
+assert(getInitialBrandTheme("", { useStorage: true }) === "peeps", "selected skin persists in localStorage");
 assert(getInitialBrandTheme("?brand=superteam-thailand") === "superteam", "URL alias superteam-thailand resolves");
-assert(getInitialBrandTheme("?brand=alice-in-cryptoland") === "alice", "URL alias alice-in-cryptoland resolves");
+assert(getInitialBrandTheme("?brand=alice-in-cryptoland") === "toasty", "retired Alice URL falls back to Toasty");
 assert(getInitialBrandTheme("?brand=toasty-peeps") === "peeps", "URL alias toasty-peeps resolves");
+assert(normalizeBrandTheme("alice") === "toasty", "retired Alice id falls back to Toasty");
 assert(normalizeBrandTheme("unknown-brand") === "toasty", "unknown ids fall back to Toasty rather than throwing");
 
 SELECTOR_IDS.forEach((id) => {
@@ -267,7 +278,15 @@ SELECTOR_IDS.forEach((id) => {
   assert(timeline[0].overlay.brandProfileId === id, `render timeline for ${id} carries overlay.brandProfileId`);
   assert(timeline[0].overlay.primaryColor === brandProfile.primaryColor, `render/export overlay for ${id} uses selected primary, not Toasty fallback`);
   assert(timeline[0].overlay.defaultCTA === (brandProfile.defaultCTA || brandProfile.ctaStyle), `render/export CTA for ${id} comes from the selected profile`);
+  assert("lowerThirdTreatment" in spec.brandOverlays, `production spec for ${id} carries lowerThirdTreatment`);
+  assert("introTreatment" in spec.brandOverlays, `production spec for ${id} carries introTreatment`);
+  assert(timeline[0].overlay.lowerThirdTreatment === (brandProfile.lowerThirdTreatment || ""), `render overlay for ${id} carries lowerThirdTreatment`);
 });
+
+assert(getBrandProfile("superteam").lowerThirdTreatment === "navy-flag-bar", "Superteam profile carries lower-third treatment");
+assert(getBrandProfile("peeps").introTreatment === "people-first", "Peeps profile carries intro treatment");
+assert(getBrandProfile("superteam").backgroundWatermark.includes("watermark-elephant.png"), "Superteam profile points at the elephant watermark");
+assert(getBrandProfile("peeps").backgroundWatermark.includes("watermark-mascot.png"), "Peeps profile points at the mascot watermark");
 
 Object.entries(FROZEN_SKINS).forEach(([id, frozen]) => {
   const theme = BRAND_THEMES[id];
@@ -296,12 +315,19 @@ assert(missingAssetChrome.logoImg.hidden === true, "unavailable brand image hide
 assert(missingAssetChrome.logoText.hidden === false, "unavailable brand image reveals the text lockup");
 assert(missingAssetChrome.logoText.textContent === "Superteam Thailand Studio", "text fallback uses the selected brand, not Toasty");
 
-assert(existsSync(join(ROOT, "shared/brand/clients/superteam-thailand/logo.png")), "Superteam Thailand official lockup is present");
-assert(existsSync(join(ROOT, "shared/brand/clients/alice-cryptoland/logo.png")), "Alice in Cryptoland official lockup is present");
-assert(existsSync(join(ROOT, "shared/brand/toasty-peeps/logo.png")), "Toasty Peeps official lockup is present");
+assert(existsSync(join(ROOT, "shared/brand/clients/superteam-thailand/logo.png")), "Superteam Thailand transparent mark is present");
+assert(existsSync(join(ROOT, "shared/brand/clients/superteam-thailand/source/mark-square.png")), "Superteam supplied source mark is preserved");
+assert(existsSync(join(ROOT, "shared/brand/clients/superteam-thailand/source/lockup-cinematic.png")), "Superteam cinematic lockup source is preserved");
+assert(existsSync(join(ROOT, "shared/brand/clients/superteam-thailand/watermark-elephant.png")), "Superteam elephant watermark is present");
+assert(existsSync(join(ROOT, "shared/brand/clients/superteam-thailand/silhouette-skyline.png")), "Superteam skyline silhouette is present");
+assert(existsSync(join(ROOT, "shared/brand/toasty-peeps/logo.png")), "Toasty Peeps transparent lockup is present");
+assert(existsSync(join(ROOT, "shared/brand/toasty-peeps/source/logo-source.png")), "Toasty Peeps supplied source artwork is preserved");
+assert(existsSync(join(ROOT, "shared/brand/toasty-peeps/watermark-mascot.png")), "Toasty Peeps mascot watermark is present");
+assert(!existsSync(join(ROOT, "shared/brand/clients/alice-cryptoland/logo.png")), "Alice in Cryptoland assets are removed");
 
-assert(getBrandProfile("peeps").primaryColor !== getBrandProfile("toasty").primaryColor, "Toasty Peeps is a distinct skin, not a Toasty rename");
-assert(profileIds.includes("superteam") && profileIds.includes("alice") && profileIds.includes("peeps"), "getBrandProfiles includes the three new skins");
+assert(getBrandProfile("peeps").primaryColor === "#ff7a29", "Peeps keeps Toasty orange");
+assert(getBrandProfile("peeps").supportingPalette.includes("#fbf6ee"), "Peeps supporting palette includes cream");
+assert(profileIds.includes("superteam") && profileIds.includes("peeps"), "getBrandProfiles includes Superteam and Peeps");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
