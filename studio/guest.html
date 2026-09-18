@@ -122,6 +122,28 @@
       <div class="lv-hidden-transport" id="guestTransportFrame" aria-hidden="true"></div>
 
       <section class="joined-room" id="joinedRoom" hidden aria-label="Live guest room">
+        <!-- Participant View, not Program Output — this is "who am I talking to," a clean per-participant
+             &view=<id> of the Host, using the SAME shared .lv-participant-stage/.lv-stage-main/.lv-stage-pip
+             primitive studio/director.html uses for the reverse direction (see css/studio.css's own
+             comment on .lv-participant-stage — "solve the remote-source primitive once"). The Host's stream
+             id is always roomId+"h" by convention (see js/video-engine.js's mountDirectorFrame) — a guest
+             has no director permissions to otherwise discover room membership, so this mounts on that fixed
+             id rather than an enumerated one. #previewStage (the guest's own camera) is relocated into this
+             same stage as the small PiP by js/guest.js's joinStudio, replacing its prejoin-time position. -->
+        <div class="lv-participant-stage" id="guestParticipantStage">
+          <article class="lv-video-article lv-stage-main">
+            <div class="vdo-frame lv-video-tile" id="guestRemoteFrame"></div>
+            <!-- Separate element, not the .vdo-frame[data-empty] pseudo-element pattern — that only paints
+                 while the container has no iframe child; once js/guest.js mounts the Host's &view= iframe,
+                 its own z-index paints above a plain data-empty ::before/::after, so a "still connecting"
+                 state needs an explicit, independently z-indexed sibling like Host's own #lvGuestStageEmpty
+                 already uses for the identical problem. -->
+            <div class="stage-empty" id="guestRemoteStageEmpty" aria-hidden="true">
+              <span class="stage-empty-ring"></span>
+              <p>Waiting for host to join</p>
+            </div>
+          </article>
+        </div>
         <div class="guest-live-identity" id="guestLiveIdentity">
           <span class="guest-live-identity-name" id="guestLiveIdentityName"></span>
           <span class="guest-live-identity-role" id="guestLiveIdentityRole"></span>

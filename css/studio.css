@@ -3545,6 +3545,49 @@
   position: relative;
 }
 
+/* Shared "remote participant is the main stage, self is a small PiP" primitive — see this pass's report
+   ("Solve the remote-source primitive once"). Used by BOTH studio/director.html (Host looking at a guest)
+   and studio/guest.html (a guest looking at the Host) via the SAME class names, so there is one layout
+   pattern, not two independently-maintained ones. Applied on top of an existing flex row (.lv-video-row /
+   .lv-participant-stage's own children) rather than replacing it, so the default (no modifier) case is
+   unchanged from before — Host's prejoin form needs the full, non-PiP box exactly as it already had it;
+   see .lv-participant-stage--in-studio below for why the PiP treatment is conditional there. */
+.lv-participant-stage {
+  position: relative;
+}
+
+.lv-stage-main {
+  width: 100%;
+}
+
+/* Host: only takes effect once js/host-view.js's renderHostState confirms IN_STUDIO — see that method.
+   Before that, the Host's own tile stays full-size because .lv-host-prejoin (the camera/name/device setup
+   form) is absolutely positioned to fill THIS SAME container, and shrinking it to PiP size before Join
+   would crush that form into an unusably small box. */
+.lv-participant-stage--in-studio .lv-stage-pip,
+/* Guest: always PiP once mounted — js/guest.js only creates this markup after a confirmed join, so there
+   is no equivalent "still showing a form in here" state to protect against. */
+.joined-room .lv-stage-pip {
+  bottom: 10px;
+  border: 2px solid var(--studio-line);
+  border-radius: 10px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55);
+  max-width: 200px;
+  min-width: 92px;
+  overflow: hidden;
+  position: absolute;
+  right: 10px;
+  width: 30%;
+  z-index: 6;
+}
+
+.lv-participant-stage--in-studio .lv-stage-pip .lv-video-tile,
+.joined-room .lv-stage-pip .preview-stage {
+  aspect-ratio: 3 / 4;
+  max-height: none;
+  min-height: 0;
+}
+
 /* Overrides .vdo-frame's aspect-ratio:4/3 for this dense layout specifically: with a definite
    min-height (from studio-shell-v2.css's brand-scoped .vdo-frame rule) but no definite width, the
    browser computes width FROM the aspect ratio and height instead of from the flex column — at

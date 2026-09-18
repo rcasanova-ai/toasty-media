@@ -24,6 +24,7 @@ export class HostView {
       guestContext: root.querySelector("#lvGuestContext"),
       guestCount: root.querySelector("#lvGuestCount"),
       guestDiagnostics: root.querySelector("#lvGuestDiagnostics"),
+      participantStage: root.querySelector("#lvParticipantStage"),
       hostPanelStatus: root.querySelector("#lvHostPanelStatus"),
       guestPanelStatus: root.querySelector("#lvGuestPanelStatus"),
       guestStageEmpty: root.querySelector("#lvGuestStageEmpty"),
@@ -97,6 +98,11 @@ export class HostView {
     this.elements.talkTextForm.hidden = !inStudio;
     this.elements.talkBtn.disabled = !inStudio;
     this.elements.talkTextInput.disabled = !inStudio;
+    // Same gate as the controls above, for the same reason: the PiP layout (see css/studio.css's
+    // .lv-participant-stage comment) only makes sense once #lvHostFrame is showing the Host's actual live
+    // tile — before Join, that same box is filled by the full-size #lvHostPrejoin form, which would be
+    // crushed into an unusably small PiP if this class applied any earlier.
+    this.elements.participantStage?.classList.toggle("lv-participant-stage--in-studio", inStudio);
   }
 
   renderGuestContext() {

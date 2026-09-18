@@ -40,6 +40,7 @@ const state = {
   screenSharing: false,
   streamId: null,
   flipping: false,
+  hostViewUnsub: null,
   lifecycle: GuestLifecycle.PREJOIN_LOADING,
   // Generated once per page load, kept for the life of this guest session — see the diagnostics panel and
   // this pass's report ("IDENTITY BINDING CHANGE") for why this exists even though VDO.Ninja's own &label
@@ -71,6 +72,9 @@ const elements = {
   guestStatus: document.querySelector("#guestStatus"),
   guestTransportFrame: document.querySelector("#guestTransportFrame"),
   joinedRoom: document.querySelector("#joinedRoom"),
+  guestParticipantStage: document.querySelector("#guestParticipantStage"),
+  guestRemoteFrame: document.querySelector("#guestRemoteFrame"),
+  guestRemoteStageEmpty: document.querySelector("#guestRemoteStageEmpty"),
   guestLiveIdentityName: document.querySelector("#guestLiveIdentityName"),
   guestLiveIdentityRole: document.querySelector("#guestLiveIdentityRole"),
   guestToggleMic: document.querySelector("#guestToggleMic"),
@@ -353,16 +357,18 @@ function joinStudio() {
   const videoDeviceLabel = elements.cameraSelect.selectedOptions[0]?.textContent;
   const audioDeviceLabel = elements.microphoneSelect.selectedOptions[0]?.textContent;
 
-  setLastAction("J6 MOVING PREVIEW (relocating #previewStage into joined-room)");
+  setLastAction("J6 MOVING PREVIEW (relocating #previewStage into stage as self PiP)");
   // Toasty-owned name/title under the live tile — see css/studio.css's .guest-live-identity comment for
   // why this is separate from VDO.Ninja's own showlabels overlay.
   elements.guestLiveIdentityName.textContent = guestName;
   elements.guestLiveIdentityRole.textContent = role;
   // Move the SAME preview node (not a clone — a live <video> with srcObject already set) into the joined
-  // view, so the guest keeps looking at the exact stream that's now actually being published, with no
-  // VDO.Ninja iframe ever visible anywhere on this page.
-  elements.joinedRoom.insertBefore(elements.previewStage, elements.guestLiveIdentity);
-  elements.previewStage.classList.add("preview-stage--live");
+  // view as the small self PiP — see css/studio.css's .lv-participant-stage comment ("solve the
+  // remote-source primitive once"): PARTICIPANT VIEW puts the OTHER person on the main stage and your own
+  // camera in a corner, the reverse of what this page showed before.
+  elements.guestParticipantStage.appendChild(elements.previewStage);
+  elements.previewStage.classList.remove("preview-stage--live");
+  elements.previewStage.classList.add("lv-stage-pip");
 
   setLastAction(`J7 MOUNTING TRANSPORT — videoDeviceLabel="${videoDeviceLabel || "(none)"}" audioDeviceLabel="${audioDeviceLabel || "(none)"}"`);
   // Deliberately NOT stopping state.previewStream here — same fix as the Host's joinAsHost: the visible
@@ -383,6 +389,15 @@ function joinStudio() {
   // had; on a real device that showed as "click Join, nothing happens for up to ~30s" — an invented
   // abstraction, not something proven by the one path that actually works. Removed rather than tuned.
 
+  // PARTICIPANT VIEW of the Host — the other half of "solve the remote-source primitive once": the Host's
+  // stream id is always roomId+"h" (see js/video-engine.js's mountDirectorFrame), a fixed convention this
+  // codebase already relies on elsewhere, not something discovered — a guest has no director permissions
+  // to enumerate room membership the way js/live-session.js's requestGuestList does for the Host/Director.
+  // Mounted speculatively (the Host may not have joined yet); mountRemoteHostView's own connection-message
+  // listener (see below) toggles the "Waiting for host" placeholder off once real video actually arrives,
+  // separately from whether the iframe merely loaded.
+  mountRemoteHostView();
+
   // The check-in form (name/title/company/device pickers/background swatches) has done its job —
   // once joined, guests should see only the live feed and the mute/camera/screen-share dock.
   elements.guestCheckin.hidden = true;
@@ -392,6 +407,28 @@ function joinStudio() {
   setLastAction("J9 STATE = IN_STUDIO");
   setLifecycle(GuestLifecycle.IN_STUDIO);
   setLastAction("J10 COMPLETE");
+}
+
+// PARTICIPANT VIEW ONLY — this is "who Tukta is talking to," never Program Output (a separate concept
+// entirely; see studio/listener.html/js/listener.js for that, which this page has no connection to).
+// Mounts a clean &view=<hostStreamId> of the Host and listens for THIS SPECIFIC mounted frame's own
+// connection messages (video-engine.js's handleMessage now passes event.source through for exactly this
+// kind of per-frame attribution) to distinguish "iframe exists" from "a real person is actually visible" —
+// the same distinction whose absence was the root cause chased earlier this pass on the Host side.
+function mountRemoteHostView() {
+  const hostStreamId = `${state.roomId}h`;
+  elements.guestRemoteStageEmpty.hidden = false;
+  const iframe = engine.mountParticipantView(elements.guestRemoteFrame, { streamId: hostStreamId }, "hostview");
+  diag(`mounted remote Host view — streamId="${hostStreamId}"`);
+  // Tracked so leaveSession can unsubscribe — without this, rejoining (Leave, then Join again) would stack
+  // a new listener on top of the old one every cycle instead of replacing it.
+  state.hostViewUnsub = engine.onMessage((message, source) => {
+    if (source !== iframe.contentWindow) return;
+    diag(`hostview message: ${JSON.stringify(message).slice(0, 160)}`);
+    if (message?.action === "view-connection") {
+      elements.guestRemoteStageEmpty.hidden = Boolean(message.value);
+    }
+  });
 }
 
 // Remounts the SAME push connection (same streamId — see mountGuestFrame's comment) with the next camera
@@ -462,11 +499,14 @@ async function leaveSession() {
   setLifecycle(GuestLifecycle.LEAVING);
   engine.disconnectAll();
   stopPreview();
+  state.hostViewUnsub?.();
+  state.hostViewUnsub = null;
+  engine.unmountFrame(elements.guestRemoteFrame, "hostview", "Waiting for host to join");
   elements.joinState.textContent = "Left";
   elements.guestStatus.textContent = "You left the Studio session.";
   elements.joinedRoom.hidden = true;
   elements.guestCheckin.hidden = false;
-  elements.previewStage.classList.remove("preview-stage--live");
+  elements.previewStage.classList.remove("lv-stage-pip");
   // Restore original prejoin order (eyebrow, THEN preview, then the name field) — insertBefore the name
   // field's label, not prepend, which would put the preview above the room eyebrow instead.
   elements.guestName.closest("label").before(elements.previewStage);

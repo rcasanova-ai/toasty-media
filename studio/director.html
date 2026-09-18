@@ -369,8 +369,16 @@
                 <span>Program Preview</span>
                 <span class="lv-chip" id="lvHostPanelStatus">Loading</span>
               </div>
-              <div class="lv-video-row">
-                <article class="lv-video-article">
+              <!-- Participant View (who the Host is talking to), not Program Output (what the Producer
+                   broadcasts — a separate concept, see studio/listener.html). Remote guest is the main
+                   stage; the Host's own camera is a small PiP once actually in studio — see
+                   css/studio.css's .lv-participant-stage comment ("solve the remote-source primitive
+                   once", shared with studio/guest.html's mirror-image use of the same classes) and
+                   js/host-view.js's renderHostState, which toggles --in-studio only after Join so the
+                   prejoin form (which fills this same #lvHostFrame box) still gets its full size before
+                   that. -->
+              <div class="lv-video-row lv-participant-stage" id="lvParticipantStage">
+                <article class="lv-video-article lv-stage-pip">
                   <div class="vdo-frame lv-video-tile" id="lvHostFrame" data-empty="Loading host feed"></div>
                   <div class="lv-host-prejoin" id="lvHostPrejoin">
                     <video id="lvHostPrejoinPreview" class="lv-host-prejoin-video" autoplay muted playsinline></video>
@@ -403,7 +411,7 @@
                      _showHostNativeVideo). Kept permanently off-screen, never display:none, so the encoder
                      doesn't get throttled for being hidden. -->
                 <div class="lv-hidden-transport" id="lvHostTransportFrame" aria-hidden="true"></div>
-                <article class="lv-video-article">
+                <article class="lv-video-article lv-stage-main">
                   <div class="vdo-frame lv-video-tile" id="lvGuestFrame" data-empty="Waiting for guest to join"></div>
                   <div class="stage-empty" id="lvGuestStageEmpty" aria-hidden="true">
                     <span class="stage-empty-ring"></span>
