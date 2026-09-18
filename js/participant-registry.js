@@ -34,11 +34,22 @@ export function createParticipant({
   connectionStatus = ConnectionStatus.IDLE,
   videoSource = { kind: SourceKind.NONE },
   audioSource = { kind: SourceKind.NONE },
-  transportSourceId = null
+  transportSourceId = null,
+  // Stable-ordering key for js/program-composition.js's stableOrder — when this participant first
+  // appeared, stamped once at genuine discovery by the caller (never regenerated on a repeat upsert of the
+  // same participant), so recomposition on a later join/leave never reshuffles someone already positioned.
+  // Defaults to "now" so any caller that doesn't pass one explicitly still gets a real, if less precise,
+  // ordering key rather than everyone tying at undefined.
+  joinedAt = Date.now(),
+  // Connected doesn't necessarily mean visible in Program — see js/program-composition.js's composeProgram,
+  // which filters on this. Defaults true: for this pass, every connected camera participant is on Program
+  // automatically: Producer taking sources on/off Program individually is later work this field is already
+  // shaped for, not built yet.
+  onProgram = true
 }) {
   if (!participantId) throw new Error("createParticipant requires participantId.");
   if (!role) throw new Error("createParticipant requires role.");
-  return { participantId, role, displayName, title, company, connectionStatus, videoSource, audioSource, transportSourceId };
+  return { participantId, role, displayName, title, company, connectionStatus, videoSource, audioSource, transportSourceId, joinedAt, onProgram };
 }
 
 // Keyed by participantId. Plain Map, not a class with its own event system — every consumer so far

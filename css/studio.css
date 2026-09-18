@@ -4489,3 +4489,74 @@
   border-color: var(--studio-red-bright);
   color: var(--studio-red-bright);
 }
+
+/* Multi-participant stage — js/participant-stage.js mounts one tile per remote participant into this
+   container (id'd #lvGuestFrame on Director, #guestRemoteFrame on Guest — see studio/director.html /
+   studio/guest.html), driven by js/program-composition.js's composeParticipantView via the
+   data-remote-layout attribute syncParticipantStage sets. Grid, not flex: a fixed column count per layout
+   name is exactly "three equal vertical-ish panels" / "balanced" — no manual width math needed. */
+.lv-participant-tiles {
+  display: grid;
+  gap: 0.5rem;
+  height: 100%;
+  /* Safety net matching .vdo-frame's own old default (see the base .vdo-frame rule above) — height:100%
+     is the preferred behavior when the flex ancestor chain (.lv-video-row/.lv-video-article) provides a
+     definite height, but this container replaced #lvGuestFrame's own .vdo-frame class, which used to
+     establish its OWN height directly; keeping an equivalent min-height means an empty/waiting stage can't
+     silently collapse to 0 if that chain doesn't stretch the way expected. */
+  min-height: min(48vh, 420px);
+  width: 100%;
+}
+
+.lv-participant-tiles[data-remote-layout="waiting"],
+.lv-participant-tiles[data-remote-layout="one-remote"] {
+  grid-template-columns: 1fr;
+}
+
+.lv-participant-tiles[data-remote-layout="two-remote"] {
+  grid-template-columns: 1fr 1fr;
+}
+
+.lv-participant-tiles[data-remote-layout="three-remote"] {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+/* .lv-remote-tile is the OUTER wrapper js/participant-stage.js creates per participant (grid item + label
+   host); .vdo-frame lives INSIDE it as the actual VDO mount target (see that file's own comment on why
+   they're two elements, not one). */
+.lv-remote-tile {
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ID-scoped, not class-only — this exact bug class (a same-specificity .vdo-frame rule in
+   studio-shell-v2.css loading after this file and winning the tie via source order) already cost real
+   debugging time once tonight for the single-tile case (see #lvHostFrame's own fix above). .vdo-frame's own
+   aspect-ratio:4/3 + min-height:min(48vh,420px) would blow out 2-3 tiles side by side in a grid the same
+   way it did the Host PiP — overridden here for every remote tile's INNER video container, on both stages. */
+#lvGuestFrame .lv-remote-tile .vdo-frame,
+#guestRemoteFrame .lv-remote-tile .vdo-frame {
+  aspect-ratio: unset;
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+}
+
+.lv-remote-tile-label {
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.75), transparent);
+  bottom: 0;
+  color: var(--studio-cream);
+  font-size: 0.7rem;
+  font-weight: 700;
+  left: 0;
+  padding: 0.4rem 0.6rem 0.3rem;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  z-index: 3;
+}

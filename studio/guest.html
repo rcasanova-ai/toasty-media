@@ -112,7 +112,10 @@
              same stage as the small PiP by js/guest.js's joinStudio, replacing its prejoin-time position. -->
         <div class="lv-participant-stage" id="guestParticipantStage">
           <article class="lv-video-article lv-stage-main">
-            <div class="vdo-frame lv-video-tile" id="guestRemoteFrame"></div>
+            <!-- Multi-tile stage, not a single .vdo-frame — js/participant-stage.js mounts one tile per
+                 OTHER connected participant (Host + up to 2 other Guests) here dynamically. A Guest sees
+                 everyone else, not only the Host — see js/program-composition.js's composeParticipantView. -->
+            <div class="lv-participant-tiles" id="guestRemoteFrame"></div>
             <!-- Separate element, not the .vdo-frame[data-empty] pseudo-element pattern — that only paints
                  while the container has no iframe child; once js/guest.js mounts the Host's &view= iframe,
                  its own z-index paints above a plain data-empty ::before/::after, so a "still connecting"

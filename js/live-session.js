@@ -24,6 +24,7 @@ import { RoomPresence } from "./room-presence.js";
 import { RemoteMediaState } from "./remote-media-state.js";
 import { ProducerFeed, AIProducerService, createAIProducerProvider } from "./ai-producer.js";
 import { studioRequest } from "./studio-api.js";
+import { syncParticipantStage, clearParticipantStage } from "./participant-stage.js";
 import {
   DEFAULT_HOST_RELATIONSHIP_MODE,
   DEFAULT_SHOW_TONE,
@@ -166,7 +167,9 @@ export class LiveSession {
 
     // See js/remote-media-state.js and _setRemoteMediaState below.
     this.remoteMediaState = RemoteMediaState.WAITING_FOR_PARTICIPANT;
-    this._remoteMediaTimerId = null;
+    // js/participant-stage.js's syncParticipantStage's persistent state — participantId -> {tile, frameId,
+    // transportSourceId} for every currently-mounted Guest tile on Host's participant stage.
+    this._mountedGuestTiles = new Map();
 
     this.engine.onMessage((message) => this._handleVdoMessage(message));
     window.setInterval(() => this.engine.requestDetailedState(), 5000);
@@ -293,10 +296,10 @@ export class LiveSession {
   // person's identity to exist, so they still mount immediately.
   start(containers) {
     this._containers = containers; // {host, hostTransport, roomPreview, control} — kept so layout changes can remount
-    // roomPreview (the "guest" tile) is deliberately NOT mounted here — see _syncGuestVideoTile, which
-    // mounts a clean per-participant &view=<id> frame only once a real guest is actually detected, and
-    // tears it down again on disconnect. No VDO frame here at all beats mounting one that shows nobody.
-    this._mountedGuestViewId = null;
+    // roomPreview (the guest stage) is deliberately NOT mounted here — see _syncGuestVideoTile, which
+    // mounts a clean per-participant &view=<id> tile per connected Guest only once actually detected, and
+    // tears each down again on disconnect. No VDO frame here at all beats mounting one that shows nobody.
+    clearParticipantStage({ engine: this.engine, mounted: this._mountedGuestTiles });
     this.engine.mountDirectorControlFrame(containers.control, { roomId: this.roomId });
     this.guestSeats = new Array(GUEST_SEAT_COUNT).fill(null);
     this._restartProgramSync();
@@ -478,7 +481,11 @@ export class LiveSession {
           mic: true,
           camera: true,
           onProgram: true,
-          volume: 1
+          volume: 1,
+          // Stamped once, here, at genuine first discovery — never touched again by the repeat-upsert
+          // below. The ONE stable-ordering key js/program-composition.js's stableOrder sorts everyone but
+          // Host by, so recomposition on a later join/leave never reshuffles someone already positioned.
+          joinedAt: Date.now()
         };
       }
     });
@@ -520,7 +527,9 @@ export class LiveSession {
         connectionStatus: ConnectionStatus.CONNECTED,
         videoSource: { kind: SourceKind.VDO_PARTICIPANT_VIEW, streamId: seat.id },
         audioSource: { kind: SourceKind.VDO_PARTICIPANT_VIEW, streamId: seat.id },
-        transportSourceId: seat.id
+        transportSourceId: seat.id,
+        joinedAt: seat.joinedAt,
+        onProgram: seat.onProgram
       }));
     });
 
@@ -529,60 +538,38 @@ export class LiveSession {
     this.publishProgramState();
   }
 
-  // Mounts/tears down the ONE clean per-participant view for the guest tile — see
-  // VideoEngine.mountParticipantView's own comment for why this replaced the old scene=0 room auto-mix.
-  // Only remounts when the actual guest id changes, not on every 4s poll tick, so a steady connection
-  // never flickers/reconnects.
+  // Mounts/tears down one tile per connected Guest (up to 3) on Host's participant stage — see
+  // js/participant-stage.js's syncParticipantStage, the SAME reconciler js/guest.js uses for its own
+  // mirror-image stage, and js/program-composition.js's composeParticipantView for the ordering/layout
+  // rules both share. Replaces the old single-seat _mountedGuestViewId tracking (guestSeats[0] only) —
+  // this._mountedGuestTiles (a Map, see the constructor) is syncParticipantStage's persistent state instead.
   _syncGuestVideoTile() {
-    const seat = this.guestSeats[0];
     const container = this._containers?.roomPreview;
     if (!container) return;
-    if (seat && this._mountedGuestViewId !== seat.id) {
-      this._mountedGuestViewId = seat.id;
-      this._setRemoteMediaState(RemoteMediaState.CONNECTING_REMOTE_MEDIA);
-      this.engine.mountParticipantView(container, { roomId: this.roomId, streamId: seat.id }, "guestview");
-      this._startRemoteMediaPolling(seat.id);
-    } else if (!seat && this._mountedGuestViewId) {
-      this._mountedGuestViewId = null;
-      this._stopRemoteMediaPolling();
-      this._setRemoteMediaState(RemoteMediaState.WAITING_FOR_PARTICIPANT);
-      this.engine.unmountFrame(container, "guestview", "Waiting for guest to join");
-    }
+    const hostAsParticipant = { participantId: "host", role: ParticipantRole.HOST, connectionStatus: ConnectionStatus.CONNECTED, joinedAt: 0 };
+    const allParticipants = [hostAsParticipant, ...this.participants.list().filter((p) => p.role === ParticipantRole.GUEST)];
+    const composition = syncParticipantStage({
+      stage: container,
+      engine: this.engine,
+      roomId: this.roomId,
+      participants: allParticipants,
+      selfParticipantId: "host",
+      mounted: this._mountedGuestTiles,
+      frameIdPrefix: "guestview"
+    });
+    this._setRemoteMediaState(composition.others.length === 0 ? RemoteMediaState.WAITING_FOR_PARTICIPANT : RemoteMediaState.REMOTE_MEDIA_LIVE);
   }
 
-  // Presence confirming a guest is a DIFFERENT fact from their video actually being visible; this makes the
-  // gap between those two visible instead of leaving Director looking "connected" with a blank tile and no
-  // way to tell why. videoVisible comes from the mounted guestview frame's OWN getDetailedState (see
-  // VideoEngine.requestPeerVideoState) — not capturable any other way, since that iframe is cross-origin.
+  // Presence confirming a guest is a DIFFERENT fact from their video actually being visible — see
+  // js/remote-media-state.js. With multiple simultaneous tiles, this is now a summary (any others at all
+  // vs none), not a per-tile confirmed-visible state — the per-tile getDetailedState polling that used to
+  // drive REMOTE_MEDIA_ERROR was diagnostic machinery for the black-video investigation, root-caused and
+  // removed once that was fixed (see the cleanup pass); a stuck individual tile is now a real product bug
+  // to fix directly; not something to detect and retry around here.
   _setRemoteMediaState(next) {
     if (this.remoteMediaState === next) return;
     this.remoteMediaState = next;
     this.emit("remote-media-state", next);
-  }
-
-  async _pollRemoteMediaState(streamId, startedAt) {
-    const entry = await this.engine.requestPeerVideoState("guestview", streamId);
-    if (entry?.videoVisible) {
-      this._setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_LIVE);
-      this._stopRemoteMediaPolling();
-      return;
-    }
-    if (Date.now() - startedAt <= 15000) return;
-    this._setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_ERROR);
-    this._stopRemoteMediaPolling();
-  }
-
-  _startRemoteMediaPolling(streamId) {
-    this._stopRemoteMediaPolling();
-    const startedAt = Date.now();
-    this._remoteMediaTimerId = window.setInterval(() => this._pollRemoteMediaState(streamId, startedAt), 2000);
-  }
-
-  _stopRemoteMediaPolling() {
-    if (this._remoteMediaTimerId) {
-      window.clearInterval(this._remoteMediaTimerId);
-      this._remoteMediaTimerId = null;
-    }
   }
 
   guestCount() {

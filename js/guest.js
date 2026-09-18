@@ -4,6 +4,7 @@ import { startDevicePreview } from "./device-picker.js";
 import { RoomPresence } from "./room-presence.js";
 import { RemoteMediaState, REMOTE_MEDIA_STATE_LABEL } from "./remote-media-state.js";
 import { studioApiEndpoint } from "./studio-api.js";
+import { syncParticipantStage, clearParticipantStage } from "./participant-stage.js";
 
 const MAX_GUESTS_PER_ROOM = 3;
 
@@ -32,12 +33,11 @@ const state = {
   screenSharing: false,
   streamId: null,
   flipping: false,
-  // The currently-mounted remote participant view, if any — {participantId, transportSourceId} — so
-  // renderRemoteParticipants can tell "still the same remote person, leave it mounted" apart from "a
-  // different remote source now, remount" instead of tearing down/rebuilding on every roster poll tick.
-  mountedRemote: null,
+  // js/participant-stage.js's syncParticipantStage's persistent state — participantId -> {tile,
+  // videoContainer, frameId, transportSourceId} for every currently-mounted OTHER participant tile on this
+  // Guest's own participant stage.
+  mountedRemoteTiles: new Map(),
   remoteMediaState: RemoteMediaState.WAITING_FOR_PARTICIPANT,
-  remoteMediaTimerId: null,
   presence: null,
   selfLabel: null,
   lifecycle: GuestLifecycle.PREJOIN_LOADING,
@@ -275,46 +275,29 @@ async function joinStudio() {
   setLifecycle(GuestLifecycle.IN_STUDIO);
 }
 
-// PARTICIPANT VIEW ONLY — this is "who Tukta is talking to," never Program Output (a separate concept
-// entirely; see studio/listener.html/js/listener.js for that). Renders the current room roster minus self
-// on the single main-stage slot this page has today. Only remounts the VDO &view= iframe when the actual
-// remote id changes (state.mountedRemote), not on every poll tick, so a steady connection never flickers.
+// PARTICIPANT VIEW — "who Tukta is talking to," never Program Output (a separate concept entirely; see
+// studio/listener.html/js/listener.js for that). A Guest sees EVERY other connected participant (Host +
+// up to 2 other Guests), not only the Host — see js/participant-stage.js's syncParticipantStage (the SAME
+// reconciler js/live-session.js uses for its mirror-image stage) and js/program-composition.js's
+// composeParticipantView for the ordering/layout rules both share. Per-participant identity labels are
+// drawn directly on each tile by syncParticipantStage now, not this page's own single identity line.
 function renderRemoteParticipants(roster) {
-  const others = roster.filter((entry) => entry.participantId !== state.participantId);
-  const remote = others[0] || null;
-
-  if (!remote || !remote.transportSourceId) {
-    setRemoteMediaState(RemoteMediaState.WAITING_FOR_PARTICIPANT);
-    elements.guestLiveIdentityName.textContent = "";
-    elements.guestLiveIdentityRole.textContent = "";
-    if (state.mountedRemote) {
-      stopRemoteMediaPolling();
-      engine.unmountFrame(elements.guestRemoteFrame, "remoteview", "");
-      state.mountedRemote = null;
-    }
-    return;
-  }
-
-  // The visible identity line names whoever is on the main stage (the OTHER participant), not this guest.
-  elements.guestLiveIdentityName.textContent = remote.displayName;
-  elements.guestLiveIdentityRole.textContent = [remote.title, remote.company].filter(Boolean).join(", ");
-
-  if (state.mountedRemote?.transportSourceId === remote.transportSourceId) return; // already showing them
-
-  setRemoteMediaState(RemoteMediaState.CONNECTING_REMOTE_MEDIA);
-  const iframe = engine.mountParticipantView(elements.guestRemoteFrame, { roomId: state.roomId, streamId: remote.transportSourceId }, "remoteview");
-  state.mountedRemote = { participantId: remote.participantId, transportSourceId: remote.transportSourceId };
-  // Tracked so leaveSession can unsubscribe — without this, rejoining (Leave, then Join again) would stack
-  // a new listener on top of the old one every cycle instead of replacing it.
-  state.hostViewUnsub?.();
-  state.hostViewUnsub = engine.onMessage((message, source) => {
-    if (source !== iframe.contentWindow) return;
-    if (message?.action === "view-connection" && message.value === false) {
-      log("remoteview lost connection");
-    }
+  syncParticipantStage({
+    stage: elements.guestRemoteFrame,
+    engine,
+    roomId: state.roomId,
+    // roster already IS "everyone in the room" (self included) in js/room-presence.js's shape — matches
+    // js/participant-registry.js's shape closely enough (participantId/role/connectionStatus[absent =
+    // connected]/transportSourceId/joinedAt) that no separate mapping step is needed.
+    participants: roster,
+    selfParticipantId: state.participantId,
+    mounted: state.mountedRemoteTiles,
+    frameIdPrefix: "remoteview",
+    onEmpty: () => setRemoteMediaState(RemoteMediaState.WAITING_FOR_PARTICIPANT)
   });
-
-  startRemoteMediaPolling(remote.transportSourceId);
+  if (roster.some((entry) => entry.participantId !== state.participantId)) {
+    setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_LIVE);
+  }
 }
 
 function setRemoteMediaState(next) {
@@ -322,37 +305,6 @@ function setRemoteMediaState(next) {
   state.remoteMediaState = next;
   elements.guestRemoteStageEmptyText.textContent = REMOTE_MEDIA_STATE_LABEL[next] || "";
   elements.guestRemoteStageEmpty.hidden = next === RemoteMediaState.REMOTE_MEDIA_LIVE;
-}
-
-const REMOTE_MEDIA_POLL_MS = 2000;
-const REMOTE_MEDIA_ERROR_AFTER_MS = 15000;
-
-// Polls the mounted &view= frame's own getDetailedState for the remote peer's videoVisible field (see
-// VideoEngine.requestPeerVideoState) — the real signal for "a video element for this peer actually exists
-// and is visible", distinct from "presence confirms they're in the room" (see js/remote-media-state.js).
-async function pollRemoteMediaState(streamId, startedAt) {
-  const entry = await engine.requestPeerVideoState("remoteview", streamId);
-  if (entry?.videoVisible) {
-    setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_LIVE);
-    stopRemoteMediaPolling();
-    return;
-  }
-  if (Date.now() - startedAt <= REMOTE_MEDIA_ERROR_AFTER_MS) return;
-  setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_ERROR);
-  stopRemoteMediaPolling();
-}
-
-function startRemoteMediaPolling(streamId) {
-  stopRemoteMediaPolling();
-  const startedAt = Date.now();
-  state.remoteMediaTimerId = window.setInterval(() => pollRemoteMediaState(streamId, startedAt), REMOTE_MEDIA_POLL_MS);
-}
-
-function stopRemoteMediaPolling() {
-  if (state.remoteMediaTimerId) {
-    window.clearInterval(state.remoteMediaTimerId);
-    state.remoteMediaTimerId = null;
-  }
 }
 
 // Remounts the SAME push connection (same streamId) with the next camera in the list. VDO.Ninja doesn't
@@ -424,15 +376,9 @@ async function leaveSession() {
   stopPreview();
   await state.presence?.leave();
   state.presence = null;
-  state.mountedRemote = null;
-  stopRemoteMediaPolling();
+  clearParticipantStage({ engine, mounted: state.mountedRemoteTiles });
   state.remoteMediaState = RemoteMediaState.WAITING_FOR_PARTICIPANT;
-  state.hostViewUnsub?.();
-  state.hostViewUnsub = null;
-  engine.unmountFrame(elements.guestRemoteFrame, "remoteview", "");
   elements.guestRemoteStageEmptyText.textContent = REMOTE_MEDIA_STATE_LABEL[RemoteMediaState.WAITING_FOR_PARTICIPANT];
-  elements.guestLiveIdentityName.textContent = "";
-  elements.guestLiveIdentityRole.textContent = "";
   elements.joinState.textContent = "Left";
   elements.guestStatus.textContent = "You left the Studio session.";
   elements.joinedRoom.hidden = true;
@@ -456,11 +402,7 @@ function handlePresenceRejected(status, errorMessage) {
   engine.disconnectAll();
   stopPreview();
   state.presence = null;
-  state.mountedRemote = null;
-  stopRemoteMediaPolling();
-  state.hostViewUnsub?.();
-  state.hostViewUnsub = null;
-  engine.unmountFrame(elements.guestRemoteFrame, "remoteview", "");
+  clearParticipantStage({ engine, mounted: state.mountedRemoteTiles });
   const messages = {
     403: "You have been removed from this session.",
     409: "This session is currently full.",

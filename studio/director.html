@@ -437,7 +437,11 @@
                      doesn't get throttled for being hidden. -->
                 <div class="lv-hidden-transport" id="lvHostTransportFrame" aria-hidden="true"></div>
                 <article class="lv-video-article lv-stage-main">
-                  <div class="vdo-frame lv-video-tile" id="lvGuestFrame" data-empty="Waiting for guest to join"></div>
+                  <!-- Multi-tile stage, not a single .vdo-frame anymore — js/participant-stage.js mounts
+                       one child tile per remote participant (up to 3 Guests) here dynamically, driven by
+                       js/program-composition.js's composeParticipantView. data-remote-layout (set by that
+                       module) drives the CSS grid shape — see css/studio.css's .lv-stage-main[data-remote-layout]. -->
+                  <div class="lv-participant-tiles" id="lvGuestFrame"></div>
                   <!-- Text is set dynamically from RemoteMediaState (js/remote-media-state.js) by
                        js/host-view.js's renderRemoteMediaState — presence/connection confirming a guest is
                        a DIFFERENT fact from their video actually being visible; this box now distinguishes
