@@ -3605,6 +3605,42 @@
   width: 100%;
 }
 
+/* Instrumentation build only — see studio/guest.html's #toastyDebugPanel. Deliberately loud (solid lime
+   border, not the dashed/dim style .lv-prejoin-diag uses) so it cannot be mistaken for a themed part of the
+   page or missed in a phone screenshot. */
+.toasty-debug-panel {
+  background: #0a0a0a;
+  border: 2px solid #7cff2e;
+  border-radius: 6px;
+  color: #d8ffb8;
+  font-family: ui-monospace, monospace;
+  font-size: 0.68rem;
+  margin: 0.75rem 0;
+  padding: 0.6rem;
+}
+
+.toasty-debug-title {
+  color: #7cff2e;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+}
+
+#toastyDebugFields {
+  display: grid;
+  gap: 0.15rem;
+  max-height: 220px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+#toastyDebugFields .debug-error {
+  color: #ff6b6b;
+  font-weight: 800;
+}
+
 .lv-host-prejoin-title {
   color: var(--studio-cream);
   font-family: var(--font-heading);

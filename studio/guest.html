@@ -61,7 +61,23 @@
             </label>
           </div>
 
-          <button id="joinStudio" class="btn btn-primary full-width" type="button">Join Studio</button>
+          <!-- INSTRUMENTATION BUILD — see js/guest.js's window.__toastyGuestJoinDiagnostic. A real Android
+               device reported "tap Join, nothing visibly happens" even though a simulated click in this
+               session's own browser harness worked — this panel exists to answer, from a phone screenshot
+               alone with no devtools, exactly which of: stale build / JS never loaded / button disabled /
+               something overlaying the button / the tap never firing / joinStudio throwing, is real. Remove
+               this whole block plus its wiring once a real device confirms which one it was and it's fixed. -->
+          <div class="toasty-debug-panel" id="toastyDebugPanel" aria-live="polite">
+            <p class="toasty-debug-title">DEBUG (temporary)</p>
+            <div id="toastyDebugFields"></div>
+          </div>
+
+          <button
+            id="joinStudio"
+            class="btn btn-primary full-width"
+            type="button"
+            onclick="window.__toastyGuestJoinDiagnostic(event)"
+          >Join Studio</button>
           <p class="control-note" id="guestStatus">Camera preview starts locally before joining. No account required.</p>
 
           <details class="guest-pro-details">
