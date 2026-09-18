@@ -865,8 +865,15 @@ body.studio-public-shell[data-brand-theme] {
   grid-template-columns: minmax(0, 1.15fr) minmax(330px, .85fr);
 }
 
-.guest-shell[data-brand-theme] .guest-preview-card,
-.guest-shell[data-brand-theme] .guest-controls-card,
+/* ROOT CAUSE (real-device repro: check-in form stayed on screen after Join Studio) — this ID selector's
+   unconditional `display: grid` above outranks the plain UA `[hidden] { display: none }` rule
+   (specificity (1,2,0) vs (0,1,0)), so guest.js setting `elements.guestCheckin.hidden = true` on join had
+   no visible effect whenever a brand theme was active. Same fix pattern already used for .joined-room. */
+.guest-shell[data-brand-theme] #guestCheckin[hidden] {
+  display: none;
+}
+
+.guest-shell[data-brand-theme] .guest-join-card,
 .guest-shell[data-brand-theme] .joined-room {
   background: var(--ui-panel);
   border-color: var(--ui-line);
@@ -875,7 +882,7 @@ body.studio-public-shell[data-brand-theme] {
   padding: 24px;
 }
 
-.guest-shell[data-brand-theme] .guest-preview-card h1 {
+.guest-shell[data-brand-theme] .guest-join-card h1 {
   color: var(--ui-text);
   font-family: var(--brand-heading-font);
   font-size: clamp(2rem, 4vw, 3.5rem);
@@ -910,11 +917,11 @@ body.studio-public-shell[data-brand-theme] {
   padding: 7px;
 }
 
-.guest-shell[data-brand-theme] .guest-controls-card {
+.guest-shell[data-brand-theme] .guest-join-card {
   gap: 16px;
 }
 
-.guest-shell[data-brand-theme] .guest-controls-card label,
+.guest-shell[data-brand-theme] .guest-join-card label,
 .guest-shell[data-brand-theme] .bg-picker-label {
   color: var(--ui-muted);
   font-size: .72rem;
@@ -922,8 +929,8 @@ body.studio-public-shell[data-brand-theme] {
   text-transform: uppercase;
 }
 
-.guest-shell[data-brand-theme] .guest-controls-card input,
-.guest-shell[data-brand-theme] .guest-controls-card select {
+.guest-shell[data-brand-theme] .guest-join-card input,
+.guest-shell[data-brand-theme] .guest-join-card select {
   border-radius: 10px;
   min-height: 46px;
 }
@@ -1274,8 +1281,7 @@ body.studio-public-shell[data-brand-theme] {
   }
 
   .studio-public-shell .auth-card,
-  .guest-shell[data-brand-theme] .guest-preview-card,
-  .guest-shell[data-brand-theme] .guest-controls-card {
+  .guest-shell[data-brand-theme] .guest-join-card {
     padding: 20px;
   }
 
@@ -1296,9 +1302,10 @@ body.studio-public-shell[data-brand-theme] {
     grid-template-columns: 1fr;
   }
 
-  .guest-shell[data-brand-theme] .preview-stage {
-    aspect-ratio: 4 / 3;
-  }
+  /* Deliberately NOT overriding .preview-stage's aspect-ratio here anymore — it used to flip to 4/3 at
+     this exact real-phone width, undoing the base 16/10 "one screen, no scroll" fix (see studio.css's own
+     comment on .preview-stage) right where it mattered most. This is likely why the giant preview region
+     was still reported from a real device despite the base fix already being in place. */
 
   .po-audio-gate-panel {
     padding: 30px 22px;

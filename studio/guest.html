@@ -93,6 +93,10 @@
       </div>
 
       <section class="joined-room" id="joinedRoom" hidden aria-label="Live guest room">
+        <div class="guest-live-identity" id="guestLiveIdentity">
+          <span class="guest-live-identity-name" id="guestLiveIdentityName"></span>
+          <span class="guest-live-identity-role" id="guestLiveIdentityRole"></span>
+        </div>
         <div class="guest-live-controls">
           <button id="guestToggleMic" class="dock-btn" type="button" aria-pressed="false" title="Mute mic">
             <span class="dock-icon dock-icon-on" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg></span>
@@ -103,6 +107,10 @@
             <span class="dock-icon dock-icon-on" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg></span>
             <span class="dock-icon dock-icon-off" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 16v1a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"></path><path d="M9 5h5a2 2 0 0 1 2 2v5"></path><polygon points="23 7 16 12 23 17 23 7"></polygon><line x1="1" y1="1" x2="23" y2="23"></line></svg></span>
             <span class="dock-label sr-only">Camera off</span>
+          </button>
+          <button id="guestFlipCamera" class="dock-btn" type="button" title="Flip camera" hidden>
+            <span class="dock-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"></path><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><path d="M7 23l-4-4 4-4"></path><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg></span>
+            <span class="dock-label sr-only">Flip camera</span>
           </button>
           <button id="guestToggleScreen" class="dock-btn" type="button" aria-pressed="false" title="Share screen">
             <span class="dock-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg></span>

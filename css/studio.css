@@ -1148,6 +1148,15 @@
   transform: translateY(-1px);
 }
 
+/* Same class of bug as #guestCheckin above: .dock-btn's own `display: inline-flex` ties the plain UA
+   `[hidden] { display: none }` rule on specificity, and an author rule always wins that tie regardless of
+   source order — so a conditionally-hidden dock button (e.g. Flip Camera when only one camera exists)
+   rendered anyway. Caught testing the new Flip Camera control this pass, but pre-existing/latent for any
+   .dock-btn using the hidden attribute. */
+.dock-btn[hidden] {
+  display: none;
+}
+
 .dock-btn svg {
   height: 18px;
   pointer-events: none;
@@ -3165,6 +3174,30 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
+}
+
+/* Toasty-owned name/title under the guest's own live tile — deliberately separate from VDO.Ninja's own
+   showlabels overlay (baked into the video pixels), so this stays legible/on-brand regardless of what VDO
+   renders inside the frame. */
+.guest-live-identity {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.guest-live-identity-name {
+  color: var(--studio-cream);
+  font-family: var(--font-heading);
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.guest-live-identity-role {
+  color: var(--studio-muted);
+  font-size: 0.8rem;
+}
+
+.guest-live-identity:empty {
+  display: none;
 }
 
 .guest-recording {

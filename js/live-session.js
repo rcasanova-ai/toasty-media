@@ -406,6 +406,13 @@ export class LiveSession {
   async _refreshGuestSeats() {
     const hostStreamId = `${this.roomId}h`;
     const guests = (await this.engine.requestGuestList()).filter((entry) => entry.id !== hostStreamId);
+    // TEMPORARY diagnostic — see this repair pass's report ("ROOT CAUSE — GUEST IDENTITY"): the request/
+    // response shape for getGuestList was verified correct against VDO.Ninja's own source, but the exact
+    // code path that fills each entry's label from a guest's own &label= was not fully traceable without a
+    // live two-device session. This logs the RAW entries so the next real test captures hard evidence
+    // (does `label` arrive empty, or does it arrive correct and get lost somewhere downstream?) instead of
+    // guessing again. Safe to remove once confirmed.
+    if (guests.length) console.debug("[LiveSession] raw guest-list entries:", JSON.parse(JSON.stringify(guests)));
     const stillPresent = new Set(guests.map((guest) => guest.id));
 
     // Keep existing seat holders steady so counts/controls don't flicker or reset on a repeat poll;
@@ -427,6 +434,31 @@ export class LiveSession {
           volume: 1
         };
       }
+    });
+
+    // Canonical participant model (see js/participant-registry.js) — this was previously seeded ONLY for
+    // the Host, with guest migration marked as deliberate follow-up work. That follow-up is this: every
+    // connected seat gets a real registry entry so Program Preview/lower-thirds/AI Producer context can
+    // all read "who is this person" from one place instead of guestSeats' older ad-hoc shape. videoSource
+    // is VDO_PARTICIPANT_VIEW, not a MediaStream we hold directly — the actual pixels come from the
+    // &view=<id> iframe _syncGuestVideoTile mounts below, never a getUserMedia stream Toasty owns (that
+    // distinction is the whole reason SourceKind has two variants — see its own comment).
+    const presentIds = new Set(this.guestSeats.filter(Boolean).map((seat) => seat.id));
+    this.participants.list()
+      .filter((p) => p.role === ParticipantRole.GUEST && !presentIds.has(p.participantId))
+      .forEach((p) => this.participants.remove(p.participantId));
+    this.guestSeats.filter(Boolean).forEach((seat) => {
+      this.participants.upsert(createParticipant({
+        participantId: seat.id,
+        role: ParticipantRole.GUEST,
+        displayName: seat.displayName,
+        title: seat.title,
+        company: seat.company,
+        connectionStatus: ConnectionStatus.CONNECTED,
+        videoSource: { kind: SourceKind.VDO_PARTICIPANT_VIEW, streamId: seat.id },
+        audioSource: { kind: SourceKind.VDO_PARTICIPANT_VIEW, streamId: seat.id },
+        transportSourceId: seat.id
+      }));
     });
 
     this._syncGuestVideoTile();

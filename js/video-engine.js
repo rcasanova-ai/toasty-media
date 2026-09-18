@@ -87,11 +87,21 @@ export class VideoEngine {
   // inside the vdo.ninja iframe; the device's LABEL does. This already had cleanoutput=1, so guest join
   // was never exposed to VDO's own UI chrome the way the host path was — only the device-selection half
   // of this bug applied here.
-  mountGuestFrame(container,{roomId,guestName,backgroundMode,videoDeviceLabel,audioDeviceLabel}) { const suffix=Date.now().toString(36).slice(-4); const streamId=`${roomId}g${suffix}`.slice(0,24); return this.mountFrame(container,"guest",{room:roomId,push:streamId,label:guestName||"Guest",webcam:"1",showlabels:"1",cleanoutput:"1",autostart:"1",cover:"1",videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),effects:effectForBackground(backgroundMode)}); }
+  // streamId: normally generated fresh here, but callers doing a live camera flip (js/guest.js's Flip
+  // Camera control) pass the SAME id back in so the remount is the same participant reconnecting with a
+  // different device, not a brand-new one — VDO.Ninja's guest-list id is what Director/ParticipantRegistry
+  // key identity off of, so a changing id on flip would look like a disconnect+reconnect to everyone else.
+  mountGuestFrame(container,{roomId,guestName,backgroundMode,videoDeviceLabel,audioDeviceLabel,streamId}) { const id=streamId||`${roomId}g${Date.now().toString(36).slice(-4)}`.slice(0,24); this.mountFrame(container,"guest",{room:roomId,push:id,label:guestName||"Guest",webcam:"1",showlabels:"1",cleanoutput:"1",autostart:"1",cover:"1",videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),effects:effectForBackground(backgroundMode)}); return id; }
   mountListenerFrame(container,{roomId}) { return this.mountFrame(container,"listener",{room:roomId,scene:"0",showlabels:"1",cleanoutput:"1"}); }
 
-  // Hidden viewer-only frame used purely to query the room's live guest list (id + label) for the Program Output compositor.
-  mountDirectorControlFrame(container,{roomId}) { return this.mountFrame(container,"control",{room:roomId,director:roomId,cleanoutput:"1",transparent:"1"}); }
+  // Hidden viewer-only frame used purely to query the room's live guest list (id + label) for the Program
+  // Output compositor. showlabels=1 added this repair pass: getGuestList's response is built client-side
+  // from session.rpcs[UUID].label (confirmed by reading VDO.Ninja's own source — see this pass's report),
+  // and it's plausible a client only actively tracks incoming label updates when it would otherwise render
+  // them. Costs nothing (this frame is never shown — see .director-control-frame's 2x2px CSS box) and is
+  // not yet confirmed to be the actual cause of "sidebar shows Guest instead of the real name" — flagged
+  // as a worth-trying hedge, not a proven fix, pending the next real two-device test.
+  mountDirectorControlFrame(container,{roomId}) { return this.mountFrame(container,"control",{room:roomId,director:roomId,cleanoutput:"1",transparent:"1",showlabels:"1"}); }
 
   // Program Output's video layer: VDO.Ninja's own auto-mixed room grid (scene=0), showing whoever is
   // currently live with VDO.Ninja's own name labels. Numbered director-controlled scenes (scene=1+) and

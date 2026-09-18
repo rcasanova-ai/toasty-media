@@ -11,7 +11,9 @@ const state = {
   selectedBackground: BackgroundMode.NONE,
   micMuted: false,
   cameraOff: false,
-  screenSharing: false
+  screenSharing: false,
+  streamId: null,
+  flipping: false
 };
 
 const engine = new VideoEngine();
@@ -36,8 +38,11 @@ const elements = {
   guestStatus: document.querySelector("#guestStatus"),
   joinedRoom: document.querySelector("#joinedRoom"),
   guestFrame: document.querySelector("#guestFrame"),
+  guestLiveIdentityName: document.querySelector("#guestLiveIdentityName"),
+  guestLiveIdentityRole: document.querySelector("#guestLiveIdentityRole"),
   guestToggleMic: document.querySelector("#guestToggleMic"),
   guestToggleCamera: document.querySelector("#guestToggleCamera"),
+  guestFlipCamera: document.querySelector("#guestFlipCamera"),
   guestToggleScreen: document.querySelector("#guestToggleScreen"),
   guestEndSession: document.querySelector("#guestEndSession")
 };
@@ -86,6 +91,7 @@ function bindControls() {
   elements.joinStudio.addEventListener("click", joinStudio);
   elements.guestToggleMic.addEventListener("click", toggleMic);
   elements.guestToggleCamera.addEventListener("click", toggleCamera);
+  elements.guestFlipCamera.addEventListener("click", flipCamera);
   elements.guestToggleScreen.addEventListener("click", toggleScreen);
   elements.guestEndSession.addEventListener("click", leaveSession);
 }
@@ -98,6 +104,9 @@ async function startPreview() {
       microphoneSelect: elements.microphoneSelect,
       previousStream: state.previewStream
     });
+    // Only worth offering Flip Camera once we know there's a second camera to flip to (matches VDO.Ninja's
+    // own flip-camera button, which likewise hides itself when just one camera is available).
+    elements.guestFlipCamera.hidden = elements.cameraSelect.options.length < 2;
     elements.guestStatus.textContent = "Preview ready. Choose a background, then join.";
   } catch (error) {
     elements.guestStatus.textContent = "Camera or microphone permission is needed before joining.";
@@ -128,19 +137,50 @@ function joinStudio() {
   const videoDeviceLabel = elements.cameraSelect.selectedOptions[0]?.textContent;
   const audioDeviceLabel = elements.microphoneSelect.selectedOptions[0]?.textContent;
   stopPreview();
-  engine.mountGuestFrame(elements.guestFrame, {
+  state.streamId = engine.mountGuestFrame(elements.guestFrame, {
     roomId: state.roomId,
     guestName: label,
     backgroundMode: state.selectedBackground,
     videoDeviceLabel,
     audioDeviceLabel
   });
+  // Toasty-owned name/title under the live tile — see css/studio.css's .guest-live-identity comment for
+  // why this is separate from VDO.Ninja's own showlabels overlay.
+  elements.guestLiveIdentityName.textContent = guestName;
+  elements.guestLiveIdentityRole.textContent = role;
   // The check-in form (name/title/company/device pickers/background swatches) has done its job —
   // once joined, guests should see only the live feed and the mute/camera/screen-share dock.
   elements.guestCheckin.hidden = true;
   elements.joinedRoom.hidden = false;
   elements.guestStatus.textContent = backgroundNote || `Joined. The ${state.brandLabel} room is open below.`;
   elements.joinState.textContent = "Joined";
+}
+
+// Remounts the SAME push connection (same streamId — see mountGuestFrame's comment) with the next camera
+// in the list. VDO.Ninja doesn't expose a live in-place device swap over its iframe API (only its own
+// internal flip-camera UI button, which cleanoutput hides), so this is a brief reconnect rather than a
+// seamless swap — the guest's tile will blink for a moment on Program Output/Director too.
+async function flipCamera() {
+  if (state.flipping) return;
+  const options = [...elements.cameraSelect.options];
+  if (options.length < 2) return;
+  state.flipping = true;
+  elements.guestFlipCamera.disabled = true;
+  const currentIndex = options.findIndex((option) => option.value === elements.cameraSelect.value);
+  const next = options[(currentIndex + 1) % options.length];
+  elements.cameraSelect.value = next.value;
+  const videoDeviceLabel = next.textContent;
+  const audioDeviceLabel = elements.microphoneSelect.selectedOptions[0]?.textContent;
+  engine.mountGuestFrame(elements.guestFrame, {
+    roomId: state.roomId,
+    guestName: [elements.guestLiveIdentityName.textContent, elements.guestLiveIdentityRole.textContent].filter(Boolean).join(" · "),
+    backgroundMode: state.selectedBackground,
+    videoDeviceLabel,
+    audioDeviceLabel,
+    streamId: state.streamId
+  });
+  state.flipping = false;
+  elements.guestFlipCamera.disabled = false;
 }
 
 function stopPreview() {
