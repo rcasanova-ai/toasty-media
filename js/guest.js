@@ -8,7 +8,17 @@ import { RemoteMediaState, REMOTE_MEDIA_STATE_LABEL } from "./remote-media-state
 // device screenshot. A phone showing an OLD value here (or the debug panel missing entirely) means the
 // device is running stale/cached code, not the build actually being debugged — rule that out FIRST, before
 // reading anything else off the panel. See #toastyDebugPanel in studio/guest.html.
-const BUILD_ID = "guest-diag-2026-09-18-01";
+const BUILD_ID = "guest-diag-2026-09-19-02";
+
+// Declared here, not next to diag() further down, because init() (called at this module's top level, see
+// bottom of this file) runs diag() synchronously during its own execution — a `const` declared AFTER that
+// call site in file order is still in the temporal dead zone when it's referenced, throwing a
+// ReferenceError that aborts init() entirely (confirmed on a real device: no camera preview, dead Join
+// button, dead Copy button — one uncaught throw killed everything downstream of it in init()). Top-level
+// consts only referenced inside functions that run LATER, in response to an event, don't have this problem
+// (by the time they're called, the whole module has finished its top-to-bottom pass) — this one specifically
+// needs to exist before init()'s own synchronous run reaches its first diag() call.
+const DIAG_LOG_MAX_ROWS = 60;
 
 // Set true at the very top of module evaluation — if this ever reads NO on a real device, the module
 // itself failed to load/parse/execute (network failure, JS syntax error, import failure, etc.), which is a
@@ -343,8 +353,6 @@ function setLifecycle(next) {
   state.lifecycle = next;
   diag(`lifecycle -> ${next}`);
 }
-
-const DIAG_LOG_MAX_ROWS = 60;
 
 function diag(message) {
   const line = `${new Date().toISOString().slice(11, 23)}  ${message}`;
