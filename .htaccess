@@ -1,17 +1,26 @@
-# First-party JS/CSS always revalidate instead of trusting a stored freshness lifetime, so a deploy
-# is never masked by a browser serving a week-old cached copy. The server's default static-file
-# policy (public, max-age=604800) is what caused that: once a file was cached, browsers wouldn't
-# even ask again for up to 7 days. `no-cache` still lets the browser keep a local copy, but forces
-# a conditional GET (If-Modified-Since) on every load — cheap (a 304 when nothing changed) and
-# always correct, because a real deploy overwrites the file and its Last-Modified changes with it.
-# This is deliberately one blanket rule by file extension rather than per-file query strings, so it
-# automatically covers every first-party script/stylesheet, present and future, with no manual
-# upkeep (see js/director.js and css/studio.css for the one-time comment proving this).
+# DEVELOPMENT/STABILIZATION CACHE POLICY — deterministic freshness over cache performance while Studio
+# is under active development. The server's default static-file policy is public, max-age=604800 (7
+# days) — once a browser cached a file under that default, it wouldn't even ask again for up to a week,
+# which is what caused "incognito shows the new build, a normal tab doesn't" repeatedly. This FilesMatch
+# now covers HTML as well as JS/CSS — the earlier version of this rule only covered \.(js|css)$, which is
+# exactly why guest.html/director.html's served content (and the /studio auth-wrapper page) kept being
+# served stale even after js/css deploys landed correctly: the page shell itself had no Cache-Control
+# header at all and fell through to the 7-day default.
+#
+# no-store (not just no-cache) is deliberate: no-cache still lets the browser keep a local copy for
+# conditional revalidation (an If-Modified-Since round trip, cheap but still a cached copy in play);
+# no-store forbids keeping any cached copy at all, so every load is a genuine fresh fetch. This trades
+# a small amount of bandwidth/latency for zero ambiguity about whether a device is running the build
+# actually deployed — the explicit priority while this app is still under active development. Revisit
+# once the churn settles — content-hashed/versioned filenames (real long-lived immutable caching) is
+# the eventual production answer, not this.
 <IfModule mod_headers.c>
-  <FilesMatch "\.(js|css)$">
-    Header set Cache-Control "no-cache"
+  <FilesMatch "\.(html|htm|js|css)$">
+    Header set Cache-Control "no-store, no-cache, must-revalidate"
     Header unset Expires
+    Header unset ETag
   </FilesMatch>
+  FileETag None
 </IfModule>
 
 RewriteEngine On

@@ -9,6 +9,7 @@ import { HostView } from "./host-view.js";
 import { ProducerView } from "./producer-view.js";
 import { HostPrejoin } from "./host-prejoin.js";
 import { HostState } from "./host-state.js";
+import { BUILD_ID } from "./build-info.js";
 
 const session = new LiveSession();
 // Dev diagnostics only — never rendered in Host/Producer UI. In devtools: session.aiProducerService.diagnostics()
@@ -27,6 +28,7 @@ const elements = {
   policyChip: document.querySelector("#lvPolicyChip"),
   sessionDate: document.querySelector("#sessionDate"),
   sessionTime: document.querySelector("#sessionTime"),
+  buildId: document.querySelector("#buildId"),
   connectionState: document.querySelector("#connectionState"),
   connectionChip: document.querySelector("#connectionChip"),
   guestInvite: document.querySelector("#guestInvite"),
@@ -274,4 +276,5 @@ function mountTimeOfDay() {
   const now = new Date();
   elements.sessionDate.textContent = now.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
   elements.sessionTime.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (elements.buildId) elements.buildId.textContent = BUILD_ID;
 }

@@ -251,6 +251,38 @@ const server = createServer(async (req, res) => {
     await handlePresenceLeave(req, res);
     return;
   }
+  // LiveSession management — the durable record room_presence was never meant to be (see
+  // scripts/toasty-auth-db.py's live_sessions table comment). Authenticated like /media-assets: a
+  // Producer's own account, never a Guest's (see requireSession). Ownership always enforced in SQL via
+  // owner_user_id, not just checked in this handler — see session_list/session_get/session_end.
+  if (req.method === "GET" && req.url === "/api/sessions") {
+    if (!limit(req, res, "sessions-list", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSessionList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/sessions") {
+    if (!requireCsrf(req, res) || !limit(req, res, "sessions-create", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSessionCreate(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/")) {
+    if (!limit(req, res, "sessions-get", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSessionGet(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/end")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sessions-end", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSessionEnd(req, res, session);
+    return;
+  }
   if (req.method !== "POST" || req.url !== "/render") {
     sendJson(req, res, 404, { error: "Render helper is running. POST /render to create an MP4." });
     return;
@@ -1581,6 +1613,11 @@ async function handlePresenceAnnounce(req, res) {
   if (!PRESENCE_ROLES.has(role)) throw httpError(400, "Invalid role.");
   let transportSourceId = null;
   if (body.transportSourceId) transportSourceId = requirePresenceId(body.transportSourceId, "transportSourceId");
+  // A LiveSession the owner explicitly ENDED must refuse every new admission, host included — "ended"
+  // means the room is closed, not just "guests can't join." No-op (status null) for rooms with no
+  // live_sessions row at all, so this never breaks a room that predates session tracking.
+  const sessionStatus = await db("session_get_by_room", { roomId });
+  if (sessionStatus.status === "ENDED") throw httpError(410, "This session has ended.");
   const result = await db("presence_upsert", {
     roomId,
     participantId,
@@ -1590,6 +1627,7 @@ async function handlePresenceAnnounce(req, res) {
     company: presenceText(body.company, 120),
     transportSourceId
   });
+  await db("session_touch", { roomId });
   sendJson(req, res, 200, { roster: result.roster || [] });
 }
 
@@ -1606,6 +1644,52 @@ async function handlePresenceLeave(req, res) {
   const participantId = requirePresenceId(body.participantId, "participantId");
   await db("presence_leave", { roomId, participantId });
   sendJson(req, res, 200, { ok: true });
+}
+
+// ---- LiveSession management (Producer-authenticated) ----
+// See scripts/toasty-auth-db.py's live_sessions table comment for the presence-vs-session distinction.
+
+function sessionText(value, maxLength) {
+  return String(value ?? "").trim().slice(0, maxLength);
+}
+
+async function handleSessionCreate(req, res, authSession) {
+  const body = await readJson(req);
+  const roomId = requirePresenceId(body.roomId, "roomId");
+  const id = `ls_${randomUUID().replace(/-/g, "")}`;
+  const result = await db("session_create", {
+    id,
+    roomId,
+    ownerUserId: authSession.id,
+    brandId: sessionText(body.brandId, 60),
+    title: sessionText(body.title, 160)
+  });
+  sendJson(req, res, 200, { session: result.session });
+}
+
+async function handleSessionList(req, res, authSession) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const filter = url.searchParams.get("status");
+  const statuses = filter === "active" ? ["OPEN", "LIVE"] : filter === "ended" ? ["ENDED"] : undefined;
+  const result = await db("session_list", { ownerUserId: authSession.id, statuses });
+  sendJson(req, res, 200, { sessions: result.sessions || [] });
+}
+
+async function handleSessionGet(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/sessions/".length));
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
+  const result = await db("session_get", { id, ownerUserId: authSession.id });
+  if (!result.session) throw httpError(404, "Session not found.");
+  sendJson(req, res, 200, { session: result.session });
+}
+
+async function handleSessionEnd(req, res, authSession) {
+  const path = req.url.slice("/api/sessions/".length, -"/end".length);
+  const id = decodeURIComponent(path);
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
+  const result = await db("session_end", { id, ownerUserId: authSession.id, endedBy: authSession.id });
+  if (!result.session) throw httpError(404, "Session not found.");
+  sendJson(req, res, 200, { session: result.session });
 }
 
 async function writeMediaFiles({ form, workDir }) {
