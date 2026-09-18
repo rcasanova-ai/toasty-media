@@ -95,6 +95,8 @@ const elements = {
   guestToggleScreen: document.querySelector("#guestToggleScreen"),
   guestEndSession: document.querySelector("#guestEndSession"),
   diagLog: document.querySelector("#guestDiagLog"),
+  diagSnapshot: document.querySelector("#guestDiagSnapshot"),
+  diagCopy: document.querySelector("#guestDiagCopy"),
   debugFields: document.querySelector("#toastyDebugFields")
 };
 
@@ -273,6 +275,27 @@ function bindControls() {
   elements.guestFlipCamera.addEventListener("click", flipCamera);
   elements.guestToggleScreen.addEventListener("click", toggleScreen);
   elements.guestEndSession.addEventListener("click", leaveSession);
+  elements.diagCopy?.addEventListener("click", copyDiagSnapshot);
+}
+
+// Clipboard API needs a real user gesture (this is one — a click handler) and a secure context (HTTPS in
+// production, satisfied). Falls back to selecting the snapshot text so a manual copy is still possible if
+// the API itself is unavailable/blocked, rather than silently doing nothing on a real device.
+async function copyDiagSnapshot() {
+  const text = [elements.diagSnapshot?.textContent || "", "", "--- recent log ---", elements.diagLog?.textContent || ""].join("\n");
+  const originalLabel = elements.diagCopy.textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    elements.diagCopy.textContent = "Copied!";
+  } catch (error) {
+    const range = document.createRange();
+    range.selectNodeContents(elements.diagSnapshot);
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    elements.diagCopy.textContent = "Copy failed — text selected below";
+  }
+  setTimeout(() => { elements.diagCopy.textContent = originalLabel; }, 2000);
 }
 
 async function startPreview() {
@@ -321,6 +344,8 @@ function setLifecycle(next) {
   diag(`lifecycle -> ${next}`);
 }
 
+const DIAG_LOG_MAX_ROWS = 60;
+
 function diag(message) {
   const line = `${new Date().toISOString().slice(11, 23)}  ${message}`;
   log(message);
@@ -328,7 +353,21 @@ function diag(message) {
   const row = document.createElement("div");
   row.textContent = line;
   elements.diagLog.appendChild(row);
+  // A live connection can post several VDO messages a second — confirmed on a real phone as "going a
+  // million miles a minute", unreadable and impossible to select-copy mid-test. Capped so the DOM doesn't
+  // grow unbounded; setDiagSnapshot below (not this log) is the actual answer to "what does it say now".
+  while (elements.diagLog.children.length > DIAG_LOG_MAX_ROWS) elements.diagLog.removeChild(elements.diagLog.firstChild);
   elements.diagLog.scrollTop = elements.diagLog.scrollHeight;
+}
+
+// STABLE snapshot — one line per tracked field, overwritten in place (never appended), so it can actually
+// be read or screenshotted on a live device instead of racing the scrolling log above. Keyed object so
+// repeated calls for the same field (e.g. every poll tick) update that one line instead of growing.
+const diagSnapshotData = {};
+function setDiagSnapshot(key, value) {
+  diagSnapshotData[key] = value;
+  if (!elements.diagSnapshot) return;
+  elements.diagSnapshot.textContent = Object.entries(diagSnapshotData).map(([k, v]) => `${k}: ${v}`).join("\n");
 }
 
 // Name is REQUIRED — the HTML `required` attribute alone does nothing here since #joinStudio is a plain
@@ -471,6 +510,8 @@ function renderRemoteParticipants(roster) {
   state.remoteMediaRemountCount = 0; // a genuinely new remote participant — give them a fresh retry budget
   diag(`transportSourceId: ${remote.transportSourceId}`);
   diag(`viewer params: room=${state.roomId}&scene&view=${remote.transportSourceId} (see video-engine.js's mountParticipantView comment for why room+scene are required, not optional)`);
+  setDiagSnapshot("remoteTransportSourceId (requested)", remote.transportSourceId);
+  setDiagSnapshot("ownPushStreamId", state.streamId);
   setRemoteMediaState(RemoteMediaState.CONNECTING_REMOTE_MEDIA);
   const iframe = engine.mountParticipantView(elements.guestRemoteFrame, { roomId: state.roomId, streamId: remote.transportSourceId }, "remoteview");
   diag(`iframe created — src="${iframe.src}"`);
@@ -491,6 +532,7 @@ function setRemoteMediaState(next) {
   if (state.remoteMediaState === next) return;
   state.remoteMediaState = next;
   diag(`remote media state -> ${next}`);
+  setDiagSnapshot("remoteMediaState", next);
   elements.guestRemoteStageEmptyText.textContent = REMOTE_MEDIA_STATE_LABEL[next] || "";
   elements.guestRemoteStageEmpty.hidden = next === RemoteMediaState.REMOTE_MEDIA_LIVE;
 }
@@ -525,6 +567,7 @@ const REMOTE_MEDIA_MAX_REMOUNTS = 2;
 async function pollRemoteMediaState(streamId, startedAt) {
   const entry = await engine.requestPeerVideoState("remoteview", streamId);
   diag(`peer video state (from remoteview's own getDetailedState): ${JSON.stringify(entry)}`);
+  setDiagSnapshot(`peerVideoState (remoteview -> ${streamId})`, JSON.stringify(entry));
   if (entry?.videoVisible) {
     setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_LIVE);
     stopRemoteMediaPolling();
@@ -578,6 +621,7 @@ function stopRemoteMediaPolling() {
 async function pollSelfPublishState(streamId) {
   const entry = await engine.requestPeerVideoState("guest", streamId);
   diag(`self publish state (this device's OWN "guest" frame, getDetailedState): ${JSON.stringify(entry)}`);
+  setDiagSnapshot(`selfPublishState (own guest push, ${streamId})`, JSON.stringify(entry));
 }
 
 function startSelfPublishPolling(streamId) {

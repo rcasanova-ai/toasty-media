@@ -117,6 +117,12 @@
            own view of that guest. -->
       <div class="lv-prejoin-diag">
         <p class="lv-prejoin-diag-title">Guest connection diagnostics (temporary)</p>
+        <!-- SNAPSHOT — current value of each tracked field, overwritten in place by js/guest.js's
+             setDiagSnapshot, never appended. The scrolling log below fires on every VDO postMessage (can be
+             many per second on a live connection — confirmed too fast to read or copy on a real phone
+             mid-test); this is the stable, screenshot/copy-able answer to "what does it say RIGHT NOW". -->
+        <div class="lv-prejoin-diag-snapshot" id="guestDiagSnapshot">(no data yet)</div>
+        <button type="button" class="lv-prejoin-diag-copy" id="guestDiagCopy">Copy diagnostics</button>
         <div class="lv-prejoin-diag-log" id="guestDiagLog"></div>
       </div>
 

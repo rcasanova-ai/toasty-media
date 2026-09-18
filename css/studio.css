@@ -3713,6 +3713,32 @@
   word-break: break-word;
 }
 
+/* Stable snapshot — current value only, overwritten in place (see studio/guest.html's comment: the
+   scrolling log below updates too fast to read/copy on a real device mid-connection). Solid border, not
+   the dashed/dim style .lv-prejoin-diag uses, so it reads as the one part of this panel worth looking at. */
+.lv-prejoin-diag-snapshot {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--studio-orange);
+  border-radius: 4px;
+  color: var(--studio-cream);
+  font-family: ui-monospace, monospace;
+  padding: 0.4rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.lv-prejoin-diag-copy {
+  background: transparent;
+  border: 1px solid var(--studio-orange);
+  border-radius: 4px;
+  color: var(--studio-orange);
+  cursor: pointer;
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 0.3rem 0.5rem;
+  text-transform: uppercase;
+}
+
 .lv-prejoin-diag-video {
   background: #000;
   border-radius: 6px;
