@@ -77,7 +77,12 @@ export class VideoEngine {
   // which this codebase already found unreliable, see mountProgramFrame's comment) + &view=<streamID>
   // (filters the mixer to just this one participant). cleanoutput strips VDO's UI chrome; no &showlabels,
   // since Toasty renders its OWN name/title/company label instead of VDO's redundant one.
-  mountParticipantView(container,{roomId,streamId},frameId="participant-view") { return this.mountFrame(container,frameId,{room:roomId,scene:true,view:streamId,cleanoutput:"1",transparent:"1",cover:"1"}); }
+  // codec:"vp9" — VDO.Ninja's own docs (docs.vdo.ninja/platform-specific-issues/android, "Corrupted Video;
+  // Green or Grey Pixels") document Android-side decode corruption as a known issue class and recommend
+  // &codec=vp9 on the viewer side as the fix. Applied here (not just for Android) since it's the documented
+  // remedy for exactly the "healthy connection metadata, no real picture" signature seen on a real Android
+  // device viewing a Mac-published stream — not a blind param guess.
+  mountParticipantView(container,{roomId,streamId},frameId="participant-view") { return this.mountFrame(container,frameId,{room:roomId,scene:true,view:streamId,cleanoutput:"1",transparent:"1",cover:"1",codec:"vp9"}); }
   // Tears a mounted view back down to an empty container (used when a guest disconnects) without
   // guessing at any VDO.Ninja "close" command — just stop pointing an iframe at it at all. emptyText
   // restores the exact placeholder .vdo-frame[data-empty]::before renders (see css/studio.css) — passed
