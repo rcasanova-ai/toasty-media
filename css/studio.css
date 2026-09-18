@@ -191,6 +191,19 @@
   transform: translateY(-1px);
 }
 
+/* Was previously undefined anywhere in this file, so a disabled Join Studio button (e.g. while camera
+   permission is missing, or while confirming a real VDO publish) looked fully interactive — reinforcing
+   the "it says Joined but nothing actually happened" confusion this repair pass exists to fix. */
+.btn:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.4);
+  opacity: 0.5;
+}
+
+.btn:disabled:hover {
+  transform: none;
+}
+
 .btn-primary {
   background: var(--brand-gradient, linear-gradient(135deg, var(--studio-amber), var(--studio-orange) 60%, var(--studio-burnt)));
   box-shadow: 0 12px 30px var(--studio-button-shadow);
@@ -2898,6 +2911,14 @@
   border-radius: 10px;
   overflow: hidden;
   position: relative;
+}
+
+/* Applied when js/guest.js relocates the SAME #previewStage node (not a clone) into .joined-room on a
+   confirmed Join — the local camera preview becomes the guest's main live view, so it gets the room
+   .large-frame normally gives a video tile instead of the compact prejoin size. */
+.preview-stage--live {
+  aspect-ratio: auto;
+  min-height: min(60vh, 520px);
 }
 
 .guest-device-row {

@@ -173,6 +173,40 @@ export class VideoEngine {
     });
   }
 
+  // Polls the given frame's detailed state until VDO.Ninja reports itself as actually publishing OUR own
+  // push stream id. IMPORTANT CORRECTION made during this pass's own testing (not a guess): the response
+  // entry's `localStream` field is true as soon as VDO registers itself as that streamID's local session —
+  // confirmed by a direct test where it read true with videoTrack:false, audioTrack:false, seeding:false,
+  // videoVisible:false (i.e. registered, but nothing actually flowing). That would have reproduced the
+  // exact "marked joined before publishing" bug this method exists to fix, just one layer deeper. The
+  // fields that actually reflect real media are `videoTrack`/`audioTrack` (a track genuinely exists) — this
+  // gates on videoTrack specifically, since a guest with no live video is exactly what Program Preview
+  // needs to not show as connected. Resolves {confirmed:true, streamId, raw} once videoTrack is true, or
+  // {confirmed:false} if attempts run out.
+  async confirmPublishing(frameId, expectedStreamId, { attempts = 10, intervalMs = 800 } = {}) {
+    for (let i = 0; i < attempts; i++) {
+      const state = await this._requestDetailedStateOnce(frameId);
+      const entry = state?.[expectedStreamId];
+      if (entry?.videoTrack === true) return { confirmed: true, streamId: expectedStreamId, raw: entry };
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    return { confirmed: false, streamId: expectedStreamId };
+  }
+
+  _requestDetailedStateOnce(frameId, timeoutMs = 2500) {
+    return new Promise((resolve) => {
+      const cib = `detailedstate-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
+      let done = false;
+      const finish = (value) => { if(done) return; done=true; clearTimeout(timer); off(); resolve(value); };
+      const off = this.onMessage((message) => {
+        if (message?.cib !== cib) return;
+        finish(message.detailedState || null);
+      });
+      const timer = setTimeout(() => finish(null), timeoutMs);
+      if (!this.send(frameId, { getDetailedState: true, cib })) finish(null);
+    });
+  }
+
   onMessage(callback){this.listeners.add(callback);return()=>this.listeners.delete(callback);}
   handleMessage(event){if(event.origin!==this.baseUrl)return;this.listeners.forEach(callback=>callback(event.data));}
 }

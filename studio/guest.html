@@ -90,7 +90,20 @@
             </div>
           </details>
         </section>
+
+        <!-- TEMPORARY real-device diagnostics — mirrors js/prejoin-diagnostics.js's Host pattern. Remove
+             this block and its wiring in js/guest.js once real publish confirmation is verified on
+             hardware for both a phone guest and the desktop's own view of that guest. -->
+        <div class="lv-prejoin-diag">
+          <p class="lv-prejoin-diag-title">Guest connection diagnostics (temporary)</p>
+          <div class="lv-prejoin-diag-log" id="guestDiagLog"></div>
+        </div>
       </div>
+
+      <!-- Transport-only: VDO.Ninja's guest push/publish connection lives here, never as visible product
+           UI — see js/guest.js's joinStudio. Kept permanently off-screen (not display:none) so the encoder
+           isn't throttled for being hidden, same as the Host's #lvHostTransportFrame. -->
+      <div class="lv-hidden-transport" id="guestTransportFrame" aria-hidden="true"></div>
 
       <section class="joined-room" id="joinedRoom" hidden aria-label="Live guest room">
         <div class="guest-live-identity" id="guestLiveIdentity">
@@ -121,7 +134,6 @@
             <span class="dock-label sr-only">Leave</span>
           </button>
         </div>
-        <div id="guestFrame" class="vdo-frame large-frame"></div>
       </section>
     </main>
   </body>
