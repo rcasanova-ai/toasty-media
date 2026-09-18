@@ -18,6 +18,7 @@ const elements = {
   liveConsole: document.querySelector("#liveConsole"),
   viewButtons: [...document.querySelectorAll("[data-lv-view-btn]")],
   hostFrame: document.querySelector("#lvHostFrame"),
+  hostTransportFrame: document.querySelector("#lvHostTransportFrame"),
   guestFrame: document.querySelector("#lvGuestFrame"),
   directorControlFrame: document.querySelector("#directorControlFrame"),
   recChip: document.querySelector("#lvRecChip"),
@@ -58,7 +59,7 @@ init();
 
 function init() {
   applySelectedBrand();
-  session.start({ host: elements.hostFrame, roomPreview: elements.guestFrame, control: elements.directorControlFrame });
+  session.start({ host: elements.hostFrame, hostTransport: elements.hostTransportFrame, roomPreview: elements.guestFrame, control: elements.directorControlFrame });
 
   new HostView({ session }).init();
   new ProducerView({ session }).init();

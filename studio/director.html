@@ -386,6 +386,12 @@
                     </div>
                   </div>
                 </article>
+                <!-- Transport-only: VDO.Ninja's host push/publish connection lives here so guests and Program
+                     Output have a stream to consume, but it is never the visible Host tile — that's the native
+                     <video> LiveSession mounts into #lvHostFrame directly (see live-session.js's
+                     _showHostNativeVideo). Kept permanently off-screen, never display:none, so the encoder
+                     doesn't get throttled for being hidden. -->
+                <div class="lv-hidden-transport" id="lvHostTransportFrame" aria-hidden="true"></div>
                 <article class="lv-video-article">
                   <div class="vdo-frame lv-video-tile" id="lvGuestFrame" data-empty="Waiting for guest to join"></div>
                   <div class="stage-empty" id="lvGuestStageEmpty" aria-hidden="true">

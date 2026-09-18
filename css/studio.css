@@ -1029,6 +1029,36 @@
   z-index: 1;
 }
 
+/* The visible Host tile — a plain <video> LiveSession feeds the native getUserMedia MediaStream carried
+   over from prejoin (see live-session.js's _showHostNativeVideo). Sized/positioned identically to
+   .vdo-frame iframe above so it drops into #lvHostFrame the same way, but VDO's own iframe never mounts
+   here at all — see .lv-hidden-transport for where that goes instead. */
+.lv-host-live-video {
+  background: #000;
+  border: 0;
+  height: 100%;
+  left: 0;
+  object-fit: cover;
+  position: absolute;
+  top: 0;
+  width: 100%;
+  z-index: 1;
+}
+
+/* VDO.Ninja's host push/publish frame, transport-only: it exists so guests and Program Output have a
+   stream to consume, but must never render as product UI (see js/live-session.js's joinAsHost). Kept
+   off-screen via position rather than display:none/visibility:hidden — some browsers deprioritize or
+   throttle WebRTC encoding in zero-rendered iframes, and this still paints, just far outside the
+   viewport. */
+.lv-hidden-transport {
+  height: 2px;
+  left: -9999px;
+  overflow: hidden;
+  position: fixed;
+  top: -9999px;
+  width: 2px;
+}
+
 .large-frame {
   min-height: min(66vh, 600px);
 }

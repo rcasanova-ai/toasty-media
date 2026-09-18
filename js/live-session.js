@@ -18,6 +18,7 @@ import { RunOfShow } from "./run-of-show.js";
 import { AudienceStore, DemoAudienceFeed } from "./audience.js";
 import { TranscriptStore } from "./show-context.js";
 import { createTranscriptionProvider } from "./transcription.js";
+import { ParticipantRegistry, createParticipant, ParticipantRole, ConnectionStatus, SourceKind } from "./participant-registry.js";
 import { ProducerFeed, AIProducerService, createAIProducerProvider } from "./ai-producer.js";
 import {
   DEFAULT_HOST_RELATIONSHIP_MODE,
@@ -102,6 +103,13 @@ export class LiveSession {
     // {displayName,title,company} shape as a guest seat instead of a separate host-profile model.
     this.hostProfile = null;
     this._hostDevices = {};
+    // The native getUserMedia MediaStream carried over from js/host-prejoin.js's preview — this is what
+    // actually renders in the visible Host tile now (see _showHostNativeVideo). VDO's director frame is
+    // mounted separately, into a hidden transport-only container, and never shown to the product.
+    this._hostPreviewStream = null;
+    // Canonical participant/source model — see js/participant-registry.js. Populated for the Host below;
+    // guest entries are deliberate follow-up work, not part of this pass.
+    this.participants = new ParticipantRegistry();
 
     this._programSync = null;
     this._guestListTimerId = null;
@@ -259,7 +267,7 @@ export class LiveSession {
   // mounted after their own native prejoin. Room preview and the hidden control frame don't need a
   // person's identity to exist, so they still mount immediately.
   start(containers) {
-    this._containers = containers; // {host, roomPreview, control} — kept so layout changes can remount
+    this._containers = containers; // {host, hostTransport, roomPreview, control} — kept so layout changes can remount
     // roomPreview (the "guest" tile) is deliberately NOT mounted here — see _syncGuestVideoTile, which
     // mounts a clean per-participant &view=<id> frame only once a real guest is actually detected, and
     // tears it down again on disconnect. No VDO frame here at all beats mounting one that shows nobody.
@@ -278,14 +286,54 @@ export class LiveSession {
   // deliberately NOT a separate host-profile model, so lower thirds/Program Output/AI Producer context/
   // recordings/Dub can all treat "who is this person" identically whether they're the host or a guest.
 
-  joinAsHost({ displayName, title = "", company = "", videoDeviceLabel, audioDeviceLabel } = {}) {
+  // previewStream is the SAME MediaStream js/host-prejoin.js was already showing before Join — the fix
+  // for "camera goes black on Join" is that we keep rendering THIS stream in a Toasty-owned <video>
+  // (_showHostNativeVideo) instead of ever putting VDO's iframe in the visible tile. mountDirectorFrame
+  // still runs, but only into this._containers.hostTransport, a permanently off-screen container (see
+  // css .lv-hidden-transport) — it exists purely so VDO.Ninja has a push/publish connection for guests
+  // and Program Output to consume, and independently re-acquires the same device for that purpose. VDO
+  // gets zero visible product pixels; if it cannot ingest this exact MediaStream and must open its own
+  // capture of the same device, that duplicate acquisition is the accepted tradeoff, not a bug.
+  joinAsHost({ displayName, title = "", company = "", videoDeviceLabel, audioDeviceLabel, previewStream } = {}) {
     const name = (displayName || "").trim() || "Host";
     this.hostProfile = { displayName: name, title: title.trim(), company: company.trim() };
     const role = [this.hostProfile.title, this.hostProfile.company].filter(Boolean).join(", ");
     const label = role ? `${name} · ${role}` : name;
     this._hostDevices = { videoDeviceLabel, audioDeviceLabel };
-    this.engine.mountDirectorFrame(this._containers.host, { roomId: this.roomId, label, videoDeviceLabel, audioDeviceLabel });
+    if (previewStream) this._hostPreviewStream = previewStream;
+    this._showHostNativeVideo();
+    this.engine.mountDirectorFrame(this._containers.hostTransport, { roomId: this.roomId, label, videoDeviceLabel, audioDeviceLabel });
+    this.participants.upsert(createParticipant({
+      participantId: "host",
+      role: ParticipantRole.HOST,
+      displayName: name,
+      title: this.hostProfile.title,
+      company: this.hostProfile.company,
+      connectionStatus: ConnectionStatus.CONNECTED,
+      videoSource: { kind: SourceKind.NATIVE_MEDIA_STREAM, stream: this._hostPreviewStream },
+      audioSource: { kind: SourceKind.NATIVE_MEDIA_STREAM, stream: this._hostPreviewStream },
+      transportSourceId: `${this.roomId}h`
+    }));
     this.emit("host-profile", this.hostProfile);
+  }
+
+  // Creates (once) and (always) refreshes the Toasty-owned <video> that IS the visible Host tile — never
+  // VDO's iframe. Reused as-is across createNewRoom() since the same physical MediaStream survives a
+  // room-id change (no camera re-acquisition, so no flicker/black-frame on "New Room").
+  _showHostNativeVideo() {
+    const container = this._containers?.host;
+    if (!container || !this._hostPreviewStream) return;
+    let video = container.querySelector("video.lv-host-live-video");
+    if (!video) {
+      video = document.createElement("video");
+      video.className = "lv-host-live-video";
+      video.autoplay = true;
+      video.muted = true; // local tile — never play the host's own mic back to themselves
+      video.playsInline = true;
+      container.replaceChildren(video);
+      container.removeAttribute("data-empty");
+    }
+    if (video.srcObject !== this._hostPreviewStream) video.srcObject = this._hostPreviewStream;
   }
 
   // A fresh room id means a fresh push stream id, so the host's camera frame always has to remount here
@@ -302,7 +350,7 @@ export class LiveSession {
     this.emit("recording", this.recording);
     this.emit("connection", this.connection);
     this.start(this._containers);
-    if (this.hostProfile) this.joinAsHost({ ...this.hostProfile, ...this._hostDevices });
+    if (this.hostProfile) this.joinAsHost({ ...this.hostProfile, ...this._hostDevices, previewStream: this._hostPreviewStream });
   }
 
   inviteUrls() {
@@ -606,6 +654,11 @@ export class LiveSession {
     this.setLive(false);
     this.engine.disconnectAll(guestIds);
     this._stopRecordingTimer();
+    // VDO's own iframe teardown (disconnectAll above) never touches this — it's a plain getUserMedia
+    // stream Toasty owns directly for the native tile, so nothing else will turn the camera light off.
+    this._hostPreviewStream?.getTracks().forEach((track) => track.stop());
+    this._hostPreviewStream = null;
+    this.participants.remove("host");
     this.connection = { status: "idle", label: "Show ended" };
     this.emit("connection", this.connection);
   }

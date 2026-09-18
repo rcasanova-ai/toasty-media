@@ -51,14 +51,19 @@ export class HostPrejoin {
     // resolve inside VDO.Ninja's cross-origin iframe, but the plain device name can.
     const videoDeviceLabel = this.elements.camera.selectedOptions[0]?.textContent;
     const audioDeviceLabel = this.elements.mic.selectedOptions[0]?.textContent;
-    this._previewStream?.getTracks().forEach((track) => track.stop());
+    // Deliberately NOT stopped here — this is the same working native preview stream, and the fix for
+    // "camera goes black on Join" is carrying it forward into the joined Host tile (see LiveSession
+    // .joinAsHost/_showHostNativeVideo) instead of destroying it and replacing it with VDO's iframe.
+    const previewStream = this._previewStream;
+    this._previewStream = null;
     this.elements.preview.srcObject = null;
     this.session.joinAsHost({
       displayName: this.elements.name.value,
       title: this.elements.title.value,
       company: this.elements.company.value,
       videoDeviceLabel,
-      audioDeviceLabel
+      audioDeviceLabel,
+      previewStream
     });
     this.elements.card.hidden = true;
   }
