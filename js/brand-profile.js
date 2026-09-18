@@ -37,7 +37,8 @@ const PROFILE_DEFAULTS = {
   preferredPhrases: [],
   avoidPhrases: [],
   platformPreferences: {},
-  notes: ""
+  notes: "",
+  conciergePrefix: ""
 };
 
 const DEFAULT_PROFILES = Object.freeze({
@@ -84,7 +85,8 @@ const DEFAULT_PROFILES = Object.freeze({
       YouTube: { pacing: "structured and clear", targetDuration: 120, aspectRatio: "16:9" },
       Generic: { pacing: "tight and useful", targetDuration: 45, aspectRatio: "9:16" }
     },
-    notes: "Preserve the creator's real narration as the source of truth."
+    notes: "Preserve the creator's real narration as the source of truth.",
+    conciergePrefix: "Toasty suggests:"
   }),
   "8alta": Object.freeze({
     id: "8alta",
@@ -122,7 +124,8 @@ const DEFAULT_PROFILES = Object.freeze({
     preferredPhrases: ["clear decision", "production proof", "executive signal"],
     avoidPhrases: ["viral hack", "crazy", "game changer"],
     platformPreferences: {},
-    notes: "Use sparing visual emphasis."
+    notes: "Use sparing visual emphasis.",
+    conciergePrefix: "8ALTA Studio suggests:"
   }),
   santati: Object.freeze({
     id: "santati",
@@ -160,7 +163,8 @@ const DEFAULT_PROFILES = Object.freeze({
     preferredPhrases: ["with care", "clear next step", "built on trust"],
     avoidPhrases: ["disrupt", "dominate", "crush it"],
     platformPreferences: {},
-    notes: "Favor trust and clarity over urgency."
+    notes: "Favor trust and clarity over urgency.",
+    conciergePrefix: "Santati Studio suggests:"
   }),
   optimai: Object.freeze({
     id: "optimai",
@@ -198,7 +202,8 @@ const DEFAULT_PROFILES = Object.freeze({
     preferredPhrases: ["your data", "your agent", "your control", "agent-native"],
     avoidPhrases: ["moon", "guaranteed rewards", "revolutionary solution"],
     platformPreferences: {},
-    notes: "Keep the network credible and the visual system sparse."
+    notes: "Keep the network credible and the visual system sparse.",
+    conciergePrefix: "OptimAI Studio suggests:"
   }),
   tangem: Object.freeze({
     id: "tangem",
@@ -236,7 +241,132 @@ const DEFAULT_PROFILES = Object.freeze({
     preferredPhrases: ["your keys", "verifiable security", "built to last"],
     avoidPhrases: ["moon", "guaranteed returns", "revolutionary", "to the moon"],
     platformPreferences: {},
-    notes: "Restraint is the brand. When unsure, remove an element rather than add one."
+    notes: "Restraint is the brand. When unsure, remove an element rather than add one.",
+    conciergePrefix: "Tangem Studio suggests:"
+  }),
+  superteam: Object.freeze({
+    id: "superteam",
+    name: "Superteam Thailand",
+    description: "Premium, energetic, technical Solana-ecosystem production for Superteam Thailand builders.",
+    creatorName: "Superteam Thailand",
+    creatorTitle: "Solana Builders · APAC",
+    logos: ["../shared/brand/clients/superteam-thailand/logo.png"],
+    watermark: true,
+    defaultCTA: "Build with Superteam Thailand",
+    website: "th.superteam.fun",
+    lowerThird: "Superteam Thailand · Solana Builders",
+    primaryColor: "#9945ff",
+    secondaryColor: "#14f195",
+    accentColor: "#00e5ff",
+    supportingPalette: ["#070b1c", "#10183a", "#14f195", "#f4f7ff"],
+    backgroundPreference: "deep navy production environment with Solana purple/green signal accents and restrained cyan highlights",
+    fontDirection: "clean technical Inter headlines and compact professional body text",
+    visualStyle: "premium builder energy, dark navy, Solana-inspired purple-to-green hierarchy, no tourist ornament",
+    toneOfVoice: "energetic, technical, credible, community-first",
+    writingStyle: "short declarative builder language, concrete, no hype",
+    captionStyle: "high-contrast captions with a single purple or cyan accent",
+    lowerThirdStyle: "minimal navy lower thirds with Solana purple accent line",
+    introStyle: "open on the build, the community, or the APAC outcome",
+    outroStyle: "close with one concrete way to build together",
+    ctaStyle: "direct invitation to build or join Superteam Thailand",
+    musicDirection: "energetic technical pulse, never carnival or tourist",
+    defaultAspectRatio: "16:9",
+    introDuration: 1.5,
+    outroDuration: 2.3,
+    avatarPreference: "confident builder presenter driven by real narration",
+    cameraDirection: "centered, high energy, deliberate motion",
+    thumbnailDirection: "navy field, white type, one purple or cyan signal",
+    forbiddenStyles: ["temple tourist kitsch", "generic coin rain", "hype language", "AI voiceover"],
+    preferredPhrases: ["build together", "power APAC", "ship the story"],
+    avoidPhrases: ["moon", "guaranteed returns", "to the moon"],
+    platformPreferences: {},
+    notes: "Thai identity lives in the Superteam Thailand mark, not in decorative UI.",
+    conciergePrefix: "Superteam Thailand Studio suggests:"
+  }),
+  alice: Object.freeze({
+    id: "alice",
+    name: "Alice in Cryptoland",
+    description: "Playful but professional crypto/Web3 production for interviews, education, livestreams, and social.",
+    creatorName: "Alice in Cryptoland",
+    creatorTitle: "Curiosity Pays",
+    logos: ["../shared/brand/clients/alice-cryptoland/logo.png"],
+    watermark: true,
+    defaultCTA: "Follow. Learn. Explore. Build.",
+    website: "",
+    lowerThird: "Alice in Cryptoland · Curiosity Pays",
+    primaryColor: "#2ec8e0",
+    secondaryColor: "#7b6cff",
+    accentColor: "#5ee7ff",
+    supportingPalette: ["#051820", "#0b2a36", "#7b6cff", "#e8f6fb"],
+    backgroundPreference: "deep teal production environment with cyan signals and restrained purple crypto accents",
+    fontDirection: "Plus Jakarta Sans headlines with readable professional body text",
+    visualStyle: "professional crypto studio, cyan/teal foundation, complementary purple accents, no illustrated Wonderland scenery in the interface",
+    toneOfVoice: "curious, clear, playful, professional",
+    writingStyle: "inviting questions, concrete explanations, no casino hype",
+    captionStyle: "high-contrast captions with a cyan accent and generous spacing",
+    lowerThirdStyle: "teal glass lower thirds with cyan accent line",
+    introStyle: "open on the question worth following",
+    outroStyle: "close with one clear next step to learn or build",
+    ctaStyle: "curious invitation with one next move",
+    musicDirection: "bright, light momentum, never carnival or meme-coin energy",
+    defaultAspectRatio: "16:9",
+    introDuration: 1.6,
+    outroDuration: 2.4,
+    avatarPreference: "approachable presenter driven by real narration",
+    cameraDirection: "warm eye-line, slight energy, avoid static talking head fatigue",
+    thumbnailDirection: "teal field, cyan type, one purple or gold signal, no clutter",
+    forbiddenStyles: ["illustrated Wonderland scenery in chrome", "casino hype", "coin rain", "AI voiceover"],
+    preferredPhrases: ["curiosity pays", "follow the idea", "learn then build"],
+    avoidPhrases: ["moon", "guaranteed returns", "ngmi"],
+    platformPreferences: {},
+    notes: "Keep the Studio professional. Alice identity is color, type, and the official lockup — not a themed illustration overlay.",
+    conciergePrefix: "Alice in Cryptoland Studio suggests:"
+  }),
+  peeps: Object.freeze({
+    id: "peeps",
+    name: "Toasty Peeps",
+    description: "Warm, approachable expert-conversation production for people, discovery, bookings, and collaboration.",
+    creatorName: "Toasty Peeps",
+    creatorTitle: "Human Expertise Network",
+    logos: ["../shared/brand/toasty-peeps/logo.png"],
+    watermark: true,
+    defaultCTA: "Find the people. Keep the conversation.",
+    website: "toasty.media",
+    lowerThird: "Toasty Peeps · Human Expertise",
+    primaryColor: "#e56a1a",
+    secondaryColor: "#f4c38a",
+    accentColor: "#f08a3a",
+    supportingPalette: ["#16100c", "#221812", "#3d2914", "#fbf4ea"],
+    backgroundPreference: "warm brown studio canvas with honey-amber accents and cream writing surfaces",
+    fontDirection: "bold Montserrat headlines with readable Inter body text",
+    visualStyle: "Toasty family DNA with a people-first warmth: conversations, experts, collaboration, less fire-studio intensity",
+    toneOfVoice: "warm, human, curious, useful",
+    writingStyle: "short sentences, human hooks, concrete introductions, no corporate fog",
+    captionStyle: "minimal text, high contrast, conversational lines that do not crowd the frame",
+    lowerThirdStyle: "compact warm lower thirds with copper-orange accent line",
+    introStyle: "start with the person and why they are in the room",
+    outroStyle: "land on a useful next conversation, not a generic sign-off",
+    ctaStyle: "direct and human with one clear next move",
+    musicDirection: "warm pulse, light momentum, never overpowering the voice",
+    defaultAspectRatio: "16:9",
+    introDuration: 1.6,
+    outroDuration: 2.4,
+    avatarPreference: "expert digital twin driven by real recorded narration",
+    cameraDirection: "confident eye-line, conversation framing, avoid static talking head fatigue",
+    thumbnailDirection: "bold face, warm copper contrast, 3-5 words max",
+    forbiddenStyles: ["generic robot visuals", "cold SaaS gradients", "dense text slides", "AI voiceover"],
+    preferredPhrases: ["find the people", "keep the conversation", "human expertise"],
+    avoidPhrases: ["unlock synergy", "leverage cutting-edge", "thought leader"],
+    platformPreferences: {
+      LinkedIn: { pacing: "polished and concise", targetDuration: 60, aspectRatio: "4:5" },
+      "YouTube Shorts": { pacing: "fast hook, clean payoff", targetDuration: 45, aspectRatio: "9:16" },
+      "Instagram Reels": { pacing: "visual and punchy", targetDuration: 35, aspectRatio: "9:16" },
+      TikTok: { pacing: "direct and immediate", targetDuration: 30, aspectRatio: "9:16" },
+      YouTube: { pacing: "structured and clear", targetDuration: 120, aspectRatio: "16:9" },
+      Generic: { pacing: "tight and useful", targetDuration: 45, aspectRatio: "9:16" }
+    },
+    notes: "Toasty Studio produces media. Toasty Peeps produces people and expertise. Keep that distinction in copy and framing.",
+    conciergePrefix: "Toasty Peeps suggests:"
   })
 });
 
@@ -282,7 +412,8 @@ function profileFromTheme(theme) {
     toneOfVoice: "clear, useful, brand-consistent",
     writingStyle: "concise and direct",
     captionStyle: "readable, high contrast",
-    ctaStyle: "one clear next step"
+    ctaStyle: "one clear next step",
+    conciergePrefix: theme.copy?.conciergePrefix || `${theme.label} Studio suggests:`
   };
 }
 

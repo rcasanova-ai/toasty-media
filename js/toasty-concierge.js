@@ -75,7 +75,7 @@ export class ToastyConcierge {
   }
 
   suggestForStage({ stage, project, brandProfile, productionSpec, consistency }) {
-    const prefix = brandProfile.id === "toasty" ? "Toasty suggests:" : `${brandProfile.name} Studio suggests:`;
+    const prefix = brandProfile.conciergePrefix || `${brandProfile.name} Studio suggests:`;
     if (stage === "source") return `${prefix} keep the idea tied to ${brandProfile.toneOfVoice} and one visible proof.`;
     if (stage === "script" && project.angles.length) {
       const selectedIndex = Math.max(0, project.angles.findIndex((angle) => angle.id === project.selectedAngleId));

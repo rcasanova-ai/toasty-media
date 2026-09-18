@@ -1,5 +1,6 @@
 import { LocalIsolatedRecorder } from "./recording.js";
 import { getBrandProfile, getBrandProfiles } from "./brand-profile.js";
+import { DEFAULT_BRAND_THEME } from "./brand-themes.js";
 import { deleteMediaBlob, hydrateMediaUrls, saveMediaBlob } from "./media-store.js";
 import { checkProductionConsistency } from "./production-consistency.js";
 import { createProductionSpec, createProviderRequests, createScene, estimateDuration, upgradeScene } from "./production-spec.js";
@@ -1369,6 +1370,7 @@ function defaultProject() {
     mode: "live",
     productionEntry: "quick",
     currentStage: "source",
+    brandProfileId: DEFAULT_BRAND_THEME,
     quick: {
       format: "16:9",
       prepared: false,
@@ -1431,10 +1433,11 @@ function loadProject() {
 }
 
 function saveProject(project) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(toSerializableProject(project)));
+  const brandProfile = getBrandProfile(project.brandProfileId || project.brandProfile?.id);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(toSerializableProject(project, brandProfile)));
 }
 
-function toSerializableProject(project, brandProfile = getBrandProfile()) {
+function toSerializableProject(project, brandProfile = getBrandProfile(project.brandProfileId || project.brandProfile?.id)) {
   const spec = project.spec || createProductionSpec({
     project,
     brandProfile,

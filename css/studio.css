@@ -3638,7 +3638,7 @@
    confirmed working on hardware. */
 .lv-prejoin-diag {
   background: rgba(0, 0, 0, 0.35);
-  border: 1px dashed rgba(255, 122, 41, 0.5);
+  border: 1px dashed color-mix(in srgb, var(--studio-orange) 50%, transparent);
   border-radius: 6px;
   display: grid;
   font-size: 0.62rem;
@@ -3648,7 +3648,7 @@
 }
 
 .lv-prejoin-diag-title {
-  color: #ff7a29;
+  color: var(--studio-orange);
   font-weight: 800;
   letter-spacing: 0.03em;
   margin: 0;
