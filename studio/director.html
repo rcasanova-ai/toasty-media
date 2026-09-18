@@ -396,17 +396,6 @@
                       <button id="lvHostPrejoinJoin" class="btn btn-primary" type="button" disabled>Join Studio</button>
                       <p class="control-note" id="lvHostPrejoinStatus">Requesting camera preview…</p>
                     </div>
-                    <!-- TEMPORARY real-device diagnostics — see js/prejoin-diagnostics.js. Remove this block,
-                         its script wiring, and the .lv-prejoin-diag* CSS once real camera acquisition is
-                         confirmed working on hardware. -->
-                    <div class="lv-prejoin-diag">
-                      <p class="lv-prejoin-diag-title">Camera diagnostics (temporary)</p>
-                      <div class="lv-prejoin-diag-env" id="lvPrejoinDiagEnv"></div>
-                      <button id="lvTestCameraBtn" class="btn btn-ghost btn-small" type="button">TEST CAMERA</button>
-                      <p class="control-note" id="lvTestCameraStatus"></p>
-                      <video id="lvTestCameraVideo" class="lv-prejoin-diag-video" autoplay muted playsinline hidden></video>
-                      <div class="lv-prejoin-diag-log" id="lvPrejoinDiagLog"></div>
-                    </div>
                   </div>
                 </article>
                 <!-- Transport-only: VDO.Ninja's host push/publish connection lives here so guests and Program
@@ -428,14 +417,6 @@
                   </div>
                   <span class="lv-video-tile-label" id="lvGuestPanelStatus">Waiting</span>
                 </article>
-              </div>
-              <!-- TEMPORARY — see js/host-view.js's renderGuestDiagnostics. Traces the exact id chain from
-                   VDO's raw guest-list entry through to the mounted remote-view iframe, for the real-device
-                   test chasing "1 connected but the remote tile stays blank." Remove this block plus its
-                   wiring once that tile is confirmed working on real hardware. -->
-              <div class="toasty-debug-panel">
-                <p class="toasty-debug-title">Guest source diagnostics (temporary)</p>
-                <pre id="lvGuestDiagnostics"></pre>
               </div>
               <div class="lv-host-controls" data-lv-only="host">
                 <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>

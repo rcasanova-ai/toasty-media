@@ -61,22 +61,10 @@
             </label>
           </div>
 
-          <!-- INSTRUMENTATION BUILD — see js/guest.js's window.__toastyGuestJoinDiagnostic. A real Android
-               device reported "tap Join, nothing visibly happens" even though a simulated click in this
-               session's own browser harness worked — this panel exists to answer, from a phone screenshot
-               alone with no devtools, exactly which of: stale build / JS never loaded / button disabled /
-               something overlaying the button / the tap never firing / joinStudio throwing, is real. Remove
-               this whole block plus its wiring once a real device confirms which one it was and it's fixed. -->
-          <div class="toasty-debug-panel" id="toastyDebugPanel" aria-live="polite">
-            <p class="toasty-debug-title">DEBUG (temporary)</p>
-            <div id="toastyDebugFields"></div>
-          </div>
-
           <button
             id="joinStudio"
             class="btn btn-primary full-width"
             type="button"
-            onclick="window.__toastyGuestJoinDiagnostic(event)"
           >Join Studio</button>
           <p class="control-note" id="guestStatus">Camera preview starts locally before joining. No account required.</p>
 
@@ -106,24 +94,6 @@
             </div>
           </details>
         </section>
-      </div>
-
-      <!-- TEMPORARY real-device diagnostics — mirrors js/prejoin-diagnostics.js's Host pattern. Deliberately
-           OUTSIDE #guestCheckin (moved here from inside it): that whole card gets `hidden` the instant Join
-           succeeds (see js/guest.js's joinStudio), which was silently hiding this exact log right when it's
-           needed most — post-join, watching remote media come up. A sibling of both #guestCheckin and
-           #joinedRoom, so it stays visible in both states. Remove this block and its wiring in js/guest.js
-           once real publish confirmation is verified on hardware for both a phone guest and the desktop's
-           own view of that guest. -->
-      <div class="lv-prejoin-diag">
-        <p class="lv-prejoin-diag-title">Guest connection diagnostics (temporary)</p>
-        <!-- SNAPSHOT — current value of each tracked field, overwritten in place by js/guest.js's
-             setDiagSnapshot, never appended. The scrolling log below fires on every VDO postMessage (can be
-             many per second on a live connection — confirmed too fast to read or copy on a real phone
-             mid-test); this is the stable, screenshot/copy-able answer to "what does it say RIGHT NOW". -->
-        <div class="lv-prejoin-diag-snapshot" id="guestDiagSnapshot">(no data yet)</div>
-        <button type="button" class="lv-prejoin-diag-copy" id="guestDiagCopy">Copy diagnostics</button>
-        <div class="lv-prejoin-diag-log" id="guestDiagLog"></div>
       </div>
 
       <!-- Transport-only: VDO.Ninja's guest push/publish connection lives here, never as visible product

@@ -24,7 +24,6 @@ export class HostView {
       leaveStudio: root.querySelector("#lvLeaveStudio"),
       guestContext: root.querySelector("#lvGuestContext"),
       guestCount: root.querySelector("#lvGuestCount"),
-      guestDiagnostics: root.querySelector("#lvGuestDiagnostics"),
       participantStage: root.querySelector("#lvParticipantStage"),
       hostPanelStatus: root.querySelector("#lvHostPanelStatus"),
       guestPanelStatus: root.querySelector("#lvGuestPanelStatus"),
@@ -60,7 +59,6 @@ export class HostView {
     this.session.on("guests", () => this.renderGuestContext());
     this.session.on("connection", (c) => this.renderConnection(c));
     this.session.on("host-state", (state) => this.renderHostState(state));
-    this.session.on("guest-diagnostics", (d) => this.renderGuestDiagnostics(d));
     this.session.on("remote-media-state", (s) => this.renderRemoteMediaState(s));
 
     this.renderAv(this.session.av);
@@ -68,7 +66,6 @@ export class HostView {
     this.renderGuestContext();
     this.renderConnection(this.session.connection);
     this.renderHostState(this.session.hostState);
-    this.renderGuestDiagnostics(this.session.guestDiagnostics);
     this.renderRemoteMediaState(this.session.remoteMediaState);
 
     this.initRunOfShow();
@@ -157,85 +154,6 @@ export class HostView {
     if (this.elements.guestStageEmptyText) {
       this.elements.guestStageEmptyText.textContent = REMOTE_MEDIA_STATE_LABEL[state] || "Waiting for guest to join";
     }
-  }
-
-  // TEMPORARY — see js/live-session.js's guestDiagnostics and this pass's report. Renders the exact id
-  // chain (raw VDO guest-list entry -> our normalized registry entry -> what's passed to
-  // mountParticipantView -> whether that specific mounted iframe has loaded/reported anything back) so a
-  // real test can see, from one screenshot, whether the remote tile is blank because of a ROOT id mismatch
-  // (raw entry ID differs from what registry/mount use) or because the mount itself never receives media
-  // despite a correct id. Remove this method, its call sites, and #lvGuestDiagnostics once the remote tile
-  // is confirmed working on real hardware.
-  renderGuestDiagnostics(diag) {
-    if (!this.elements.guestDiagnostics) return;
-    if (!diag) { this.elements.guestDiagnostics.replaceChildren(); return; }
-    const lines = [];
-    lines.push("RAW GUEST (untouched VDO response):");
-    if (diag.raw) {
-      const entries = Array.isArray(diag.raw) ? diag.raw : Object.values(diag.raw || {});
-      if (!entries.length) lines.push("  (empty)");
-      entries.forEach((entry, i) => {
-        lines.push(`  [${i}] streamID=${entry?.streamID ?? "(none)"} label=${JSON.stringify(entry?.label ?? "")} name=${JSON.stringify(entry?.name ?? "")} title=${JSON.stringify(entry?.title ?? "")}`);
-      });
-    } else {
-      lines.push("  (no response yet)");
-    }
-    lines.push("");
-    lines.push("REGISTRY (js/participant-registry.js, role=guest):");
-    if (!diag.registry?.length) {
-      lines.push("  (empty)");
-    } else {
-      diag.registry.forEach((p) => {
-        lines.push(`  participantId=${p.participantId}`);
-        lines.push(`    displayName=${JSON.stringify(p.displayName)} title=${JSON.stringify(p.title)} company=${JSON.stringify(p.company)}`);
-        lines.push(`    connectionStatus=${p.connectionStatus} transportSourceId=${p.transportSourceId}`);
-        lines.push(`    videoSource=${JSON.stringify(p.videoSource)}`);
-      });
-    }
-    lines.push("");
-    lines.push("REMOTE VIEW (mountParticipantView -> \"guestview\" frame):");
-    if (!diag.mount) {
-      lines.push("  (not mounted — no guest seat)");
-    } else {
-      lines.push(`  view/source ID used: ${diag.mount.streamId}`);
-      lines.push(`  iframe created: ${diag.mount.iframeCreated ? "YES" : "NO"}`);
-      lines.push(`  iframe 'load' event fired: ${diag.mount.loaded ? "YES" : "NO"}${diag.mount.loadedAt ? ` (${new Date(diag.mount.loadedAt).toLocaleTimeString()})` : ""}`);
-      lines.push(`  last postMessage FROM this iframe: ${diag.mount.lastMessage ? JSON.stringify(diag.mount.lastMessage).slice(0, 200) : "(none received yet)"}`);
-      if (diag.mount.lastMessageAt) lines.push(`    at ${new Date(diag.mount.lastMessageAt).toLocaleTimeString()}`);
-      lines.push(`  peer video state (from THIS frame's own getDetailedState — see VideoEngine.requestPeerVideoState): ${diag.mount.peerVideoState ? JSON.stringify(diag.mount.peerVideoState) : "(not polled yet)"}`);
-    }
-    // Cross-check, spelled out rather than left implicit: does the raw entry's streamID match what
-    // REGISTRY/MOUNT are keyed on? A mismatch here (not "not yet confirmed") is the smoking gun for a
-    // mapping bug; a match with the tile still blank points at the &view= negotiation itself instead.
-    const rawIds = (Array.isArray(diag.raw) ? diag.raw : Object.values(diag.raw || {})).map((e) => e?.streamID).filter(Boolean);
-    const registryIds = (diag.registry || []).map((p) => p.transportSourceId);
-    const mountId = diag.mount?.streamId;
-    lines.push("");
-    lines.push("ID CROSS-CHECK:");
-    lines.push(`  raw streamIDs:      [${rawIds.join(", ")}]`);
-    lines.push(`  registry transportSourceIds: [${registryIds.join(", ")}]`);
-    lines.push(`  id passed to mountParticipantView: ${mountId ?? "(none)"}`);
-    lines.push(`  all match: ${rawIds.length && registryIds.length && mountId ? String(rawIds.every((id) => registryIds.includes(id)) && registryIds.includes(mountId)) : "(insufficient data)"}`);
-
-    // HOST PUBLISH — the "am I actually publishing" side of the "Ricardo Mac -> Android black" bug. This
-    // frame ("host", from mountDirectorFrame) is what a remote Android viewer connects to; its OWN
-    // getDetailedState self-entry (videoTrack/audioTrack/seeding/localStream) is the ground truth for
-    // whether VDO ever got a real outbound track, independent of anything Android reports as a viewer.
-    lines.push("");
-    lines.push("HOST PUBLISH (Host's OWN \"host\" transport frame, self getDetailedState entry):");
-    if (!diag.hostPublish) {
-      lines.push("  (not polled yet)");
-    } else {
-      lines.push(`  push/transportSourceId: ${diag.hostPublish.streamId}`);
-      lines.push(`  checked at: ${new Date(diag.hostPublish.checkedAt).toLocaleTimeString()}`);
-      lines.push(`  self entry: ${diag.hostPublish.entry ? JSON.stringify(diag.hostPublish.entry) : "(no self entry found — frame not reporting itself under this streamID)"}`);
-      if (diag.hostPublish.entry) {
-        const e = diag.hostPublish.entry;
-        lines.push(`  videoTrack=${e.videoTrack} audioTrack=${e.audioTrack} seeding=${e.seeding} localStream=${e.localStream} videoVisible=${e.videoVisible}`);
-      }
-    }
-
-    this.elements.guestDiagnostics.textContent = lines.join("\n");
   }
 
   // ---- Run of Show ----

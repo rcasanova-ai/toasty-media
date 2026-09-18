@@ -4,32 +4,11 @@ import { startDevicePreview } from "./device-picker.js";
 import { RoomPresence } from "./room-presence.js";
 import { RemoteMediaState, REMOTE_MEDIA_STATE_LABEL } from "./remote-media-state.js";
 
-// INSTRUMENTATION BUILD MARKER — bump this string on every deploy meant to be checked against a real
-// device screenshot. A phone showing an OLD value here (or the debug panel missing entirely) means the
-// device is running stale/cached code, not the build actually being debugged — rule that out FIRST, before
-// reading anything else off the panel. See #toastyDebugPanel in studio/guest.html.
-const BUILD_ID = "guest-diag-2026-09-19-02";
-
-// Declared here, not next to diag() further down, because init() (called at this module's top level, see
-// bottom of this file) runs diag() synchronously during its own execution — a `const` declared AFTER that
-// call site in file order is still in the temporal dead zone when it's referenced, throwing a
-// ReferenceError that aborts init() entirely (confirmed on a real device: no camera preview, dead Join
-// button, dead Copy button — one uncaught throw killed everything downstream of it in init()). Top-level
-// consts only referenced inside functions that run LATER, in response to an event, don't have this problem
-// (by the time they're called, the whole module has finished its top-to-bottom pass) — this one specifically
-// needs to exist before init()'s own synchronous run reaches its first diag() call.
-const DIAG_LOG_MAX_ROWS = 60;
-
-// Set true at the very top of module evaluation — if this ever reads NO on a real device, the module
-// itself failed to load/parse/execute (network failure, JS syntax error, import failure, etc.), which is a
-// completely different failure class than "the button doesn't work."
-window.__toastyGuestJsLoaded = true;
-const READY_STATE_AT_MODULE_RUN = document.readyState;
+function log(...args) { console.debug("[Guest]", ...args); }
 
 // Guest lifecycle — mirrors js/host-state.js's Host state machine (same five states, same reasoning: no
 // control should ever be gated on "the page is open" or "an iframe loaded" when it actually means "the
-// guest has a confirmed live connection"). Kept local rather than importing HostState — same shape, but a
-// name like "HostState" reading through a guest file invites confusion for zero benefit.
+// guest has a confirmed live connection").
 const GuestLifecycle = Object.freeze({
   PREJOIN_LOADING: "prejoin-loading",
   PREJOIN_READY: "prejoin-ready",
@@ -37,8 +16,6 @@ const GuestLifecycle = Object.freeze({
   IN_STUDIO: "in-studio",
   LEAVING: "leaving"
 });
-
-function log(...args) { console.debug("[Guest]", ...args); }
 
 const state = {
   roomId: getRoomIdFromUrl(),
@@ -58,16 +35,9 @@ const state = {
   mountedRemote: null,
   remoteMediaState: RemoteMediaState.WAITING_FOR_PARTICIPANT,
   remoteMediaTimerId: null,
-  remoteMediaRemountCount: 0,
-  selfPublishTimerId: null,
   presence: null,
   selfLabel: null,
   lifecycle: GuestLifecycle.PREJOIN_LOADING,
-  // Generated once per page load, kept for the life of this guest session — see the diagnostics panel and
-  // this pass's report ("IDENTITY BINDING CHANGE") for why this exists even though VDO.Ninja's own &label
-  // remains the only channel that actually reaches the director's browser (a guest's phone and the
-  // director's desktop are different devices with no other shared channel in this architecture — see
-  // report for the honest caveat on this).
   participantId: `guest-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 };
 
@@ -103,117 +73,8 @@ const elements = {
   guestToggleCamera: document.querySelector("#guestToggleCamera"),
   guestFlipCamera: document.querySelector("#guestFlipCamera"),
   guestToggleScreen: document.querySelector("#guestToggleScreen"),
-  guestEndSession: document.querySelector("#guestEndSession"),
-  diagLog: document.querySelector("#guestDiagLog"),
-  diagSnapshot: document.querySelector("#guestDiagSnapshot"),
-  diagCopy: document.querySelector("#guestDiagCopy"),
-  debugFields: document.querySelector("#toastyDebugFields")
+  guestEndSession: document.querySelector("#guestEndSession")
 };
-
-// ---- Instrumentation: live debug panel (see studio/guest.html's #toastyDebugPanel) ----
-// Every field here is read fresh at render time from real DOM/state, never cached, so the panel can never
-// show a stale answer for something checkable right now (Join disabled, stream tracks, hit-test target).
-const debug = {
-  clickListenerAttached: false,
-  pointerdownCount: 0,
-  touchstartCount: 0,
-  clickCount: 0,
-  lastAction: "(none yet)",
-  lastError: ""
-};
-
-function renderDebugPanel() {
-  if (!elements.debugFields) return;
-  let hitTest = "(button not in DOM)";
-  const btn = elements.joinStudio;
-  if (btn) {
-    const rect = btn.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const atPoint = document.elementFromPoint(cx, cy);
-    hitTest = atPoint
-      ? `<${atPoint.tagName.toLowerCase()}${atPoint.id ? ` id="${atPoint.id}"` : ""}${atPoint.className && typeof atPoint.className === "string" ? ` class="${atPoint.className}"` : ""}>${atPoint === btn ? "  <- IS the button" : "  <- NOT the button (something is covering it)"}`
-      : "(nothing found at button center — off-screen?)";
-  }
-  const rows = [
-    ["BUILD", BUILD_ID],
-    ["guest.js loaded", "YES"],
-    ["document.readyState at module run", READY_STATE_AT_MODULE_RUN],
-    ["Join element found", btn ? "YES" : "NO"],
-    ["Join disabled", btn ? String(btn.disabled) : "(n/a)"],
-    ["current lifecycle state", state.lifecycle],
-    ["local stream exists", String(Boolean(state.previewStream))],
-    ["video tracks", String(state.previewStream?.getVideoTracks().length ?? "(no stream)")],
-    ["audio tracks", String(state.previewStream?.getAudioTracks().length ?? "(no stream)")],
-    ["click listener attached (addEventListener)", debug.clickListenerAttached ? "YES" : "NO"],
-    ["pointerdown count", String(debug.pointerdownCount)],
-    ["touchstart count", String(debug.touchstartCount)],
-    ["click count", String(debug.clickCount)],
-    ["element at Join center", hitTest],
-    ["last action", debug.lastAction],
-    ["last error", debug.lastError || "(none)"]
-  ];
-  elements.debugFields.replaceChildren(...rows.map(([label, value]) => {
-    const row = document.createElement("div");
-    if (label === "last error" && debug.lastError) row.className = "debug-error";
-    row.textContent = `${label}: ${value}`;
-    return row;
-  }));
-}
-
-function setLastAction(text) {
-  debug.lastAction = text;
-  diag(text);
-  renderDebugPanel();
-}
-
-// Fires on the REAL button element regardless of how the tap arrives (inline onclick, addEventListener, or
-// neither) — capturing phase, before anything else can intercept or stop the event, so these counts answer
-// "did the tap physically reach the button at all" independent of whether our own handlers are broken.
-function wireHitTestCounters() {
-  const btn = elements.joinStudio;
-  if (!btn) return;
-  btn.addEventListener("pointerdown", () => { debug.pointerdownCount++; renderDebugPanel(); }, { capture: true });
-  btn.addEventListener("touchstart", () => { debug.touchstartCount++; renderDebugPanel(); }, { capture: true, passive: true });
-  btn.addEventListener("click", () => { debug.clickCount++; renderDebugPanel(); }, { capture: true });
-}
-
-// The globally-exposed diagnostic entry point — see studio/guest.html's inline onclick on #joinStudio.
-// Deliberately bypasses addEventListener ambiguity: an inline onclick attribute is guaranteed to fire on a
-// real click/tap if the browser executes JS on this page AT ALL, independent of whether our own
-// addEventListener binding (bindControls -> joinStudio) succeeded. The very first lines below run before
-// any async work, so "does the phone ever show CLICK RECEIVED" answers, on its own, whether execution
-// reaches this handler at all.
-window.__toastyGuestJoinDiagnostic = async function toastyGuestJoinDiagnostic(event) {
-  debug.clickCount++; // inline onclick fires independently of the capturing click counter above
-  const originalLabel = elements.joinStudio?.textContent;
-  if (elements.joinStudio) elements.joinStudio.textContent = "CLICK RECEIVED";
-  setLastAction("INLINE CLICK RECEIVED");
-  try {
-    setLastAction("CALLING joinStudio()");
-    await joinStudio();
-    setLastAction("joinStudio() RETURNED");
-    // Only restore the button's label if we're still on the prejoin card — a successful join already
-    // moved past needing "Join Studio" text at all (see joinStudio's IN_STUDIO transition).
-    if (elements.joinStudio && state.lifecycle !== GuestLifecycle.IN_STUDIO) {
-      elements.joinStudio.textContent = originalLabel || "Join Studio";
-    }
-  } catch (error) {
-    const firstStackLine = (error?.stack || "").split("\n")[1]?.trim() || "(no stack)";
-    debug.lastError = `${error?.name || "Error"}: ${error?.message || "(no message)"} — ${firstStackLine}`;
-    setLastAction("joinStudio() THREW — see last error");
-    log("joinStudio THREW", error);
-    if (elements.joinStudio) elements.joinStudio.textContent = originalLabel || "Join Studio";
-    elements.guestStatus.dataset.error = "true";
-    elements.guestStatus.textContent = `Join failed: ${error?.name || "Error"}: ${error?.message || "unknown error"}`;
-  }
-};
-
-// Render the panel IMMEDIATELY, before anything else runs — if init() throws below, this first paint is
-// still on screen showing "guest.js loaded: YES" and whatever state existed at that point, instead of the
-// panel never appearing at all (which on a real device is indistinguishable from the whole script failing).
-renderDebugPanel();
-window.setInterval(renderDebugPanel, 1000);
 
 init();
 
@@ -231,21 +92,13 @@ async function init() {
     if (!isValidRoomId(state.roomId)) {
       elements.joinStudio.disabled = true;
       elements.guestStatus.textContent = "This Studio invite has an invalid or expired room ID. Ask the host for a fresh invite.";
-      renderDebugPanel();
       return;
     }
-    diag(`participantId: ${state.participantId}`);
-    diag(`roomId: ${state.roomId}`);
     bindControls();
-    wireHitTestCounters();
     engine.onMessage(handleVdoMessage);
-    renderDebugPanel();
     await startPreview();
   } catch (error) {
-    const firstStackLine = (error?.stack || "").split("\n")[1]?.trim() || "(no stack)";
-    debug.lastError = `init() THREW: ${error?.name || "Error"}: ${error?.message || "(no message)"} — ${firstStackLine}`;
     log("init() THREW", error);
-    renderDebugPanel();
   }
 }
 
@@ -269,43 +122,12 @@ function bindControls() {
     if (state.guestLogoUrl) URL.revokeObjectURL(state.guestLogoUrl);
     state.guestLogoUrl = file ? URL.createObjectURL(file) : null;
   });
-  // NOT the primary path on this diagnostic build (the inline onclick in studio/guest.html is), but kept
-  // and tracked so the panel can show whether addEventListener itself succeeded, independent of the inline
-  // handler — a real difference between them (e.g. a CSP blocking inline handlers but not addEventListener,
-  // or vice versa) is exactly the kind of thing this build exists to catch.
-  try {
-    elements.joinStudio.addEventListener("click", joinStudio);
-    debug.clickListenerAttached = true;
-  } catch (error) {
-    debug.clickListenerAttached = false;
-    debug.lastError = `addEventListener THREW: ${error?.name}: ${error?.message}`;
-  }
+  elements.joinStudio.addEventListener("click", joinStudio);
   elements.guestToggleMic.addEventListener("click", toggleMic);
   elements.guestToggleCamera.addEventListener("click", toggleCamera);
   elements.guestFlipCamera.addEventListener("click", flipCamera);
   elements.guestToggleScreen.addEventListener("click", toggleScreen);
   elements.guestEndSession.addEventListener("click", leaveSession);
-  elements.diagCopy?.addEventListener("click", copyDiagSnapshot);
-}
-
-// Clipboard API needs a real user gesture (this is one — a click handler) and a secure context (HTTPS in
-// production, satisfied). Falls back to selecting the snapshot text so a manual copy is still possible if
-// the API itself is unavailable/blocked, rather than silently doing nothing on a real device.
-async function copyDiagSnapshot() {
-  const text = [elements.diagSnapshot?.textContent || "", "", "--- recent log ---", elements.diagLog?.textContent || ""].join("\n");
-  const originalLabel = elements.diagCopy.textContent;
-  try {
-    await navigator.clipboard.writeText(text);
-    elements.diagCopy.textContent = "Copied!";
-  } catch (error) {
-    const range = document.createRange();
-    range.selectNodeContents(elements.diagSnapshot);
-    const selection = window.getSelection();
-    selection.removeAllRanges();
-    selection.addRange(range);
-    elements.diagCopy.textContent = "Copy failed — text selected below";
-  }
-  setTimeout(() => { elements.diagCopy.textContent = originalLabel; }, 2000);
 }
 
 async function startPreview() {
@@ -313,7 +135,6 @@ async function startPreview() {
   elements.joinStudio.disabled = true;
   elements.guestStatus.dataset.error = "false";
   elements.guestStatus.textContent = "Requesting camera preview…";
-  diag("[1] requesting camera/mic preview…");
   try {
     state.previewStream = await startDevicePreview({
       videoEl: elements.cameraPreview,
@@ -321,16 +142,10 @@ async function startPreview() {
       microphoneSelect: elements.microphoneSelect,
       previousStream: state.previewStream
     });
-    const videoTracks = state.previewStream.getVideoTracks();
-    const audioTracks = state.previewStream.getAudioTracks();
-    diag(`[2] preview stream acquired — id ${state.previewStream.id}, ${videoTracks.length} video track(s), ${audioTracks.length} audio track(s)`);
-    if (videoTracks[0]) diag(`[3] video track: label="${videoTracks[0].label}" readyState=${videoTracks[0].readyState}`);
-    if (!videoTracks.length) diag("[3] WARNING: zero video tracks in the acquired stream — preview will be blank even though getUserMedia resolved");
     try {
       await elements.cameraPreview.play();
-      diag(`[4] video.play() resolved — videoWidth=${elements.cameraPreview.videoWidth} videoHeight=${elements.cameraPreview.videoHeight}`);
     } catch (playError) {
-      diag(`[4] video.play() REJECTED — ${playError?.name}: ${playError?.message} (stream is still valid; autoplay policy or similar)`);
+      log("preview video.play() rejected", playError?.name, playError?.message);
     }
     // Only worth offering Flip Camera once we know there's a second camera to flip to (matches VDO.Ninja's
     // own flip-camera button, which likewise hides itself when just one camera is available).
@@ -339,72 +154,36 @@ async function startPreview() {
     elements.joinStudio.disabled = false;
     setLifecycle(GuestLifecycle.PREJOIN_READY);
   } catch (error) {
-    diag(`[2] getUserMedia FAILED — name="${error?.name}" message="${error?.message}"`);
     log("getUserMedia FAILED", error?.name, error?.message, error?.stack);
     elements.guestStatus.dataset.error = "true";
     elements.guestStatus.textContent = `Couldn't start the camera/microphone: ${error?.name || "Error"}: ${error?.message || "unknown error"}. Check your browser's site permissions and try again.`;
     // Deliberately stays in PREJOIN_LOADING (Join stays disabled) rather than silently showing an empty
-    // preview and a still-enabled Join button — see this repair pass's report for why that was the root
-    // cause of a guest looking "joined" with no real camera behind it.
+    // preview and a still-enabled Join button.
   }
 }
 
 function setLifecycle(next) {
   state.lifecycle = next;
-  diag(`lifecycle -> ${next}`);
-}
-
-function diag(message) {
-  const line = `${new Date().toISOString().slice(11, 23)}  ${message}`;
-  log(message);
-  if (!elements.diagLog) return;
-  const row = document.createElement("div");
-  row.textContent = line;
-  elements.diagLog.appendChild(row);
-  // A live connection can post several VDO messages a second — confirmed on a real phone as "going a
-  // million miles a minute", unreadable and impossible to select-copy mid-test. Capped so the DOM doesn't
-  // grow unbounded; setDiagSnapshot below (not this log) is the actual answer to "what does it say now".
-  while (elements.diagLog.children.length > DIAG_LOG_MAX_ROWS) elements.diagLog.removeChild(elements.diagLog.firstChild);
-  elements.diagLog.scrollTop = elements.diagLog.scrollHeight;
-}
-
-// STABLE snapshot — one line per tracked field, overwritten in place (never appended), so it can actually
-// be read or screenshotted on a live device instead of racing the scrolling log above. Keyed object so
-// repeated calls for the same field (e.g. every poll tick) update that one line instead of growing.
-const diagSnapshotData = {};
-function setDiagSnapshot(key, value) {
-  diagSnapshotData[key] = value;
-  if (!elements.diagSnapshot) return;
-  elements.diagSnapshot.textContent = Object.entries(diagSnapshotData).map(([k, v]) => `${k}: ${v}`).join("\n");
 }
 
 // Name is REQUIRED — the HTML `required` attribute alone does nothing here since #joinStudio is a plain
 // button, not a <form> submit (no native constraint validation ever runs). Synchronous end to end — no
 // await, matching joinAsHost's own immediate mount-then-transition shape exactly.
 function joinStudio() {
-  setLastAction("J1 ENTER joinStudio");
-  if (state.lifecycle !== GuestLifecycle.PREJOIN_READY) {
-    setLastAction(`J1 ABORTED — lifecycle was "${state.lifecycle}", not prejoin-ready`);
-    return;
-  }
-  setLastAction("J2 STATE CHECK PASSED (lifecycle is prejoin-ready)");
+  if (state.lifecycle !== GuestLifecycle.PREJOIN_READY) return;
   const guestName = elements.guestName.value.trim();
   if (!guestName) {
-    setLastAction("J2 ABORTED — no name entered");
     elements.guestStatus.textContent = "Enter your name before joining.";
     elements.guestStatus.dataset.error = "true";
     elements.guestName.focus();
     return;
   }
-  setLastAction(`J3 STREAM CHECK — previewStream exists: ${Boolean(state.previewStream)}, video tracks: ${state.previewStream?.getVideoTracks().length ?? 0}`);
   const guestTitle = elements.guestTitleField.value.trim();
   const guestCompany = elements.guestCompany.value.trim();
   const role = [guestTitle, guestCompany].filter(Boolean).join(", ");
   const label = role ? `${guestName} · ${role}` : guestName;
 
-  setLastAction("J4 DISABLING BUTTON");
   elements.joinStudio.disabled = true;
-  setLastAction("J5 STATE = JOINING");
   setLifecycle(GuestLifecycle.JOINING);
   elements.joinState.textContent = "Joining";
   elements.guestStatus.dataset.error = "false";
@@ -416,22 +195,19 @@ function joinStudio() {
   const videoDeviceLabel = elements.cameraSelect.selectedOptions[0]?.textContent;
   const audioDeviceLabel = elements.microphoneSelect.selectedOptions[0]?.textContent;
 
-  setLastAction("J6 MOVING PREVIEW (relocating #previewStage into stage as self PiP)");
   // Kept as plain state, not shown — the visible .guest-live-identity spans now label the REMOTE
-  // participant on the main stage (see renderRemoteParticipants below and this pass's corrected
-  // acceptance spec: the identity line identifies who you're LOOKING AT, not yourself). Still needed here
-  // for VDO's own &label on this guest's OWN push (flipCamera reuses it when remounting after a camera
-  // switch) — that's metadata/fallback only now, never what Toasty itself reads for identity.
+  // participant on the main stage. Still needed here for VDO's own &label on this guest's OWN push
+  // (flipCamera reuses it when remounting after a camera switch) — metadata/fallback only, never what
+  // Toasty itself reads for identity.
   state.selfLabel = label;
   // Move the SAME preview node (not a clone — a live <video> with srcObject already set) into the joined
   // view as the small self PiP — see css/studio.css's .lv-participant-stage comment ("solve the
   // remote-source primitive once"): PARTICIPANT VIEW puts the OTHER person on the main stage and your own
-  // camera in a corner, the reverse of what this page showed before.
+  // camera in a corner.
   elements.guestParticipantStage.appendChild(elements.previewStage);
   elements.previewStage.classList.remove("preview-stage--live");
   elements.previewStage.classList.add("lv-stage-pip");
 
-  setLastAction(`J7 MOUNTING TRANSPORT — videoDeviceLabel="${videoDeviceLabel || "(none)"}" audioDeviceLabel="${audioDeviceLabel || "(none)"}"`);
   // Deliberately NOT stopping state.previewStream here — same fix as the Host's joinAsHost: the visible
   // preview the guest has already been looking at is the SAME stream that stays live through Join, instead
   // of being torn down and replaced by whatever VDO.Ninja's iframe happens to render.
@@ -442,22 +218,11 @@ function joinStudio() {
     videoDeviceLabel,
     audioDeviceLabel
   });
-  setLastAction(`J8 TRANSPORT MOUNT RETURNED — push id "${state.streamId}"`);
-  startSelfPublishPolling(state.streamId);
 
-  // NOT waiting for any publish confirmation here — mirrors live-session.js's joinAsHost exactly, which
-  // mounts the Host's hidden transport frame and calls setHostState(IN_STUDIO) immediately, with no
-  // confirmation step at all. A previous version of this file added a confirmPublishing() wait Host never
-  // had; on a real device that showed as "click Join, nothing happens for up to ~30s" — an invented
-  // abstraction, not something proven by the one path that actually works. Removed rather than tuned.
-
-  // PARTICIPANT VIEW of the room — the other half of "solve the remote-source primitive once." STOPPED
-  // guessing the Host's stream id as roomId+"h": a real two-device test proved a Guest can't reliably
-  // discover the Host that way (and it can't discover ANOTHER guest at all — no equivalent fixed
-  // convention exists for a randomly-generated push id). Toasty Presence (js/room-presence.js) is now the
-  // source of truth for "who is actually in this room and which transportSourceId is theirs" — VDO.Ninja
-  // stays pure media transport. Announces this guest's OWN presence (now that the real push id is known)
-  // and renders whoever presence says is here except self on every roster update.
+  // PARTICIPANT VIEW of the room — Toasty Presence (js/room-presence.js) is the source of truth for "who
+  // is actually in this room and which transportSourceId is theirs"; VDO.Ninja stays pure media transport.
+  // Announces this guest's OWN presence (now that the real push id is known) and renders whoever presence
+  // says is here except self on every roster update.
   state.presence = new RoomPresence({
     roomId: state.roomId,
     participantId: state.participantId,
@@ -467,7 +232,6 @@ function joinStudio() {
     company: guestCompany
   });
   state.presence.onRosterChange((roster) => {
-    diag(`presence roster: ${JSON.stringify(roster).slice(0, 200)}`);
     renderRemoteParticipants(roster);
   });
   state.presence.start(state.streamId);
@@ -478,19 +242,13 @@ function joinStudio() {
   elements.joinedRoom.hidden = false;
   elements.guestStatus.textContent = backgroundNote || `Joined. The ${state.brandLabel} room is open below.`;
   elements.joinState.textContent = "Joined";
-  setLastAction("J9 STATE = IN_STUDIO");
   setLifecycle(GuestLifecycle.IN_STUDIO);
-  setLastAction("J10 COMPLETE");
 }
 
 // PARTICIPANT VIEW ONLY — this is "who Tukta is talking to," never Program Output (a separate concept
-// entirely; see studio/listener.html/js/listener.js for that, which this page has no connection to).
-// Renders the current room roster minus self on the single main-stage slot this page has today. Two-person
-// real-device gate: takes the first (and, for now, only) other participant — see this module's own report
-// for why a real N-participant balanced grid is a deliberate follow-up, not attempted this pass, while the
-// underlying presence data model already supports N (proven separately by scripts/presence-3way-test.mjs).
-// Only remounts the VDO &view= iframe when the actual remote id changes (state.mountedRemote), not on
-// every ~5s poll tick, so a steady connection never flickers.
+// entirely; see studio/listener.html/js/listener.js for that). Renders the current room roster minus self
+// on the single main-stage slot this page has today. Only remounts the VDO &view= iframe when the actual
+// remote id changes (state.mountedRemote), not on every poll tick, so a steady connection never flickers.
 function renderRemoteParticipants(roster) {
   const others = roster.filter((entry) => entry.participantId !== state.participantId);
   const remote = others[0] || null;
@@ -503,34 +261,27 @@ function renderRemoteParticipants(roster) {
       stopRemoteMediaPolling();
       engine.unmountFrame(elements.guestRemoteFrame, "remoteview", "");
       state.mountedRemote = null;
-      state.remoteMediaRemountCount = 0;
     }
     return;
   }
 
-  // The visible identity line names whoever is on the main stage (the OTHER participant), not this guest
-  // themselves — see this pass's corrected acceptance spec.
+  // The visible identity line names whoever is on the main stage (the OTHER participant), not this guest.
   elements.guestLiveIdentityName.textContent = remote.displayName;
   elements.guestLiveIdentityRole.textContent = [remote.title, remote.company].filter(Boolean).join(", ");
 
   if (state.mountedRemote?.transportSourceId === remote.transportSourceId) return; // already showing them
 
-  state.remoteMediaRemountCount = 0; // a genuinely new remote participant — give them a fresh retry budget
-  diag(`transportSourceId: ${remote.transportSourceId}`);
-  diag(`viewer params: room=${state.roomId}&scene&view=${remote.transportSourceId} (see video-engine.js's mountParticipantView comment for why room+scene are required, not optional)`);
-  setDiagSnapshot("remoteTransportSourceId (requested)", remote.transportSourceId);
-  setDiagSnapshot("ownPushStreamId", state.streamId);
   setRemoteMediaState(RemoteMediaState.CONNECTING_REMOTE_MEDIA);
   const iframe = engine.mountParticipantView(elements.guestRemoteFrame, { roomId: state.roomId, streamId: remote.transportSourceId }, "remoteview");
-  diag(`iframe created — src="${iframe.src}"`);
-  iframe.addEventListener("load", () => diag("remoteview iframe 'load' event fired"));
   state.mountedRemote = { participantId: remote.participantId, transportSourceId: remote.transportSourceId };
   // Tracked so leaveSession can unsubscribe — without this, rejoining (Leave, then Join again) would stack
   // a new listener on top of the old one every cycle instead of replacing it.
   state.hostViewUnsub?.();
   state.hostViewUnsub = engine.onMessage((message, source) => {
     if (source !== iframe.contentWindow) return;
-    if (message?.action !== "tally") diag(`remoteview message (VDO connection state): ${JSON.stringify(message).slice(0, 160)}`);
+    if (message?.action === "view-connection" && message.value === false) {
+      log("remoteview lost connection");
+    }
   });
 
   startRemoteMediaPolling(remote.transportSourceId);
@@ -539,72 +290,26 @@ function renderRemoteParticipants(roster) {
 function setRemoteMediaState(next) {
   if (state.remoteMediaState === next) return;
   state.remoteMediaState = next;
-  diag(`remote media state -> ${next}`);
-  setDiagSnapshot("remoteMediaState", next);
   elements.guestRemoteStageEmptyText.textContent = REMOTE_MEDIA_STATE_LABEL[next] || "";
   elements.guestRemoteStageEmpty.hidden = next === RemoteMediaState.REMOTE_MEDIA_LIVE;
 }
 
 const REMOTE_MEDIA_POLL_MS = 2000;
 const REMOTE_MEDIA_ERROR_AFTER_MS = 15000;
-const REMOTE_MEDIA_MAX_REMOUNTS = 2;
 
-// "remote video track present"/"video element count"/"video.readyState"/"videoWidth/videoHeight" —
-// several of the specific fields asked for in this pass's report are NOT capturable from here: the
-// mounted &view= iframe is cross-origin (vdo.ninja, not toasty.media), and browsers categorically block
-// reading another origin's DOM/video-element internals — there is no API-level exception for this, iframe
-// or not. What IS real and used here: VDO.Ninja's own getDetailedState response for the remoteview frame's
-// OWN peer connection, specifically its videoVisible field (session.rpcs[UUID].videoElement
-// .checkVisibility() — confirmed by reading VDO.Ninja's source, not guessed), the closest real signal to
-// "a video element for this peer actually exists and is visible" that its iframe API exposes at all.
-//
-// ROOT CAUSE this retry addresses (real-device test: Mac->Tukta worked, Android->Ricardo stayed black,
-// same mountParticipantView code path both directions — the request params are byte-identical by
-// construction, so the difference isn't in what's sent). Host discovers a guest via VDO's OWN
-// requestGuestList, which by construction cannot report someone who isn't ALREADY actually publishing —
-// so by the time Host mounts a view, the target's media is guaranteed live. Guest discovers the Host via
-// PRESENCE instead (js/room-presence.js) — and js/live-session.js's joinAsHost announces presence
-// essentially the instant Join is clicked, with no guarantee the actual VDO publish (WebRTC/ICE
-// negotiation) has finished by then. A first view attempt that races ahead of that has nothing to connect
-// to, and this frame was never remounted afterward — so a guest who joined a few seconds before the Host's
-// publish actually came up would see black forever. This doesn't re-query Guest's OWN publish state (that
-// already works — Tukta's PiP is fine); it only affects the REMOTE Host view, exactly where the report
-// says the bug is. Guest-side per-device connectivity or WebRTC negotiation being slower on a real phone
-// than this session's own testing could plausibly widen the same race further; NOT independently confirmed
-// against a live two-device session — flagged, not claimed proven, per the report's own instructions.
+// Polls the mounted &view= frame's own getDetailedState for the remote peer's videoVisible field (see
+// VideoEngine.requestPeerVideoState) — the real signal for "a video element for this peer actually exists
+// and is visible", distinct from "presence confirms they're in the room" (see js/remote-media-state.js).
 async function pollRemoteMediaState(streamId, startedAt) {
   const entry = await engine.requestPeerVideoState("remoteview", streamId);
-  diag(`peer video state (from remoteview's own getDetailedState): ${JSON.stringify(entry)}`);
-  setDiagSnapshot(`peerVideoState (remoteview -> ${streamId})`, JSON.stringify(entry));
   if (entry?.videoVisible) {
     setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_LIVE);
     stopRemoteMediaPolling();
     return;
   }
   if (Date.now() - startedAt <= REMOTE_MEDIA_ERROR_AFTER_MS) return;
-  if (state.remoteMediaRemountCount < REMOTE_MEDIA_MAX_REMOUNTS) {
-    state.remoteMediaRemountCount += 1;
-    diag(`remote media timed out with no visible video — remounting (attempt ${state.remoteMediaRemountCount}/${REMOTE_MEDIA_MAX_REMOUNTS})`);
-    remountRemoteView(streamId);
-  } else {
-    setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_ERROR);
-    stopRemoteMediaPolling();
-  }
-}
-
-// Fresh iframe, SAME stream id — gives VDO a clean new attempt in case the first one raced ahead of the
-// Host's actual publish becoming ready (see pollRemoteMediaState's comment). Does not touch presence,
-// identity, or the Guest's own publishing transport at all.
-function remountRemoteView(streamId) {
-  const iframe = engine.mountParticipantView(elements.guestRemoteFrame, { roomId: state.roomId, streamId }, "remoteview");
-  diag(`remoteview remounted — src="${iframe.src}"`);
-  iframe.addEventListener("load", () => diag("remoteview iframe 'load' event fired (remount)"));
-  state.hostViewUnsub?.();
-  state.hostViewUnsub = engine.onMessage((message, source) => {
-    if (source !== iframe.contentWindow) return;
-    if (message?.action !== "tally") diag(`remoteview message (VDO connection state): ${JSON.stringify(message).slice(0, 160)}`);
-  });
-  startRemoteMediaPolling(streamId);
+  setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_ERROR);
+  stopRemoteMediaPolling();
 }
 
 function startRemoteMediaPolling(streamId) {
@@ -620,36 +325,11 @@ function stopRemoteMediaPolling() {
   }
 }
 
-// SELF PUBLISH DIAGNOSTIC — the KNOWN-GOOD baseline for the "Ricardo Mac -> Android black" investigation.
-// Guest's push is proven working end to end (Tukta renders live on Mac), so this frame's ("guest", from
-// mountGuestFrame) own getDetailedState self-entry is what a WORKING videoTrack/audioTrack/seeding/
-// localStream shape actually looks like — to diff directly against js/live-session.js's mirror-image
-// _pollHostPublishState, which asks the same question of the Host's "host" frame. Pure read, never
-// remounts the Guest's own publish, so it cannot regress it.
-async function pollSelfPublishState(streamId) {
-  const entry = await engine.requestPeerVideoState("guest", streamId);
-  diag(`self publish state (this device's OWN "guest" frame, getDetailedState): ${JSON.stringify(entry)}`);
-  setDiagSnapshot(`selfPublishState (own guest push, ${streamId})`, JSON.stringify(entry));
-}
-
-function startSelfPublishPolling(streamId) {
-  stopSelfPublishPolling();
-  pollSelfPublishState(streamId);
-  state.selfPublishTimerId = window.setInterval(() => pollSelfPublishState(streamId), 3000);
-}
-
-function stopSelfPublishPolling() {
-  if (state.selfPublishTimerId) {
-    window.clearInterval(state.selfPublishTimerId);
-    state.selfPublishTimerId = null;
-  }
-}
-
-// Remounts the SAME push connection (same streamId — see mountGuestFrame's comment) with the next camera
-// in the list. VDO.Ninja doesn't expose a live in-place device swap over its iframe API (only its own
-// internal flip-camera UI button, which cleanoutput hides), so this is a brief reconnect rather than a
-// seamless swap — the guest's tile will blink for a moment on Program Output/Director too. Also restarts
-// the VISIBLE local preview with the new device so what the guest sees stays truthful to what's live.
+// Remounts the SAME push connection (same streamId) with the next camera in the list. VDO.Ninja doesn't
+// expose a live in-place device swap over its iframe API (only its own internal flip-camera UI button,
+// which cleanoutput hides), so this is a brief reconnect rather than a seamless swap — the guest's tile
+// will blink for a moment on Program Output/Director too. Also restarts the VISIBLE local preview with the
+// new device so what the guest sees stays truthful to what's live.
 async function flipCamera() {
   if (state.flipping || state.lifecycle !== GuestLifecycle.IN_STUDIO) return;
   const options = [...elements.cameraSelect.options];
@@ -661,7 +341,6 @@ async function flipCamera() {
   elements.cameraSelect.value = next.value;
   const videoDeviceLabel = next.textContent;
   const audioDeviceLabel = elements.microphoneSelect.selectedOptions[0]?.textContent;
-  diag(`flip camera -> "${videoDeviceLabel}"`);
   try {
     state.previewStream = await startDevicePreview({
       videoEl: elements.cameraPreview,
@@ -670,7 +349,7 @@ async function flipCamera() {
       previousStream: state.previewStream
     });
   } catch (error) {
-    diag(`flip camera: local preview restart failed — ${error?.name}: ${error?.message}`);
+    log("flip camera: local preview restart failed", error?.name, error?.message);
   }
   engine.mountGuestFrame(elements.guestTransportFrame, {
     roomId: state.roomId,
@@ -716,9 +395,7 @@ async function leaveSession() {
   await state.presence?.leave();
   state.presence = null;
   state.mountedRemote = null;
-  state.remoteMediaRemountCount = 0;
   stopRemoteMediaPolling();
-  stopSelfPublishPolling();
   state.remoteMediaState = RemoteMediaState.WAITING_FOR_PARTICIPANT;
   state.hostViewUnsub?.();
   state.hostViewUnsub = null;
@@ -760,11 +437,8 @@ function getBackgroundNote(background) {
   return "";
 }
 
-// tally fires on every speaking/activity change — far too frequent to log without flooding the (also
-// temporary) diagnostics panel; everything else VDO.Ninja posts is infrequent enough to log in full.
 function handleVdoMessage(message) {
   if (!message) return;
-  if (message.action !== "tally") diag(`vdo message: ${JSON.stringify(message).slice(0, 160)}`);
   if (message.action === "view-connection" && message.value === false) {
     elements.joinState.textContent = "Host disconnected";
     elements.guestStatus.textContent = "The host connection was lost. Keep this page open if you plan to reconnect.";

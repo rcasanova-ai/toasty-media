@@ -154,32 +154,9 @@ export class LiveSession {
     this._transcriptionProvider = null;
     this.demoMode = false;
 
-    // TEMPORARY diagnostics — see js/host-view.js's renderGuestDiagnostics and this pass's report
-    // ("RAW REMOTE ENTRY" / "SOURCE-ID MAPPING" / "REMOTE RENDER ROOT CAUSE"). Real-device test confirmed
-    // the guest publishes and Director counts it, but the remote tile stays blank — this traces the exact
-    // id chain (VDO's raw guest-list entry -> registry entry -> what's passed to mountParticipantView ->
-    // whether that mounted iframe ever reports back) so the next real test shows exactly where it breaks
-    // instead of guessing again. Remove this block, its emit() calls, and host-view.js's rendering once the
-    // remote tile is confirmed working on real hardware.
-    this.guestDiagnostics = { raw: null, registry: [], mount: null, hostPublish: null };
     // See js/remote-media-state.js and _setRemoteMediaState below.
     this.remoteMediaState = RemoteMediaState.WAITING_FOR_PARTICIPANT;
     this._remoteMediaTimerId = null;
-    this._remoteMediaRemountCount = 0;
-    // HOST PUBLISH DIAGNOSTIC — added to trace "does the Host's own hidden VDO transport frame actually
-    // have a live outbound video track" (frameId "host"'s OWN self-entry from getDetailedState, distinct
-    // from the "guestview" frame above, which is the Host's VIEW of the guest, not the Host's publish).
-    // Read-only: never remounts/touches the publish frame, only asks it for its own reported state, so it
-    // cannot regress the proven-working Tukta->Mac path. Remove once "Ricardo Mac -> Android black" is
-    // root-caused and fixed.
-    this._hostPublishTimerId = null;
-    this._hostTransportSourceId = null;
-    this.engine.onMessage((message, source) => {
-      if (source && source === this.engine.getFrameWindow("guestview")) {
-        this.guestDiagnostics.mount = { ...this.guestDiagnostics.mount, lastMessage: message, lastMessageAt: Date.now() };
-        this.emit("guest-diagnostics", this.guestDiagnostics);
-      }
-    });
 
     this.engine.onMessage((message) => this._handleVdoMessage(message));
     window.setInterval(() => this.engine.requestDetailedState(), 5000);
@@ -342,11 +319,6 @@ export class LiveSession {
     if (previewStream) this._hostPreviewStream = previewStream;
     this._showHostNativeVideo();
     this.engine.mountDirectorFrame(this._containers.hostTransport, { roomId: this.roomId, label, videoDeviceLabel, audioDeviceLabel });
-    // transportSourceId here is the SAME string mountDirectorFrame just computed internally for its own
-    // `push` param (both are `${this.roomId}h`, read synchronously from the same this.roomId) — so this is
-    // provably the id VDO was TOLD to publish as. Polling asks VDO whether it's ACTUALLY doing so.
-    this._hostTransportSourceId = transportSourceId;
-    this._startHostPublishPolling(transportSourceId);
     this.participants.upsert(createParticipant({
       participantId: "host",
       role: ParticipantRole.HOST,
@@ -450,17 +422,8 @@ export class LiveSession {
 
   async _refreshGuestSeats() {
     const hostStreamId = `${this.roomId}h`;
-    const [guestsAll, rawEntries] = await Promise.all([
-      this.engine.requestGuestList(),
-      this.engine.requestRawGuestList()
-    ]);
+    const guestsAll = await this.engine.requestGuestList();
     const guests = guestsAll.filter((entry) => entry.id !== hostStreamId);
-    // TEMPORARY diagnostic — see js/host-view.js's renderGuestDiagnostics and this pass's report. Keeps the
-    // UNTOUCHED raw VDO response (rawEntries) visible alongside our own normalized/registry shapes, so a
-    // real test can see the exact id chain end to end rather than trusting normalization didn't lose or
-    // mis-map something.
-    this.guestDiagnostics.raw = rawEntries;
-    if (guests.length) console.debug("[LiveSession] raw guest-list entries:", JSON.parse(JSON.stringify(guests)));
     const stillPresent = new Set(guests.map((guest) => guest.id));
 
     // Keep existing seat holders steady so counts/controls don't flicker or reset on a repeat poll;
@@ -529,10 +492,8 @@ export class LiveSession {
       }));
     });
 
-    this.guestDiagnostics.registry = this.participants.list().filter((p) => p.role === ParticipantRole.GUEST);
     this._syncGuestVideoTile();
     this.emit("guests", this.guestCount());
-    this.emit("guest-diagnostics", this.guestDiagnostics);
     this.publishProgramState();
   }
 
@@ -546,28 +507,18 @@ export class LiveSession {
     if (!container) return;
     if (seat && this._mountedGuestViewId !== seat.id) {
       this._mountedGuestViewId = seat.id;
-      this._remoteMediaRemountCount = 0; // a genuinely new participant — fresh retry budget
-      this.guestDiagnostics.mount = { requestedAt: Date.now(), streamId: seat.id, iframeCreated: false, loaded: false, lastMessage: null, lastMessageAt: null };
       this._setRemoteMediaState(RemoteMediaState.CONNECTING_REMOTE_MEDIA);
-      const iframe = this.engine.mountParticipantView(container, { roomId: this.roomId, streamId: seat.id }, "guestview");
-      this.guestDiagnostics.mount.iframeCreated = Boolean(iframe);
-      iframe?.addEventListener("load", () => {
-        this.guestDiagnostics.mount = { ...this.guestDiagnostics.mount, loaded: true, loadedAt: Date.now() };
-        this.emit("guest-diagnostics", this.guestDiagnostics);
-      });
+      this.engine.mountParticipantView(container, { roomId: this.roomId, streamId: seat.id }, "guestview");
       this._startRemoteMediaPolling(seat.id);
     } else if (!seat && this._mountedGuestViewId) {
       this._mountedGuestViewId = null;
-      this._remoteMediaRemountCount = 0;
-      this.guestDiagnostics.mount = null;
       this._stopRemoteMediaPolling();
       this._setRemoteMediaState(RemoteMediaState.WAITING_FOR_PARTICIPANT);
       this.engine.unmountFrame(container, "guestview", "Waiting for guest to join");
     }
   }
 
-  // Same model and same reasoning as js/guest.js's mirror-image version (see js/remote-media-state.js) —
-  // presence confirming a guest is a DIFFERENT fact from their video actually being visible; this makes the
+  // Presence confirming a guest is a DIFFERENT fact from their video actually being visible; this makes the
   // gap between those two visible instead of leaving Director looking "connected" with a blank tile and no
   // way to tell why. videoVisible comes from the mounted guestview frame's OWN getDetailedState (see
   // VideoEngine.requestPeerVideoState) — not capturable any other way, since that iframe is cross-origin.
@@ -577,39 +528,16 @@ export class LiveSession {
     this.emit("remote-media-state", next);
   }
 
-  // Retry-on-timeout added for symmetry with js/guest.js's mirror-image version, where it addresses a real,
-  // code-evidenced race (see that file's own comment) between a Guest's PRESENCE-triggered discovery and
-  // the Host's actual VDO publish becoming ready. That specific race doesn't apply here the same way — Host
-  // discovers a guest via VDO's OWN requestGuestList, which by construction can't report someone who isn't
-  // already publishing — but this costs nothing for the already-working path (it only ever fires after a
-  // 15s timeout with no confirmed video, well past when a real connection reaches REMOTE_MEDIA_LIVE) and
-  // gives some resilience against any other real-world negotiation hiccup, so it's mirrored rather than
-  // left asymmetric between the two sides of the same primitive.
   async _pollRemoteMediaState(streamId, startedAt) {
     const entry = await this.engine.requestPeerVideoState("guestview", streamId);
-    this.guestDiagnostics.mount = { ...this.guestDiagnostics.mount, peerVideoState: entry };
-    this.emit("guest-diagnostics", this.guestDiagnostics);
     if (entry?.videoVisible) {
       this._setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_LIVE);
       this._stopRemoteMediaPolling();
       return;
     }
     if (Date.now() - startedAt <= 15000) return;
-    if (this._remoteMediaRemountCount < 2) {
-      this._remoteMediaRemountCount += 1;
-      const container = this._containers?.roomPreview;
-      if (container) {
-        const iframe = this.engine.mountParticipantView(container, { roomId: this.roomId, streamId }, "guestview");
-        iframe?.addEventListener("load", () => {
-          this.guestDiagnostics.mount = { ...this.guestDiagnostics.mount, loaded: true, loadedAt: Date.now() };
-          this.emit("guest-diagnostics", this.guestDiagnostics);
-        });
-      }
-      this._startRemoteMediaPolling(streamId);
-    } else {
-      this._setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_ERROR);
-      this._stopRemoteMediaPolling();
-    }
+    this._setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_ERROR);
+    this._stopRemoteMediaPolling();
   }
 
   _startRemoteMediaPolling(streamId) {
@@ -622,34 +550,6 @@ export class LiveSession {
     if (this._remoteMediaTimerId) {
       window.clearInterval(this._remoteMediaTimerId);
       this._remoteMediaTimerId = null;
-    }
-  }
-
-  // HOST PUBLISH DIAGNOSTIC — asks the Host's OWN hidden transport frame ("host", from mountDirectorFrame)
-  // for its own getDetailedState self-entry. Unlike a remote peer's entry (which only has
-  // streamID/label/videoVisible/videoMuted/muted), a frame's SELF entry also carries videoTrack/audioTrack/
-  // seeding/localStream — the actual "am I publishing" signal (see VideoEngine.requestPeerVideoState's own
-  // comment on why those fields only exist on a self entry). requestPeerVideoState's generic
-  // `entries.find(entry => entry.streamID === peerStreamId)` already covers this: VDO's own getDetailedState
-  // stamps `streamID: session.streamID` onto every entry, self included, so pointing it at frameId "host"
-  // with the Host's own transportSourceId correctly returns the self entry, not a peer's. Pure read — never
-  // remounts the publish frame, so it cannot regress the proven-working publish itself.
-  async _pollHostPublishState(streamId) {
-    const entry = await this.engine.requestPeerVideoState("host", streamId);
-    this.guestDiagnostics = { ...this.guestDiagnostics, hostPublish: { streamId, entry, checkedAt: Date.now() } };
-    this.emit("guest-diagnostics", this.guestDiagnostics);
-  }
-
-  _startHostPublishPolling(streamId) {
-    this._stopHostPublishPolling();
-    this._pollHostPublishState(streamId);
-    this._hostPublishTimerId = window.setInterval(() => this._pollHostPublishState(streamId), 3000);
-  }
-
-  _stopHostPublishPolling() {
-    if (this._hostPublishTimerId) {
-      window.clearInterval(this._hostPublishTimerId);
-      this._hostPublishTimerId = null;
     }
   }
 
@@ -859,8 +759,6 @@ export class LiveSession {
     this.setHostState(HostState.LEAVING);
     this.engine.disconnectLocalFrames();
     if (this._containers?.hostTransport) this.engine.unmountFrame(this._containers.hostTransport, "host", "");
-    this._stopHostPublishPolling();
-    this._hostTransportSourceId = null;
     this._stopRecordingTimer();
     this._hostPreviewStream?.getTracks().forEach((track) => track.stop());
     this._hostPreviewStream = null;
@@ -881,8 +779,6 @@ export class LiveSession {
     this.setScene("ending");
     this.setLive(false);
     this.engine.disconnectAll(guestIds);
-    this._stopHostPublishPolling();
-    this._hostTransportSourceId = null;
     this._stopRecordingTimer();
     // VDO's own iframe teardown (disconnectAll above) never touches this — it's a plain getUserMedia
     // stream Toasty owns directly for the native tile, so nothing else will turn the camera light off.

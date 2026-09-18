@@ -8,13 +8,8 @@
 // LiveSession.joinAsHost confirms IN_STUDIO. Every control that should only exist once the Host has
 // actually joined (Leave Studio, Talk to Hottie — see js/host-view.js's renderHostState) reads THAT
 // state, not whether this class happens to exist or whether the page has loaded.
-//
-// Logs every step under "[HostPrejoin]" — a real-device test previously got stuck with the camera never
-// turning on and no way to tell whether getUserMedia was ever called, still pending, or had failed
-// silently. This trades console noise for that being answerable from the next test's console output.
 import { startDevicePreview } from "./device-picker.js";
 import { HostState } from "./host-state.js";
-import { PrejoinDiagnostics } from "./prejoin-diagnostics.js";
 
 function log(...args) { console.debug("[HostPrejoin]", ...args); }
 
@@ -37,21 +32,10 @@ export class HostPrejoin {
       if (!el) log("MISSING element for key:", key, "— a stale/mismatched director.html would explain a silent init failure");
     }
     this._previewStream = null;
-    // TEMPORARY — see js/prejoin-diagnostics.js. Renders visibly in the prejoin card itself so a
-    // real-device test can be read/reported without devtools open.
-    this.diagnostics = new PrejoinDiagnostics({
-      root,
-      envEl: root.querySelector("#lvPrejoinDiagEnv"),
-      logEl: root.querySelector("#lvPrejoinDiagLog"),
-      testCameraBtn: root.querySelector("#lvTestCameraBtn"),
-      testCameraVideo: root.querySelector("#lvTestCameraVideo"),
-      testCameraStatus: root.querySelector("#lvTestCameraStatus")
-    });
   }
 
   async init() {
     log("init() starting");
-    this.diagnostics.init();
     this.elements.camera.addEventListener("change", () => this.startPreview());
     this.elements.mic.addEventListener("change", () => this.startPreview());
     this.elements.join.addEventListener("click", () => this.join());
@@ -67,44 +51,27 @@ export class HostPrejoin {
     this.elements.join.disabled = true;
     this.elements.status.textContent = "Requesting camera preview…";
     log("requesting camera/mic preview…");
-    this.diagnostics.logStep("[1] requesting permissions — calling startDevicePreview()");
     try {
-      this.diagnostics.logStep("[2] getUserMedia called (inside device-picker.js's startDevicePreview)");
       this._previewStream = await startDevicePreview({
         videoEl: this.elements.preview,
         cameraSelect: this.elements.camera,
         microphoneSelect: this.elements.mic,
         previousStream: this._previewStream
       });
-      const videoTracks = this._previewStream.getVideoTracks();
-      const audioTracks = this._previewStream.getAudioTracks();
-      this.diagnostics.logStep(`[3] getUserMedia RESOLVED`);
-      this.diagnostics.logStep(`[6] stream id: ${this._previewStream.id}`);
-      this.diagnostics.logStep(`[7] video track count: ${videoTracks.length}`);
-      this.diagnostics.logStep(`[8] audio track count: ${audioTracks.length}`);
-      this.diagnostics.logStep(`[9] video track label: ${videoTracks[0]?.label || "(none)"}`);
       log("preview stream acquired:", this._previewStream.getTracks().map((t) => ({ kind: t.kind, label: t.label, readyState: t.readyState })));
-      this.diagnostics.logStep("[11] video.srcObject assigned"); // startDevicePreview already did this
-      this.diagnostics.logStep(`[10] video.readyState: ${this.elements.preview.readyState}`);
-      // [4]/[5] (exception name/message) only apply to the rejection branch below.
       try {
         await this.elements.preview.play();
-        this.diagnostics.logStep(`[12] video.play() RESOLVED — videoWidth ${this.elements.preview.videoWidth}, videoHeight ${this.elements.preview.videoHeight}`);
         log("preview <video>.play() resolved — paused:", this.elements.preview.paused, "videoWidth:", this.elements.preview.videoWidth);
       } catch (playError) {
         // autoplay policy or similar — the stream is still valid and usable for Join even if the local
         // <video> element itself didn't start painting; log it rather than silently proceeding as if
         // nothing happened.
-        this.diagnostics.logStep(`[12] video.play() REJECTED — name="${playError?.name}" message="${playError?.message}"`);
         log("preview <video>.play() REJECTED (stream is still valid):", playError?.name, playError?.message);
       }
       this.elements.status.textContent = "Preview ready. Set your details, then join.";
       this.elements.join.disabled = false;
       this.session.setHostState(HostState.PREJOIN_READY);
     } catch (error) {
-      this.diagnostics.logStep(`[3] getUserMedia REJECTED`);
-      this.diagnostics.logStep(`[4] exact exception name: ${error?.name}`);
-      this.diagnostics.logStep(`[5] exact exception message: ${error?.message}`);
       log("getUserMedia FAILED", error?.name, error?.message, error?.stack);
       const denied = error?.name === "NotAllowedError" || error?.name === "SecurityError";
       this.elements.status.textContent = denied
