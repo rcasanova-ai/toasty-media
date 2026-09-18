@@ -278,13 +278,13 @@ export class LiveSession {
   // deliberately NOT a separate host-profile model, so lower thirds/Program Output/AI Producer context/
   // recordings/Dub can all treat "who is this person" identically whether they're the host or a guest.
 
-  joinAsHost({ displayName, title = "", company = "", videoDeviceId, audioDeviceId } = {}) {
+  joinAsHost({ displayName, title = "", company = "", videoDeviceLabel, audioDeviceLabel } = {}) {
     const name = (displayName || "").trim() || "Host";
     this.hostProfile = { displayName: name, title: title.trim(), company: company.trim() };
     const role = [this.hostProfile.title, this.hostProfile.company].filter(Boolean).join(", ");
     const label = role ? `${name} · ${role}` : name;
-    this._hostDevices = { videoDeviceId, audioDeviceId };
-    this.engine.mountDirectorFrame(this._containers.host, { roomId: this.roomId, label, videoDeviceId, audioDeviceId });
+    this._hostDevices = { videoDeviceLabel, audioDeviceLabel };
+    this.engine.mountDirectorFrame(this._containers.host, { roomId: this.roomId, label, videoDeviceLabel, audioDeviceLabel });
     this.emit("host-profile", this.hostProfile);
   }
 

@@ -24,15 +24,28 @@ export class VideoEngine {
   // letterboxes the local preview (object-fit:contain) inside .vdo-frame's fixed aspect box, so the host's
   // own tile showed black bars while guest tiles (which already had cover=1) filled cleanly.
   //
-  // No longer generates its own "Enable camera & microphone" launch card + click-to-start-VDO's-own-setup
-  // flow — that was VDO.Ninja's raw device-selection/green-START-button UI leaking straight into the
-  // product (see this repair pass's report). js/host-prejoin.js now owns that prejoin experience the same
-  // way guest.html already does for guests, and calls this with the device IDs it already collected —
-  // videodevice/audiodevice + autostart mirror mountGuestFrame exactly so VDO.Ninja auto-publishes
-  // silently instead of showing its own setup screen.
-  mountDirectorFrame(container,{roomId,label="Host",videoDeviceId,audioDeviceId}) {
+  // ROOT CAUSE of "VDO chrome/black video after Join" (found via real-device testing): this was missing
+  // cleanoutput=1 entirely — every OTHER mount* function below has it; this one never did, going all the
+  // way back to before the native-prejoin rewrite. Without it, VDO.Ninja shows its own full UI (status
+  // bar, bitrate, etc.) by default. Fixed by adding it here, matching every sibling function.
+  //
+  // SECOND root cause: videodevice/audiodevice used to receive raw MediaDevices deviceId strings from
+  // js/host-prejoin.js's device picker. Per VDO.Ninja's own docs, a device id there requires an EXACT
+  // match against ITS OWN device enumeration — but deviceId is deliberately salted per-origin by the
+  // browser's privacy model (a real, documented anti-fingerprinting behavior, not a bug in either
+  // codebase): a deviceId read on toasty.media is not guaranteed, and in practice usually fails, to match
+  // the SAME physical device's id inside the cross-origin vdo.ninja iframe. That silent match failure is
+  // what actually produced the black video + VDO's own device-selection UI reappearing — passing yet
+  // another query parameter could never fix a mismatch in the VALUE already being passed. Device LABELS
+  // (e.g. "FaceTime HD Camera") aren't origin-salted — they're the plain OS/driver device name — and VDO's
+  // own docs describe label-based matching ("NameStartsWith"/"NameIncludes") as the primary lookup before
+  // falling back to exact device id. js/host-prejoin.js and js/guest.js now pass the selected option's
+  // LABEL, not its value/deviceId — see normalizeVdoDeviceLabel below. NOT yet confirmed on a real device;
+  // this is a documented-behavior-based fix for a documented cross-origin limitation, not a guess, but it
+  // still needs the next real Host+Guest test to confirm VDO actually resolves it this way in practice.
+  mountDirectorFrame(container,{roomId,label="Host",videoDeviceLabel,audioDeviceLabel}) {
     const streamId=`${roomId}h`;
-    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cover:"1",autostart:"1",videodevice:videoDeviceId||undefined,audiodevice:audioDeviceId||undefined});
+    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cleanoutput:"1",cover:"1",autostart:"1",videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel)});
   }
 
   // slots=4 reserves 4 even grid cells regardless of how many are actually filled, and cover=1 crops
@@ -69,7 +82,12 @@ export class VideoEngine {
   // permission for the local preview) — passing them through as videodevice/audiodevice plus autostart
   // lets VDO.Ninja publish immediately with those devices instead of showing its own native
   // device-selection screen (which is both off-brand and, on narrow viewports, wider than the iframe).
-  mountGuestFrame(container,{roomId,guestName,backgroundMode,videoDeviceId,audioDeviceId}) { const suffix=Date.now().toString(36).slice(-4); const streamId=`${roomId}g${suffix}`.slice(0,24); return this.mountFrame(container,"guest",{room:roomId,push:streamId,label:guestName||"Guest",webcam:"1",showlabels:"1",cleanoutput:"1",autostart:"1",cover:"1",videodevice:videoDeviceId||undefined,audiodevice:audioDeviceId||undefined,effects:effectForBackground(backgroundMode)}); }
+  // videoDeviceLabel/audioDeviceLabel: same cross-origin fix as mountDirectorFrame above — a raw
+  // MediaDevices deviceId from guest.html's own picker is origin-salted and won't reliably resolve
+  // inside the vdo.ninja iframe; the device's LABEL does. This already had cleanoutput=1, so guest join
+  // was never exposed to VDO's own UI chrome the way the host path was — only the device-selection half
+  // of this bug applied here.
+  mountGuestFrame(container,{roomId,guestName,backgroundMode,videoDeviceLabel,audioDeviceLabel}) { const suffix=Date.now().toString(36).slice(-4); const streamId=`${roomId}g${suffix}`.slice(0,24); return this.mountFrame(container,"guest",{room:roomId,push:streamId,label:guestName||"Guest",webcam:"1",showlabels:"1",cleanoutput:"1",autostart:"1",cover:"1",videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),effects:effectForBackground(backgroundMode)}); }
   mountListenerFrame(container,{roomId}) { return this.mountFrame(container,"listener",{room:roomId,scene:"0",showlabels:"1",cleanoutput:"1"}); }
 
   // Hidden viewer-only frame used purely to query the room's live guest list (id + label) for the Program Output compositor.
@@ -147,6 +165,15 @@ export class VideoEngine {
 
   onMessage(callback){this.listeners.add(callback);return()=>this.listeners.delete(callback);}
   handleMessage(event){if(event.origin!==this.baseUrl)return;this.listeners.forEach(callback=>callback(event.data));}
+}
+
+// VDO.Ninja's own docs: a device-name string matches via "NameStartsWith" then "NameIncludes" before
+// falling back to an exact device-id match — whitespace can be replaced with underscores for a cleaner
+// match. Returns undefined (not an empty string) for a blank/generic label so callers correctly fall back
+// to VDO's own default-device auto-select instead of sending it a param that can't match anything.
+function normalizeVdoDeviceLabel(label) {
+  const trimmed = String(label || "").trim();
+  return trimmed ? trimmed.replace(/\s+/g, "_") : undefined;
 }
 
 function normalizeGuestListEntries(raw) {

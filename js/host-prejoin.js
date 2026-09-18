@@ -46,16 +46,19 @@ export class HostPrejoin {
   }
 
   join() {
-    const videoDeviceId = this.elements.camera.value;
-    const audioDeviceId = this.elements.mic.value;
+    // Pass the device's LABEL, not its .value (a MediaDevices deviceId) — see video-engine.js's
+    // mountDirectorFrame comment for why a deviceId read here on toasty.media's origin can't reliably
+    // resolve inside VDO.Ninja's cross-origin iframe, but the plain device name can.
+    const videoDeviceLabel = this.elements.camera.selectedOptions[0]?.textContent;
+    const audioDeviceLabel = this.elements.mic.selectedOptions[0]?.textContent;
     this._previewStream?.getTracks().forEach((track) => track.stop());
     this.elements.preview.srcObject = null;
     this.session.joinAsHost({
       displayName: this.elements.name.value,
       title: this.elements.title.value,
       company: this.elements.company.value,
-      videoDeviceId,
-      audioDeviceId
+      videoDeviceLabel,
+      audioDeviceLabel
     });
     this.elements.card.hidden = true;
   }

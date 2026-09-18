@@ -123,15 +123,17 @@ function joinStudio() {
   elements.joinState.textContent = "Joining";
   elements.joinStudio.disabled = true;
   const backgroundNote = getBackgroundNote(state.selectedBackground);
-  const videoDeviceId = elements.cameraSelect.value;
-  const audioDeviceId = elements.microphoneSelect.value;
+  // Device LABEL, not .value (a MediaDevices deviceId) — see video-engine.js's mountDirectorFrame
+  // comment for why a deviceId read here can't reliably resolve inside VDO.Ninja's cross-origin iframe.
+  const videoDeviceLabel = elements.cameraSelect.selectedOptions[0]?.textContent;
+  const audioDeviceLabel = elements.microphoneSelect.selectedOptions[0]?.textContent;
   stopPreview();
   engine.mountGuestFrame(elements.guestFrame, {
     roomId: state.roomId,
     guestName: label,
     backgroundMode: state.selectedBackground,
-    videoDeviceId,
-    audioDeviceId
+    videoDeviceLabel,
+    audioDeviceLabel
   });
   // The check-in form (name/title/company/device pickers/background swatches) has done its job —
   // once joined, guests should see only the live feed and the mute/camera/screen-share dock.
