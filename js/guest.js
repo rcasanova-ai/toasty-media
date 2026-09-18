@@ -178,8 +178,9 @@ function diag(message) {
 }
 
 // Name is REQUIRED — the HTML `required` attribute alone does nothing here since #joinStudio is a plain
-// button, not a <form> submit (no native constraint validation ever runs).
-async function joinStudio() {
+// button, not a <form> submit (no native constraint validation ever runs). Synchronous end to end — no
+// await, matching joinAsHost's own immediate mount-then-transition shape exactly.
+function joinStudio() {
   if (state.lifecycle !== GuestLifecycle.PREJOIN_READY) return;
   const guestName = elements.guestName.value.trim();
   if (!guestName) {
@@ -218,17 +219,11 @@ async function joinStudio() {
   });
   diag(`[6] transport mounted (hidden) — push id "${state.streamId}"`);
 
-  const result = await engine.confirmPublishing("guest", state.streamId);
-  if (!result.confirmed) {
-    diag(`[7] publish NOT confirmed after retries — VDO never reported videoTrack:true for "${state.streamId}"`);
-    elements.guestStatus.dataset.error = "true";
-    elements.guestStatus.textContent = "Couldn't confirm the connection started. Check your internet connection and try again.";
-    elements.joinStudio.disabled = false;
-    elements.joinState.textContent = "Not joined";
-    setLifecycle(GuestLifecycle.PREJOIN_READY);
-    return;
-  }
-  diag(`[7] publish CONFIRMED — VDO reports videoTrack:true for "${state.streamId}"`);
+  // NOT waiting for any publish confirmation here — mirrors live-session.js's joinAsHost exactly, which
+  // mounts the Host's hidden transport frame and calls setHostState(IN_STUDIO) immediately, with no
+  // confirmation step at all. A previous version of this file added a confirmPublishing() wait Host never
+  // had; on a real device that showed as "click Join, nothing happens for up to ~30s" — an invented
+  // abstraction, not something proven by the one path that actually works. Removed rather than tuned.
 
   // Toasty-owned name/title under the live tile — see css/studio.css's .guest-live-identity comment for
   // why this is separate from VDO.Ninja's own showlabels overlay.
