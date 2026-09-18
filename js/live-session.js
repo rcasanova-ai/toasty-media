@@ -161,11 +161,19 @@ export class LiveSession {
     // whether that mounted iframe ever reports back) so the next real test shows exactly where it breaks
     // instead of guessing again. Remove this block, its emit() calls, and host-view.js's rendering once the
     // remote tile is confirmed working on real hardware.
-    this.guestDiagnostics = { raw: null, registry: [], mount: null };
+    this.guestDiagnostics = { raw: null, registry: [], mount: null, hostPublish: null };
     // See js/remote-media-state.js and _setRemoteMediaState below.
     this.remoteMediaState = RemoteMediaState.WAITING_FOR_PARTICIPANT;
     this._remoteMediaTimerId = null;
     this._remoteMediaRemountCount = 0;
+    // HOST PUBLISH DIAGNOSTIC — added to trace "does the Host's own hidden VDO transport frame actually
+    // have a live outbound video track" (frameId "host"'s OWN self-entry from getDetailedState, distinct
+    // from the "guestview" frame above, which is the Host's VIEW of the guest, not the Host's publish).
+    // Read-only: never remounts/touches the publish frame, only asks it for its own reported state, so it
+    // cannot regress the proven-working Tukta->Mac path. Remove once "Ricardo Mac -> Android black" is
+    // root-caused and fixed.
+    this._hostPublishTimerId = null;
+    this._hostTransportSourceId = null;
     this.engine.onMessage((message, source) => {
       if (source && source === this.engine.getFrameWindow("guestview")) {
         this.guestDiagnostics.mount = { ...this.guestDiagnostics.mount, lastMessage: message, lastMessageAt: Date.now() };
@@ -334,6 +342,11 @@ export class LiveSession {
     if (previewStream) this._hostPreviewStream = previewStream;
     this._showHostNativeVideo();
     this.engine.mountDirectorFrame(this._containers.hostTransport, { roomId: this.roomId, label, videoDeviceLabel, audioDeviceLabel });
+    // transportSourceId here is the SAME string mountDirectorFrame just computed internally for its own
+    // `push` param (both are `${this.roomId}h`, read synchronously from the same this.roomId) — so this is
+    // provably the id VDO was TOLD to publish as. Polling asks VDO whether it's ACTUALLY doing so.
+    this._hostTransportSourceId = transportSourceId;
+    this._startHostPublishPolling(transportSourceId);
     this.participants.upsert(createParticipant({
       participantId: "host",
       role: ParticipantRole.HOST,
@@ -612,6 +625,34 @@ export class LiveSession {
     }
   }
 
+  // HOST PUBLISH DIAGNOSTIC — asks the Host's OWN hidden transport frame ("host", from mountDirectorFrame)
+  // for its own getDetailedState self-entry. Unlike a remote peer's entry (which only has
+  // streamID/label/videoVisible/videoMuted/muted), a frame's SELF entry also carries videoTrack/audioTrack/
+  // seeding/localStream — the actual "am I publishing" signal (see VideoEngine.requestPeerVideoState's own
+  // comment on why those fields only exist on a self entry). requestPeerVideoState's generic
+  // `entries.find(entry => entry.streamID === peerStreamId)` already covers this: VDO's own getDetailedState
+  // stamps `streamID: session.streamID` onto every entry, self included, so pointing it at frameId "host"
+  // with the Host's own transportSourceId correctly returns the self entry, not a peer's. Pure read — never
+  // remounts the publish frame, so it cannot regress the proven-working publish itself.
+  async _pollHostPublishState(streamId) {
+    const entry = await this.engine.requestPeerVideoState("host", streamId);
+    this.guestDiagnostics = { ...this.guestDiagnostics, hostPublish: { streamId, entry, checkedAt: Date.now() } };
+    this.emit("guest-diagnostics", this.guestDiagnostics);
+  }
+
+  _startHostPublishPolling(streamId) {
+    this._stopHostPublishPolling();
+    this._pollHostPublishState(streamId);
+    this._hostPublishTimerId = window.setInterval(() => this._pollHostPublishState(streamId), 3000);
+  }
+
+  _stopHostPublishPolling() {
+    if (this._hostPublishTimerId) {
+      window.clearInterval(this._hostPublishTimerId);
+      this._hostPublishTimerId = null;
+    }
+  }
+
   guestCount() {
     return this.guestSeats.filter(Boolean).length;
   }
@@ -818,6 +859,8 @@ export class LiveSession {
     this.setHostState(HostState.LEAVING);
     this.engine.disconnectLocalFrames();
     if (this._containers?.hostTransport) this.engine.unmountFrame(this._containers.hostTransport, "host", "");
+    this._stopHostPublishPolling();
+    this._hostTransportSourceId = null;
     this._stopRecordingTimer();
     this._hostPreviewStream?.getTracks().forEach((track) => track.stop());
     this._hostPreviewStream = null;
@@ -838,6 +881,8 @@ export class LiveSession {
     this.setScene("ending");
     this.setLive(false);
     this.engine.disconnectAll(guestIds);
+    this._stopHostPublishPolling();
+    this._hostTransportSourceId = null;
     this._stopRecordingTimer();
     // VDO's own iframe teardown (disconnectAll above) never touches this — it's a plain getUserMedia
     // stream Toasty owns directly for the native tile, so nothing else will turn the camera light off.

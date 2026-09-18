@@ -217,6 +217,24 @@ export class HostView {
     lines.push(`  id passed to mountParticipantView: ${mountId ?? "(none)"}`);
     lines.push(`  all match: ${rawIds.length && registryIds.length && mountId ? String(rawIds.every((id) => registryIds.includes(id)) && registryIds.includes(mountId)) : "(insufficient data)"}`);
 
+    // HOST PUBLISH — the "am I actually publishing" side of the "Ricardo Mac -> Android black" bug. This
+    // frame ("host", from mountDirectorFrame) is what a remote Android viewer connects to; its OWN
+    // getDetailedState self-entry (videoTrack/audioTrack/seeding/localStream) is the ground truth for
+    // whether VDO ever got a real outbound track, independent of anything Android reports as a viewer.
+    lines.push("");
+    lines.push("HOST PUBLISH (Host's OWN \"host\" transport frame, self getDetailedState entry):");
+    if (!diag.hostPublish) {
+      lines.push("  (not polled yet)");
+    } else {
+      lines.push(`  push/transportSourceId: ${diag.hostPublish.streamId}`);
+      lines.push(`  checked at: ${new Date(diag.hostPublish.checkedAt).toLocaleTimeString()}`);
+      lines.push(`  self entry: ${diag.hostPublish.entry ? JSON.stringify(diag.hostPublish.entry) : "(no self entry found — frame not reporting itself under this streamID)"}`);
+      if (diag.hostPublish.entry) {
+        const e = diag.hostPublish.entry;
+        lines.push(`  videoTrack=${e.videoTrack} audioTrack=${e.audioTrack} seeding=${e.seeding} localStream=${e.localStream} videoVisible=${e.videoVisible}`);
+      }
+    }
+
     this.elements.guestDiagnostics.textContent = lines.join("\n");
   }
 

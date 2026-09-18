@@ -49,6 +49,7 @@ const state = {
   remoteMediaState: RemoteMediaState.WAITING_FOR_PARTICIPANT,
   remoteMediaTimerId: null,
   remoteMediaRemountCount: 0,
+  selfPublishTimerId: null,
   presence: null,
   selfLabel: null,
   lifecycle: GuestLifecycle.PREJOIN_LOADING,
@@ -395,6 +396,7 @@ function joinStudio() {
     audioDeviceLabel
   });
   setLastAction(`J8 TRANSPORT MOUNT RETURNED — push id "${state.streamId}"`);
+  startSelfPublishPolling(state.streamId);
 
   // NOT waiting for any publish confirmation here — mirrors live-session.js's joinAsHost exactly, which
   // mounts the Host's hidden transport frame and calls setHostState(IN_STUDIO) immediately, with no
@@ -567,6 +569,30 @@ function stopRemoteMediaPolling() {
   }
 }
 
+// SELF PUBLISH DIAGNOSTIC — the KNOWN-GOOD baseline for the "Ricardo Mac -> Android black" investigation.
+// Guest's push is proven working end to end (Tukta renders live on Mac), so this frame's ("guest", from
+// mountGuestFrame) own getDetailedState self-entry is what a WORKING videoTrack/audioTrack/seeding/
+// localStream shape actually looks like — to diff directly against js/live-session.js's mirror-image
+// _pollHostPublishState, which asks the same question of the Host's "host" frame. Pure read, never
+// remounts the Guest's own publish, so it cannot regress it.
+async function pollSelfPublishState(streamId) {
+  const entry = await engine.requestPeerVideoState("guest", streamId);
+  diag(`self publish state (this device's OWN "guest" frame, getDetailedState): ${JSON.stringify(entry)}`);
+}
+
+function startSelfPublishPolling(streamId) {
+  stopSelfPublishPolling();
+  pollSelfPublishState(streamId);
+  state.selfPublishTimerId = window.setInterval(() => pollSelfPublishState(streamId), 3000);
+}
+
+function stopSelfPublishPolling() {
+  if (state.selfPublishTimerId) {
+    window.clearInterval(state.selfPublishTimerId);
+    state.selfPublishTimerId = null;
+  }
+}
+
 // Remounts the SAME push connection (same streamId — see mountGuestFrame's comment) with the next camera
 // in the list. VDO.Ninja doesn't expose a live in-place device swap over its iframe API (only its own
 // internal flip-camera UI button, which cleanoutput hides), so this is a brief reconnect rather than a
@@ -640,6 +666,7 @@ async function leaveSession() {
   state.mountedRemote = null;
   state.remoteMediaRemountCount = 0;
   stopRemoteMediaPolling();
+  stopSelfPublishPolling();
   state.remoteMediaState = RemoteMediaState.WAITING_FOR_PARTICIPANT;
   state.hostViewUnsub?.();
   state.hostViewUnsub = null;
