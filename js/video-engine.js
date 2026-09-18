@@ -173,8 +173,33 @@ export class VideoEngine {
     });
   }
 
+  // DIAGNOSTIC ONLY — same request as requestGuestList, but resolves the untouched raw VDO.Ninja response
+  // (whatever fields it actually included) instead of the normalized {id,label} shape requestGuestList
+  // reduces it to. Used to answer "what does VDO ACTUALLY send us for this guest" without normalization
+  // hiding a field that might matter (see this pass's report, section A/B).
+  requestRawGuestList(frameId="control",timeoutMs=2500) {
+    return new Promise((resolve) => {
+      const cib = `rawguestlist-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
+      let done = false;
+      const finish = (value) => { if(done) return; done=true; clearTimeout(timer); off(); resolve(value); };
+      const off = this.onMessage((message) => {
+        if (message?.cib !== cib) return;
+        finish(message.guestList ?? message.list ?? message.guests ?? null);
+      });
+      const timer = setTimeout(() => finish(null), timeoutMs);
+      if (!this.send(frameId, { getGuestList: true, cib })) finish(null);
+    });
+  }
+
+  // Lets a caller correlate an onMessage callback's event.source against a specific mounted frame — see
+  // handleMessage below. Used by live-session.js's guest-view diagnostics to know whether a given VDO
+  // postMessage actually came from the mounted remote-guest-view iframe specifically, not just "some" frame.
+  getFrameWindow(frameId){return this.frames.get(frameId)?.contentWindow;}
+
   onMessage(callback){this.listeners.add(callback);return()=>this.listeners.delete(callback);}
-  handleMessage(event){if(event.origin!==this.baseUrl)return;this.listeners.forEach(callback=>callback(event.data));}
+  // event.source (the iframe's window) is now passed as a second argument — additive, existing callbacks
+  // that only read the first (data) argument are unaffected.
+  handleMessage(event){if(event.origin!==this.baseUrl)return;this.listeners.forEach(callback=>callback(event.data,event.source));}
 }
 
 // VDO.Ninja's own docs: a device-name string matches via "NameStartsWith" then "NameIncludes" before

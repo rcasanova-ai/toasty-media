@@ -2905,20 +2905,32 @@
    4:5 portrait preview alone used to eat roughly half of a 375x812 viewport. 16:10 keeps a real camera
    check without doing that; .guest-device-row below buys back more of the same budget by putting
    Camera/Mic side by side instead of stacked. */
+/* width:100% is load-bearing, not decorative — see the ROOT CAUSE note on .preview-stage--live below for
+   the exact real-device bug this prevents. */
 .preview-stage {
   aspect-ratio: 16 / 10;
   background: #100c0b;
   border-radius: 10px;
   overflow: hidden;
   position: relative;
+  width: 100%;
 }
 
 /* Applied when js/guest.js relocates the SAME #previewStage node (not a clone) into .joined-room on a
-   confirmed Join — the local camera preview becomes the guest's main live view, so it gets the room
-   .large-frame normally gives a video tile instead of the compact prejoin size. */
+   confirmed Join — the local camera preview becomes the guest's main live view, so it gets a bounded
+   portrait ratio suited to one big camera tile instead of the compact 16:10 prejoin check.
+   ROOT CAUSE (real-device test, confirmed by computed-style measurement, not a guess): the base
+   .preview-stage rule never set width:100%. A previous version of this rule set only aspect-ratio:auto
+   plus min-height here, with no width — min-height gave the box a DEFINITE height, and with no definite
+   width, the browser used aspect-ratio to derive WIDTH FROM HEIGHT instead of the reverse (measured
+   real example: 487px height × 16/10 = 779px width inside a 339px-wide parent — the exact overflow
+   reported: "camera extends outside its containing card and becomes desktop-sized"). Fixed by keeping
+   width:100% (inherited from .preview-stage above) as the one definite dimension, so aspect-ratio always
+   derives height from width, never the reverse — max-height only caps the result, it never becomes the
+   definite dimension the way min-height did. */
 .preview-stage--live {
-  aspect-ratio: auto;
-  min-height: min(60vh, 520px);
+  aspect-ratio: 3 / 4;
+  max-height: min(58vh, 520px);
 }
 
 .guest-device-row {
@@ -3195,6 +3207,19 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.55rem;
+}
+
+/* Scoped to the guest's own live dock, not .dock-btn itself — Host's dock (studio/director.html) uses the
+   same base class and must stay untouched. 38px keeps four controls comfortably on one row on a narrow
+   phone without dropping below a reasonable touch target. */
+.guest-live-controls .dock-btn {
+  height: 38px;
+  width: 38px;
+}
+
+.guest-live-controls .dock-btn svg {
+  height: 15px;
+  width: 15px;
 }
 
 /* Toasty-owned name/title under the guest's own live tile — deliberately separate from VDO.Ninja's own
@@ -3639,6 +3664,18 @@
 #toastyDebugFields .debug-error {
   color: #ff6b6b;
   font-weight: 800;
+}
+
+/* Director/Producer's own guest source-id diagnostics (#lvGuestDiagnostics) reuses .toasty-debug-panel's
+   container styling but dumps one preformatted block instead of discrete field rows. */
+.toasty-debug-panel pre {
+  color: inherit;
+  font: inherit;
+  margin: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .lv-host-prejoin-title {

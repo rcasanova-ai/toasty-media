@@ -412,6 +412,14 @@
                   <span class="lv-video-tile-label" id="lvGuestPanelStatus">Waiting</span>
                 </article>
               </div>
+              <!-- TEMPORARY — see js/host-view.js's renderGuestDiagnostics. Traces the exact id chain from
+                   VDO's raw guest-list entry through to the mounted remote-view iframe, for the real-device
+                   test chasing "1 connected but the remote tile stays blank." Remove this block plus its
+                   wiring once that tile is confirmed working on real hardware. -->
+              <div class="toasty-debug-panel">
+                <p class="toasty-debug-title">Guest source diagnostics (temporary)</p>
+                <pre id="lvGuestDiagnostics"></pre>
+              </div>
               <div class="lv-host-controls" data-lv-only="host">
                 <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
                 <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>

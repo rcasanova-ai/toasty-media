@@ -149,6 +149,21 @@ export class LiveSession {
     this._transcriptionProvider = null;
     this.demoMode = false;
 
+    // TEMPORARY diagnostics — see js/host-view.js's renderGuestDiagnostics and this pass's report
+    // ("RAW REMOTE ENTRY" / "SOURCE-ID MAPPING" / "REMOTE RENDER ROOT CAUSE"). Real-device test confirmed
+    // the guest publishes and Director counts it, but the remote tile stays blank — this traces the exact
+    // id chain (VDO's raw guest-list entry -> registry entry -> what's passed to mountParticipantView ->
+    // whether that mounted iframe ever reports back) so the next real test shows exactly where it breaks
+    // instead of guessing again. Remove this block, its emit() calls, and host-view.js's rendering once the
+    // remote tile is confirmed working on real hardware.
+    this.guestDiagnostics = { raw: null, registry: [], mount: null };
+    this.engine.onMessage((message, source) => {
+      if (source && source === this.engine.getFrameWindow("guestview")) {
+        this.guestDiagnostics.mount = { ...this.guestDiagnostics.mount, lastMessage: message, lastMessageAt: Date.now() };
+        this.emit("guest-diagnostics", this.guestDiagnostics);
+      }
+    });
+
     this.engine.onMessage((message) => this._handleVdoMessage(message));
     window.setInterval(() => this.engine.requestDetailedState(), 5000);
   }
@@ -405,13 +420,16 @@ export class LiveSession {
 
   async _refreshGuestSeats() {
     const hostStreamId = `${this.roomId}h`;
-    const guests = (await this.engine.requestGuestList()).filter((entry) => entry.id !== hostStreamId);
-    // TEMPORARY diagnostic — see this repair pass's report ("ROOT CAUSE — GUEST IDENTITY"): the request/
-    // response shape for getGuestList was verified correct against VDO.Ninja's own source, but the exact
-    // code path that fills each entry's label from a guest's own &label= was not fully traceable without a
-    // live two-device session. This logs the RAW entries so the next real test captures hard evidence
-    // (does `label` arrive empty, or does it arrive correct and get lost somewhere downstream?) instead of
-    // guessing again. Safe to remove once confirmed.
+    const [guestsAll, rawEntries] = await Promise.all([
+      this.engine.requestGuestList(),
+      this.engine.requestRawGuestList()
+    ]);
+    const guests = guestsAll.filter((entry) => entry.id !== hostStreamId);
+    // TEMPORARY diagnostic — see js/host-view.js's renderGuestDiagnostics and this pass's report. Keeps the
+    // UNTOUCHED raw VDO response (rawEntries) visible alongside our own normalized/registry shapes, so a
+    // real test can see the exact id chain end to end rather than trusting normalization didn't lose or
+    // mis-map something.
+    this.guestDiagnostics.raw = rawEntries;
     if (guests.length) console.debug("[LiveSession] raw guest-list entries:", JSON.parse(JSON.stringify(guests)));
     const stillPresent = new Set(guests.map((guest) => guest.id));
 
@@ -461,8 +479,10 @@ export class LiveSession {
       }));
     });
 
+    this.guestDiagnostics.registry = this.participants.list().filter((p) => p.role === ParticipantRole.GUEST);
     this._syncGuestVideoTile();
     this.emit("guests", this.guestCount());
+    this.emit("guest-diagnostics", this.guestDiagnostics);
     this.publishProgramState();
   }
 
@@ -476,9 +496,16 @@ export class LiveSession {
     if (!container) return;
     if (seat && this._mountedGuestViewId !== seat.id) {
       this._mountedGuestViewId = seat.id;
-      this.engine.mountParticipantView(container, { streamId: seat.id }, "guestview");
+      this.guestDiagnostics.mount = { requestedAt: Date.now(), streamId: seat.id, iframeCreated: false, loaded: false, lastMessage: null, lastMessageAt: null };
+      const iframe = this.engine.mountParticipantView(container, { streamId: seat.id }, "guestview");
+      this.guestDiagnostics.mount.iframeCreated = Boolean(iframe);
+      iframe?.addEventListener("load", () => {
+        this.guestDiagnostics.mount = { ...this.guestDiagnostics.mount, loaded: true, loadedAt: Date.now() };
+        this.emit("guest-diagnostics", this.guestDiagnostics);
+      });
     } else if (!seat && this._mountedGuestViewId) {
       this._mountedGuestViewId = null;
+      this.guestDiagnostics.mount = null;
       this.engine.unmountFrame(container, "guestview", "Waiting for guest to join");
     }
   }

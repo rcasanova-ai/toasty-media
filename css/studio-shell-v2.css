@@ -904,10 +904,20 @@ body.studio-public-shell[data-brand-theme] {
 }
 
 .guest-shell[data-brand-theme] .preview-stage {
-  aspect-ratio: 16 / 10;
   background: var(--ui-panel-2);
   border: 1px solid var(--ui-line);
   border-radius: var(--ui-radius);
+}
+
+/* Same specificity bug already fixed once for #guestCheckin/.dock-btn in this file (see their own
+   comments): this selector's aspect-ratio:16/10 outranked base studio.css's .preview-stage--live modifier
+   on any branded page (which is all of them), silently forcing 16/10 back on regardless — a real,
+   confirmed contributor to the "camera extends outside its card, desktop-sized" real-device bug (see
+   .preview-stage--live's own comment in studio.css for the full root-cause chain). Scoped separately
+   instead of merged into the rule above so aspect-ratio stays theme-agnostic (prejoin keeps its base
+   16/10, in-studio keeps its base 3/4) while background/border/radius still get the brand skin. */
+.guest-shell[data-brand-theme] .preview-stage--live {
+  aspect-ratio: 3 / 4;
 }
 
 .guest-shell[data-brand-theme] .preview-overlay img {
