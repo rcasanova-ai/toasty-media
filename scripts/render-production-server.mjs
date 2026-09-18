@@ -362,6 +362,7 @@ Respond with ONLY a single JSON object, no markdown fences, no prose outside it,
 Rules:
 - For audience questions: filter junk/spam, ignore questions already answered in the transcript, merge near-duplicates, and return at most 3 items. Never expose a numeric score.
 - Ground every answer in the ShowContext given — never invent facts, names, or numbers not present in it.
+- The host's instruction arrives via speech-to-text and may contain mishearings, especially of names — if a word doesn't match anything in ShowContext but a similar-sounding one does (e.g. a place or company name), reason about it using the real ShowContext rather than treating the odd transcription literally. Never mention that you did this — just answer as if you heard it correctly.
 - Keep it glanceable: short summary, at most 3 items.
 - If the instruction is unrelated to producing the show, still return valid JSON with type "production_suggestion" and a brief, honest summary.
 - "action" defaults to "private" — see the action model above for when to use anything else.`;
@@ -422,34 +423,92 @@ async function handleAiProducerRespond(req, res) {
   });
 }
 
-// Push-to-talk recorded-audio transcription (see js/talk-to-producer.js's top comment for the full
-// picture: MediaRecorder owns the physical hold's duration client-side; this endpoint is where that
-// recorded blob is SUPPOSED to become the authoritative transcript instead of live SpeechRecognition).
+// Push-to-talk recorded-audio transcription (see js/talk-to-producer.js's top comment: MediaRecorder
+// owns the physical hold's duration client-side; the RECORDED BLOB is authoritative here, not live
+// SpeechRecognition, which the client only falls back to if this endpoint fails/is unreachable).
 //
-// Deliberately a stub, not a silently-added paid dependency: no free/local transcription path exists
-// anywhere in this codebase or on this VPS today (confirmed — DeepSeek's API is text-only, no audio
-// endpoint; there is no whisper.cpp/faster-whisper install here, and installing one needs VPS access
-// this session didn't have). Real options, for a human decision, not this code to make:
-//   1. OpenAI's Whisper API — ~$0.006/min (a few seconds of PTT audio costs a fraction of a cent),
-//      simple POST-the-audio-bytes call, server-side key just like DEEPSEEK_API_KEY. Lowest complexity.
-//   2. Self-hosted whisper.cpp/faster-whisper on this same VPS — $0 marginal cost, but needs installing
-//      a model + binary (SSH access), and CPU-only inference latency on a modest droplet is unverified —
-//      could easily be slower than the OpenAI round trip for short clips.
-//   3. Browser-only WASM Whisper (e.g. transformers.js) — $0 cost, no server change at all, but a real
-//      new client-side ML dependency (tens of MB model download, first-use warm-up) that needs its own
-//      cross-device testing before it could be trusted for a real host's PTT.
-// Until one is chosen, this returns 503 so the client's own documented fallback (SpeechRecognition's live
-// transcript from the SAME hold) takes over — see PushToTalkCapture.stop().
-const TRANSCRIBE_PROVIDER = process.env.TOASTY_TRANSCRIBE_PROVIDER || "";
+// Provider: self-hosted whisper.cpp, tiny.en-q5_1 — chosen after a real measured pilot on this exact
+// VPS (1 vCPU/1.9GiB): ~4-5s/clip idle, ~11s under full-core contention, ~132MB peak RSS, and proper-noun
+// accuracy no worse than base.en-q5_1 (which cost 2x the latency for no reliable accuracy gain on our
+// actual test phrases). Latency is accepted as fine for an asynchronous producer workflow, NOT optimized
+// for Siri-style instant response. Raw transcript is kept exactly as whisper.cpp produced it — likely
+// misspellings (a real example from the pilot: "Johor" -> "Lahore") are NOT silently corrected here;
+// that's ShowContext's job at the reasoning layer (js/producer-persona.js's prompt), which has enough
+// surrounding context to reinterpret a plausible mishearing without this endpoint guessing.
+//
+// One process at a time, on purpose: this is a single shared core also running AI Producer proxying and
+// video rendering — two whisper.cpp invocations fighting over it would make both slower, not faster. A
+// small bounded queue absorbs two shows hitting PTT at once; beyond that, 429 rather than pile up on a
+// box this size.
+const WHISPER_CLI_PATH = process.env.WHISPER_CLI_PATH || "";
+const WHISPER_MODEL_PATH = process.env.WHISPER_MODEL_PATH || "";
+const FFPROBE = process.env.FFPROBE_PATH || "ffprobe";
+const MAX_TRANSCRIBE_AUDIO_BYTES = 2 * 1024 * 1024; // ~15s of mono voice-bitrate Opus is well under 200KB
+const MAX_TRANSCRIBE_CLIP_SECONDS = 30;
+const TRANSCRIBE_TIMEOUT_MS = Number(process.env.TOASTY_TRANSCRIBE_TIMEOUT_MS || 45000);
+const TRANSCRIBE_MAX_CONCURRENT = 1;
+const TRANSCRIBE_MAX_QUEUE = 4;
+let transcribeActive = 0;
+const transcribeQueue = [];
 
-async function handleTranscribe(req, res) {
-  if (!TRANSCRIBE_PROVIDER) throw httpError(503, "Recorded-audio transcription isn't configured on the server yet.");
-  // No provider wired in — see the comment above. Whichever of the three options above gets chosen would
-  // read the raw audio bytes (readBinaryBody(req, MAX_TRANSCRIBE_AUDIO_BYTES)) and call that provider here.
-  throw httpError(503, "Recorded-audio transcription isn't configured on the server yet.");
+// Bounded FIFO around the one thing this box can only do one of at a time. Rejects with 429 past the
+// queue depth instead of letting requests pile up indefinitely on a 1-core VPS.
+function withTranscribeSlot(fn) {
+  return new Promise((resolve, reject) => {
+    const run = () => {
+      transcribeActive += 1;
+      fn().then(resolve, reject).finally(() => {
+        transcribeActive -= 1;
+        transcribeQueue.shift()?.();
+      });
+    };
+    if (transcribeActive < TRANSCRIBE_MAX_CONCURRENT) run();
+    else if (transcribeQueue.length < TRANSCRIBE_MAX_QUEUE) transcribeQueue.push(run);
+    else reject(httpError(429, "Transcription is busy — try again in a moment."));
+  });
 }
 
-const MAX_TRANSCRIBE_AUDIO_BYTES = 8 * 1024 * 1024;
+async function handleTranscribe(req, res) {
+  if (!WHISPER_CLI_PATH || !WHISPER_MODEL_PATH) throw httpError(503, "Recorded-audio transcription isn't configured on the server yet.");
+  const audio = await readBinaryBody(req, MAX_TRANSCRIBE_AUDIO_BYTES);
+  if (!audio.length) throw httpError(400, "No audio received.");
+
+  const workDir = await mkdtemp(join(tmpdir(), "toasty-transcribe-"));
+  try {
+    const inputPath = join(workDir, "input");
+    const wavPath = join(workDir, "audio.wav");
+    const textBase = join(workDir, "transcript");
+    await writeFile(inputPath, audio);
+
+    const { stdout: durationOut } = await execFileAsync(FFPROBE, ["-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", inputPath], { timeout: 10000 });
+    const durationSeconds = parseFloat(durationOut);
+    if (Number.isFinite(durationSeconds) && durationSeconds > MAX_TRANSCRIBE_CLIP_SECONDS) {
+      throw httpError(413, `Recording is too long (max ${MAX_TRANSCRIBE_CLIP_SECONDS}s).`);
+    }
+
+    // Whisper.cpp wants 16kHz mono 16-bit PCM; MediaRecorder produces WebM/Opus (or MP4/AAC on Safari) —
+    // ffmpeg is already a dependency of this exact server (see the /render endpoint), nothing new here.
+    await execFileAsync(FFMPEG, ["-y", "-i", inputPath, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wavPath], { timeout: 15000 });
+
+    const transcript = await withTranscribeSlot(async () => {
+      await execFileAsync(WHISPER_CLI_PATH, ["-m", WHISPER_MODEL_PATH, "-f", wavPath, "-t", "1", "-otxt", "-of", textBase, "-nt"], { timeout: TRANSCRIBE_TIMEOUT_MS });
+      return (await readFile(`${textBase}.txt`, "utf8")).trim();
+    });
+
+    if (!transcript) throw httpError(422, "Didn't catch anything in that recording.");
+    sendJson(req, res, 200, { transcript });
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
+}
+
+// Extension point, NOT implemented this pass: continuous "show listening" (rolling background transcript
+// of program audio, feeding ShowContext so Hottie knows what's been discussed without a PTT hold) would
+// reuse this exact pipeline — same ffmpeg conversion, same whisper-cli invocation, same WHISPER_CLI_PATH/
+// WHISPER_MODEL_PATH config — but through its OWN queue lane, not withTranscribeSlot above. PTT is a
+// human actively waiting on a result; background show-audio chunks can tolerate being 10-30s behind and
+// must never make a live PTT request wait behind one. That priority split is real design work for later,
+// not something to fake by sharing today's single-slot queue.
 
 async function readBinaryBody(req, maxBytes) {
   const chunks = [];
