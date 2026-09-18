@@ -48,6 +48,7 @@ const state = {
   mountedRemote: null,
   remoteMediaState: RemoteMediaState.WAITING_FOR_PARTICIPANT,
   remoteMediaTimerId: null,
+  remoteMediaRemountCount: 0,
   presence: null,
   selfLabel: null,
   lifecycle: GuestLifecycle.PREJOIN_LOADING,
@@ -453,6 +454,7 @@ function renderRemoteParticipants(roster) {
       stopRemoteMediaPolling();
       engine.unmountFrame(elements.guestRemoteFrame, "remoteview", "");
       state.mountedRemote = null;
+      state.remoteMediaRemountCount = 0;
     }
     return;
   }
@@ -464,6 +466,7 @@ function renderRemoteParticipants(roster) {
 
   if (state.mountedRemote?.transportSourceId === remote.transportSourceId) return; // already showing them
 
+  state.remoteMediaRemountCount = 0; // a genuinely new remote participant — give them a fresh retry budget
   diag(`transportSourceId: ${remote.transportSourceId}`);
   diag(`viewer params: room=${state.roomId}&scene&view=${remote.transportSourceId} (see video-engine.js's mountParticipantView comment for why room+scene are required, not optional)`);
   setRemoteMediaState(RemoteMediaState.CONNECTING_REMOTE_MEDIA);
@@ -492,6 +495,7 @@ function setRemoteMediaState(next) {
 
 const REMOTE_MEDIA_POLL_MS = 2000;
 const REMOTE_MEDIA_ERROR_AFTER_MS = 15000;
+const REMOTE_MEDIA_MAX_REMOUNTS = 2;
 
 // "remote video track present"/"video element count"/"video.readyState"/"videoWidth/videoHeight" —
 // several of the specific fields asked for in this pass's report are NOT capturable from here: the
@@ -501,15 +505,53 @@ const REMOTE_MEDIA_ERROR_AFTER_MS = 15000;
 // OWN peer connection, specifically its videoVisible field (session.rpcs[UUID].videoElement
 // .checkVisibility() — confirmed by reading VDO.Ninja's source, not guessed), the closest real signal to
 // "a video element for this peer actually exists and is visible" that its iframe API exposes at all.
+//
+// ROOT CAUSE this retry addresses (real-device test: Mac->Tukta worked, Android->Ricardo stayed black,
+// same mountParticipantView code path both directions — the request params are byte-identical by
+// construction, so the difference isn't in what's sent). Host discovers a guest via VDO's OWN
+// requestGuestList, which by construction cannot report someone who isn't ALREADY actually publishing —
+// so by the time Host mounts a view, the target's media is guaranteed live. Guest discovers the Host via
+// PRESENCE instead (js/room-presence.js) — and js/live-session.js's joinAsHost announces presence
+// essentially the instant Join is clicked, with no guarantee the actual VDO publish (WebRTC/ICE
+// negotiation) has finished by then. A first view attempt that races ahead of that has nothing to connect
+// to, and this frame was never remounted afterward — so a guest who joined a few seconds before the Host's
+// publish actually came up would see black forever. This doesn't re-query Guest's OWN publish state (that
+// already works — Tukta's PiP is fine); it only affects the REMOTE Host view, exactly where the report
+// says the bug is. Guest-side per-device connectivity or WebRTC negotiation being slower on a real phone
+// than this session's own testing could plausibly widen the same race further; NOT independently confirmed
+// against a live two-device session — flagged, not claimed proven, per the report's own instructions.
 async function pollRemoteMediaState(streamId, startedAt) {
   const entry = await engine.requestPeerVideoState("remoteview", streamId);
   diag(`peer video state (from remoteview's own getDetailedState): ${JSON.stringify(entry)}`);
   if (entry?.videoVisible) {
     setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_LIVE);
     stopRemoteMediaPolling();
-  } else if (Date.now() - startedAt > REMOTE_MEDIA_ERROR_AFTER_MS) {
-    setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_ERROR);
+    return;
   }
+  if (Date.now() - startedAt <= REMOTE_MEDIA_ERROR_AFTER_MS) return;
+  if (state.remoteMediaRemountCount < REMOTE_MEDIA_MAX_REMOUNTS) {
+    state.remoteMediaRemountCount += 1;
+    diag(`remote media timed out with no visible video — remounting (attempt ${state.remoteMediaRemountCount}/${REMOTE_MEDIA_MAX_REMOUNTS})`);
+    remountRemoteView(streamId);
+  } else {
+    setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_ERROR);
+    stopRemoteMediaPolling();
+  }
+}
+
+// Fresh iframe, SAME stream id — gives VDO a clean new attempt in case the first one raced ahead of the
+// Host's actual publish becoming ready (see pollRemoteMediaState's comment). Does not touch presence,
+// identity, or the Guest's own publishing transport at all.
+function remountRemoteView(streamId) {
+  const iframe = engine.mountParticipantView(elements.guestRemoteFrame, { roomId: state.roomId, streamId }, "remoteview");
+  diag(`remoteview remounted — src="${iframe.src}"`);
+  iframe.addEventListener("load", () => diag("remoteview iframe 'load' event fired (remount)"));
+  state.hostViewUnsub?.();
+  state.hostViewUnsub = engine.onMessage((message, source) => {
+    if (source !== iframe.contentWindow) return;
+    if (message?.action !== "tally") diag(`remoteview message (VDO connection state): ${JSON.stringify(message).slice(0, 160)}`);
+  });
+  startRemoteMediaPolling(streamId);
 }
 
 function startRemoteMediaPolling(streamId) {
@@ -596,6 +638,7 @@ async function leaveSession() {
   await state.presence?.leave();
   state.presence = null;
   state.mountedRemote = null;
+  state.remoteMediaRemountCount = 0;
   stopRemoteMediaPolling();
   state.remoteMediaState = RemoteMediaState.WAITING_FOR_PARTICIPANT;
   state.hostViewUnsub?.();

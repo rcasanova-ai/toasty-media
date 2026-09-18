@@ -165,6 +165,7 @@ export class LiveSession {
     // See js/remote-media-state.js and _setRemoteMediaState below.
     this.remoteMediaState = RemoteMediaState.WAITING_FOR_PARTICIPANT;
     this._remoteMediaTimerId = null;
+    this._remoteMediaRemountCount = 0;
     this.engine.onMessage((message, source) => {
       if (source && source === this.engine.getFrameWindow("guestview")) {
         this.guestDiagnostics.mount = { ...this.guestDiagnostics.mount, lastMessage: message, lastMessageAt: Date.now() };
@@ -532,6 +533,7 @@ export class LiveSession {
     if (!container) return;
     if (seat && this._mountedGuestViewId !== seat.id) {
       this._mountedGuestViewId = seat.id;
+      this._remoteMediaRemountCount = 0; // a genuinely new participant — fresh retry budget
       this.guestDiagnostics.mount = { requestedAt: Date.now(), streamId: seat.id, iframeCreated: false, loaded: false, lastMessage: null, lastMessageAt: null };
       this._setRemoteMediaState(RemoteMediaState.CONNECTING_REMOTE_MEDIA);
       const iframe = this.engine.mountParticipantView(container, { roomId: this.roomId, streamId: seat.id }, "guestview");
@@ -543,6 +545,7 @@ export class LiveSession {
       this._startRemoteMediaPolling(seat.id);
     } else if (!seat && this._mountedGuestViewId) {
       this._mountedGuestViewId = null;
+      this._remoteMediaRemountCount = 0;
       this.guestDiagnostics.mount = null;
       this._stopRemoteMediaPolling();
       this._setRemoteMediaState(RemoteMediaState.WAITING_FOR_PARTICIPANT);
@@ -561,6 +564,14 @@ export class LiveSession {
     this.emit("remote-media-state", next);
   }
 
+  // Retry-on-timeout added for symmetry with js/guest.js's mirror-image version, where it addresses a real,
+  // code-evidenced race (see that file's own comment) between a Guest's PRESENCE-triggered discovery and
+  // the Host's actual VDO publish becoming ready. That specific race doesn't apply here the same way — Host
+  // discovers a guest via VDO's OWN requestGuestList, which by construction can't report someone who isn't
+  // already publishing — but this costs nothing for the already-working path (it only ever fires after a
+  // 15s timeout with no confirmed video, well past when a real connection reaches REMOTE_MEDIA_LIVE) and
+  // gives some resilience against any other real-world negotiation hiccup, so it's mirrored rather than
+  // left asymmetric between the two sides of the same primitive.
   async _pollRemoteMediaState(streamId, startedAt) {
     const entry = await this.engine.requestPeerVideoState("guestview", streamId);
     this.guestDiagnostics.mount = { ...this.guestDiagnostics.mount, peerVideoState: entry };
@@ -568,8 +579,23 @@ export class LiveSession {
     if (entry?.videoVisible) {
       this._setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_LIVE);
       this._stopRemoteMediaPolling();
-    } else if (Date.now() - startedAt > 15000) {
+      return;
+    }
+    if (Date.now() - startedAt <= 15000) return;
+    if (this._remoteMediaRemountCount < 2) {
+      this._remoteMediaRemountCount += 1;
+      const container = this._containers?.roomPreview;
+      if (container) {
+        const iframe = this.engine.mountParticipantView(container, { roomId: this.roomId, streamId }, "guestview");
+        iframe?.addEventListener("load", () => {
+          this.guestDiagnostics.mount = { ...this.guestDiagnostics.mount, loaded: true, loadedAt: Date.now() };
+          this.emit("guest-diagnostics", this.guestDiagnostics);
+        });
+      }
+      this._startRemoteMediaPolling(streamId);
+    } else {
       this._setRemoteMediaState(RemoteMediaState.REMOTE_MEDIA_ERROR);
+      this._stopRemoteMediaPolling();
     }
   }
 

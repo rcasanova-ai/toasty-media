@@ -3581,10 +3581,16 @@
   z-index: 6;
 }
 
-/* ROOT CAUSE of "tall narrow floating strip" (Host, desktop) — real-device screenshot, confirmed by
-   review, not guessed: this was aspect-ratio: 3/4, a TALL/portrait ratio, for what's supposed to be a
-   normal landscape webcam PiP. 4/3 (wider than tall) is what actually looks like a bounded camera PiP. */
-.lv-participant-stage--in-studio .lv-stage-pip .lv-video-tile {
+/* ROOT CAUSE of "tall narrow floating strip" (Host, desktop) — the 3/4-vs-4/3 fix below was correct but
+   never actually won: css/studio-shell-v2.css's ".studio-shell[data-brand-theme] .vdo-frame" sets
+   min-height: min(48vh, 430px) at the SAME specificity (0,3,0) as the selector this rule used to have, and
+   studio-shell-v2.css loads AFTER studio.css, so it won the tie on source order — the PiP kept a ~200px
+   width (from .lv-stage-pip) but got its height forced to as much as 430px regardless of min-height:0
+   here, which IS a tall narrow strip. Confirmed by grepping every rule touching .vdo-frame/.lv-video-tile
+   across all three stylesheets, not guessed. Fixed by targeting #lvHostFrame directly — an ID selector
+   (1,0,0) always outranks any number of classes/attributes, so this can't lose a future specificity tie
+   the same way again. */
+.lv-participant-stage--in-studio .lv-stage-pip #lvHostFrame {
   aspect-ratio: 4 / 3;
   max-height: none;
   min-height: 0;
