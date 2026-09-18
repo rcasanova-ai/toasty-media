@@ -10,6 +10,7 @@ import { ProducerView } from "./producer-view.js";
 import { HostPrejoin } from "./host-prejoin.js";
 import { HostState } from "./host-state.js";
 import { BUILD_ID } from "./build-info.js";
+import { resolveSession } from "./session-manager.js";
 
 const session = new LiveSession();
 // Dev diagnostics only — never rendered in Host/Producer UI. In devtools: session.aiProducerService.diagnostics()
@@ -44,7 +45,8 @@ const elements = {
   atmosphereBrandWord: document.querySelector("#atmosphereBrandWord"),
   atmosphereProductWord: document.querySelector("#atmosphereProductWord"),
   atmosphereMark: document.querySelector(".atmosphere-mark"),
-  newRoom: document.querySelector("#newRoom"),
+  switchSession: document.querySelector("#switchSession"),
+  endSessionBtn: document.querySelector("#endSessionBtn"),
   toggleScreenQuick: document.querySelector("#toggleScreenQuick"),
   lvSessionType: document.querySelector("#lvSessionType"),
   lvJamPolicyFields: document.querySelector("#lvJamPolicyFields"),
@@ -60,8 +62,20 @@ const elements = {
 
 init();
 
-function init() {
+// Session resolution (see js/session-manager.js's resolveSession) gates EVERYTHING below it — no VDO
+// frame mounts, no camera prompt, nothing — until a durable session is actually chosen. Replaces the old
+// synchronous init() that called getOrCreateRoomId() unconditionally on every load, which is exactly what
+// silently created a fresh disposable room each time. applyDurableSession sets session.roomId to the
+// resolved session's real roomId BEFORE session.start() ever runs, so mountDirectorFrame/presence/etc. all
+// target the right room from the very first frame mount, not a throwaway one that gets swapped out later.
+async function init() {
   applySelectedBrand();
+  const durableSession = await resolveSession({ brandId: session.brandTheme });
+  session.applyDurableSession(durableSession);
+  initStudio();
+}
+
+function initStudio() {
   session.start({ host: elements.hostFrame, hostTransport: elements.hostTransportFrame, roomPreview: elements.guestFrame, control: elements.directorControlFrame });
 
   new HostView({ session }).init();
@@ -127,7 +141,24 @@ function bindRailControls() {
   elements.copyInvite.addEventListener("click", copyInvite);
   elements.copyListenerInvite.addEventListener("click", copyListenerInvite);
   elements.brandThemeSelect.addEventListener("change", () => session.changeBrandTheme(elements.brandThemeSelect.value));
-  elements.newRoom.addEventListener("click", () => session.createNewRoom());
+  // Full page reload, deliberately — the simplest reliable teardown of camera/VDO state before showing
+  // the Session gate again, rather than trying to hand-roll an equivalent in-JS teardown. Drops the
+  // `?session=` param so resolveSession() shows the gate instead of re-resolving the same session.
+  elements.switchSession.addEventListener("click", () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("session");
+    window.location.href = url.toString();
+  });
+  elements.endSessionBtn.addEventListener("click", async () => {
+    if (!session.durableSession) {
+      window.alert("This room has no durable session record (it predates Session Manager) — nothing to end here.");
+      return;
+    }
+    if (!window.confirm(`End "${session.durableSession.title || "this session"}" for everyone?`)) return;
+    elements.endSessionBtn.disabled = true;
+    await session.endDurableSession();
+    elements.endSessionBtn.disabled = false;
+  });
   elements.toggleScreenQuick?.addEventListener("click", () => session.toggleScreenShare());
   session.on("screenshare", (s) => {
     if (elements.toggleScreenQuick) elements.toggleScreenQuick.setAttribute("aria-pressed", String(Boolean(s?.active)));

@@ -255,7 +255,7 @@ const server = createServer(async (req, res) => {
   // scripts/toasty-auth-db.py's live_sessions table comment). Authenticated like /media-assets: a
   // Producer's own account, never a Guest's (see requireSession). Ownership always enforced in SQL via
   // owner_user_id, not just checked in this handler — see session_list/session_get/session_end.
-  if (req.method === "GET" && req.url === "/api/sessions") {
+  if (req.method === "GET" && (req.url === "/api/sessions" || req.url?.startsWith("/api/sessions?"))) {
     if (!limit(req, res, "sessions-list", 60, 60 * 1000)) return;
     const session = await requireSession(req, res);
     if (!session) return;
@@ -281,6 +281,13 @@ const server = createServer(async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
     await handleSessionEnd(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/kick")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sessions-kick", 60, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSessionKick(req, res, session);
     return;
   }
   if (req.method !== "POST" || req.url !== "/render") {
@@ -1579,9 +1586,14 @@ function parseCookies(header) {
   }, {});
 }
 
+// Errors the auth-db script returns as legitimate, expected results (not a storage/DB failure) — callers
+// branch on result.error themselves for these. Anything else in result.error means the Python side threw
+// (see toasty-auth-db.py's own try/except) and really is a storage failure.
+const DB_EXPECTED_ERRORS = new Set(["duplicate_email", "kicked", "full"]);
+
 async function db(action, values = {}) {
   const result = await runJson("python3", [AUTH_DB_HELPER], { action, dbPath: AUTH_DB_PATH, ...values });
-  if (result.error && result.error !== "duplicate_email") throw httpError(500, "Authentication storage is unavailable.");
+  if (result.error && !DB_EXPECTED_ERRORS.has(result.error)) throw httpError(500, "Authentication storage is unavailable.");
   return result;
 }
 
@@ -1627,6 +1639,12 @@ async function handlePresenceAnnounce(req, res) {
     company: presenceText(body.company, 120),
     transportSourceId
   });
+  // "kicked": this exact participant_id was removed by the Producer and is still within its block window
+  // (see scripts/toasty-auth-db.py's presence_upsert) — the client reacts by showing a removed state, not
+  // by retrying. "full": a genuinely NEW guest participant_id when the room already has MAX_GUESTS_PER_ROOM
+  // — enforced here, not just hidden in UI, so a fourth guest never reaches VDO transport at all.
+  if (result.error === "kicked") throw httpError(403, "You have been removed from this session.");
+  if (result.error === "full") throw httpError(409, "This session is currently full.");
   await db("session_touch", { roomId });
   sendJson(req, res, 200, { roster: result.roster || [] });
 }
@@ -1690,6 +1708,20 @@ async function handleSessionEnd(req, res, authSession) {
   const result = await db("session_end", { id, ownerUserId: authSession.id, endedBy: authSession.id });
   if (!result.session) throw httpError(404, "Session not found.");
   sendJson(req, res, 200, { session: result.session });
+}
+
+async function handleSessionKick(req, res, authSession) {
+  const path = req.url.slice("/api/sessions/".length, -"/kick".length);
+  const id = decodeURIComponent(path);
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
+  const body = await readJson(req);
+  const participantId = requirePresenceId(body.participantId, "participantId");
+  // Ownership check happens HERE, via session_get, before session_kick ever touches room_presence — kick
+  // is real removal, not a UI-only hide, so it must be just as owner-scoped as end/get.
+  const sessionResult = await db("session_get", { id, ownerUserId: authSession.id });
+  if (!sessionResult.session) throw httpError(404, "Session not found.");
+  const result = await db("session_kick", { roomId: sessionResult.session.roomId, participantId });
+  sendJson(req, res, 200, { roster: result.roster || [] });
 }
 
 async function writeMediaFiles({ form, workDir }) {

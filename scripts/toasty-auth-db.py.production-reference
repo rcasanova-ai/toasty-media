@@ -1,0 +1,441 @@
+#!/usr/bin/env python3
+import json
+import os
+import sqlite3
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+# Room presence entries older than this with no fresh announce/heartbeat are treated as gone — see
+# presence_upsert/presence_list, which both delete stale rows for the room before returning the roster.
+# Clients (js/room-presence.js) announce/poll well under half this window so a few missed round trips never
+# flip someone to "left" by accident.
+PRESENCE_TTL_SECONDS = 20
+# 1 Host + this many Guests = max on-camera participants — enforced here (presence_upsert), not just in
+# UI, per instruction that capacity must be server/session policy. A 4th distinct guest participant_id is
+# refused before it's ever admitted to room_presence, so it never reaches VDO transport either.
+MAX_GUESTS_PER_ROOM = 3
+# How long a kick blocks its exact participant_id from re-announcing. Generous relative to the 5s
+# heartbeat interval so a kicked tab's next few heartbeats are reliably caught, short enough that it can't
+# permanently wedge a room if a participant_id is ever accidentally reused.
+KICK_BLOCK_SECONDS = 300
+
+
+def utc_now():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def connect(db_path):
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def migrate(conn):
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          email TEXT NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          last_login_at TEXT,
+          status TEXT NOT NULL DEFAULT 'active'
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+    # Toasty session presence — the source of truth for "who is actually in this room and what VDO.Ninja
+    # source carries their media," replacing the roomId+"h" deterministic-id shortcut and VDO-label-based
+    # identity guessing that js/live-session.js and js/guest.js previously relied on. VDO.Ninja remains pure
+    # media transport; this table is what "Toasty owns identity" means in practice. One row per
+    # (room_id, participant_id); participants announce/heartbeat via presence_upsert (see main() below) and
+    # are pruned once last_seen_at falls outside PRESENCE_TTL_SECONDS — see presence_upsert/presence_list.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS room_presence (
+          room_id TEXT NOT NULL,
+          participant_id TEXT NOT NULL,
+          role TEXT NOT NULL,
+          display_name TEXT NOT NULL DEFAULT '',
+          title TEXT NOT NULL DEFAULT '',
+          company TEXT NOT NULL DEFAULT '',
+          transport_source_id TEXT,
+          joined_at TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL,
+          PRIMARY KEY (room_id, participant_id)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_room_presence_room ON room_presence(room_id)")
+    # The durable record that room_presence was never meant to be — presence is "who is here right now"
+    # (rows that TTL out in PRESENCE_TTL_SECONDS with no heartbeat); a LiveSession is "this room exists /
+    # existed and its owner can find, reopen, or end it," independent of whether anyone is currently
+    # connected. One row per session; room_id is the stable VDO room id a Guest/Listener link points at,
+    # so reopening a session (see session_get) never changes the URL anyone already has. status is one of
+    # OPEN (created, room usable) / LIVE (host currently connected — see session_touch) / ENDED (explicitly
+    # ended; new joins against this session's invite must be refused).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS live_sessions (
+          id TEXT PRIMARY KEY,
+          room_id TEXT NOT NULL UNIQUE,
+          owner_user_id TEXT NOT NULL REFERENCES users(id),
+          brand_id TEXT NOT NULL DEFAULT '',
+          title TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'OPEN',
+          created_at TEXT NOT NULL,
+          started_at TEXT,
+          ended_at TEXT,
+          last_active_at TEXT NOT NULL,
+          ended_by TEXT
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_live_sessions_owner ON live_sessions(owner_user_id, status)")
+    # Short-lived kick record — the mechanism that lets a Producer's KICK reach a guest's own already-open
+    # tab, which is still heartbeating every 5s with the SAME participant_id it joined with (see
+    # js/room-presence.js). presence_upsert checks this before admitting/re-admitting that exact
+    # participant_id; their next heartbeat (within 5s) gets refused instead of silently re-admitted, and the
+    # client reacts to that specific refusal by showing "removed" — see handleSessionKick. Deliberately
+    # keyed by participant_id, not blocking the room/invite itself: a genuine rejoin (new tab, new
+    # participant_id — see guest.js's Date.now()-based id) is NOT blocked, matching "kick removes this
+    # admission, not the whole invitation."
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS session_kicks (
+          room_id TEXT NOT NULL,
+          participant_id TEXT NOT NULL,
+          kicked_at TEXT NOT NULL,
+          PRIMARY KEY (room_id, participant_id)
+        )
+        """
+    )
+    conn.commit()
+
+
+def public_user(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "email": row["email"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "last_login_at": row["last_login_at"],
+        "status": row["status"],
+    }
+
+
+def public_presence(row):
+    return {
+        "participantId": row["participant_id"],
+        "role": row["role"],
+        "displayName": row["display_name"],
+        "title": row["title"],
+        "company": row["company"],
+        "transportSourceId": row["transport_source_id"],
+        "joinedAt": row["joined_at"],
+        "lastSeenAt": row["last_seen_at"],
+    }
+
+
+def public_session(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "roomId": row["room_id"],
+        "ownerUserId": row["owner_user_id"],
+        "brandId": row["brand_id"],
+        "title": row["title"],
+        "status": row["status"],
+        "createdAt": row["created_at"],
+        "startedAt": row["started_at"],
+        "endedAt": row["ended_at"],
+        "lastActiveAt": row["last_active_at"],
+        "endedBy": row["ended_by"],
+    }
+
+
+def presence_cutoff():
+    return (datetime.now(timezone.utc) - timedelta(seconds=PRESENCE_TTL_SECONDS)).isoformat(timespec="seconds")
+
+
+def presence_roster(conn, room_id):
+    # Prune first so a roster read right after someone's tab died (no explicit presence_leave call — the
+    # common case) doesn't keep showing them for up to the full TTL to every OTHER client polling this room.
+    conn.execute("DELETE FROM room_presence WHERE room_id = ? AND last_seen_at < ?", (room_id, presence_cutoff()))
+    conn.commit()
+    rows = conn.execute(
+        "SELECT * FROM room_presence WHERE room_id = ? AND last_seen_at >= ? ORDER BY joined_at ASC",
+        (room_id, presence_cutoff()),
+    ).fetchall()
+    return [public_presence(row) for row in rows]
+
+
+def main():
+    payload = json.load(sys.stdin)
+    db_path = payload["dbPath"]
+    action = payload["action"]
+    conn = connect(db_path)
+    migrate(conn)
+
+    if action == "migrate":
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "create_user":
+        now = utc_now()
+        try:
+            conn.execute(
+                """
+                INSERT INTO users (id, name, email, password_hash, created_at, updated_at, status)
+                VALUES (?, ?, ?, ?, ?, ?, 'active')
+                """,
+                (payload["id"], payload["name"], payload["email"], payload["passwordHash"], now, now),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            print(json.dumps({"error": "duplicate_email"}))
+            return
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"user": public_user(row)}))
+        return
+
+    if action == "get_user_by_email":
+        row = conn.execute("SELECT * FROM users WHERE email = ?", (payload["email"],)).fetchone()
+        print(json.dumps({"user": public_user(row), "passwordHash": row["password_hash"] if row else None}))
+        return
+
+    if action == "get_user_by_id":
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"user": public_user(row)}))
+        return
+
+    if action == "mark_login":
+        now = utc_now()
+        conn.execute(
+            "UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?",
+            (now, now, payload["id"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"user": public_user(row)}))
+        return
+
+    if action == "presence_upsert":
+        now = utc_now()
+        room_id = payload["roomId"]
+        participant_id = payload["participantId"]
+        role = payload["role"]
+
+        kick_cutoff = (datetime.now(timezone.utc) - timedelta(seconds=KICK_BLOCK_SECONDS)).isoformat(timespec="seconds")
+        conn.execute("DELETE FROM session_kicks WHERE room_id = ? AND kicked_at < ?", (room_id, kick_cutoff))
+        kicked = conn.execute(
+            "SELECT 1 FROM session_kicks WHERE room_id = ? AND participant_id = ?",
+            (room_id, participant_id),
+        ).fetchone()
+        if kicked:
+            print(json.dumps({"error": "kicked"}))
+            return
+
+        if role == "guest":
+            existing = conn.execute(
+                "SELECT 1 FROM room_presence WHERE room_id = ? AND participant_id = ?",
+                (room_id, participant_id),
+            ).fetchone()
+            if not existing:
+                guest_count = conn.execute(
+                    "SELECT COUNT(*) AS n FROM room_presence WHERE room_id = ? AND role = 'guest' AND last_seen_at >= ?",
+                    (room_id, presence_cutoff()),
+                ).fetchone()["n"]
+                if guest_count >= MAX_GUESTS_PER_ROOM:
+                    print(json.dumps({"error": "full"}))
+                    return
+
+        conn.execute(
+            """
+            INSERT INTO room_presence (
+              room_id, participant_id, role, display_name, title, company,
+              transport_source_id, joined_at, last_seen_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (room_id, participant_id) DO UPDATE SET
+              role = excluded.role,
+              display_name = excluded.display_name,
+              title = excluded.title,
+              company = excluded.company,
+              transport_source_id = excluded.transport_source_id,
+              last_seen_at = excluded.last_seen_at
+            """,
+            (
+                room_id,
+                participant_id,
+                role,
+                payload.get("displayName") or "",
+                payload.get("title") or "",
+                payload.get("company") or "",
+                payload.get("transportSourceId"),
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        # Doubles as a roster read so an announce/heartbeat is also a full sync — see js/room-presence.js,
+        # which relies on this to avoid a second request on every heartbeat tick.
+        print(json.dumps({"roster": presence_roster(conn, room_id)}))
+        return
+
+    if action == "presence_list":
+        print(json.dumps({"roster": presence_roster(conn, payload["roomId"])}))
+        return
+
+    if action == "presence_leave":
+        conn.execute(
+            "DELETE FROM room_presence WHERE room_id = ? AND participant_id = ?",
+            (payload["roomId"], payload["participantId"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "session_create":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO live_sessions (
+              id, room_id, owner_user_id, brand_id, title, status, created_at, last_active_at
+            )
+            VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["roomId"],
+                payload["ownerUserId"],
+                payload.get("brandId") or "",
+                payload.get("title") or "",
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM live_sessions WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"session": public_session(row)}))
+        return
+
+    if action == "session_list":
+        # status: optional list of statuses to include (e.g. ["OPEN", "LIVE"] for "active", ["ENDED"] for
+        # history) — filtered in SQL, not by the caller, so an owner's session list can never leak past
+        # their own owner_user_id regardless of what the caller passes.
+        owner_user_id = payload["ownerUserId"]
+        statuses = payload.get("statuses") or ["OPEN", "LIVE", "ENDED"]
+        placeholders = ",".join("?" for _ in statuses)
+        rows = conn.execute(
+            f"SELECT * FROM live_sessions WHERE owner_user_id = ? AND status IN ({placeholders}) ORDER BY last_active_at DESC",
+            (owner_user_id, *statuses),
+        ).fetchall()
+        sessions = []
+        for row in rows:
+            entry = public_session(row)
+            entry["participantCount"] = len(presence_roster(conn, row["room_id"]))
+            sessions.append(entry)
+        print(json.dumps({"sessions": sessions}))
+        return
+
+    if action == "session_get":
+        # Scoped by owner_user_id in the SQL itself (defense in depth) — a session belonging to a
+        # different owner comes back as not-found, never as a 403 that would confirm the id exists.
+        row = conn.execute(
+            "SELECT * FROM live_sessions WHERE id = ? AND owner_user_id = ?",
+            (payload["id"], payload["ownerUserId"]),
+        ).fetchone()
+        session = public_session(row)
+        if session:
+            session["participantCount"] = len(presence_roster(conn, row["room_id"]))
+        print(json.dumps({"session": session}))
+        return
+
+    if action == "session_get_by_room":
+        # Deliberately UNAUTHENTICATED and NOT owner-scoped — this is what a Guest's join flow calls
+        # (see handlePresenceAnnounce) to check "has the owner ended this session" before admitting them.
+        # A guest has no Toasty account and no ownerUserId to scope by; this only ever returns status,
+        # never anything else about the session or its owner.
+        row = conn.execute("SELECT * FROM live_sessions WHERE room_id = ?", (payload["roomId"],)).fetchone()
+        print(json.dumps({"status": row["status"] if row else None}))
+        return
+
+    if action == "session_end":
+        now = utc_now()
+        conn.execute(
+            """
+            UPDATE live_sessions SET status = 'ENDED', ended_at = ?, ended_by = ?, last_active_at = ?
+            WHERE id = ? AND owner_user_id = ? AND status != 'ENDED'
+            """,
+            (now, payload.get("endedBy") or payload["ownerUserId"], now, payload["id"], payload["ownerUserId"]),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM live_sessions WHERE id = ? AND owner_user_id = ?",
+            (payload["id"], payload["ownerUserId"]),
+        ).fetchone()
+        print(json.dumps({"session": public_session(row)}))
+        return
+
+    if action == "session_touch":
+        # Called from presence_upsert (see handlePresenceAnnounce) so a session's last_active_at and LIVE
+        # status track real connection activity automatically, with no separate polling job. Silently a
+        # no-op if this room_id has no live_sessions row — not every room_presence room necessarily has one
+        # (e.g. this action rolling out before every old room was created through the new flow).
+        now = utc_now()
+        conn.execute(
+            """
+            UPDATE live_sessions
+            SET last_active_at = ?, status = CASE WHEN status = 'OPEN' THEN 'LIVE' ELSE status END, started_at = COALESCE(started_at, ?)
+            WHERE room_id = ? AND status != 'ENDED'
+            """,
+            (now, now, payload["roomId"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "session_kick":
+        # Ownership already verified by the caller (handleSessionKick looks up the session by id+
+        # ownerUserId before calling this) — this action itself just needs the room_id it resolved to.
+        # Removes the guest from the live roster immediately AND blocks that exact participant_id from
+        # re-announcing for KICK_BLOCK_SECONDS (see presence_upsert) — the two effects together are what
+        # make a kick actually stick instead of the guest's own next heartbeat silently re-adding them.
+        now = utc_now()
+        room_id = payload["roomId"]
+        participant_id = payload["participantId"]
+        conn.execute(
+            "DELETE FROM room_presence WHERE room_id = ? AND participant_id = ?",
+            (room_id, participant_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO session_kicks (room_id, participant_id, kicked_at) VALUES (?, ?, ?)
+            ON CONFLICT (room_id, participant_id) DO UPDATE SET kicked_at = excluded.kicked_at
+            """,
+            (room_id, participant_id, now),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True, "roster": presence_roster(conn, room_id)}))
+        return
+
+    raise ValueError(f"Unknown action: {action}")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as exc:
+        print(json.dumps({"error": "db_error", "detail": str(exc)}))
+        sys.exit(1)

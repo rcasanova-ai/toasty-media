@@ -23,6 +23,7 @@ import { HostState } from "./host-state.js";
 import { RoomPresence } from "./room-presence.js";
 import { RemoteMediaState } from "./remote-media-state.js";
 import { ProducerFeed, AIProducerService, createAIProducerProvider } from "./ai-producer.js";
+import { studioRequest } from "./studio-api.js";
 import {
   DEFAULT_HOST_RELATIONSHIP_MODE,
   DEFAULT_SHOW_TONE,
@@ -121,6 +122,15 @@ export class LiveSession {
     // control that should only appear once the Host has actually joined (Leave Studio, Talk to Hottie)
     // reads this, not incidental DOM/session existence — see js/host-view.js's renderHostState.
     this.hostState = HostState.PREJOIN_LOADING;
+
+    // The durable LiveSession record (see scripts/toasty-auth-db.py's live_sessions table) this room is
+    // backing, if any — set by js/session-manager.js's gate BEFORE joinAsHost ever runs (see
+    // applyDurableSession). Distinct from this.roomId (the VDO transport room, which durableSession.roomId
+    // matches once applied) and from presence (ephemeral "who's here"): this is "what session record am I,
+    // so End/Kick/reopen can act on the right row." Sessions created before this pass has no durable
+    // record and simply won't have one — end/kick/capacity-by-session simply don't apply to those rooms.
+    this.durableSession = null;
+    this._sessionEndedTimerId = null;
 
     this._programSync = null;
     this._guestListTimerId = null;
@@ -420,7 +430,29 @@ export class LiveSession {
     this._guestListTimerId = window.setInterval(() => this._refreshGuestSeats(), 4000);
   }
 
+  // Piggybacks on the existing 4s guest-list poll rather than a second interval — catches the session
+  // having been ended from elsewhere (another Producer tab/device, or this same tab's own endDurableSession
+  // already having flipped the local record) and tears this browser down the same way Leave Studio does.
+  // A no-op session with no durableSession (rooms created before this pass) or one this poll already
+  // reacted to (avoid double-teardown).
+  async _checkDurableSessionStatus() {
+    if (!this.durableSession || this.durableSession.status === "ENDED" || this.hostState !== HostState.IN_STUDIO) return;
+    try {
+      const result = await studioRequest(`/api/sessions/${this.durableSession.id}`, { method: "GET" });
+      if (result.session?.status === "ENDED") {
+        this.durableSession = result.session;
+        this.emit("session-ended");
+        this.endShow();
+        this.leaveStudio();
+      }
+    } catch (error) {
+      // A transient fetch failure shouldn't tear down an otherwise-healthy session.
+      console.error("[LiveSession] session status check failed", error);
+    }
+  }
+
   async _refreshGuestSeats() {
+    await this._checkDurableSessionStatus();
     const hostStreamId = `${this.roomId}h`;
     const guestsAll = await this.engine.requestGuestList();
     const guests = guestsAll.filter((entry) => entry.id !== hostStreamId);
@@ -555,6 +587,60 @@ export class LiveSession {
 
   guestCount() {
     return this.guestSeats.filter(Boolean).length;
+  }
+
+  // ---- LiveSession (durable) ----
+  // See scripts/toasty-auth-db.py's live_sessions table and js/session-manager.js, which is what calls
+  // this — BEFORE joinAsHost runs, so mountDirectorFrame/presence all target the durable session's real
+  // roomId from the start rather than whatever getOrCreateRoomId() picked as a fallback default.
+  applyDurableSession(record) {
+    this.durableSession = record;
+    this.roomId = record.roomId;
+    this.emit("durable-session", record);
+  }
+
+  // Producer-initiated, authoritative: marks the backend record ENDED (blocking every future join/
+  // heartbeat against this room — see handlePresenceAnnounce), then tears this browser down exactly like
+  // leaveStudio. Other connected clients (guests, preview tabs) learn the session ended from their own
+  // next presence/session poll — see _restartGuestListPolling's session-status check below and
+  // js/guest.js's mirror-image handling of a 410 from presence/announce.
+  async endDurableSession() {
+    if (!this.durableSession) return;
+    try {
+      await studioRequest(`/api/sessions/${this.durableSession.id}/end`, { method: "POST", body: "{}" });
+    } catch (error) {
+      console.error("[LiveSession] endDurableSession request failed", error);
+    }
+    this.durableSession = { ...this.durableSession, status: "ENDED" };
+    this.emit("session-ended");
+    this.endShow();
+    this.leaveStudio();
+  }
+
+  // Real removal, not a UI-only hide: a best-effort VDO disconnect command (see VideoEngine.sendToGuest's
+  // own caveat — not guaranteed delivered) PLUS a durable server-side block (session_kicks — see
+  // scripts/toasty-auth-db.py) that refuses this exact participant_id's next heartbeat regardless of
+  // whether the VDO command landed. Removes the seat locally right away rather than waiting up to 4s for
+  // the next guest-list poll to notice.
+  async kickGuest(guestId) {
+    const seat = this.guestSeats.find((s) => s?.id === guestId);
+    if (!seat) return;
+    this.engine.forceGuestHangup(guestId);
+    if (this.durableSession) {
+      try {
+        await studioRequest(`/api/sessions/${this.durableSession.id}/kick`, {
+          method: "POST",
+          body: JSON.stringify({ participantId: guestId })
+        });
+      } catch (error) {
+        console.error("[LiveSession] kickGuest request failed", error);
+      }
+    }
+    const index = this.guestSeats.findIndex((s) => s?.id === guestId);
+    if (index !== -1) this.guestSeats[index] = null;
+    this.participants.remove(guestId);
+    this.emit("guests", this.guestCount());
+    this._syncGuestVideoTile();
   }
 
   // ---- Program Output sync ----

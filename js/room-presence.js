@@ -31,11 +31,22 @@ export class RoomPresence {
     this.roster = [];
     this._timerId = null;
     this._listeners = new Set();
+    this._rejectionListeners = new Set();
   }
 
   onRosterChange(callback) {
     this._listeners.add(callback);
     return () => this._listeners.delete(callback);
+  }
+
+  // Fires when the backend refuses this participant's own announce/heartbeat — the three cases that
+  // mean "you specifically are no longer welcome here", distinct from a plain network hiccup (which
+  // _announce already treats as silently-retry-next-tick): 403 = kicked (see scripts/toasty-auth-db.py's
+  // session_kicks), 409 = session at MAX_GUESTS_PER_ROOM, 410 = the LiveSession was ENDED. Callers (guest.js,
+  // live-session.js) use this to show a real terminal state instead of quietly retrying forever.
+  onRejected(callback) {
+    this._rejectionListeners.add(callback);
+    return () => this._rejectionListeners.delete(callback);
   }
 
   // Every OTHER participant in the room, in join order — exactly what a Participant View main stage
@@ -94,7 +105,15 @@ export class RoomPresence {
           transportSourceId: this.transportSourceId
         })
       });
-      if (!response.ok) return;
+      if (!response.ok) {
+        if (response.status === 403 || response.status === 409 || response.status === 410) {
+          this.stop();
+          let body = {};
+          try { body = await response.json(); } catch (_) {}
+          this._rejectionListeners.forEach((callback) => callback(response.status, body.error || ""));
+        }
+        return;
+      }
       const data = await response.json();
       this.roster = data.roster || [];
       this._listeners.forEach((callback) => callback(this.roster));

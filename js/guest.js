@@ -3,6 +3,9 @@ import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js";
 import { startDevicePreview } from "./device-picker.js";
 import { RoomPresence } from "./room-presence.js";
 import { RemoteMediaState, REMOTE_MEDIA_STATE_LABEL } from "./remote-media-state.js";
+import { studioApiEndpoint } from "./studio-api.js";
+
+const MAX_GUESTS_PER_ROOM = 3;
 
 function log(...args) { console.debug("[Guest]", ...args); }
 
@@ -169,7 +172,7 @@ function setLifecycle(next) {
 // Name is REQUIRED — the HTML `required` attribute alone does nothing here since #joinStudio is a plain
 // button, not a <form> submit (no native constraint validation ever runs). Synchronous end to end — no
 // await, matching joinAsHost's own immediate mount-then-transition shape exactly.
-function joinStudio() {
+async function joinStudio() {
   if (state.lifecycle !== GuestLifecycle.PREJOIN_READY) return;
   const guestName = elements.guestName.value.trim();
   if (!guestName) {
@@ -189,6 +192,29 @@ function joinStudio() {
   elements.guestStatus.dataset.error = "false";
   elements.guestStatus.textContent = "Connecting…";
   const backgroundNote = getBackgroundNote(state.selectedBackground);
+
+  // Capacity preflight — checked BEFORE transport ever mounts, per "do not silently connect them to VDO
+  // and then hide them." This is a UX nicety only, not the authoritative enforcement: presence_upsert on
+  // the backend (see scripts/toasty-auth-db.py) refuses a 4th guest's actual presence announce regardless
+  // of whether this preflight ran or raced against another guest joining at the same moment — that backend
+  // check is what makes capacity real server/session policy, not this one.
+  try {
+    const response = await fetch(`${studioApiEndpoint()}/api/presence/room?roomId=${encodeURIComponent(state.roomId)}`);
+    if (response.ok) {
+      const data = await response.json();
+      const guestCount = (data.roster || []).filter((entry) => entry.role === "guest").length;
+      if (guestCount >= MAX_GUESTS_PER_ROOM) {
+        setLifecycle(GuestLifecycle.PREJOIN_READY);
+        elements.joinStudio.disabled = false;
+        elements.joinState.textContent = "Full";
+        elements.guestStatus.dataset.error = "true";
+        elements.guestStatus.textContent = "This session is currently full.";
+        return;
+      }
+    }
+  } catch (error) {
+    log("capacity preflight check failed, proceeding — backend still enforces capacity", error?.message);
+  }
 
   // Device LABEL, not .value (a MediaDevices deviceId) — see video-engine.js's mountDirectorFrame
   // comment for why a deviceId read here can't reliably resolve inside VDO.Ninja's cross-origin iframe.
@@ -234,6 +260,10 @@ function joinStudio() {
   state.presence.onRosterChange((roster) => {
     renderRemoteParticipants(roster);
   });
+  // See js/room-presence.js's onRejected comment — 403/409/410 are terminal for THIS admission specifically
+  // (kicked / session full / session ended), not a network hiccup to silently retry past. Each shows a real
+  // message and tears the connection down; none of them auto-rejoin.
+  state.presence.onRejected((status, errorMessage) => handlePresenceRejected(status, errorMessage));
   state.presence.start(state.streamId);
 
   // The check-in form (name/title/company/device pickers/background swatches) has done its job —
@@ -413,6 +443,39 @@ async function leaveSession() {
   elements.guestName.closest("label").before(elements.previewStage);
   state.streamId = null;
   await startPreview();
+}
+
+// See js/room-presence.js's onRejected comment. All three (kicked/full/ended) tear the connection down
+// the same way, but unlike leaveSession() this does NOT re-enable Join or request a fresh preview —
+// showing a real terminal state and stopping here is the whole point ("cannot simply reconnect with the
+// same active connection"). A guest who genuinely wants back in reloads the page, which is a deliberate
+// new admission attempt (a fresh participant_id — see state.participantId's Date.now()-based generation),
+// not this same rejected one silently retrying.
+function handlePresenceRejected(status, errorMessage) {
+  setLifecycle(GuestLifecycle.LEAVING);
+  engine.disconnectAll();
+  stopPreview();
+  state.presence = null;
+  state.mountedRemote = null;
+  stopRemoteMediaPolling();
+  state.hostViewUnsub?.();
+  state.hostViewUnsub = null;
+  engine.unmountFrame(elements.guestRemoteFrame, "remoteview", "");
+  const messages = {
+    403: "You have been removed from this session.",
+    409: "This session is currently full.",
+    410: "This session has ended."
+  };
+  const labels = { 403: "Removed", 409: "Full", 410: "Ended" };
+  elements.joinState.textContent = labels[status] || "Disconnected";
+  elements.guestStatus.dataset.error = "true";
+  elements.guestStatus.textContent = messages[status] || errorMessage || "You were disconnected from this session.";
+  elements.joinedRoom.hidden = true;
+  elements.guestCheckin.hidden = false;
+  elements.joinStudio.disabled = true;
+  elements.previewStage.classList.remove("lv-stage-pip");
+  elements.guestName.closest("label").before(elements.previewStage);
+  state.streamId = null;
 }
 
 function updatePressed(button, pressed, offLabel, onLabel) {

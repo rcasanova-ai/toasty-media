@@ -27,6 +27,38 @@
       <span class="atmosphere-grain"></span>
     </div>
 
+    <!-- The Session Manager gate — see js/session-manager.js's resolveSession(), which director.js's
+         init() awaits BEFORE ever mounting a VDO frame or touching the camera. Shown only when there's no
+         `?session=` in the URL (a fresh Studio open with no session picked yet) or that id turned out to
+         be missing/ended; hidden the instant a session is chosen. Replaces the old behavior of silently
+         creating a new disposable room on every single page load. -->
+    <section class="session-gate" id="sessionGate" hidden aria-label="Toasty Live Sessions">
+      <div class="session-gate-inner">
+        <header class="session-gate-header">
+          <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="" class="session-gate-logo">
+          <h1>Live Studio Sessions</h1>
+          <p class="session-gate-sub">Open an existing session or start a new one.</p>
+        </header>
+
+        <div class="session-gate-new">
+          <input type="text" id="sessionGateTitle" placeholder="Session title (optional)">
+          <button type="button" id="sessionGateCreate" class="btn btn-primary">+ New Session</button>
+        </div>
+
+        <p class="session-gate-status" id="sessionGateStatus"></p>
+
+        <div class="session-gate-section">
+          <p class="session-gate-label">Active</p>
+          <div id="sessionGateActiveList" class="session-gate-list"></div>
+        </div>
+
+        <div class="session-gate-section">
+          <p class="session-gate-label">Ended</p>
+          <div id="sessionGateEndedList" class="session-gate-list"></div>
+        </div>
+      </div>
+    </section>
+
     <header class="studio-global-nav" aria-label="Studio navigation">
       <div class="ai-studio-masthead" id="aiStudioMasthead" hidden>
         <img
@@ -577,7 +609,8 @@
               <span>Build</span>
               <strong id="buildId">—</strong>
             </div>
-            <button id="newRoom" class="link-action" type="button">New invite room</button>
+            <button id="switchSession" class="link-action" type="button">Switch / New Session</button>
+            <button id="endSessionBtn" class="link-action" type="button" style="color: var(--studio-red-bright);">End Session</button>
           </div>
 
           <div class="panel-section" aria-label="AI Producer provider">

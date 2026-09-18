@@ -158,11 +158,18 @@ export class ProducerView {
         <button type="button" class="lv-mini-btn" data-action="camera" aria-pressed="${String(!seat.camera)}">Cam</button>
         <input type="range" class="lv-mini-slider" data-action="volume" min="0" max="1" step="0.05" value="${seat.volume ?? 1}">
         <button type="button" class="lv-mini-btn lv-mini-btn--program" data-action="onProgram" aria-pressed="${String(!seat.onProgram)}">${seat.onProgram ? "On Program" : "Off Program"}</button>
+        <button type="button" class="lv-mini-btn lv-mini-btn--danger" data-action="kick">Kick</button>
       `;
       row.querySelector('[data-action="mic"]').addEventListener("click", () => this.session.setGuestMic(seat.id, !seat.mic));
       row.querySelector('[data-action="camera"]').addEventListener("click", () => this.session.setGuestCamera(seat.id, !seat.camera));
       row.querySelector('[data-action="volume"]').addEventListener("input", (event) => this.session.setGuestVolume(seat.id, Number(event.target.value)));
       row.querySelector('[data-action="onProgram"]').addEventListener("click", () => this.session.setGuestOnProgram(seat.id, !seat.onProgram));
+      // Real removal (VDO disconnect command + durable server-side block — see LiveSession.kickGuest),
+      // not a UI-only hide, so this asks for confirmation like End Session does.
+      row.querySelector('[data-action="kick"]').addEventListener("click", () => {
+        if (!window.confirm(`Remove ${seat.label || "this guest"} from the session?`)) return;
+        this.session.kickGuest(seat.id);
+      });
       return row;
     }));
   }

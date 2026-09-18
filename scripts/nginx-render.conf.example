@@ -160,7 +160,7 @@ server {
         proxy_send_timeout 20s;
     }
 
-    location ~ "^/api/sessions/[a-zA-Z0-9._-]+(/end)?$" {
+    location ~ "^/api/sessions/[a-zA-Z0-9._-]+(/end|/kick)?$" {
         # Same LiveSession management block as /api/sessions above, covering /api/sessions/<id> (get) and
         # /api/sessions/<id>/end — split into its own block rather than one combined regex after nginx's
         # PCRE2 rejected the nested-optional-group version of this pattern.

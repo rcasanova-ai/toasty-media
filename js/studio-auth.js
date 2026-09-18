@@ -50,6 +50,18 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   els.studioLogout.addEventListener("click", logout);
 
+  // See js/session-manager.js's setUrlSession comment: director.html (inside #studioAppFrame) can only
+  // update ITS OWN address via history.replaceState — this is what lets that choice survive a real
+  // top-level browser refresh instead of dropping back to the session gate every time. Origin-checked since
+  // this page listens for postMessage at all; ignores anything not from this same origin.
+  window.addEventListener("message", (event) => {
+    if (event.origin !== window.location.origin) return;
+    if (event.data?.type !== "toasty:session-selected" || !event.data.sessionId) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("session", event.data.sessionId);
+    window.history.replaceState({}, "", url);
+  });
+
   checkSession();
 });
 
