@@ -3,8 +3,14 @@ import json
 import os
 import sqlite3
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+# Room presence entries older than this with no fresh announce/heartbeat are treated as gone — see
+# presence_upsert/presence_list, which both delete stale rows for the room before returning the roster.
+# Clients (js/room-presence.js) announce/poll well under half this window so a few missed round trips never
+# flip someone to "left" by accident.
+PRESENCE_TTL_SECONDS = 20
 
 
 def utc_now():
@@ -463,6 +469,29 @@ def migrate(conn):
         )
         """
     )
+    # Toasty session presence — the source of truth for "who is actually in this room and what VDO.Ninja
+    # source carries their media," replacing the roomId+"h" deterministic-id shortcut and VDO-label-based
+    # identity guessing that js/live-session.js and js/guest.js previously relied on. VDO.Ninja remains pure
+    # media transport; this table is what "Toasty owns identity" means in practice. One row per
+    # (room_id, participant_id); participants announce/heartbeat via presence_upsert (see main() below) and
+    # are pruned once last_seen_at falls outside PRESENCE_TTL_SECONDS — see presence_upsert/presence_list.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS room_presence (
+          room_id TEXT NOT NULL,
+          participant_id TEXT NOT NULL,
+          role TEXT NOT NULL,
+          display_name TEXT NOT NULL DEFAULT '',
+          title TEXT NOT NULL DEFAULT '',
+          company TEXT NOT NULL DEFAULT '',
+          transport_source_id TEXT,
+          joined_at TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL,
+          PRIMARY KEY (room_id, participant_id)
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_room_presence_room ON room_presence(room_id)")
     conn.commit()
 
 
@@ -536,6 +565,35 @@ def public_media_asset(row):
         "status": row["status"],
         "metadata": json.loads(row["metadata"] or "{}"),
     }
+
+
+def public_presence(row):
+    return {
+        "participantId": row["participant_id"],
+        "role": row["role"],
+        "displayName": row["display_name"],
+        "title": row["title"],
+        "company": row["company"],
+        "transportSourceId": row["transport_source_id"],
+        "joinedAt": row["joined_at"],
+        "lastSeenAt": row["last_seen_at"],
+    }
+
+
+def presence_cutoff():
+    return (datetime.now(timezone.utc) - timedelta(seconds=PRESENCE_TTL_SECONDS)).isoformat(timespec="seconds")
+
+
+def presence_roster(conn, room_id):
+    # Prune first so a roster read right after someone's tab died (no explicit presence_leave call — the
+    # common case) doesn't keep showing them for up to the full TTL to every OTHER client polling this room.
+    conn.execute("DELETE FROM room_presence WHERE room_id = ? AND last_seen_at < ?", (room_id, presence_cutoff()))
+    conn.commit()
+    rows = conn.execute(
+        "SELECT * FROM room_presence WHERE room_id = ? AND last_seen_at >= ? ORDER BY joined_at ASC",
+        (room_id, presence_cutoff()),
+    ).fetchall()
+    return [public_presence(row) for row in rows]
 
 
 def main():
@@ -983,6 +1041,55 @@ def main():
         )
         conn.commit()
         print(json.dumps({"ok": True, "taskId": task_id, "responseId": response_id, "paymentId": payment_id}))
+        return
+
+    if action == "presence_upsert":
+        now = utc_now()
+        room_id = payload["roomId"]
+        conn.execute(
+            """
+            INSERT INTO room_presence (
+              room_id, participant_id, role, display_name, title, company,
+              transport_source_id, joined_at, last_seen_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (room_id, participant_id) DO UPDATE SET
+              role = excluded.role,
+              display_name = excluded.display_name,
+              title = excluded.title,
+              company = excluded.company,
+              transport_source_id = excluded.transport_source_id,
+              last_seen_at = excluded.last_seen_at
+            """,
+            (
+                room_id,
+                payload["participantId"],
+                payload["role"],
+                payload.get("displayName") or "",
+                payload.get("title") or "",
+                payload.get("company") or "",
+                payload.get("transportSourceId"),
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        # Doubles as a roster read so an announce/heartbeat is also a full sync — see js/room-presence.js,
+        # which relies on this to avoid a second request on every heartbeat tick.
+        print(json.dumps({"roster": presence_roster(conn, room_id)}))
+        return
+
+    if action == "presence_list":
+        print(json.dumps({"roster": presence_roster(conn, payload["roomId"])}))
+        return
+
+    if action == "presence_leave":
+        conn.execute(
+            "DELETE FROM room_presence WHERE room_id = ? AND participant_id = ?",
+            (payload["roomId"], payload["participantId"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
         return
 
     raise ValueError(f"Unknown action: {action}")

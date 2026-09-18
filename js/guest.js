@@ -1,6 +1,7 @@
 import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js";
 import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js";
 import { startDevicePreview } from "./device-picker.js";
+import { RoomPresence } from "./room-presence.js";
 
 // INSTRUMENTATION BUILD MARKER — bump this string on every deploy meant to be checked against a real
 // device screenshot. A phone showing an OLD value here (or the debug panel missing entirely) means the
@@ -40,7 +41,12 @@ const state = {
   screenSharing: false,
   streamId: null,
   flipping: false,
-  hostViewUnsub: null,
+  // The currently-mounted remote participant view, if any — {participantId, transportSourceId} — so
+  // renderRemoteParticipants can tell "still the same remote person, leave it mounted" apart from "a
+  // different remote source now, remount" instead of tearing down/rebuilding on every roster poll tick.
+  mountedRemote: null,
+  presence: null,
+  selfLabel: null,
   lifecycle: GuestLifecycle.PREJOIN_LOADING,
   // Generated once per page load, kept for the life of this guest session — see the diagnostics panel and
   // this pass's report ("IDENTITY BINDING CHANGE") for why this exists even though VDO.Ninja's own &label
@@ -358,10 +364,12 @@ function joinStudio() {
   const audioDeviceLabel = elements.microphoneSelect.selectedOptions[0]?.textContent;
 
   setLastAction("J6 MOVING PREVIEW (relocating #previewStage into stage as self PiP)");
-  // Toasty-owned name/title under the live tile — see css/studio.css's .guest-live-identity comment for
-  // why this is separate from VDO.Ninja's own showlabels overlay.
-  elements.guestLiveIdentityName.textContent = guestName;
-  elements.guestLiveIdentityRole.textContent = role;
+  // Kept as plain state, not shown — the visible .guest-live-identity spans now label the REMOTE
+  // participant on the main stage (see renderRemoteParticipants below and this pass's corrected
+  // acceptance spec: the identity line identifies who you're LOOKING AT, not yourself). Still needed here
+  // for VDO's own &label on this guest's OWN push (flipCamera reuses it when remounting after a camera
+  // switch) — that's metadata/fallback only now, never what Toasty itself reads for identity.
+  state.selfLabel = label;
   // Move the SAME preview node (not a clone — a live <video> with srcObject already set) into the joined
   // view as the small self PiP — see css/studio.css's .lv-participant-stage comment ("solve the
   // remote-source primitive once"): PARTICIPANT VIEW puts the OTHER person on the main stage and your own
@@ -389,14 +397,26 @@ function joinStudio() {
   // had; on a real device that showed as "click Join, nothing happens for up to ~30s" — an invented
   // abstraction, not something proven by the one path that actually works. Removed rather than tuned.
 
-  // PARTICIPANT VIEW of the Host — the other half of "solve the remote-source primitive once": the Host's
-  // stream id is always roomId+"h" (see js/video-engine.js's mountDirectorFrame), a fixed convention this
-  // codebase already relies on elsewhere, not something discovered — a guest has no director permissions
-  // to enumerate room membership the way js/live-session.js's requestGuestList does for the Host/Director.
-  // Mounted speculatively (the Host may not have joined yet); mountRemoteHostView's own connection-message
-  // listener (see below) toggles the "Waiting for host" placeholder off once real video actually arrives,
-  // separately from whether the iframe merely loaded.
-  mountRemoteHostView();
+  // PARTICIPANT VIEW of the room — the other half of "solve the remote-source primitive once." STOPPED
+  // guessing the Host's stream id as roomId+"h": a real two-device test proved a Guest can't reliably
+  // discover the Host that way (and it can't discover ANOTHER guest at all — no equivalent fixed
+  // convention exists for a randomly-generated push id). Toasty Presence (js/room-presence.js) is now the
+  // source of truth for "who is actually in this room and which transportSourceId is theirs" — VDO.Ninja
+  // stays pure media transport. Announces this guest's OWN presence (now that the real push id is known)
+  // and renders whoever presence says is here except self on every roster update.
+  state.presence = new RoomPresence({
+    roomId: state.roomId,
+    participantId: state.participantId,
+    role: "guest",
+    displayName: guestName,
+    title: guestTitle,
+    company: guestCompany
+  });
+  state.presence.onRosterChange((roster) => {
+    diag(`presence roster: ${JSON.stringify(roster).slice(0, 200)}`);
+    renderRemoteParticipants(roster);
+  });
+  state.presence.start(state.streamId);
 
   // The check-in form (name/title/company/device pickers/background swatches) has done its job —
   // once joined, guests should see only the live feed and the mute/camera/screen-share dock.
@@ -411,20 +431,44 @@ function joinStudio() {
 
 // PARTICIPANT VIEW ONLY — this is "who Tukta is talking to," never Program Output (a separate concept
 // entirely; see studio/listener.html/js/listener.js for that, which this page has no connection to).
-// Mounts a clean &view=<hostStreamId> of the Host and listens for THIS SPECIFIC mounted frame's own
-// connection messages (video-engine.js's handleMessage now passes event.source through for exactly this
-// kind of per-frame attribution) to distinguish "iframe exists" from "a real person is actually visible" —
-// the same distinction whose absence was the root cause chased earlier this pass on the Host side.
-function mountRemoteHostView() {
-  const hostStreamId = `${state.roomId}h`;
+// Renders the current room roster minus self on the single main-stage slot this page has today. Two-person
+// real-device gate: takes the first (and, for now, only) other participant — see this module's own report
+// for why a real N-participant balanced grid is a deliberate follow-up, not attempted this pass, while the
+// underlying presence data model already supports N (proven separately by scripts/presence-3way-test.mjs).
+// Only remounts the VDO &view= iframe when the actual remote id changes (state.mountedRemote), not on
+// every ~5s poll tick, so a steady connection never flickers.
+function renderRemoteParticipants(roster) {
+  const others = roster.filter((entry) => entry.participantId !== state.participantId);
+  const remote = others[0] || null;
+
+  if (!remote || !remote.transportSourceId) {
+    elements.guestRemoteStageEmpty.hidden = false;
+    elements.guestLiveIdentityName.textContent = "";
+    elements.guestLiveIdentityRole.textContent = "";
+    if (state.mountedRemote) {
+      engine.unmountFrame(elements.guestRemoteFrame, "remoteview", "Waiting for host to join");
+      state.mountedRemote = null;
+    }
+    return;
+  }
+
+  // The visible identity line names whoever is on the main stage (the OTHER participant), not this guest
+  // themselves — see this pass's corrected acceptance spec.
+  elements.guestLiveIdentityName.textContent = remote.displayName;
+  elements.guestLiveIdentityRole.textContent = [remote.title, remote.company].filter(Boolean).join(", ");
+
+  if (state.mountedRemote?.transportSourceId === remote.transportSourceId) return; // already showing them
+
+  diag(`mounting remote participant view — participantId="${remote.participantId}" transportSourceId="${remote.transportSourceId}"`);
   elements.guestRemoteStageEmpty.hidden = false;
-  const iframe = engine.mountParticipantView(elements.guestRemoteFrame, { streamId: hostStreamId }, "hostview");
-  diag(`mounted remote Host view — streamId="${hostStreamId}"`);
+  const iframe = engine.mountParticipantView(elements.guestRemoteFrame, { streamId: remote.transportSourceId }, "remoteview");
+  state.mountedRemote = { participantId: remote.participantId, transportSourceId: remote.transportSourceId };
   // Tracked so leaveSession can unsubscribe — without this, rejoining (Leave, then Join again) would stack
   // a new listener on top of the old one every cycle instead of replacing it.
+  state.hostViewUnsub?.();
   state.hostViewUnsub = engine.onMessage((message, source) => {
     if (source !== iframe.contentWindow) return;
-    diag(`hostview message: ${JSON.stringify(message).slice(0, 160)}`);
+    diag(`remoteview message: ${JSON.stringify(message).slice(0, 160)}`);
     if (message?.action === "view-connection") {
       elements.guestRemoteStageEmpty.hidden = Boolean(message.value);
     }
@@ -460,7 +504,7 @@ async function flipCamera() {
   }
   engine.mountGuestFrame(elements.guestTransportFrame, {
     roomId: state.roomId,
-    guestName: [elements.guestLiveIdentityName.textContent, elements.guestLiveIdentityRole.textContent].filter(Boolean).join(" · "),
+    guestName: state.selfLabel,
     backgroundMode: state.selectedBackground,
     videoDeviceLabel,
     audioDeviceLabel,
@@ -499,9 +543,14 @@ async function leaveSession() {
   setLifecycle(GuestLifecycle.LEAVING);
   engine.disconnectAll();
   stopPreview();
+  await state.presence?.leave();
+  state.presence = null;
+  state.mountedRemote = null;
   state.hostViewUnsub?.();
   state.hostViewUnsub = null;
-  engine.unmountFrame(elements.guestRemoteFrame, "hostview", "Waiting for host to join");
+  engine.unmountFrame(elements.guestRemoteFrame, "remoteview", "Waiting for host to join");
+  elements.guestLiveIdentityName.textContent = "";
+  elements.guestLiveIdentityRole.textContent = "";
   elements.joinState.textContent = "Left";
   elements.guestStatus.textContent = "You left the Studio session.";
   elements.joinedRoom.hidden = true;

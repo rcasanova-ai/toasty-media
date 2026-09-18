@@ -20,6 +20,7 @@ import { TranscriptStore } from "./show-context.js";
 import { createTranscriptionProvider } from "./transcription.js";
 import { ParticipantRegistry, createParticipant, ParticipantRole, ConnectionStatus, SourceKind } from "./participant-registry.js";
 import { HostState } from "./host-state.js";
+import { RoomPresence } from "./room-presence.js";
 import { ProducerFeed, AIProducerService, createAIProducerProvider } from "./ai-producer.js";
 import {
   DEFAULT_HOST_RELATIONSHIP_MODE,
@@ -111,6 +112,9 @@ export class LiveSession {
     // Canonical participant/source model — see js/participant-registry.js. Populated for the Host below;
     // guest entries are deliberate follow-up work, not part of this pass.
     this.participants = new ParticipantRegistry();
+    // Toasty session presence — see js/room-presence.js. Created once joinAsHost knows a real identity to
+    // announce; null until then, same lifecycle as hostProfile.
+    this.presence = null;
     // Explicit Host lifecycle state — see js/host-state.js. js/host-prejoin.js drives PREJOIN_LOADING/
     // PREJOIN_READY/JOINING; joinAsHost below confirms IN_STUDIO; leaveStudio drives LEAVING. Every
     // control that should only appear once the Host has actually joined (Leave Studio, Talk to Hottie)
@@ -320,6 +324,7 @@ export class LiveSession {
     this.hostProfile = { displayName: name, title: title.trim(), company: company.trim() };
     const role = [this.hostProfile.title, this.hostProfile.company].filter(Boolean).join(", ");
     const label = role ? `${name} · ${role}` : name;
+    const transportSourceId = `${this.roomId}h`;
     this._hostDevices = { videoDeviceLabel, audioDeviceLabel };
     if (previewStream) this._hostPreviewStream = previewStream;
     this._showHostNativeVideo();
@@ -333,8 +338,15 @@ export class LiveSession {
       connectionStatus: ConnectionStatus.CONNECTED,
       videoSource: { kind: SourceKind.NATIVE_MEDIA_STREAM, stream: this._hostPreviewStream },
       audioSource: { kind: SourceKind.NATIVE_MEDIA_STREAM, stream: this._hostPreviewStream },
-      transportSourceId: `${this.roomId}h`
+      transportSourceId
     }));
+    // Toasty session presence (js/room-presence.js) — announces the Host's own identity + real
+    // transportSourceId (unchanged value, still roomId+"h" — that part was never wrong, it's a real,
+    // valid VDO push id; what was wrong was a GUEST guessing it blind instead of being told it). See
+    // _refreshGuestSeats below for the other half: cross-referencing a guest's VDO-confirmed connection
+    // against this same roster to source identity from Presence instead of VDO's &label.
+    this.presence = new RoomPresence({ roomId: this.roomId, participantId: "host", role: "host", displayName: name, title: this.hostProfile.title, company: this.hostProfile.company });
+    this.presence.start(transportSourceId);
     this.setHostState(HostState.IN_STUDIO);
     this.emit("host-profile", this.hostProfile);
   }
@@ -443,6 +455,10 @@ export class LiveSession {
         this.guestSeats[emptyIndex] = {
           id: guest.id,
           label: guest.label,
+          // parseGuestLabel(guest.label) is the fallback ONLY — see the presence overlay right below,
+          // which replaces displayName/title/company with Toasty's own presence roster the moment a
+          // matching entry exists. Kept as the initial value so a seat still shows SOMETHING in the one
+          // poll tick before this guest's own presence announce has necessarily landed.
           ...parseGuestLabel(guest.label),
           logoUrl: null,
           connectionStatus: "connected",
@@ -452,6 +468,22 @@ export class LiveSession {
           volume: 1
         };
       }
+    });
+
+    // Toasty session presence overlay (js/room-presence.js) — the fix for "sidebar says Guest": VDO.Ninja's
+    // own &label never reliably round-tripped a custom name back to Director on real hardware (confirmed
+    // this pass — the mechanism js/guest.js used to set it was fine, but VDO itself never surfaced it
+    // here). This cross-references each VDO-confirmed connection (seat.id, from requestGuestList above —
+    // that detection is untouched, it already works) against Presence by transportSourceId, and overrides
+    // identity only, never connection/count. A seat with no matching presence entry yet keeps its
+    // VDO-label-derived fallback from above rather than showing nothing.
+    const presenceRoster = this.presence?.roster || [];
+    this.guestSeats.filter(Boolean).forEach((seat) => {
+      const match = presenceRoster.find((entry) => entry.transportSourceId === seat.id);
+      if (!match) return;
+      seat.displayName = match.displayName || seat.displayName;
+      seat.title = match.title || "";
+      seat.company = match.company || "";
     });
 
     // Canonical participant model (see js/participant-registry.js) — this was previously seeded ONLY for
@@ -720,6 +752,8 @@ export class LiveSession {
     this._hostPreviewStream?.getTracks().forEach((track) => track.stop());
     this._hostPreviewStream = null;
     this.participants.remove("host");
+    this.presence?.leave();
+    this.presence = null;
     this.connection = { status: "idle", label: "Left Studio" };
     this.emit("connection", this.connection);
     this.setHostState(HostState.PREJOIN_LOADING);
@@ -740,6 +774,8 @@ export class LiveSession {
     this._hostPreviewStream?.getTracks().forEach((track) => track.stop());
     this._hostPreviewStream = null;
     this.participants.remove("host");
+    this.presence?.leave();
+    this.presence = null;
     this.connection = { status: "idle", label: "Show ended" };
     this.emit("connection", this.connection);
   }

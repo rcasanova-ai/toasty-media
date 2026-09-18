@@ -233,6 +233,24 @@ const server = createServer(async (req, res) => {
     await handleTranscribe(req, res);
     return;
   }
+  // Room presence — see handlePresenceAnnounce's own comment. Deliberately unauthenticated like
+  // /api/agent/find-experts above: a Guest has no Toasty account (see studio/guest.html's "No account
+  // required"), so this can't require a session the way /media-assets etc. do. Rate-limited per IP instead.
+  if (req.method === "POST" && req.url === "/api/presence/announce") {
+    if (!limit(req, res, "presence-announce", 60, 60 * 1000)) return;
+    await handlePresenceAnnounce(req, res);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/presence/room")) {
+    if (!limit(req, res, "presence-room", 60, 60 * 1000)) return;
+    await handlePresenceRoom(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/presence/leave") {
+    if (!limit(req, res, "presence-leave", 60, 60 * 1000)) return;
+    await handlePresenceLeave(req, res);
+    return;
+  }
   if (req.method !== "POST" || req.url !== "/render") {
     sendJson(req, res, 404, { error: "Render helper is running. POST /render to create an MP4." });
     return;
@@ -1533,6 +1551,61 @@ async function db(action, values = {}) {
   const result = await runJson("python3", [AUTH_DB_HELPER], { action, dbPath: AUTH_DB_PATH, ...values });
   if (result.error && result.error !== "duplicate_email") throw httpError(500, "Authentication storage is unavailable.");
   return result;
+}
+
+// Room presence — Toasty's own record of who is actually in a Studio room, replacing the roomId+"h"
+// deterministic-id shortcut a real two-device test proved doesn't scale past the Host (a guest has no way
+// to discover ANOTHER guest's id that way) and the VDO-label-based identity guessing that showed a guest's
+// real name as "Guest" on Director. VDO.Ninja stays pure media transport; this is what "Toasty owns
+// identity" means concretely — see scripts/toasty-auth-db.py's room_presence table and
+// js/room-presence.js, the shared client used identically by both js/live-session.js (Host) and
+// js/guest.js (Guest) to announce/poll/leave. Deliberately unauthenticated (see the route registration
+// above) and rate-limited per IP instead of per-session.
+const PRESENCE_ROLES = new Set(["host", "guest"]);
+
+function presenceText(value, maxLength) {
+  return String(value ?? "").trim().slice(0, maxLength);
+}
+
+function requirePresenceId(value, label) {
+  const id = String(value ?? "");
+  if (!SAFE_ID.test(id)) throw httpError(400, `Invalid ${label}.`);
+  return id;
+}
+
+async function handlePresenceAnnounce(req, res) {
+  const body = await readJson(req);
+  const roomId = requirePresenceId(body.roomId, "roomId");
+  const participantId = requirePresenceId(body.participantId, "participantId");
+  const role = String(body.role || "");
+  if (!PRESENCE_ROLES.has(role)) throw httpError(400, "Invalid role.");
+  let transportSourceId = null;
+  if (body.transportSourceId) transportSourceId = requirePresenceId(body.transportSourceId, "transportSourceId");
+  const result = await db("presence_upsert", {
+    roomId,
+    participantId,
+    role,
+    displayName: presenceText(body.displayName, 120),
+    title: presenceText(body.title, 120),
+    company: presenceText(body.company, 120),
+    transportSourceId
+  });
+  sendJson(req, res, 200, { roster: result.roster || [] });
+}
+
+async function handlePresenceRoom(req, res) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const roomId = requirePresenceId(url.searchParams.get("roomId"), "roomId");
+  const result = await db("presence_list", { roomId });
+  sendJson(req, res, 200, { roster: result.roster || [] });
+}
+
+async function handlePresenceLeave(req, res) {
+  const body = await readJson(req);
+  const roomId = requirePresenceId(body.roomId, "roomId");
+  const participantId = requirePresenceId(body.participantId, "participantId");
+  await db("presence_leave", { roomId, participantId });
+  sendJson(req, res, 200, { ok: true });
 }
 
 async function writeMediaFiles({ form, workDir }) {
