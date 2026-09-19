@@ -74,14 +74,26 @@ export function fillSelect(select, devices, fallbackLabel, displayLabel) {
   }
 }
 
+// "user" (front/selfie) or "environment" (back/rear) per the raw label, or null when neither is
+// detectable — the ONE facing heuristic every caller shares (friendly camera names below, and
+// js/guest.js's Flip Camera, which keeps an explicit selectedFacing state and refuses to infer a target
+// from array position). A single shared function means both can never silently disagree about which
+// physical camera "front" means.
+export function classifyCameraFacing(rawLabel = "") {
+  if (/front|user[- ]?facing/i.test(rawLabel)) return "user";
+  if (/back|rear|environment/i.test(rawLabel)) return "environment";
+  return null;
+}
+
 // DISPLAY ONLY. Real camera labels are raw driver/hardware strings ("camera2 1, facing front") that mean
 // nothing to a guest joining from their phone — never shown to a mobile guest; desktop keeps its real
 // labels (see js/host-prejoin.js, which never passes friendlyCameraLabels) since multiple real/virtual
 // cameras there ARE meaningfully distinguished by name. Positional fallback (not the raw label) when
 // front/back can't be detected from the string, so no raw hardware label ever reaches mobile UI.
 function friendlyCameraDisplayLabel(rawLabel, index) {
-  if (/front|user[- ]?facing/i.test(rawLabel)) return "Front Camera";
-  if (/back|rear|environment/i.test(rawLabel)) return "Back Camera";
+  const facing = classifyCameraFacing(rawLabel);
+  if (facing === "user") return "Front Camera";
+  if (facing === "environment") return "Back Camera";
   return `Camera ${index + 1}`;
 }
 

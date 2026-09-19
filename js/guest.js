@@ -1,6 +1,6 @@
 import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js";
 import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js";
-import { startDevicePreview, selectedDeviceLabel } from "./device-picker.js";
+import { startDevicePreview, selectedDeviceLabel, classifyCameraFacing } from "./device-picker.js";
 import { RoomPresence } from "./room-presence.js";
 import { RemoteMediaState, REMOTE_MEDIA_STATE_LABEL } from "./remote-media-state.js";
 import { studioApiEndpoint } from "./studio-api.js";
@@ -39,6 +39,12 @@ const state = {
   screenSharing: false,
   streamId: null,
   flipping: false,
+  // "user" (front/selfie) or "environment" (back/rear) — the ONE explicit, logical camera selection
+  // flipCamera reasons about. Set from the ACTUAL granted camera's raw label (classifyCameraFacing) after
+  // every successful acquisition, never assumed or inferred from array position — see flipCamera's own
+  // comment. Stays null until the first real preview resolves, or if the label can't be classified at all
+  // (flipCamera then refuses to guess and no-ops rather than picking an arbitrary "other" camera).
+  selectedFacing: null,
   // js/participant-stage.js's syncParticipantStage's persistent state — participantId -> {tile,
   // videoContainer, frameId, transportSourceId} for every currently-mounted OTHER participant tile on this
   // Guest's own participant stage.
@@ -160,6 +166,10 @@ async function startPreview() {
     // Only worth offering Flip Camera once we know there's a second camera to flip to (matches VDO.Ninja's
     // own flip-camera button, which likewise hides itself when just one camera is available).
     elements.guestFlipCamera.hidden = elements.cameraSelect.options.length < 2;
+    // Ground truth from what was ACTUALLY granted (covers the initial load AND the guest manually picking
+    // a different camera from the dropdown pre-join) — flipCamera's target is always "the other one" from
+    // whatever this really is, never assumed.
+    state.selectedFacing = classifyCameraFacing(selectedDeviceLabel(elements.cameraSelect));
     elements.guestStatus.textContent = "Preview ready. Choose a background, then join.";
     elements.joinStudio.disabled = false;
     setLifecycle(GuestLifecycle.PREJOIN_READY);
@@ -319,41 +329,57 @@ function setRemoteMediaState(next) {
   elements.guestRemoteStageEmpty.hidden = next === RemoteMediaState.REMOTE_MEDIA_LIVE;
 }
 
-// Remounts the SAME push connection (same streamId) with the next camera in the list. VDO.Ninja doesn't
-// expose a live in-place device swap over its iframe API (only its own internal flip-camera UI button,
-// which cleanoutput hides), so this is a brief reconnect rather than a seamless swap — the guest's tile
-// will blink for a moment on Program Output/Director too (guestTransportFrame itself is a hidden transport
-// element, aria-hidden — this never touches the guest's own visible preview element). Also restarts the
-// VISIBLE local preview with the new device so what the guest sees stays truthful to what's live.
+// Asks VDO.Ninja's OWN existing publisher to switch cameras — engine.changeGuestVideoDevice, the iframe-
+// API equivalent of VDO's own hidden mobile flip-camera button (see video-engine.js's own comment) —
+// instead of destroying and recreating the whole guest iframe the way this used to work. A full iframe
+// remount is a full WebRTC teardown+reconnect, racing Toasty's own separate native-preview getUserMedia
+// call for the SAME physical camera; that race is what a real-device retest of 3380991 showed as the
+// remote disconnecting on flip, the phone's own preview freezing/blacking, and the front camera eventually
+// stopping coming back at all. VDO's own in-place switch uses RTCRtpSender.replaceTrack on the ALREADY-
+// ESTABLISHED connection (confirmed in lib.js — see changeGuestVideoDevice's comment), so the room
+// connection, Mac's remote view, and the guest's own streamId never change across a flip; and it never
+// touches the audio track/sender at all, so mute state (already handled once at mount by &muted) simply
+// has nothing to lose here — there's no reapply step because nothing about audio is ever touched.
 //
-// Atomic IDLE -> SWITCHING -> IDLE (real-device retest of 511a6cd found repeated taps were sometimes
-// needed before the phone actually switched). state.flipping + the disabled button already blocked a
-// SECOND overlapping call, so that guard wasn't the gap; try/finally is new here purely so a thrown error
-// can never leave the button stuck disabled forever. Two real fixes for the flakiness itself:
-//  1. Tell VDO the device that was ACTUALLY granted — read back from cameraSelect/selectedDeviceLabel
-//     AFTER startDevicePreview's own hydrateDevices runs — never the option we merely asked for.
-//     getUserMediaWithFallback (device-picker.js) silently hands back a DIFFERENT camera if the exact
-//     deviceId request fails (its catch-all fallback is a bare {video:true}), which real phone hardware
-//     can do while the previous camera hasn't finished releasing — sending VDO what we merely requested
-//     instead of what's real is exactly how a tap could look like it "didn't take" even once the native
-//     preview had already recovered on its own.
-//  2. Explicitly release the OLD VDO publisher (unmountFrame — destroys its iframe, which implicitly stops
-//     its camera track) BEFORE asking for the new one, with a short pause between them, instead of letting
-//     mountGuestFrame's own replaceChildren do both in the same synchronous step. Many phones can only hold
-//     one open camera stream at a time; giving the hardware a moment to actually free up (this is a
-//     pragmatic mitigation for that known mobile constraint, not a documented-exact VDO.Ninja API) reduces
-//     how often a fresh request lands before the old one has genuinely let go.
+// selectedFacing ("user"/"environment") is the one explicit, logical selection this function reasons
+// about — never array position (see state.selectedFacing's own comment). The target camera is located
+// TWICE, independently: once against VDO's OWN live device list (for changeGuestVideoDevice's index —
+// deviceId is origin-salted and can't be compared against Toasty's own enumeration, see
+// mountDirectorFrame's comment in video-engine.js) and once against Toasty's own cameraSelect (for the
+// native preview) — both via the SAME classifyCameraFacing heuristic against each side's own raw labels,
+// so the two origins always agree on which physical camera "front"/"back" means even though their device
+// lists can never be compared by id. Neither side falls back to a guess: if a target facing genuinely
+// isn't found in a given list, this no-ops rather than picking an arbitrary "other" camera.
 async function flipCamera() {
   if (state.flipping || state.lifecycle !== GuestLifecycle.IN_STUDIO) return;
-  const options = [...elements.cameraSelect.options];
-  if (options.length < 2) return;
+  if (elements.cameraSelect.options.length < 2 || !state.selectedFacing) return;
+  const targetFacing = state.selectedFacing === "user" ? "environment" : "user";
+  const nativeTarget = [...elements.cameraSelect.options].find(
+    (option) => classifyCameraFacing(option.dataset.rawLabel || option.textContent) === targetFacing
+  );
+  if (!nativeTarget) {
+    log("flip camera: no local camera classified as", targetFacing);
+    return;
+  }
+
   state.flipping = true;
   elements.guestFlipCamera.disabled = true;
   elements.guestFlipCamera.setAttribute("aria-busy", "true");
   try {
-    const currentIndex = options.findIndex((option) => option.value === elements.cameraSelect.value);
-    const target = options[(currentIndex + 1) % options.length];
-    elements.cameraSelect.value = target.value;
+    const vdoVideoInputs = (await engine.requestGuestDeviceList()).filter((device) => device.kind === "videoinput");
+    const vdoIndex = vdoVideoInputs.findIndex((device) => classifyCameraFacing(device.label) === targetFacing);
+    if (vdoIndex === -1) {
+      log("flip camera: VDO's own device list has no camera classified as", targetFacing);
+      return;
+    }
+
+    // Release Toasty's own hold on the OLD camera before either side requests the new one — reduces
+    // hardware contention (most phones hold one camera open at a time) instead of papering over it with a
+    // wait; VDO's own grabVideo (triggered below) does the equivalent release on its own side internally.
+    state.previewStream?.getTracks().forEach((track) => track.stop());
+    engine.changeGuestVideoDevice(vdoIndex);
+
+    elements.cameraSelect.value = nativeTarget.value;
     state.previewStream = await startDevicePreview({
       videoEl: elements.cameraPreview,
       cameraSelect: elements.cameraSelect,
@@ -361,22 +387,8 @@ async function flipCamera() {
       previousStream: state.previewStream,
       friendlyCameraLabels: IS_MOBILE_DEVICE
     });
-    // The REAL granted device, read back post-hydration — never `target` — see this function's own
-    // comment above (point 1).
-    const videoDeviceLabel = selectedDeviceLabel(elements.cameraSelect);
-    const audioDeviceLabel = selectedDeviceLabel(elements.microphoneSelect);
-    engine.unmountFrame(elements.guestTransportFrame, "guest", "");
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    engine.mountGuestFrame(elements.guestTransportFrame, {
-      roomId: state.roomId,
-      guestName: state.selfLabel,
-      backgroundMode: state.selectedBackground,
-      videoDeviceLabel,
-      audioDeviceLabel,
-      streamId: state.streamId,
-      micMuted: state.micMuted,
-      isMobile: IS_MOBILE_DEVICE
-    });
+    // Ground truth from what was ACTUALLY granted, same as startPreview — never assumed to be targetFacing.
+    state.selectedFacing = classifyCameraFacing(selectedDeviceLabel(elements.cameraSelect)) || targetFacing;
   } catch (error) {
     log("flip camera failed", error?.name, error?.message);
   } finally {

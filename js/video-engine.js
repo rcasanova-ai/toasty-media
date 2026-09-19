@@ -226,6 +226,50 @@ export class VideoEngine {
     });
   }
 
+  // Asks the GUEST'S OWN push frame for its live device list — straight from ITS OWN enumerateDevices()
+  // call inside vdo.ninja's origin, all kinds, unfiltered (VDO.Ninja's own {getDeviceList:true} handler
+  // replies with the raw enumerateDevices() result — confirmed by reading main.js). Same cib-correlation
+  // pattern as requestGuestList. Deliberately NOT resolved from Toasty's own device-picker.js enumeration:
+  // deviceId is origin-salted (see mountDirectorFrame's own comment on why a deviceId read on toasty.media
+  // never resolves inside vdo.ninja's iframe), so the only way to know what index changeGuestVideoDevice
+  // below actually needs is to ask VDO directly, every time — not a cached/assumed value.
+  requestGuestDeviceList(timeoutMs=2500) {
+    return new Promise((resolve) => {
+      const cib = `devicelist-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
+      let done = false;
+      const finish = (list) => { if(done) return; done=true; clearTimeout(timer); off(); resolve(list); };
+      const off = this.onMessage((message) => {
+        if (message?.cib !== cib) return;
+        finish(Array.isArray(message.deviceList) ? message.deviceList : []);
+      });
+      const timer = setTimeout(() => finish([]), timeoutMs);
+      if (!this.send("guest", { getDeviceList: true, cib })) finish([]);
+    });
+  }
+
+  // ROOT CAUSE of "flip disconnects Mac / phone preview freezes or blacks / front camera stops coming
+  // back" (real-device retest of 3380991): flipCamera previously destroyed and recreated the ENTIRE guest
+  // iframe (mountFrame's replaceChildren) just to change camera — a full WebRTC teardown+reconnect on
+  // every flip, racing Toasty's own separate native-preview getUserMedia call for the SAME physical camera
+  // hardware, which is exactly the contention most phones (one camera open at a time) can't reliably
+  // survive. VDO.Ninja has its own, already-built, NON-destructive device switch — confirmed by reading
+  // lib.js: cycleCameras() (the function behind VDO's own hidden mobile flip-camera button, cleanoutput
+  // hides the button but not the mechanism) and changeVideoDevice (the same mechanism, exposed on the
+  // iframe API — main.js's postMessage handler already wires `{changeVideoDevice:index}` straight to it).
+  // Both just move VDO's own internal <select>'s selectedIndex and call grabVideo() again, which stops the
+  // OLD video track and calls RTCRtpSender.replaceTrack() against the EXISTING peer connection for the NEW
+  // one — no iframe destroy, no renegotiation, the remote side transitions smoothly instead of
+  // disconnecting. grabVideo's video-device path never touches session.streamSrc's AUDIO track/sender at
+  // all (that's grabAudio/changeAudioDevice's job, a separate function and a separate command) — so
+  // switching video this way is structurally incapable of touching mute state, unlike the full-remount
+  // approach this replaces, which needed &muted re-applied because it destroyed the whole session.
+  // index is positional within VDO's OWN videoinput-kind devices, in the SAME order requestGuestDeviceList
+  // returns them — confirmed from lib.js's gotDevices2, which builds its device <select> by filtering
+  // enumerateDevices()'s result to kind==="videoinput" and appending in that same iteration order, with no
+  // resorting. Computing this from a LIVE requestGuestDeviceList() call, never a cached or assumed index,
+  // is what keeps this honest instead of guessing at array position.
+  changeGuestVideoDevice(index) { return this.send("guest", { changeVideoDevice: index }); }
+
   // Lets a caller correlate an onMessage callback's event.source against a specific mounted frame — see
   // handleMessage below. Used by live-session.js's guest-view diagnostics to know whether a given VDO
   // postMessage actually came from the mounted remote-guest-view iframe specifically, not just "some" frame.
