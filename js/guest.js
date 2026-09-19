@@ -6,6 +6,7 @@ import { RemoteMediaState, REMOTE_MEDIA_STATE_LABEL } from "./remote-media-state
 import { studioApiEndpoint } from "./studio-api.js";
 import { syncParticipantStage, clearParticipantStage } from "./participant-stage.js";
 import { BUILD_ID } from "./build-info.js";
+import { PublisherState, derivePublisherState, pickLocalPublisherEntry } from "./publisher-state.js";
 
 const MAX_GUESTS_PER_ROOM = 3;
 
@@ -27,6 +28,21 @@ const GuestLifecycle = Object.freeze({
   IN_STUDIO: "in-studio",
   LEAVING: "leaving"
 });
+
+const PUBLISH_TIMEOUT_MS = 20000;
+const PUBLISH_POLL_MS = 1000;
+
+function emptyPublisherSignals() {
+  return {
+    iframePresent: false,
+    iframeLoaded: false,
+    pushConnection: null,
+    detailedSelf: null,
+    lastError: "",
+    pollTimer: null,
+    timeoutTimer: null
+  };
+}
 
 const state = {
   roomId: getRoomIdFromUrl(),
@@ -54,7 +70,8 @@ const state = {
   presence: null,
   selfLabel: null,
   lifecycle: GuestLifecycle.PREJOIN_LOADING,
-  participantId: `guest-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  participantId: `guest-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+  publisher: emptyPublisherSignals()
 };
 
 const engine = new VideoEngine();
@@ -319,17 +336,26 @@ async function joinStudio() {
     return;
   }
 
-  // Move the SAME preview node (not a clone — a live <video> with srcObject already set) into the joined
-  // view as the small self PiP — see css/studio.css's .lv-participant-stage comment ("solve the
-  // remote-source primitive once"): PARTICIPANT VIEW puts the OTHER person on the main stage and your own
-  // camera in a corner.
+  // Move the SAME preview node (not a clone) into the joined view as the small self PiP — see
+  // css/studio.css's .lv-participant-stage comment: PARTICIPANT VIEW puts the OTHER person on the
+  // main stage and your own camera in a corner.
   elements.guestParticipantStage.appendChild(elements.previewStage);
   elements.previewStage.classList.remove("preview-stage--live");
   elements.previewStage.classList.add("lv-stage-pip");
 
-  // Deliberately NOT stopping state.previewStream here — same fix as the Host's joinAsHost: the visible
-  // preview the guest has already been looking at is the SAME stream that stays live through Join, instead
-  // of being torn down and replaced by whatever VDO.Ninja's iframe happens to render.
+  // ROOT CAUSE of Device 3 never appearing in Host VDO getGuestList (simultaneous three-device run,
+  // room tmu8vbpzb1sqa34): this used to keep the native previewStream live AND mount VDO's publisher
+  // into a 2×2 off-screen iframe. Chrome/Android can dual-capture the same camera (Guest #2 published).
+  // Exclusive-camera phones cannot: the parent page holds 480×640 live tracks, the hidden vdo.ninja
+  // iframe never finishes push, and getGuestList never lists that source. flipCamera() already
+  // documented this and released native tracks before asking VDO to switch — Join did not.
+  // Release native capture first, then mount the publisher into this visible PiP so VDO can actually
+  // acquire the camera, show a permission prompt if needed, and encode. Self-view becomes VDO's
+  // local preview; Toasty composition/presence/scene=0 are unchanged.
+  stopPreview();
+  elements.cameraPreview.hidden = true;
+  elements.guestTransportFrame.hidden = false;
+  elements.previewStage.classList.add("preview-stage--publishing");
   state.streamId = engine.mountGuestFrame(elements.guestTransportFrame, {
     roomId: state.roomId,
     guestName: label,
@@ -340,6 +366,7 @@ async function joinStudio() {
     micMuted: state.micMuted,
     isMobile: IS_MOBILE_DEVICE
   });
+  watchPublisherCompletion(engine.frames.get("guest"));
   state.presence.startHeartbeat();
 
   // The check-in form (name/title/company/device pickers/background swatches) has done its job —
@@ -347,8 +374,8 @@ async function joinStudio() {
   elements.guestCheckin.hidden = true;
   elements.joinedRoom.hidden = false;
   elements.guestStatus.textContent = backgroundNote || `Joined. The ${state.brandLabel} room is open below.`;
-  elements.joinState.textContent = "Joined";
   setLifecycle(GuestLifecycle.IN_STUDIO);
+  applyPublisherUi();
 }
 
 // PARTICIPANT VIEW — "who Tukta is talking to," never Program Output (a separate concept entirely; see
@@ -427,22 +454,13 @@ async function flipCamera() {
       return;
     }
 
-    // Release Toasty's own hold on the OLD camera before either side requests the new one — reduces
-    // hardware contention (most phones hold one camera open at a time) instead of papering over it with a
-    // wait; VDO's own grabVideo (triggered below) does the equivalent release on its own side internally.
-    state.previewStream?.getTracks().forEach((track) => track.stop());
+    // In-studio self-view is the VDO publisher iframe (native tracks were released at Join so this
+    // phone's camera is free). Do not re-acquire a native preview here — that would steal the camera
+    // back from VDO, which is the Device 3 publish failure. VDO's changeVideoDevice uses replaceTrack
+    // on the already-established publisher; mute/audio is untouched.
     engine.changeGuestVideoDevice(vdoIndex);
-
     elements.cameraSelect.value = nativeTarget.value;
-    state.previewStream = await startDevicePreview({
-      videoEl: elements.cameraPreview,
-      cameraSelect: elements.cameraSelect,
-      microphoneSelect: elements.microphoneSelect,
-      previousStream: state.previewStream,
-      friendlyCameraLabels: IS_MOBILE_DEVICE
-    });
-    // Ground truth from what was ACTUALLY granted, same as startPreview — never assumed to be targetFacing.
-    state.selectedFacing = classifyCameraFacing(selectedDeviceLabel(elements.cameraSelect)) || targetFacing;
+    state.selectedFacing = classifyCameraFacing(nativeTarget.dataset.rawLabel || nativeTarget.textContent) || targetFacing;
   } catch (error) {
     log("flip camera failed", error?.name, error?.message);
   } finally {
@@ -455,6 +473,88 @@ async function flipCamera() {
 function stopPreview() {
   state.previewStream?.getTracks().forEach((track) => track.stop());
   state.previewStream = null;
+  if (elements.cameraPreview) elements.cameraPreview.srcObject = null;
+}
+
+function currentPublisher() {
+  return derivePublisherState(state.publisher);
+}
+
+function stopPublisherWatch({ reset = false } = {}) {
+  if (state.publisher.pollTimer) {
+    clearInterval(state.publisher.pollTimer);
+    state.publisher.pollTimer = null;
+  }
+  if (state.publisher.timeoutTimer) {
+    clearTimeout(state.publisher.timeoutTimer);
+    state.publisher.timeoutTimer = null;
+  }
+  if (reset) state.publisher = emptyPublisherSignals();
+}
+
+function applyPublisherUi() {
+  if (state.lifecycle !== GuestLifecycle.IN_STUDIO && state.lifecycle !== GuestLifecycle.JOINING) return;
+  const { state: pubState, reason } = currentPublisher();
+  if (pubState === PublisherState.LIVE) {
+    elements.joinState.textContent = "Joined";
+    if (elements.guestStatus.dataset.error === "true" && /publish|push-connection|iframe/i.test(elements.guestStatus.textContent || "")) {
+      elements.guestStatus.dataset.error = "false";
+      elements.guestStatus.textContent = getBackgroundNote(state.selectedBackground) || `Joined. The ${state.brandLabel} room is open below.`;
+    }
+    return;
+  }
+  if (pubState === PublisherState.ERROR) {
+    elements.joinState.textContent = "Publish failed";
+    elements.guestStatus.dataset.error = "true";
+    elements.guestStatus.textContent = `This phone has camera/mic, but the studio did not receive the stream (${reason || "publisher-error"}). Leave and join again.`;
+    return;
+  }
+  elements.joinState.textContent = "Publishing…";
+}
+
+function watchPublisherCompletion(iframe) {
+  stopPublisherWatch();
+  state.publisher = {
+    ...emptyPublisherSignals(),
+    iframePresent: Boolean(iframe),
+    iframeLoaded: Boolean(iframe && iframe.contentWindow && iframe.getAttribute("src") && iframe.dataset.loaded === "1")
+  };
+  applyPublisherUi();
+  if (!iframe) {
+    state.publisher.lastError = "publisher-iframe-missing";
+    applyPublisherUi();
+    return;
+  }
+  const markLoaded = () => {
+    state.publisher.iframeLoaded = true;
+    iframe.dataset.loaded = "1";
+    applyPublisherUi();
+    void pollPublisherState();
+  };
+  iframe.addEventListener("load", markLoaded, { once: true });
+  try {
+    if (iframe.contentDocument?.readyState === "complete") markLoaded();
+  } catch (_) {
+    // Cross-origin vdo.ninja — load event is the only completion signal.
+  }
+  state.publisher.pollTimer = setInterval(() => { void pollPublisherState(); }, PUBLISH_POLL_MS);
+  state.publisher.timeoutTimer = setTimeout(() => {
+    const { state: pubState } = currentPublisher();
+    if (pubState === PublisherState.LIVE) return;
+    const ice = state.publisher.detailedSelf?.iceConnectionState || state.publisher.detailedSelf?.connectionState || "";
+    state.publisher.lastError = ice ? `publish-timeout ice:${ice}` : "publish-timeout";
+    applyPublisherUi();
+  }, PUBLISH_TIMEOUT_MS);
+}
+
+async function pollPublisherState() {
+  if (state.lifecycle !== GuestLifecycle.IN_STUDIO && state.lifecycle !== GuestLifecycle.JOINING) return;
+  const detailed = await engine.requestPublisherDetailedState();
+  if (detailed && typeof detailed === "object") {
+    state.publisher.detailedSelf = pickLocalPublisherEntry(detailed, state.streamId) || state.publisher.detailedSelf;
+  }
+  applyPublisherUi();
+  if (currentPublisher().state === PublisherState.LIVE) stopPublisherWatch();
 }
 
 // PRIVACY-CRITICAL — must fail closed. Real-device retest of 6a451ee found live mute unreliable: audio
@@ -514,8 +614,10 @@ function toggleScreen() {
 // with a fresh preview request — not just flip some UI back and leave the old connection dangling.
 async function leaveSession() {
   setLifecycle(GuestLifecycle.LEAVING);
+  stopPublisherWatch({ reset: true });
   engine.disconnectAll();
   stopPreview();
+  restoreNativePreviewSlot();
   await state.presence?.leave();
   state.presence = null;
   clearParticipantStage({ engine, mounted: state.mountedRemoteTiles });
@@ -525,7 +627,6 @@ async function leaveSession() {
   elements.guestStatus.textContent = "You left the Studio session.";
   elements.joinedRoom.hidden = true;
   elements.guestCheckin.hidden = false;
-  elements.previewStage.classList.remove("lv-stage-pip");
   // Restore original prejoin order (eyebrow, THEN preview, then the name field) — insertBefore the name
   // field's label, not prepend, which would put the preview above the room eyebrow instead.
   elements.guestName.closest("label").before(elements.previewStage);
@@ -541,8 +642,10 @@ async function leaveSession() {
 // not this same rejected one silently retrying.
 function handlePresenceRejected(status, errorMessage) {
   setLifecycle(GuestLifecycle.LEAVING);
+  stopPublisherWatch({ reset: true });
   engine.disconnectAll();
   stopPreview();
+  restoreNativePreviewSlot();
   state.presence = null;
   clearParticipantStage({ engine, mounted: state.mountedRemoteTiles });
   const messages = {
@@ -557,9 +660,15 @@ function handlePresenceRejected(status, errorMessage) {
   elements.joinedRoom.hidden = true;
   elements.guestCheckin.hidden = false;
   elements.joinStudio.disabled = true;
-  elements.previewStage.classList.remove("lv-stage-pip");
   elements.guestName.closest("label").before(elements.previewStage);
   state.streamId = null;
+}
+
+function restoreNativePreviewSlot() {
+  elements.previewStage.classList.remove("preview-stage--publishing", "lv-stage-pip");
+  elements.guestTransportFrame.hidden = true;
+  elements.guestTransportFrame.replaceChildren();
+  elements.cameraPreview.hidden = false;
 }
 
 function updatePressed(button, pressed, offLabel, onLabel) {
@@ -598,7 +707,9 @@ function guestDiagnosticsSnapshot(trackSnapshot, videoElementSnapshot) {
     };
   });
   const requestedFacing = state.selectedFacing || classifyCameraFacing(selectedDeviceLabel(elements.cameraSelect));
-  const transportMounted = Boolean(elements.guestTransportFrame?.querySelector("iframe"));
+  const derived = currentPublisher();
+  const detailed = state.publisher.detailedSelf || {};
+  const iframe = elements.guestTransportFrame?.querySelector("iframe");
   return {
     buildId: BUILD_ID,
     role: "guest",
@@ -614,7 +725,13 @@ function guestDiagnosticsSnapshot(trackSnapshot, videoElementSnapshot) {
       publisherSourceId: state.streamId,
       videoTrack: trackSnapshot(state.previewStream, "video"),
       audioTrack: trackSnapshot(state.previewStream, "audio"),
-      transportState: transportMounted ? (state.lifecycle === GuestLifecycle.IN_STUDIO ? "publisher-mounted" : "iframe-present") : "no-iframe",
+      transportState: derived.state,
+      publisherReason: derived.reason || "",
+      iframeLoaded: state.publisher.iframeLoaded === true,
+      pushConnection: state.publisher.pushConnection,
+      ice: detailed.iceConnectionState || detailed.connectionState || "",
+      signaling: detailed.signalingState || "",
+      iframeName: iframe?.name || "",
       requested: { video: requestedFacing ? `facingMode:${requestedFacing}` : "deviceId-exact-or-default" },
       nativePreview: videoElementSnapshot(elements.cameraPreview),
       vdoAr: IS_MOBILE_DEVICE ? "portrait" : "none"
@@ -641,12 +758,24 @@ async function startGuestDebugMedia() {
   }
 }
 
-function handleVdoMessage(message) {
+function handleVdoMessage(message, source) {
   if (!message) return;
+  const fromPublisher = Boolean(source && source === engine.getFrameWindow("guest"));
+  if (fromPublisher && message.action === "push-connection") {
+    state.publisher.pushConnection = message.value === true;
+    if (message.value === false) state.publisher.lastError = "push-connection-false";
+    applyPublisherUi();
+    if (message.value === true) stopPublisherWatch();
+    return;
+  }
+  if (fromPublisher && (message.detailedState || (message.getDetailedState && typeof message.getDetailedState === "object"))) {
+    const detailed = message.detailedState || message.getDetailedState;
+    state.publisher.detailedSelf = pickLocalPublisherEntry(detailed, state.streamId) || state.publisher.detailedSelf;
+    applyPublisherUi();
+    if (currentPublisher().state === PublisherState.LIVE) stopPublisherWatch();
+  }
   if (message.action === "view-connection" && message.value === false) {
     elements.joinState.textContent = "Host disconnected";
     elements.guestStatus.textContent = "The host connection was lost. Keep this page open if you plan to reconnect.";
-  } else if (message.action === "push-connection" && message.value === false) {
-    elements.joinState.textContent = "Disconnected";
   }
 }

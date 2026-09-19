@@ -698,7 +698,7 @@ export class LiveSession {
         publisherSourceId: `${this.roomId}h`,
         videoTrack: this._hostTrackSnapshot(this._hostPreviewStream, "video"),
         audioTrack: this._hostTrackSnapshot(this._hostPreviewStream, "audio"),
-        transportState: this.engine.frames.has("host") ? "publisher-mounted" : "no-iframe",
+        transportState: this.engine.frames.has("host") ? "publisher-iframe-mounted" : "none",
         nativePreview: null
       },
       remotes,

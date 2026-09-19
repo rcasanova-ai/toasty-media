@@ -81,6 +81,8 @@ export function formatDiagnostics(snapshot) {
     const preview = self.nativePreview;
     lines.push(`preview ${preview.videoWidth}x${preview.videoHeight} in ${preview.clientWidth}x${preview.clientHeight} fit=${preview.objectFit || "?"}`);
   }
+  if (self.publisherReason) lines.push(`pubReason ${self.publisherReason}`);
+  if (self.ice || self.signaling) lines.push(`ice ${self.ice || "?"}  signaling ${self.signaling || "?"}`);
   if (self.vdoAr) lines.push(`vdo ar=${self.vdoAr}`);
   lines.push("— REMOTE —");
   const remotes = Array.isArray(safe.remotes) ? safe.remotes : [];

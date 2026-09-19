@@ -60,7 +60,8 @@ const text = formatDiagnostics({
     publisherSourceId: "tmroomgabc1",
     videoTrack: { readyState: "live", width: 720, height: 1280, aspectRatio: 0.5625, facingMode: "user" },
     audioTrack: { readyState: "live" },
-    transportState: "publisher-mounted",
+    transportState: "publisher-live",
+    publisherReason: "push-connection",
     requested: { video: "facingMode:user" },
     nativePreview: { videoWidth: 720, videoHeight: 1280, clientWidth: 120, clientHeight: 90, objectFit: "cover" },
     vdoAr: "portrait"
@@ -84,6 +85,8 @@ assert(text.includes("pub tmroomgabc1"), "prints publisher source id");
 assert(text.includes("720x1280"), "prints actual track dimensions");
 assert(text.includes("face=user"), "prints facingMode");
 assert(text.includes("fit=cover"), "prints preview object-fit");
+assert(text.includes("transport publisher-live"), "prints real publisher completion state, not iframe-mounted");
+assert(text.includes("pubReason push-connection"), "prints why publisher is live");
 assert(text.includes("presence∉vdo tmroomgabc1"), "prints presence-not-in-vdo mismatch");
 assert(!/SECRET|token|password|cookie/i.test(text), "formatted text has no secret-looking values");
 
