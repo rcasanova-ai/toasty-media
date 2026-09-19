@@ -3559,6 +3559,77 @@
   grid-column: 1 / -1;
 }
 
+/* Host view shows Participant Stage; Producer view shows Program Preview. Park the inactive
+   surface off-screen (same trick as .lv-hidden-transport) instead of display:none so already-
+   mounted VDO views keep encoding when the operator switches Host ↔ Producer. */
+.live-console[data-lv-view="producer"] #lvParticipantStage,
+.live-console[data-lv-view="producer"] .lv-host-controls {
+  height: 2px;
+  left: -9999px;
+  overflow: hidden;
+  position: fixed;
+  top: -9999px;
+  width: 2px;
+}
+
+.live-console[data-lv-view="host"] #lvProgramPreviewStage {
+  height: 2px;
+  left: -9999px;
+  overflow: hidden;
+  position: fixed;
+  top: -9999px;
+  width: 2px;
+}
+
+.lv-program-preview {
+  background: #0c0908;
+  border: 1px solid var(--studio-line);
+  border-radius: 10px;
+  display: grid;
+  flex: 1 1 auto;
+  gap: 0.45rem;
+  min-height: min(48vh, 420px);
+  min-width: 0;
+  overflow: hidden;
+  padding: 0.45rem;
+  width: 100%;
+}
+
+.lv-program-preview[data-layout="1"] { grid-template-columns: 1fr; }
+.lv-program-preview[data-layout="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.lv-program-preview[data-layout="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.lv-program-preview[data-layout="4"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+.lv-program-preview .po-tile {
+  background: #0c0908;
+  border: 1px solid var(--studio-line);
+  border-radius: 10px;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.lv-program-preview .po-tile-video {
+  inset: 0;
+  position: absolute;
+}
+
+.lv-program-preview .po-tile-video iframe,
+.lv-program-preview .po-tile-video video {
+  border: 0;
+  height: 100%;
+  left: 0;
+  object-fit: cover;
+  position: absolute;
+  top: 0;
+  width: 100%;
+}
+
 .lv-video-row {
   display: flex;
   gap: 0.6rem;

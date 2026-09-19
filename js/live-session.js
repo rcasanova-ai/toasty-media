@@ -25,6 +25,7 @@ import { RemoteMediaState } from "./remote-media-state.js";
 import { ProducerFeed, AIProducerService, createAIProducerProvider } from "./ai-producer.js";
 import { studioRequest } from "./studio-api.js";
 import { syncParticipantStage, clearParticipantStage } from "./participant-stage.js";
+import { syncProgramRenderer, clearProgramRenderer, serializeProgramParticipant } from "./program-renderer.js";
 import {
   DEFAULT_HOST_RELATIONSHIP_MODE,
   DEFAULT_SHOW_TONE,
@@ -190,6 +191,7 @@ export class LiveSession {
     // js/participant-stage.js's syncParticipantStage's persistent state — participantId -> {tile, frameId,
     // transportSourceId} for every currently-mounted Guest tile on Host's participant stage.
     this._mountedGuestTiles = new Map();
+    this._mountedProgramTiles = new Map();
 
     this.engine.onMessage((message) => this._handleVdoMessage(message));
     window.setInterval(() => this.engine.requestDetailedState(), 5000);
@@ -315,11 +317,12 @@ export class LiveSession {
   // mounted after their own native prejoin. Room preview and the hidden control frame don't need a
   // person's identity to exist, so they still mount immediately.
   start(containers) {
-    this._containers = containers; // {host, hostTransport, roomPreview, control} — kept so layout changes can remount
+    this._containers = containers; // {host, hostTransport, roomPreview, control, programPreview}
     // roomPreview (the guest stage) is deliberately NOT mounted here — see _syncGuestVideoTile, which
     // mounts a clean per-participant &view=<id> tile per connected Guest only once actually detected, and
     // tears each down again on disconnect. No VDO frame here at all beats mounting one that shows nobody.
     clearParticipantStage({ engine: this.engine, mounted: this._mountedGuestTiles });
+    this._teardownProgramPreview();
     this.engine.mountDirectorControlFrame(containers.control, { roomId: this.roomId });
     this.guestSeats = new Array(GUEST_SEAT_COUNT).fill(null);
     this._restartProgramSync();
@@ -372,6 +375,8 @@ export class LiveSession {
     this.presence.start(transportSourceId);
     this.setHostState(HostState.IN_STUDIO);
     this.emit("host-profile", this.hostProfile);
+    this.publishProgramState();
+    this._syncProgramPreview();
   }
 
   setHostState(state) {
@@ -579,6 +584,7 @@ export class LiveSession {
     });
 
     this._syncGuestVideoTile();
+    this._syncProgramPreview();
     this.emit("guests", this.guestCount());
     this.publishProgramState();
   }
@@ -603,6 +609,30 @@ export class LiveSession {
       frameIdPrefix: "guestview"
     });
     this._setRemoteMediaState(composition.others.length === 0 ? RemoteMediaState.WAITING_FOR_PARTICIPANT : RemoteMediaState.REMOTE_MEDIA_LIVE);
+  }
+
+  // Producer Program Preview — SAME Program Renderer Preview Live Stream uses. Muted here so the
+  // Host does not hear guests a second time on top of the participant stage.
+  _syncProgramPreview() {
+    const stage = this._containers?.programPreview;
+    if (!stage) return;
+    syncProgramRenderer({
+      stage,
+      engine: this.engine,
+      roomId: this.roomId,
+      participants: this.participants.list(),
+      mounted: this._mountedProgramTiles,
+      frameIdPrefix: "program-preview",
+      muted: true
+    });
+  }
+
+  _teardownProgramPreview() {
+    clearProgramRenderer({
+      engine: this.engine,
+      mounted: this._mountedProgramTiles,
+      stage: this._containers?.programPreview
+    });
   }
 
   // Presence confirming a guest is a DIFFERENT fact from their video actually being visible — see
@@ -765,6 +795,8 @@ export class LiveSession {
     this.participants.remove(guestId);
     this.emit("guests", this.guestCount());
     this._syncGuestVideoTile();
+    this._syncProgramPreview();
+    this.publishProgramState();
   }
 
   // ---- Program Output sync ----
@@ -786,9 +818,9 @@ export class LiveSession {
       ticker: { enabled: this.program.tickerEnabled, text: this.program.tickerText },
       live: this.program.live,
       layout: this.program.layout,
-      // Lets Program Output tell "room is genuinely empty" apart from "video hasn't loaded yet".
       hostStarted: this.engine.frames.has("host"),
-      guestCount: this.guestCount()
+      guestCount: this.guestCount(),
+      participants: this.participants.list().map(serializeProgramParticipant)
     });
   }
 
@@ -822,9 +854,12 @@ export class LiveSession {
   setLayout(layout, { manual = true } = {}) {
     this.program.layout = layout;
     if (manual) this.program.layoutManualOverride = true;
-    if (this._containers) this.engine.mountRoomFrame(this._containers.roomPreview, { roomId: this.roomId, layout });
+    // Do not remount VDO scene=0 onto #lvGuestFrame — that container is the Host participant
+    // stage (per-person &view= tiles). Program layout now comes from composeProgram via the
+    // Program Renderer, not a mixer iframe.
     this.publishProgramState();
     this.emit("program", this.program);
+    this._syncProgramPreview();
   }
 
   // ---- Host's own AV ----
@@ -889,17 +924,20 @@ export class LiveSession {
     this.emit("guests", this.guestCount());
   }
 
-  // "Off Program" doesn't remove a guest from VDO.Ninja's merged scene=0 mix — Program Output has no
-  // concept of an individually-addressed tile to drop (see mountProgramFrame's comment). What IS real:
-  // muting their mic and camera remotely, so they go silent/black in the mix while staying connected.
-  // That's what this does, and the UI should say exactly that rather than implying a true seat cut.
+  // Off Program drops the seat from composeProgram (onProgram: false) so Program Renderer no longer
+  // shows them. Also mutes their mic/camera remotely so they go silent in transport while staying
+  // connected. Host/Producer can take them back on Program without a reconnect.
   setGuestOnProgram(guestId, onProgram) {
     const seat = this.guestSeats.find((s) => s?.id === guestId);
     if (!seat) return;
     seat.onProgram = onProgram;
+    const existing = this.participants.get(guestId);
+    if (existing) this.participants.upsert({ ...existing, onProgram });
     this.engine.setGuestRemoteMicrophone(guestId, onProgram);
     this.engine.setGuestRemoteCamera(guestId, onProgram);
     this.emit("guests", this.guestCount());
+    this._syncProgramPreview();
+    this.publishProgramState();
   }
 
   // ---- Session policy (Jam foundation) ----
@@ -981,6 +1019,7 @@ export class LiveSession {
     // fail with "Failed to fetch".
     this._stopGuestListPolling();
     this._stopRecordingTimer();
+    this._teardownProgramPreview();
     this._hostPreviewStream?.getTracks().forEach((track) => track.stop());
     this._hostPreviewStream = null;
     this.participants.remove("host");
@@ -988,6 +1027,7 @@ export class LiveSession {
     this.presence = null;
     this.connection = { status: "idle", label: "Left Studio" };
     this.emit("connection", this.connection);
+    this.publishProgramState();
     this.setHostState(HostState.PREJOIN_LOADING);
   }
 
@@ -1008,8 +1048,10 @@ export class LiveSession {
     this.participants.remove("host");
     this.presence?.leave();
     this.presence = null;
+    this._teardownProgramPreview();
     this.connection = { status: "idle", label: "Show ended" };
     this.emit("connection", this.connection);
+    this.publishProgramState();
   }
 
   _handleVdoMessage(message) {

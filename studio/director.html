@@ -400,9 +400,10 @@
           </header>
 
           <div class="lv-body">
-            <section class="lv-panel lv-program" aria-label="Program preview">
+            <section class="lv-panel lv-program" aria-label="Studio stage">
               <div class="lv-panel-head">
-                <span>Program Preview</span>
+                <span data-lv-only="host">Participant View</span>
+                <span data-lv-only="producer" hidden>Program Preview</span>
                 <span class="lv-chip" id="lvHostPanelStatus">Loading</span>
               </div>
               <!-- Participant View (who the Host is talking to), not Program Output (what the Producer
@@ -454,6 +455,10 @@
                   <span class="lv-video-tile-label" id="lvGuestPanelStatus">Waiting</span>
                 </article>
               </div>
+              <!-- ONE Program Renderer — same composeProgram tiles/lower-thirds as studio/listener.html.
+                   Muted here. Parked off-screen in Host view (never display:none) so switching to
+                   Producer does not remount. -->
+              <div class="lv-program-preview po-stage" id="lvProgramPreviewStage"></div>
               <div class="lv-host-controls" data-lv-only="host">
                 <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
                 <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>
