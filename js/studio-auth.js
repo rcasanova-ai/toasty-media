@@ -1,5 +1,5 @@
 import { studioApiEndpoint } from "./studio-api.js";
-import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js";
+import { applyBrandTheme, getInitialBrandTheme, normalizeBrandTheme } from "./brand-themes.js";
 
 const state = {
   mode: "signup",
@@ -70,7 +70,7 @@ async function checkSession() {
   try {
     const session = await request("/auth/session", { method: "GET" });
     if (session.authenticated) {
-      openStudio();
+      openStudio(session.user?.branding);
       return;
     }
     showPublic("");
@@ -91,7 +91,7 @@ async function register() {
         password: els.signupPassword.value
       })
     });
-    if (session.authenticated) openStudio();
+    if (session.authenticated) openStudio(session.user?.branding);
   } catch (error) {
     setMessage(error.message, true);
   } finally {
@@ -111,7 +111,7 @@ async function login() {
         password: els.loginPassword.value
       })
     });
-    if (session.authenticated) openStudio();
+    if (session.authenticated) openStudio(session.user?.branding);
   } catch (error) {
     setMessage(error.message, true);
   } finally {
@@ -134,7 +134,14 @@ async function logout() {
   }
 }
 
-function openStudio() {
+// branding: {mode, brandId} from /auth/session's user record (see toasty-auth-db.py's user_set_branding).
+// A "locked" account (a brand-locked customer like Moe @ Superteam Thailand) never gets its brand from the
+// URL/localStorage at all here — this is the one place that decides what director.html even loads with,
+// so a locked account can't end up with a mismatched brand for even the first paint. This is a UX nicety,
+// NOT the security boundary: handleSessionCreate/handleSessionBrand (render-production-server.mjs) enforce
+// the lock server-side regardless of what this ever sends, so a tampered/bypassed URL still can't create or
+// change a session to another brand — only the frontend's OWN selector visibility depends on this.
+function openStudio(branding = { mode: "flexible", brandId: null }) {
   els.studioPublicPage.hidden = true;
   els.studioAppShell.hidden = false;
   document.body.classList.add("is-authenticated");
@@ -142,9 +149,16 @@ function openStudio() {
     // Once we're actually inside an authenticated session, storage IS a legitimate source for brand
     // (this is "remember my last choice across a refresh while logged in", not the logged-out leak) —
     // state.brandTheme itself stays storage-free so the public gate never flashes stale client branding.
-    const authenticatedBrand = getInitialBrandTheme(window.location.search, { useStorage: true });
+    const authenticatedBrand = branding.mode === "locked"
+      ? normalizeBrandTheme(branding.brandId)
+      : getInitialBrandTheme(window.location.search, { useStorage: true });
     const query = new URLSearchParams(window.location.search);
     query.set("brand", authenticatedBrand);
+    if (branding.mode === "locked") {
+      query.set("brandLocked", "1");
+    } else {
+      query.delete("brandLocked");
+    }
     els.studioAppFrame.src = `./director.html?${query}`;
     state.appLoaded = true;
   }

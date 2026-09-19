@@ -1309,7 +1309,7 @@ async function readSession(req) {
 }
 
 function publicSessionUser(user) {
-  return user ? { id: user.id, name: user.name, email: user.email, status: user.status } : null;
+  return user ? { id: user.id, name: user.name, email: user.email, status: user.status, branding: user.branding || { mode: "flexible", brandId: null } } : null;
 }
 
 function googleConfigured() {
@@ -1690,11 +1690,15 @@ async function handleSessionCreate(req, res, authSession) {
   const body = await readJson(req);
   const roomId = requirePresenceId(body.roomId, "roomId");
   const id = `ls_${randomUUID().replace(/-/g, "")}`;
+  // Brand-locked accounts (see toasty-auth-db.py's user_set_branding) never get to pick — the client's own
+  // body.brandId is simply ignored, not merely overridden after checking it, so there is no "did they
+  // still manage to sneak a different value through" question to answer.
+  const brandId = authSession.branding?.mode === "locked" ? authSession.branding.brandId : sessionText(body.brandId, 60);
   const result = await db("session_create", {
     id,
     roomId,
     ownerUserId: authSession.id,
-    brandId: sessionText(body.brandId, 60),
+    brandId,
     title: sessionText(body.title, 160)
   });
   sendJson(req, res, 200, { session: result.session });
@@ -1735,7 +1739,17 @@ async function handleSessionBrand(req, res, authSession) {
   const id = decodeURIComponent(path);
   if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
   const body = await readJson(req);
-  const brandId = sessionText(body.brandId, 60);
+  let brandId = sessionText(body.brandId, 60);
+  // Enforced here regardless of what the client sends — a locked account calling this directly (bypassing
+  // a frontend that correctly hides the brand selector) gets a real 403, not a silently-ignored request
+  // that looks like it worked. Requesting the SAME brand they're already locked to is a harmless no-op,
+  // not an error, since a naive client might resend its own current value unprompted.
+  if (authSession.branding?.mode === "locked") {
+    if (brandId && brandId !== authSession.branding.brandId) {
+      throw httpError(403, "Your account is locked to a single brand and cannot change it.");
+    }
+    brandId = authSession.branding.brandId;
+  }
   const result = await db("session_set_brand", { id, ownerUserId: authSession.id, brandId });
   if (!result.session) throw httpError(404, "Session not found.");
   sendJson(req, res, 200, { session: result.session });

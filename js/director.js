@@ -12,6 +12,21 @@ import { HostState } from "./host-state.js";
 import { BUILD_ID } from "./build-info.js";
 import { resolveSession } from "./session-manager.js";
 
+// Set by js/studio-auth.js's openStudio when /auth/session reports a "locked" account (a brand-locked
+// customer like Moe @ Superteam Thailand) — a UX nicety only (hides the selector, blocks the local optimistic
+// update below), never the security boundary: handleSessionCreate/handleSessionBrand
+// (render-production-server.mjs) enforce the lock server-side regardless of whether this flag is even
+// present, so a tampered URL still can't actually create or change a session to another brand.
+const isBrandLocked = new URLSearchParams(window.location.search).get("brandLocked") === "1";
+
+// hidden attribute + inline style — see isBrandLocked's own call sites for why the attribute alone isn't
+// enough here (an existing class-level `display` rule beats it).
+function hideElement(el) {
+  if (!el) return;
+  el.hidden = true;
+  el.style.display = "none";
+}
+
 const session = new LiveSession();
 // Dev diagnostics only — never rendered in Host/Producer UI. In devtools: session.aiProducerService.diagnostics()
 // for the speech-complete -> result-rendered latency breakdown of recent AI Producer requests.
@@ -89,7 +104,13 @@ function initStudio() {
 
   new AIProductionController({
     getBrandTheme: () => session.brandTheme,
-    onBrandChange: (brandTheme) => { elements.brandThemeSelect.value = normalizeBrandTheme(brandTheme); session.changeBrandTheme(brandTheme); }
+    onBrandChange: (brandTheme) => {
+      // Same lock this file's own selector respects — Hottie can't do via voice what the hidden dropdown
+      // can't do via click. Backend enforces this regardless either way (see isBrandLocked's own comment).
+      if (isBrandLocked && normalizeBrandTheme(brandTheme) !== session.brandTheme) return;
+      elements.brandThemeSelect.value = normalizeBrandTheme(brandTheme);
+      session.changeBrandTheme(brandTheme);
+    }
   }).init();
 
   // Mounted before bindViewSwitch()'s initial setView("host") call, so its Producer-only broadcast
@@ -140,7 +161,26 @@ function bindRailControls() {
   elements.inviteGuestBtn.addEventListener("click", inviteGuest);
   elements.copyInvite.addEventListener("click", copyInvite);
   elements.copyListenerInvite.addEventListener("click", copyListenerInvite);
-  elements.brandThemeSelect.addEventListener("change", () => session.changeBrandTheme(elements.brandThemeSelect.value));
+  if (isBrandLocked) {
+    // hidden, not removed: ai-production.js's own #aiBrandProfile selector (below) is queried and used
+    // directly with no null-guard (addEventListener/replaceChildren/.value= all assume it exists) — that
+    // module is Hottie's, not touched here, so this can't risk removing an element it depends on.
+    // Both the hidden ATTRIBUTE and an explicit inline style: css/studio.css's own .brand-switcher rule
+    // sets display:grid directly on this class, which beats the [hidden] UA-stylesheet rule the attribute
+    // alone relies on (author CSS always wins over UA styles at equal specificity, and a class selector's
+    // specificity ties an attribute selector's anyway) — confirmed live, the attribute was set correctly
+    // but the dropdown still rendered. An inline style always wins over any external stylesheet rule short
+    // of !important, closing that gap without touching studio.css's own existing rule at all.
+    hideElement(elements.brandThemeSelect.closest(".brand-switcher"));
+    // ai-production.js's OWN brand selector (#aiBrandProfile) — a second, independent selector element
+    // that populateBrandThemeSelect (brand-themes.js) also fills in, routed through the SAME onBrandChange
+    // callback below. Hidden here rather than inside ai-production.js itself since isBrandLocked is this
+    // file's own concept, not something that module needs to know about beyond the callback it's already
+    // given.
+    hideElement(document.querySelector("#aiBrandProfile")?.closest(".ai-brand-control"));
+  } else {
+    elements.brandThemeSelect.addEventListener("change", () => session.changeBrandTheme(elements.brandThemeSelect.value));
+  }
   // Full page reload, deliberately — the simplest reliable teardown of camera/VDO state before showing
   // the Session gate again, rather than trying to hand-roll an equivalent in-JS teardown. Drops the
   // `?session=` param so resolveSession() shows the gate instead of re-resolving the same session.

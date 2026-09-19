@@ -50,6 +50,20 @@ def migrate(conn):
         """
     )
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+    # Brand-locked customer accounts (e.g. Moe @ Superteam Thailand): an authorization/entitlement rule,
+    # not a frontend preference — enforced in handleSessionCreate/handleSessionBrand (render-production-
+    # server.mjs) regardless of what a client sends, so a locked account can never end up on, or switch a
+    # session to, a different brand even via a direct API call. 'flexible' (the default — every existing
+    # account, and Toasty's own internal accounts) keeps today's brand-selector behavior entirely; only an
+    # explicitly 'locked' account is restricted. locked_brand_id is only meaningful when brand_mode='locked'.
+    # SQLite's ALTER TABLE ADD COLUMN has no IF NOT EXISTS clause (unlike CREATE TABLE/INDEX above) — this
+    # existing_columns check is what makes the migration safe to run on every service start against the
+    # already-populated users table without a separate one-time migration script.
+    existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+    if "brand_mode" not in existing_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN brand_mode TEXT NOT NULL DEFAULT 'flexible'")
+    if "locked_brand_id" not in existing_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN locked_brand_id TEXT")
     # Toasty session presence — the source of truth for "who is actually in this room and what VDO.Ninja
     # source carries their media," replacing the roomId+"h" deterministic-id shortcut and VDO-label-based
     # identity guessing that js/live-session.js and js/guest.js previously relied on. VDO.Ninja remains pure
@@ -130,6 +144,10 @@ def public_user(row):
         "updated_at": row["updated_at"],
         "last_login_at": row["last_login_at"],
         "status": row["status"],
+        "branding": {
+            "mode": row["brand_mode"],
+            "brandId": row["locked_brand_id"],
+        },
     }
 
 
@@ -224,6 +242,27 @@ def main():
         return
 
     if action == "get_user_by_id":
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"user": public_user(row)}))
+        return
+
+    # OPERATOR-ONLY — deliberately NOT reachable through any public HTTP route in render-production-
+    # server.mjs. Locking/unlocking a customer's own brand has to be something WE set on their account, not
+    # something the account itself can ever toggle (that would defeat the entire point of a brand-locked
+    # entitlement) — invoked directly via this db() action over SSH when provisioning or adjusting a
+    # customer account, the same way test accounts have been created via curl this session.
+    if action == "user_set_branding":
+        mode = payload.get("mode")
+        if mode not in ("flexible", "locked"):
+            print(json.dumps({"error": "invalid_mode"}))
+            return
+        brand_id = payload.get("brandId") if mode == "locked" else None
+        now = utc_now()
+        conn.execute(
+            "UPDATE users SET brand_mode = ?, locked_brand_id = ?, updated_at = ? WHERE id = ?",
+            (mode, brand_id, now, payload["id"]),
+        )
+        conn.commit()
         row = conn.execute("SELECT * FROM users WHERE id = ?", (payload["id"],)).fetchone()
         print(json.dumps({"user": public_user(row)}))
         return
