@@ -11,6 +11,16 @@ from pathlib import Path
 # Clients (js/room-presence.js) announce/poll well under half this window so a few missed round trips never
 # flip someone to "left" by accident.
 PRESENCE_TTL_SECONDS = 20
+# 1 Host + this many Guests = max on-camera participants — enforced here (presence_upsert), not just in
+# UI. A 4th distinct guest participant_id is refused before it's ever admitted to room_presence.
+MAX_GUESTS_PER_ROOM = 3
+# How long a kick blocks its exact participant_id from re-announcing. Generous relative to the 5s
+# heartbeat interval so a kicked tab's next few heartbeats are reliably caught, short enough that it
+# can't permanently wedge a room if a participant_id is ever accidentally reused.
+KICK_BLOCK_SECONDS = 300
+# Must stay in sync with js/brand-themes.js's BRAND_THEMES keys. Invalid IDs must never be stored:
+# frontend normalizeBrandTheme falls back to Toasty, which would silently undress a locked customer.
+KNOWN_BRAND_IDS = frozenset({"toasty", "8alta", "santati", "optimai", "tangem", "superteam", "peeps"})
 
 
 def utc_now():
@@ -492,6 +502,48 @@ def migrate(conn):
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_room_presence_room ON room_presence(room_id)")
+    # Brand-locked customer accounts — authorization/entitlement, not a frontend preference. Idempotent
+    # ALTER: SQLite has no ADD COLUMN IF NOT EXISTS; ensure_columns below no-ops when already present.
+    # Default flexible so every existing user keeps today's brand-selector behavior.
+    ensure_columns(
+        conn,
+        "users",
+        {
+            "brand_mode": "TEXT NOT NULL DEFAULT 'flexible'",
+            "locked_brand_id": "TEXT",
+        },
+    )
+    # Durable LiveSession record — presence is "who is here right now"; a LiveSession is "this room
+    # exists / existed and its owner can find, reopen, or end it." CREATE TABLE IF NOT EXISTS is
+    # idempotent against an already-populated production DB.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS live_sessions (
+          id TEXT PRIMARY KEY,
+          room_id TEXT NOT NULL UNIQUE,
+          owner_user_id TEXT NOT NULL REFERENCES users(id),
+          brand_id TEXT NOT NULL DEFAULT '',
+          title TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'OPEN',
+          created_at TEXT NOT NULL,
+          started_at TEXT,
+          ended_at TEXT,
+          last_active_at TEXT NOT NULL,
+          ended_by TEXT
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_live_sessions_owner ON live_sessions(owner_user_id, status)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS session_kicks (
+          room_id TEXT NOT NULL,
+          participant_id TEXT NOT NULL,
+          kicked_at TEXT NOT NULL,
+          PRIMARY KEY (room_id, participant_id)
+        )
+        """
+    )
     conn.commit()
 
 
@@ -513,7 +565,32 @@ def public_user(row):
         "updated_at": row["updated_at"],
         "last_login_at": row["last_login_at"],
         "status": row["status"],
+        "branding": user_branding(row),
     }
+
+
+def _row_has(row, key):
+    try:
+        return key in row.keys()
+    except Exception:
+        return False
+
+
+def user_branding(row):
+    if not row:
+        return {"mode": "flexible", "brandId": None}
+    mode = row["brand_mode"] if _row_has(row, "brand_mode") and row["brand_mode"] else "flexible"
+    brand_id = row["locked_brand_id"] if _row_has(row, "locked_brand_id") else None
+    if mode != "locked":
+        return {"mode": "flexible", "brandId": None}
+    return {"mode": "locked", "brandId": brand_id}
+
+
+def branding_forbids_session(user_row, session_row):
+    branding = user_branding(user_row)
+    if branding["mode"] != "locked":
+        return False
+    return (session_row["brand_id"] or "") != (branding["brandId"] or "")
 
 
 def provider_account(row, include_tokens=False):
@@ -596,6 +673,29 @@ def presence_roster(conn, room_id):
     return [public_presence(row) for row in rows]
 
 
+def public_session(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "roomId": row["room_id"],
+        "ownerUserId": row["owner_user_id"],
+        "brandId": row["brand_id"],
+        "title": row["title"],
+        "status": row["status"],
+        "createdAt": row["created_at"],
+        "startedAt": row["started_at"],
+        "endedAt": row["ended_at"],
+        "lastActiveAt": row["last_active_at"],
+        "endedBy": row["ended_by"],
+    }
+
+
+def session_brand_for_room(conn, room_id):
+    row = conn.execute("SELECT brand_id FROM live_sessions WHERE room_id = ?", (room_id,)).fetchone()
+    return row["brand_id"] if row else None
+
+
 def main():
     payload = json.load(sys.stdin)
     db_path = payload["dbPath"]
@@ -631,6 +731,30 @@ def main():
         return
 
     if action == "get_user_by_id":
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"user": public_user(row)}))
+        return
+
+    # OPERATOR-ONLY — not reachable through any public HTTP route. Locking a customer's brand is
+    # something we set on their account, never something the account itself can toggle.
+    if action == "user_set_branding":
+        mode = payload.get("mode")
+        if mode not in ("flexible", "locked"):
+            print(json.dumps({"error": "invalid_mode"}))
+            return
+        if mode == "locked":
+            brand_id = payload.get("brandId")
+            if not brand_id or brand_id not in KNOWN_BRAND_IDS:
+                print(json.dumps({"error": "invalid_brand"}))
+                return
+        else:
+            brand_id = None
+        now = utc_now()
+        conn.execute(
+            "UPDATE users SET brand_mode = ?, locked_brand_id = ?, updated_at = ? WHERE id = ?",
+            (mode, brand_id, now, payload["id"]),
+        )
+        conn.commit()
         row = conn.execute("SELECT * FROM users WHERE id = ?", (payload["id"],)).fetchone()
         print(json.dumps({"user": public_user(row)}))
         return
@@ -1046,6 +1170,33 @@ def main():
     if action == "presence_upsert":
         now = utc_now()
         room_id = payload["roomId"]
+        participant_id = payload["participantId"]
+        role = payload["role"]
+
+        kick_cutoff = (datetime.now(timezone.utc) - timedelta(seconds=KICK_BLOCK_SECONDS)).isoformat(timespec="seconds")
+        conn.execute("DELETE FROM session_kicks WHERE room_id = ? AND kicked_at < ?", (room_id, kick_cutoff))
+        kicked = conn.execute(
+            "SELECT 1 FROM session_kicks WHERE room_id = ? AND participant_id = ?",
+            (room_id, participant_id),
+        ).fetchone()
+        if kicked:
+            print(json.dumps({"error": "kicked"}))
+            return
+
+        if role == "guest":
+            existing = conn.execute(
+                "SELECT 1 FROM room_presence WHERE room_id = ? AND participant_id = ?",
+                (room_id, participant_id),
+            ).fetchone()
+            if not existing:
+                guest_count = conn.execute(
+                    "SELECT COUNT(*) AS n FROM room_presence WHERE room_id = ? AND role = 'guest' AND last_seen_at >= ?",
+                    (room_id, presence_cutoff()),
+                ).fetchone()["n"]
+                if guest_count >= MAX_GUESTS_PER_ROOM:
+                    print(json.dumps({"error": "full"}))
+                    return
+
         conn.execute(
             """
             INSERT INTO room_presence (
@@ -1063,8 +1214,8 @@ def main():
             """,
             (
                 room_id,
-                payload["participantId"],
-                payload["role"],
+                participant_id,
+                role,
                 payload.get("displayName") or "",
                 payload.get("title") or "",
                 payload.get("company") or "",
@@ -1074,13 +1225,14 @@ def main():
             ),
         )
         conn.commit()
-        # Doubles as a roster read so an announce/heartbeat is also a full sync — see js/room-presence.js,
-        # which relies on this to avoid a second request on every heartbeat tick.
         print(json.dumps({"roster": presence_roster(conn, room_id)}))
         return
 
     if action == "presence_list":
-        print(json.dumps({"roster": presence_roster(conn, payload["roomId"])}))
+        print(json.dumps({
+            "roster": presence_roster(conn, payload["roomId"]),
+            "brandId": session_brand_for_room(conn, payload["roomId"]),
+        }))
         return
 
     if action == "presence_leave":
@@ -1090,6 +1242,147 @@ def main():
         )
         conn.commit()
         print(json.dumps({"ok": True}))
+        return
+
+    if action == "session_create":
+        now = utc_now()
+        brand_id = payload.get("brandId") or ""
+        if brand_id and brand_id not in KNOWN_BRAND_IDS:
+            print(json.dumps({"error": "invalid_brand"}))
+            return
+        conn.execute(
+            """
+            INSERT INTO live_sessions (
+              id, room_id, owner_user_id, brand_id, title, status, created_at, last_active_at
+            )
+            VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["roomId"],
+                payload["ownerUserId"],
+                brand_id,
+                payload.get("title") or "",
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM live_sessions WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"session": public_session(row)}))
+        return
+
+    if action == "session_list":
+        owner_user_id = payload["ownerUserId"]
+        statuses = payload.get("statuses") or ["OPEN", "LIVE", "ENDED"]
+        placeholders = ",".join("?" for _ in statuses)
+        rows = conn.execute(
+            f"SELECT * FROM live_sessions WHERE owner_user_id = ? AND status IN ({placeholders}) ORDER BY last_active_at DESC",
+            (owner_user_id, *statuses),
+        ).fetchall()
+        owner = conn.execute("SELECT * FROM users WHERE id = ?", (owner_user_id,)).fetchone()
+        sessions = []
+        for row in rows:
+            if branding_forbids_session(owner, row):
+                continue
+            entry = public_session(row)
+            entry["participantCount"] = len(presence_roster(conn, row["room_id"]))
+            sessions.append(entry)
+        print(json.dumps({"sessions": sessions}))
+        return
+
+    if action == "session_get":
+        row = conn.execute(
+            "SELECT * FROM live_sessions WHERE id = ? AND owner_user_id = ?",
+            (payload["id"], payload["ownerUserId"]),
+        ).fetchone()
+        if not row:
+            print(json.dumps({"session": None}))
+            return
+        owner = conn.execute("SELECT * FROM users WHERE id = ?", (payload["ownerUserId"],)).fetchone()
+        if branding_forbids_session(owner, row):
+            print(json.dumps({"error": "brand_forbidden"}))
+            return
+        session = public_session(row)
+        session["participantCount"] = len(presence_roster(conn, row["room_id"]))
+        print(json.dumps({"session": session}))
+        return
+
+    if action == "session_get_by_room":
+        row = conn.execute("SELECT * FROM live_sessions WHERE room_id = ?", (payload["roomId"],)).fetchone()
+        print(json.dumps({"status": row["status"] if row else None, "brandId": row["brand_id"] if row else None}))
+        return
+
+    if action == "session_set_brand":
+        brand_id = payload.get("brandId") or ""
+        if brand_id and brand_id not in KNOWN_BRAND_IDS:
+            print(json.dumps({"error": "invalid_brand"}))
+            return
+        owner = conn.execute("SELECT * FROM users WHERE id = ?", (payload["ownerUserId"],)).fetchone()
+        if owner and user_branding(owner)["mode"] == "locked" and brand_id != (user_branding(owner)["brandId"] or ""):
+            print(json.dumps({"error": "brand_forbidden"}))
+            return
+        now = utc_now()
+        conn.execute(
+            "UPDATE live_sessions SET brand_id = ?, last_active_at = ? WHERE id = ? AND owner_user_id = ?",
+            (brand_id, now, payload["id"], payload["ownerUserId"]),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM live_sessions WHERE id = ? AND owner_user_id = ?",
+            (payload["id"], payload["ownerUserId"]),
+        ).fetchone()
+        print(json.dumps({"session": public_session(row)}))
+        return
+
+    if action == "session_end":
+        now = utc_now()
+        conn.execute(
+            """
+            UPDATE live_sessions SET status = 'ENDED', ended_at = ?, ended_by = ?, last_active_at = ?
+            WHERE id = ? AND owner_user_id = ? AND status != 'ENDED'
+            """,
+            (now, payload.get("endedBy") or payload["ownerUserId"], now, payload["id"], payload["ownerUserId"]),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM live_sessions WHERE id = ? AND owner_user_id = ?",
+            (payload["id"], payload["ownerUserId"]),
+        ).fetchone()
+        print(json.dumps({"session": public_session(row)}))
+        return
+
+    if action == "session_touch":
+        now = utc_now()
+        conn.execute(
+            """
+            UPDATE live_sessions
+            SET last_active_at = ?, status = CASE WHEN status = 'OPEN' THEN 'LIVE' ELSE status END, started_at = COALESCE(started_at, ?)
+            WHERE room_id = ? AND status != 'ENDED'
+            """,
+            (now, now, payload["roomId"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "session_kick":
+        now = utc_now()
+        room_id = payload["roomId"]
+        participant_id = payload["participantId"]
+        conn.execute(
+            "DELETE FROM room_presence WHERE room_id = ? AND participant_id = ?",
+            (room_id, participant_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO session_kicks (room_id, participant_id, kicked_at) VALUES (?, ?, ?)
+            ON CONFLICT (room_id, participant_id) DO UPDATE SET kicked_at = excluded.kicked_at
+            """,
+            (room_id, participant_id, now),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True, "roster": presence_roster(conn, room_id)}))
         return
 
     raise ValueError(f"Unknown action: {action}")
