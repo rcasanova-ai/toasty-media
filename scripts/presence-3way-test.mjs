@@ -99,12 +99,34 @@ async function main() {
   const tuktaOthers = others(roster, "guest-tukta");
   assert(tuktaOthers.length === 2 && tuktaOthers.every((e) => e.participantId !== "guest-tukta"), "Tukta's others() excludes only Tukta, includes both other participants");
 
-  console.log("\n4. Second guest leaves — roster drops back to 2, correctly, not to 0 or a stuck 3");
+  console.log("\n4. Third guest announces — still under MAX_GUESTS_PER_ROOM=3");
+  roster = await announce({ participantId: "guest-third", role: "guest", displayName: "Third Guest", title: "", company: "", transportSourceId: `${ROOM_ID}gthird` });
+  assert(roster.length === 4, "roster has host + 3 guests");
+  assert(roster.filter((e) => e.role === "guest").length === 3, "exactly 3 guests are present");
+
+  console.log("\n5. Fourth guest is refused — capacity is server policy, not UI");
+  const fourth = await fetch(`${BASE}/api/presence/announce`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      roomId: ROOM_ID,
+      participantId: "guest-fourth",
+      role: "guest",
+      displayName: "Fourth",
+      transportSourceId: `${ROOM_ID}gfourth`
+    })
+  });
+  assert(fourth.status === 409, "a 4th distinct guest announce is 409 full");
+  roster = await room();
+  assert(!roster.some((e) => e.participantId === "guest-fourth"), "fourth guest is not in server roster");
+  assert(roster.filter((e) => e.role === "guest").length === 3, "still exactly 3 guests after the refused announce");
+
+  console.log("\n6. One guest leaves — roster drops, correctly, not to 0 or a stuck 4");
   await leave("guest-second");
   roster = await room();
-  assert(roster.length === 2, "roster has exactly 2 entries after one leave");
+  assert(roster.length === 3, "roster has exactly 3 entries after one leave (host + 2 guests)");
   assert(!roster.some((e) => e.participantId === "guest-second"), "the departed participant is gone");
-  assert(roster.some((e) => e.participantId === "host") && roster.some((e) => e.participantId === "guest-tukta"), "the remaining two are still present and correct");
+  assert(roster.some((e) => e.participantId === "host") && roster.some((e) => e.participantId === "guest-tukta"), "the remaining participants are still present and correct");
 
   console.log("\nALL PASSED — room_presence/announce/leave correctly support N participants, not just 2.");
 }

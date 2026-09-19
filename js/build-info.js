@@ -2,4 +2,4 @@
 // see the deploy checklist). Gives a real-device screenshot immediate proof of which frontend build that
 // device is actually running, independent of anything a caching layer might be doing — see the
 // stabilization pass that added .htaccess's no-store policy for why this mattered enough to add.
-export const BUILD_ID = "2026.09.19-7441f1e";
+export const BUILD_ID = "2026.09.19-3cec7d4";

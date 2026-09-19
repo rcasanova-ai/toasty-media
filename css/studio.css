@@ -4704,3 +4704,40 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
     width: 1.1rem;
   }
 }
+
+/* Default-off. Only created by js/media-diagnostics.js when ?debugMedia=1 is on the URL — never
+   shown in normal Studio UI. Compact enough to read on a phone without covering Join/Mute. */
+#toastyMediaDiagnostics {
+  background: rgba(8, 6, 5, 0.88);
+  border: 1px solid rgba(255, 171, 92, 0.45);
+  border-radius: 8px;
+  bottom: 8px;
+  color: #f4ead9;
+  font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  left: 8px;
+  max-height: 42vh;
+  max-width: min(420px, calc(100vw - 16px));
+  overflow: auto;
+  padding: 8px 8px 32px;
+  position: fixed;
+  right: auto;
+  top: auto;
+  z-index: 9999;
+}
+#toastyMediaDiagnostics pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+#toastyMediaDiagnostics button {
+  background: #ff7a29;
+  border: 0;
+  border-radius: 4px;
+  bottom: 6px;
+  color: #1c0f06;
+  cursor: pointer;
+  font: 700 11px Inter, system-ui, sans-serif;
+  padding: 4px 10px;
+  position: absolute;
+  right: 6px;
+}

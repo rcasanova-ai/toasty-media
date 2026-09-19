@@ -140,6 +140,25 @@ function initStudio() {
   renderBroadcastChip();
   updateInviteFields();
   mountTimeOfDay();
+  void startHostDebugMedia();
+}
+
+async function startHostDebugMedia() {
+  const debugMedia = new URLSearchParams(window.location.search).get("debugMedia") === "1";
+  if (!debugMedia) return;
+  try {
+    const { startMediaDiagnostics } = await import("./media-diagnostics.js");
+    startMediaDiagnostics(() => {
+      try {
+        return { buildId: BUILD_ID, ...session.diagnosticsSnapshot() };
+      } catch (err) {
+        console.error("[Director] debugMedia snapshot failed", err);
+        return { role: "host", error: String(err?.message || err) };
+      }
+    });
+  } catch (err) {
+    console.error("[Director] debugMedia failed open; studio continues", err);
+  }
 }
 
 function bindViewSwitch() {

@@ -44,6 +44,11 @@ jobs:
         run: |
           set -euo pipefail
           FILTER='^(\.htaccess$|index\.html$|site/|ricardo/|studio/|admin/|peeps/|css/|js/|shared/|assets/|articles/|eloquencebonus/|thank-you\.html$|5-Day Executive Program\.pdf$|Eloquence Cheat Sheet\.pdf$|casanova_case_study\.pdf$|ricardo_casanova_resumeJune2026\.pdf$)'
+          # scripts/ is intentionally excluded: this job SSHes to the LiteSpeed static host
+          # (toasty.media). The canonical auth helper belongs on the Ubuntu render host
+          # (render.toasty.media → 127.0.0.1:4174). Shipping Python onto the public web root
+          # would not update AUTH_DB_HELPER and would publish backend source. See
+          # scripts/deploy-render-helper.sh and docs/DEPLOYMENT.md.
           if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.full_deploy }}" == "true" ]]; then
             git ls-files | grep -E "$FILTER" > /tmp/deploy-files.txt || true
           elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then

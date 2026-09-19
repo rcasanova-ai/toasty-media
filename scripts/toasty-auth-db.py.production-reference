@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Canonical implementation is scripts/toasty-auth-db.py — AUTH_DB_HELPER defaults to that Git
+# file. This production-reference snapshot exists so a live server can be compared against Git;
+# do not land new brand/presence/session policy here without copying it into toasty-auth-db.py.
 import json
 import os
 import sqlite3

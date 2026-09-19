@@ -12,6 +12,14 @@ import { promisify } from "node:util";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
+// Inlined from js/brand-themes.js BRAND_THEME_IDS. This process is deployed to the render host as a
+// self-contained file (see js/producer-persona.js) — a relative import of ../js/brand-themes.js would
+// crash Node on that host if the static js/ tree is not sitting next to this script.
+const KNOWN_BRAND_IDS = new Set(["toasty", "8alta", "santati", "optimai", "tangem", "superteam", "peeps"]);
+function isKnownBrandId(themeId) {
+  return KNOWN_BRAND_IDS.has(themeId);
+}
+
 loadLocalEnv();
 
 const HOST = process.env.TOASTY_RENDER_HOST || "127.0.0.1";
@@ -1599,7 +1607,7 @@ function parseCookies(header) {
 // Errors the auth-db script returns as legitimate, expected results (not a storage/DB failure) — callers
 // branch on result.error themselves for these. Anything else in result.error means the Python side threw
 // (see toasty-auth-db.py's own try/except) and really is a storage failure.
-const DB_EXPECTED_ERRORS = new Set(["duplicate_email", "kicked", "full"]);
+const DB_EXPECTED_ERRORS = new Set(["duplicate_email", "kicked", "full", "invalid_mode", "invalid_brand", "brand_forbidden"]);
 
 async function db(action, values = {}) {
   const result = await runJson("python3", [AUTH_DB_HELPER], { action, dbPath: AUTH_DB_PATH, ...values });
@@ -1686,6 +1694,17 @@ function sessionText(value, maxLength) {
   return String(value ?? "").trim().slice(0, maxLength);
 }
 
+function resolveAuthoritativeBrandId(authSession, requestedBrandId) {
+  if (authSession.branding?.mode === "locked") {
+    const locked = authSession.branding.brandId;
+    if (!isKnownBrandId(locked)) throw httpError(403, "Account brand lock is invalid.");
+    return locked;
+  }
+  const brandId = sessionText(requestedBrandId, 60);
+  if (brandId && !isKnownBrandId(brandId)) throw httpError(400, "Unknown brand.");
+  return brandId;
+}
+
 async function handleSessionCreate(req, res, authSession) {
   const body = await readJson(req);
   const roomId = requirePresenceId(body.roomId, "roomId");
@@ -1693,7 +1712,7 @@ async function handleSessionCreate(req, res, authSession) {
   // Brand-locked accounts (see toasty-auth-db.py's user_set_branding) never get to pick — the client's own
   // body.brandId is simply ignored, not merely overridden after checking it, so there is no "did they
   // still manage to sneak a different value through" question to answer.
-  const brandId = authSession.branding?.mode === "locked" ? authSession.branding.brandId : sessionText(body.brandId, 60);
+  const brandId = resolveAuthoritativeBrandId(authSession, body.brandId);
   const result = await db("session_create", {
     id,
     roomId,
@@ -1701,6 +1720,7 @@ async function handleSessionCreate(req, res, authSession) {
     brandId,
     title: sessionText(body.title, 160)
   });
+  if (result.error === "invalid_brand") throw httpError(400, "Unknown brand.");
   sendJson(req, res, 200, { session: result.session });
 }
 
@@ -1716,6 +1736,7 @@ async function handleSessionGet(req, res, authSession) {
   const id = decodeURIComponent(req.url.slice("/api/sessions/".length));
   if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
   const result = await db("session_get", { id, ownerUserId: authSession.id });
+  if (result.error === "brand_forbidden") throw httpError(403, "This session is outside your account's permitted brand.");
   if (!result.session) throw httpError(404, "Session not found.");
   sendJson(req, res, 200, { session: result.session });
 }
@@ -1740,17 +1761,18 @@ async function handleSessionBrand(req, res, authSession) {
   if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
   const body = await readJson(req);
   let brandId = sessionText(body.brandId, 60);
-  // Enforced here regardless of what the client sends — a locked account calling this directly (bypassing
-  // a frontend that correctly hides the brand selector) gets a real 403, not a silently-ignored request
-  // that looks like it worked. Requesting the SAME brand they're already locked to is a harmless no-op,
-  // not an error, since a naive client might resend its own current value unprompted.
   if (authSession.branding?.mode === "locked") {
     if (brandId && brandId !== authSession.branding.brandId) {
       throw httpError(403, "Your account is locked to a single brand and cannot change it.");
     }
     brandId = authSession.branding.brandId;
+    if (!isKnownBrandId(brandId)) throw httpError(403, "Account brand lock is invalid.");
+  } else if (brandId && !isKnownBrandId(brandId)) {
+    throw httpError(400, "Unknown brand.");
   }
   const result = await db("session_set_brand", { id, ownerUserId: authSession.id, brandId });
+  if (result.error === "invalid_brand") throw httpError(400, "Unknown brand.");
+  if (result.error === "brand_forbidden") throw httpError(403, "This session is outside your account's permitted brand.");
   if (!result.session) throw httpError(404, "Session not found.");
   sendJson(req, res, 200, { session: result.session });
 }
@@ -1764,6 +1786,7 @@ async function handleSessionKick(req, res, authSession) {
   // Ownership check happens HERE, via session_get, before session_kick ever touches room_presence — kick
   // is real removal, not a UI-only hide, so it must be just as owner-scoped as end/get.
   const sessionResult = await db("session_get", { id, ownerUserId: authSession.id });
+  if (sessionResult.error === "brand_forbidden") throw httpError(403, "This session is outside your account's permitted brand.");
   if (!sessionResult.session) throw httpError(404, "Session not found.");
   const result = await db("session_kick", { roomId: sessionResult.session.roomId, participantId });
   sendJson(req, res, 200, { roster: result.roster || [] });
