@@ -101,7 +101,32 @@ export class VideoEngine {
   // Camera control) pass the SAME id back in so the remount is the same participant reconnecting with a
   // different device, not a brand-new one — VDO.Ninja's guest-list id is what Director/ParticipantRegistry
   // key identity off of, so a changing id on flip would look like a disconnect+reconnect to everyone else.
-  mountGuestFrame(container,{roomId,guestName,backgroundMode,videoDeviceLabel,audioDeviceLabel,streamId}) { const id=streamId||`${roomId}g${Date.now().toString(36).slice(-4)}`.slice(0,24); this.mountFrame(container,"guest",{room:roomId,push:id,label:guestName||"Guest",webcam:"1",showlabels:"1",cleanoutput:"1",autostart:"1",cover:"1",videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),effects:effectForBackground(backgroundMode)}); return id; }
+  //
+  // micMuted: EVERY mount* call creates a brand-new iframe (mountFrame's container.replaceChildren wipes
+  // the old one) — a fresh VDO.Ninja session with no memory of anything the old iframe was told over its
+  // postMessage command channel. ROOT CAUSE of "muted phone unmutes itself on Flip Camera" (real-device
+  // retest of 511a6cd): js/guest.js's flipCamera() remounts to change the camera but was never re-applying
+  // this guest's own mute state to the new iframe, which then published live audio by default. Read from
+  // VDO.Ninja's own source (lib.js): &muted (also &mute/&m) sets session.muted=true at URL-parse time,
+  // BEFORE any track is acquired — every place lib.js (re)attaches an audio track sets
+  // `track.enabled = !session.muted` from that same flag, confirmed at lib.js:45698 and toggleMute's own
+  // unmute path. That makes this the one authoritative, race-free way to guarantee a freshly (re)created
+  // publisher starts muted: no postMessage sent after the fact, which would have to race the new iframe's
+  // own script loading before it could even be listening.
+  //
+  // isMobile: ROOT CAUSE of "front camera is extremely zoomed, basically one eye" (same retest, confirmed
+  // by reading VDO.Ninja's own getUserMediaVideoParams in lib.js): with no explicit resolution/aspect
+  // param, VDO's default capture constraint asks for width ideal:1920/height ideal:1080 — a fixed
+  // LANDSCAPE target — with no portrait/orientation adjustment applied to the INITIAL getUserMedia call
+  // (adjustConstraintsForMobileOrientation in lib.js only runs for a later manual-constraint-change path,
+  // never for the autostart publish path this mount always takes). Asking a phone held in portrait for a
+  // 1920x1080 landscape frame makes the camera HAL digitally crop/zoom the narrower portrait sensor readout
+  // to fill it — baked into the actual captured frames, which is why the SAME crop reaches the Mac. &ar=
+  // portrait (VDO's own documented shorthand for a 9:16 ideal aspectRatio constraint, applied at the exact
+  // same initial-capture point per lib.js's grabVideo) is VDO's own supported fix for this, not a value we
+  // invented. Desktop guests are untouched (isMobile only ever true from js/guest.js's own UA check) since
+  // a landscape webcam has no portrait problem to correct.
+  mountGuestFrame(container,{roomId,guestName,backgroundMode,videoDeviceLabel,audioDeviceLabel,streamId,micMuted,isMobile}) { const id=streamId||`${roomId}g${Date.now().toString(36).slice(-4)}`.slice(0,24); this.mountFrame(container,"guest",{room:roomId,push:id,label:guestName||"Guest",webcam:"1",showlabels:"1",cleanoutput:"1",autostart:"1",cover:"1",videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),effects:effectForBackground(backgroundMode),muted:micMuted?true:undefined,ar:isMobile?"portrait":undefined}); return id; }
   mountListenerFrame(container,{roomId}) { return this.mountFrame(container,"listener",{room:roomId,scene:"0",showlabels:"1",cleanoutput:"1"}); }
 
   // Hidden viewer-only frame used purely to query the room's live guest list (id + label) for the Program

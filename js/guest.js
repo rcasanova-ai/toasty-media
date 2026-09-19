@@ -1,12 +1,18 @@
 import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js";
 import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js";
-import { startDevicePreview } from "./device-picker.js";
+import { startDevicePreview, selectedDeviceLabel } from "./device-picker.js";
 import { RoomPresence } from "./room-presence.js";
 import { RemoteMediaState, REMOTE_MEDIA_STATE_LABEL } from "./remote-media-state.js";
 import { studioApiEndpoint } from "./studio-api.js";
 import { syncParticipantStage, clearParticipantStage } from "./participant-stage.js";
 
 const MAX_GUESTS_PER_ROOM = 3;
+
+// Same UA class VDO.Ninja's own source checks to decide session.mobile (see js/video-engine.js's
+// mountGuestFrame comment on &ar=portrait) — used here for two purposes that are DISPLAY/CAPTURE
+// decisions Toasty makes on ITS OWN side, not something read from or written to VDO: friendly camera
+// names in the picker, and requesting a portrait capture aspect ratio instead of VDO's landscape default.
+const IS_MOBILE_DEVICE = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 
 function log(...args) { console.debug("[Guest]", ...args); }
 
@@ -143,7 +149,8 @@ async function startPreview() {
       videoEl: elements.cameraPreview,
       cameraSelect: elements.cameraSelect,
       microphoneSelect: elements.microphoneSelect,
-      previousStream: state.previewStream
+      previousStream: state.previewStream,
+      friendlyCameraLabels: IS_MOBILE_DEVICE
     });
     try {
       await elements.cameraPreview.play();
@@ -218,8 +225,11 @@ async function joinStudio() {
 
   // Device LABEL, not .value (a MediaDevices deviceId) — see video-engine.js's mountDirectorFrame
   // comment for why a deviceId read here can't reliably resolve inside VDO.Ninja's cross-origin iframe.
-  const videoDeviceLabel = elements.cameraSelect.selectedOptions[0]?.textContent;
-  const audioDeviceLabel = elements.microphoneSelect.selectedOptions[0]?.textContent;
+  // Always the RAW label (selectedDeviceLabel reads dataset.rawLabel, not the option's visible text) —
+  // mobile shows "Front Camera"/"Back Camera" in the picker (see startPreview's friendlyCameraLabels) but
+  // VDO must still be told the real device string 511a6cd's matching fix depends on.
+  const videoDeviceLabel = selectedDeviceLabel(elements.cameraSelect);
+  const audioDeviceLabel = selectedDeviceLabel(elements.microphoneSelect);
 
   // Kept as plain state, not shown — the visible .guest-live-identity spans now label the REMOTE
   // participant on the main stage. Still needed here for VDO's own &label on this guest's OWN push
@@ -242,7 +252,9 @@ async function joinStudio() {
     guestName: label,
     backgroundMode: state.selectedBackground,
     videoDeviceLabel,
-    audioDeviceLabel
+    audioDeviceLabel,
+    micMuted: state.micMuted,
+    isMobile: IS_MOBILE_DEVICE
   });
 
   // PARTICIPANT VIEW of the room — Toasty Presence (js/room-presence.js) is the source of truth for "who
@@ -310,39 +322,68 @@ function setRemoteMediaState(next) {
 // Remounts the SAME push connection (same streamId) with the next camera in the list. VDO.Ninja doesn't
 // expose a live in-place device swap over its iframe API (only its own internal flip-camera UI button,
 // which cleanoutput hides), so this is a brief reconnect rather than a seamless swap — the guest's tile
-// will blink for a moment on Program Output/Director too. Also restarts the VISIBLE local preview with the
-// new device so what the guest sees stays truthful to what's live.
+// will blink for a moment on Program Output/Director too (guestTransportFrame itself is a hidden transport
+// element, aria-hidden — this never touches the guest's own visible preview element). Also restarts the
+// VISIBLE local preview with the new device so what the guest sees stays truthful to what's live.
+//
+// Atomic IDLE -> SWITCHING -> IDLE (real-device retest of 511a6cd found repeated taps were sometimes
+// needed before the phone actually switched). state.flipping + the disabled button already blocked a
+// SECOND overlapping call, so that guard wasn't the gap; try/finally is new here purely so a thrown error
+// can never leave the button stuck disabled forever. Two real fixes for the flakiness itself:
+//  1. Tell VDO the device that was ACTUALLY granted — read back from cameraSelect/selectedDeviceLabel
+//     AFTER startDevicePreview's own hydrateDevices runs — never the option we merely asked for.
+//     getUserMediaWithFallback (device-picker.js) silently hands back a DIFFERENT camera if the exact
+//     deviceId request fails (its catch-all fallback is a bare {video:true}), which real phone hardware
+//     can do while the previous camera hasn't finished releasing — sending VDO what we merely requested
+//     instead of what's real is exactly how a tap could look like it "didn't take" even once the native
+//     preview had already recovered on its own.
+//  2. Explicitly release the OLD VDO publisher (unmountFrame — destroys its iframe, which implicitly stops
+//     its camera track) BEFORE asking for the new one, with a short pause between them, instead of letting
+//     mountGuestFrame's own replaceChildren do both in the same synchronous step. Many phones can only hold
+//     one open camera stream at a time; giving the hardware a moment to actually free up (this is a
+//     pragmatic mitigation for that known mobile constraint, not a documented-exact VDO.Ninja API) reduces
+//     how often a fresh request lands before the old one has genuinely let go.
 async function flipCamera() {
   if (state.flipping || state.lifecycle !== GuestLifecycle.IN_STUDIO) return;
   const options = [...elements.cameraSelect.options];
   if (options.length < 2) return;
   state.flipping = true;
   elements.guestFlipCamera.disabled = true;
-  const currentIndex = options.findIndex((option) => option.value === elements.cameraSelect.value);
-  const next = options[(currentIndex + 1) % options.length];
-  elements.cameraSelect.value = next.value;
-  const videoDeviceLabel = next.textContent;
-  const audioDeviceLabel = elements.microphoneSelect.selectedOptions[0]?.textContent;
+  elements.guestFlipCamera.setAttribute("aria-busy", "true");
   try {
+    const currentIndex = options.findIndex((option) => option.value === elements.cameraSelect.value);
+    const target = options[(currentIndex + 1) % options.length];
+    elements.cameraSelect.value = target.value;
     state.previewStream = await startDevicePreview({
       videoEl: elements.cameraPreview,
       cameraSelect: elements.cameraSelect,
       microphoneSelect: elements.microphoneSelect,
-      previousStream: state.previewStream
+      previousStream: state.previewStream,
+      friendlyCameraLabels: IS_MOBILE_DEVICE
+    });
+    // The REAL granted device, read back post-hydration — never `target` — see this function's own
+    // comment above (point 1).
+    const videoDeviceLabel = selectedDeviceLabel(elements.cameraSelect);
+    const audioDeviceLabel = selectedDeviceLabel(elements.microphoneSelect);
+    engine.unmountFrame(elements.guestTransportFrame, "guest", "");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    engine.mountGuestFrame(elements.guestTransportFrame, {
+      roomId: state.roomId,
+      guestName: state.selfLabel,
+      backgroundMode: state.selectedBackground,
+      videoDeviceLabel,
+      audioDeviceLabel,
+      streamId: state.streamId,
+      micMuted: state.micMuted,
+      isMobile: IS_MOBILE_DEVICE
     });
   } catch (error) {
-    log("flip camera: local preview restart failed", error?.name, error?.message);
+    log("flip camera failed", error?.name, error?.message);
+  } finally {
+    state.flipping = false;
+    elements.guestFlipCamera.disabled = false;
+    elements.guestFlipCamera.removeAttribute("aria-busy");
   }
-  engine.mountGuestFrame(elements.guestTransportFrame, {
-    roomId: state.roomId,
-    guestName: state.selfLabel,
-    backgroundMode: state.selectedBackground,
-    videoDeviceLabel,
-    audioDeviceLabel,
-    streamId: state.streamId
-  });
-  state.flipping = false;
-  elements.guestFlipCamera.disabled = false;
 }
 
 function stopPreview() {

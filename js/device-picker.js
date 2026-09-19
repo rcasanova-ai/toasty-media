@@ -40,18 +40,30 @@ export function preferredCamera(devices) {
   );
 }
 
+// Always the RAW device label (what 511a6cd's device-identity fix matches against inside VDO.Ninja's
+// iframe) regardless of what's actually being displayed to the user — see fillSelect's dataset.rawLabel.
+// Every call site that feeds videoDeviceLabel/audioDeviceLabel to VideoEngine must go through this, never
+// read .textContent directly, or a friendly display name would silently get sent to VDO as if it were the
+// real device identifier and break the camera matching this same label is used for.
 export function selectedDeviceLabel(select) {
-  return select.selectedOptions[0]?.textContent || "";
+  const option = select.selectedOptions[0];
+  return option?.dataset.rawLabel || option?.textContent || "";
 }
 
-export function fillSelect(select, devices, fallbackLabel) {
+// displayLabel(rawLabel, index): optional — when given, the OPTION'S VISIBLE TEXT becomes
+// displayLabel's return value while option.dataset.rawLabel still carries the true raw label
+// untouched. Used for mobile-friendly camera names (see friendlyCameraDisplayLabel below) without ever
+// touching the identifier VDO.Ninja itself matches against.
+export function fillSelect(select, devices, fallbackLabel, displayLabel) {
   const selected = select.value;
   const preferredDeviceId = fallbackLabel === "Camera" ? preferredCamera(devices)?.deviceId : "";
   select.replaceChildren(
     ...devices.map((device, index) => {
       const option = document.createElement("option");
       option.value = device.deviceId;
-      option.textContent = device.label || `${fallbackLabel} ${index + 1}`;
+      const rawLabel = device.label || `${fallbackLabel} ${index + 1}`;
+      option.textContent = displayLabel ? displayLabel(rawLabel, index) : rawLabel;
+      option.dataset.rawLabel = rawLabel;
       return option;
     })
   );
@@ -62,16 +74,32 @@ export function fillSelect(select, devices, fallbackLabel) {
   }
 }
 
-export async function hydrateDevices(microphoneSelect, cameraSelect) {
+// DISPLAY ONLY. Real camera labels are raw driver/hardware strings ("camera2 1, facing front") that mean
+// nothing to a guest joining from their phone — never shown to a mobile guest; desktop keeps its real
+// labels (see js/host-prejoin.js, which never passes friendlyCameraLabels) since multiple real/virtual
+// cameras there ARE meaningfully distinguished by name. Positional fallback (not the raw label) when
+// front/back can't be detected from the string, so no raw hardware label ever reaches mobile UI.
+function friendlyCameraDisplayLabel(rawLabel, index) {
+  if (/front|user[- ]?facing/i.test(rawLabel)) return "Front Camera";
+  if (/back|rear|environment/i.test(rawLabel)) return "Back Camera";
+  return `Camera ${index + 1}`;
+}
+
+export async function hydrateDevices(microphoneSelect, cameraSelect, { friendlyCameraLabels = false } = {}) {
   const devices = await navigator.mediaDevices.enumerateDevices();
   fillSelect(microphoneSelect, devices.filter((device) => device.kind === "audioinput"), "Microphone");
-  fillSelect(cameraSelect, devices.filter((device) => device.kind === "videoinput"), "Camera");
+  fillSelect(
+    cameraSelect,
+    devices.filter((device) => device.kind === "videoinput"),
+    "Camera",
+    friendlyCameraLabels ? friendlyCameraDisplayLabel : undefined
+  );
 }
 
 // Full startPreview lifecycle (get media -> hydrate labels now that permission is granted -> restart if
 // hydration picked a better default -> swap out an OBS/Camo virtual camera for a real one) as one call,
 // since guest.js and host-prejoin.js both need the exact same sequence, not just the individual pieces.
-export async function startDevicePreview({ videoEl, cameraSelect, microphoneSelect, previousStream }) {
+export async function startDevicePreview({ videoEl, cameraSelect, microphoneSelect, previousStream, friendlyCameraLabels = false }) {
   previousStream?.getTracks().forEach((track) => track.stop());
   const cameraBeforeHydration = cameraSelect.value;
   let stream = await getUserMediaWithFallback({
@@ -79,7 +107,7 @@ export async function startDevicePreview({ videoEl, cameraSelect, microphoneSele
     audio: deviceConstraint(microphoneSelect.value, "audio")
   });
   videoEl.srcObject = stream;
-  await hydrateDevices(microphoneSelect, cameraSelect);
+  await hydrateDevices(microphoneSelect, cameraSelect, { friendlyCameraLabels });
 
   if (cameraSelect.value && cameraSelect.value !== cameraBeforeHydration) {
     stream.getTracks().forEach((track) => track.stop());
@@ -91,7 +119,7 @@ export async function startDevicePreview({ videoEl, cameraSelect, microphoneSele
   } else {
     const selectedCamera = selectedDeviceLabel(cameraSelect);
     if (selectedCamera && isCamoCamera(selectedCamera)) {
-      const betterCamera = [...cameraSelect.options].find((option) => !isCamoCamera(option.textContent));
+      const betterCamera = [...cameraSelect.options].find((option) => !isCamoCamera(option.dataset.rawLabel || option.textContent));
       if (betterCamera) {
         cameraSelect.value = betterCamera.value;
         stream.getTracks().forEach((track) => track.stop());
