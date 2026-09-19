@@ -102,10 +102,15 @@ jobs:
           curl --fail --silent --show-error --location https://toasty.media/admin/ >/dev/null
           if [[ -f peeps/index.html ]]; then
             curl --fail --silent --show-error --location https://toasty.media/peeps/ >/tmp/peeps.html
-            curl --fail --silent --show-error --location https://toasty.media/peeps/app/ >/dev/null
+            curl --fail --silent --show-error --location https://toasty.media/peeps/app/ >/tmp/peeps-app.html
             curl --fail --silent --show-error --location https://toasty.media/peeps/app/dough.html >/tmp/dough.html
             curl --fail --silent --show-error --location https://toasty.media/peeps/manage/ >/dev/null
             grep -Fq 'Find your' /tmp/peeps.html
+            grep -Fq 'peeps-public-auth.js' /tmp/peeps.html
+            if grep -Fq 'peeps-app-gated' /tmp/peeps.html; then echo 'Public /peeps/ must not load the app auth gate' >&2; exit 1; fi
+            grep -Fq 'peeps-app-gate.js' /tmp/peeps-app.html
+            grep -Fq 'peeps-app-gated' /tmp/peeps-app.html
+            grep -Fq 'peeps-app-gate.js' /tmp/dough.html
             grep -Fq 'Money for knowledge.' /tmp/dough.html
           fi
           grep -Fq 'Studio to create.' /tmp/home.html
