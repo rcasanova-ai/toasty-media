@@ -14,8 +14,15 @@ export class TranscriptStore {
   on(callback) { this._listeners.add(callback); return () => this._listeners.delete(callback); }
   _emit(line) { this._listeners.forEach((cb) => cb(line, this.lines)); }
 
-  append({ speaker, text, timestamp = Date.now() }) {
-    const line = { id: `t-${timestamp}-${this.lines.length}`, speaker, text, timestamp };
+  append({ participantId = null, speaker, role = null, text, timestamp = Date.now() }) {
+    const line = {
+      id: `t-${timestamp}-${this.lines.length}`,
+      participantId: participantId || null,
+      speaker,
+      role: role || null,
+      text,
+      timestamp
+    };
     this.lines.push(line);
     if (this.lines.length > MAX_TRANSCRIPT_LINES) this.lines.shift();
     this._emit(line);
@@ -23,7 +30,7 @@ export class TranscriptStore {
   }
 
   recent(limit = 60) { return this.lines.slice(-limit); }
-  speakers() { return [...new Set(this.lines.map((l) => l.speaker))]; }
+  speakers() { return [...new Set(this.lines.map((l) => l.speaker).filter(Boolean))]; }
 
   // Lines from `speaker` (case-insensitive substring match) whose text mentions `keyword`. Backs
   // "remind me what Kristine said about power" — a real search over real captured lines, not a canned
@@ -38,6 +45,119 @@ export class TranscriptStore {
   }
 
   clear() { this.lines = []; this._emit(null); }
+}
+
+const MAX_MEMORY_DIRECTIVES = 40;
+const LAST_TEXT_CHARS = 160;
+
+// Compact durable memory distinct from the rolling raw transcript window. Speaker stats and recent
+// Host directives live here so a later model call doesn't have to haul the entire transcript.
+export class ShowContextMemory {
+  constructor() {
+    this.speakers = new Map();
+    this.directives = [];
+  }
+
+  observe(line) {
+    if (!line) return;
+    const key = line.participantId || line.speaker || "unknown";
+    const existing = this.speakers.get(key) || {
+      participantId: line.participantId || null,
+      speaker: line.speaker || "Unknown",
+      role: line.role || null,
+      turnCount: 0,
+      lastHeardAt: 0,
+      lastText: ""
+    };
+    existing.speaker = line.speaker || existing.speaker;
+    existing.role = line.role || existing.role;
+    existing.participantId = line.participantId || existing.participantId;
+    existing.turnCount += 1;
+    existing.lastHeardAt = line.timestamp || Date.now();
+    existing.lastText = String(line.text || "").slice(0, LAST_TEXT_CHARS);
+    this.speakers.set(key, existing);
+  }
+
+  rememberDirective(directive) {
+    if (!directive) return;
+    this.directives.push({
+      id: directive.id,
+      intent: directive.intent,
+      query: directive.payload?.query || "",
+      timestamp: directive.timestamp
+    });
+    if (this.directives.length > MAX_MEMORY_DIRECTIVES) this.directives.shift();
+  }
+
+  speakerStats() {
+    return [...this.speakers.values()];
+  }
+
+  compact() {
+    return {
+      speakers: this.speakerStats().map((s) => ({
+        participantId: s.participantId,
+        speaker: s.speaker,
+        role: s.role,
+        turnCount: s.turnCount,
+        lastHeardAt: s.lastHeardAt,
+        lastText: s.lastText
+      })),
+      recentDirectives: this.directives.slice(-10)
+    };
+  }
+
+  clear() {
+    this.speakers.clear();
+    this.directives = [];
+  }
+}
+
+export function attributeTranscriptLine(line, participants) {
+  const raw = line || {};
+  const text = String(raw.text || "").trim();
+  const list = typeof participants?.list === "function" ? participants.list() : [];
+  const fromId = raw.participantId ? list.find((p) => p.participantId === raw.participantId) : null;
+  if (fromId) {
+    return {
+      participantId: fromId.participantId,
+      speaker: fromId.displayName || raw.speaker || "Participant",
+      role: fromId.role,
+      text,
+      timestamp: raw.timestamp || Date.now()
+    };
+  }
+  const wantsHost = raw.role === "host" || raw.participantId === "host" || String(raw.speaker || "").toLowerCase() === "host";
+  if (wantsHost) {
+    const host = list.find((p) => p.role === "host" || p.participantId === "host");
+    if (host) {
+      return {
+        participantId: host.participantId,
+        speaker: host.displayName || raw.speaker || "Host",
+        role: "host",
+        text,
+        timestamp: raw.timestamp || Date.now()
+      };
+    }
+  }
+  const speakerLower = String(raw.speaker || "").toLowerCase();
+  const fromName = speakerLower ? list.find((p) => (p.displayName || "").toLowerCase() === speakerLower) : null;
+  if (fromName) {
+    return {
+      participantId: fromName.participantId,
+      speaker: fromName.displayName,
+      role: fromName.role,
+      text,
+      timestamp: raw.timestamp || Date.now()
+    };
+  }
+  return {
+    participantId: raw.participantId || null,
+    speaker: raw.speaker || "Unknown",
+    role: raw.role || null,
+    text,
+    timestamp: raw.timestamp || Date.now()
+  };
 }
 
 // Builds the compact snapshot AIProducerService hands to a provider (heuristic or LLM). This is the
@@ -56,6 +176,8 @@ export function buildShowContext(session) {
     previousTopics: runOfShow.completed().map((item) => ({ title: item.title, notes: item.notes })),
     transcript: session.transcript.recent(60),
     speakers: session.transcript.speakers(),
+    memory: session.showMemory?.compact() || null,
+    hostDirectives: session.hostDirectives?.recent(10) || [],
     // Structured guest metadata (see live-session.js's parseGuestLabel) — lets the Producer reference a
     // connected guest by name/title before they've said a word, e.g. "you haven't asked Kristine about
     // grid capacity yet". Empty when no guest has joined; never fabricated.
