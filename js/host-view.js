@@ -390,9 +390,18 @@ export class HostView {
     const signature = `${entries[0].id}:${entries[0].type}`;
     const isFreshResult = signature !== this._lastRenderedSignature && entries[0].type !== "working";
     this.elements.feedList.replaceChildren(...entries.map((entry) => renderFeedEntry(entry, {
-      onDismiss: (id) => this.session.aiProducerFeed.dismiss(id),
+      onDismiss: (id) => {
+        const feedEntry = this.session.aiProducerFeed.entries.find((item) => item.id === id);
+        if (feedEntry?.proposal || feedEntry?.type === "asset_proposal") this.session.liveProducer.discardProposal(id);
+        else this.session.aiProducerFeed.dismiss(id);
+      },
       onPin: (id) => this.session.aiProducerFeed.togglePin(id),
-      onSendToProgram: (id) => this.session.aiProducerService.sendEntryToProgram(id)
+      onSendToProgram: (id) => this.session.aiProducerService.sendEntryToProgram(id),
+      onTakeLive: (id) => this.session.liveProducer.takeProposalLive(id),
+      onFindAnother: (id) => this.session.liveProducer.findAnother(id),
+      onDiscardProposal: (id) => this.session.liveProducer.discardProposal(id),
+      onRetryResearch: (id) => this.session.liveProducer.retryResearch(id),
+      onRemoveAsset: (id) => this.session.liveProducer.removeLiveAsset(id)
     })));
     if (isFreshResult) {
       const newestEl = this.elements.feedList.firstElementChild;

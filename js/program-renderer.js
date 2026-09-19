@@ -4,15 +4,19 @@
 // 1/2/3/4 layouts. VDO is transport only: each slot is a clean &view=<id> (or a native
 // MediaStream when this page already owns it). Never scene=0.
 
-import { composeProgram } from "./program-composition.js";
+import { composeProgram, ProgramLayout } from "./program-composition.js";
 import { buildParticipantLowerThird, updateParticipantLowerThird } from "./participant-lower-third.js";
 import { SourceKind } from "./participant-registry.js";
+import { allowlistedImageUrl, sanitizeBroadcastText } from "./program-asset.js";
 
 const LAYOUT_COUNT = Object.freeze({
   single: "1",
   duo: "2",
   trio: "3",
-  quad: "4"
+  quad: "4",
+  [ProgramLayout.ASSET_FULL]: ProgramLayout.ASSET_FULL,
+  [ProgramLayout.ASSET_SPEAKER]: ProgramLayout.ASSET_SPEAKER,
+  [ProgramLayout.ASSET_SPEAKER_PIP]: ProgramLayout.ASSET_SPEAKER_PIP
 });
 
 // JSON-safe participant snapshot for ProgramSync. MediaStreams cannot cross BroadcastChannel.
@@ -32,7 +36,7 @@ export function serializeProgramParticipant(participant) {
 }
 
 export function programLayoutCount(layout) {
-  return LAYOUT_COUNT[layout] || "";
+  return LAYOUT_COUNT[layout] || layout || "";
 }
 
 export function syncProgramRenderer({
@@ -43,12 +47,16 @@ export function syncProgramRenderer({
   mounted,
   frameIdPrefix = "program",
   muted = false,
-  videoEnabled = true
+  videoEnabled = true,
+  asset = null,
+  assetLayout = null
 }) {
-  if (!stage || !mounted) return composeProgram(participants);
-  const composition = composeProgram(participants);
+  if (!stage || !mounted) return composeProgram(participants, { asset, assetLayout });
+  const composition = composeProgram(participants, { asset, assetLayout });
   stage.dataset.programLayout = composition.layout || "";
   stage.dataset.layout = programLayoutCount(composition.layout);
+
+  syncProgramAssetTile(stage, composition.asset);
 
   const stillPresent = new Set(composition.slots.map((slot) => slot.participantId));
   for (const [participantId, entry] of [...mounted.entries()]) {
@@ -149,4 +157,54 @@ function unmountProgramSlot(engine, entry) {
   if (!entry) return;
   if (entry.frameId && engine) engine.unmountFrame(entry.videoContainer, entry.frameId, "");
   else entry.videoContainer?.replaceChildren();
+}
+
+function syncProgramAssetTile(stage, asset) {
+  const existing = stage.querySelector(".po-tile[data-role='asset']");
+  if (!asset) {
+    existing?.remove();
+    return;
+  }
+  const nextKey = `${asset.id}:${asset.title}:${asset.sourceUrl}`;
+  if (existing?.dataset.assetKey === nextKey) return;
+  existing?.remove();
+  const tile = document.createElement("article");
+  tile.className = "po-tile po-tile--asset";
+  tile.dataset.role = "asset";
+  tile.dataset.assetId = asset.id || "";
+  tile.dataset.assetKey = nextKey;
+  tile.appendChild(buildProgramAssetCard(asset));
+  stage.insertBefore(tile, stage.firstChild);
+}
+
+export function buildProgramAssetCard(asset) {
+  const card = document.createElement("div");
+  card.className = "po-asset-card";
+  const kicker = document.createElement("p");
+  kicker.className = "po-asset-kicker";
+  kicker.textContent = sanitizeBroadcastText(asset.sourceName || asset.attribution || "Source", 80);
+  const title = document.createElement("h2");
+  title.className = "po-asset-title";
+  title.textContent = sanitizeBroadcastText(asset.title || "", 180);
+  const excerpt = document.createElement("p");
+  excerpt.className = "po-asset-excerpt";
+  excerpt.textContent = sanitizeBroadcastText(asset.excerpt || asset.preview?.excerpt || "", 280);
+  const attribution = document.createElement("p");
+  attribution.className = "po-asset-attribution";
+  const domain = asset.provenance?.domain || "";
+  attribution.textContent = [asset.attribution || asset.sourceName, domain].filter(Boolean).join(" · ");
+  const imageUrl = allowlistedImageUrl(asset.preview?.imageUrl || asset.media?.src);
+  if (imageUrl) {
+    const figure = document.createElement("div");
+    figure.className = "po-asset-visual";
+    const img = document.createElement("img");
+    img.alt = "";
+    img.referrerPolicy = "no-referrer";
+    img.src = imageUrl;
+    figure.appendChild(img);
+    card.append(figure, kicker, title, excerpt, attribution);
+  } else {
+    card.append(kicker, title, excerpt, attribution);
+  }
+  return card;
 }

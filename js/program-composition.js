@@ -19,7 +19,10 @@ export const ProgramLayout = Object.freeze({
   SINGLE: "single", // 1 total on-Program participant, full frame
   DUO: "duo",       // 2, two equal frames
   TRIO: "trio",     // 3, three equal vertical-ish panels (Toasty's signature 3-person default)
-  QUAD: "quad"      // 4, balanced 2x2
+  QUAD: "quad",     // 4, balanced 2x2
+  ASSET_FULL: "asset-full",               // ProgramAsset fills the stage
+  ASSET_SPEAKER: "asset-speaker",         // ProgramAsset + one featured speaker
+  ASSET_SPEAKER_PIP: "asset-speaker-pip"  // ProgramAsset full-frame, speaker as PiP
 });
 
 // Participant View only ever needs to know how many OTHER people are on the caller's main stage — self is
@@ -80,11 +83,28 @@ const REMOTE_LAYOUT_BY_COUNT = { 0: RemoteLayout.WAITING, 1: RemoteLayout.ONE, 2
 // toggleScreenShare, which already knows how to restore the prior layout on stop) — composeProgram doesn't
 // yet special-case it, just accepts and threads the flag through so a caller can branch on it without this
 // module's shape needing to change later.
-export function composeProgram(participants, { screenShareActive = false } = {}) {
+function isLiveProgramAsset(asset) {
+  return Boolean(asset) && (asset.status === "live" || asset.status === undefined);
+}
+
+export function composeProgram(participants, { screenShareActive = false, asset = null, assetLayout = null } = {}) {
   const ordered = stableOrder(participants.filter((p) => isConnected(p) && p.onProgram !== false));
+  if (isLiveProgramAsset(asset)) {
+    const requested = assetLayout || ProgramLayout.ASSET_SPEAKER;
+    const speaker = ordered[0] || null;
+    if (requested === ProgramLayout.ASSET_FULL || !speaker) {
+      return { layout: ProgramLayout.ASSET_FULL, slots: [], asset, screenShareActive };
+    }
+    return {
+      layout: requested === ProgramLayout.ASSET_SPEAKER_PIP ? ProgramLayout.ASSET_SPEAKER_PIP : ProgramLayout.ASSET_SPEAKER,
+      slots: [speaker],
+      asset,
+      screenShareActive
+    };
+  }
   const slots = ordered.slice(0, MAX_ON_PROGRAM);
   const layout = PROGRAM_LAYOUT_BY_COUNT[slots.length] || (slots.length === 0 ? null : ProgramLayout.QUAD);
-  return { layout, slots, screenShareActive };
+  return { layout, slots, asset: null, screenShareActive };
 }
 
 // Participant-View composition for ONE specific viewer. "others" is stably ordered the SAME way
