@@ -4,6 +4,7 @@
 // .htaccess.
 import { renderFeedEntry } from "./ai-producer.js";
 import { PushToTalkCapture } from "./talk-to-producer.js";
+import { triggerSoundFromInstruction } from "./soundboard.js";
 import { DEMO_AUDIENCE_PLATFORM_BREAKDOWN, DEMO_AUDIENCE_TOTAL } from "./audience.js";
 import { HostState } from "./host-state.js";
 import { RemoteMediaState, REMOTE_MEDIA_STATE_LABEL } from "./remote-media-state.js";
@@ -358,6 +359,12 @@ export class HostView {
   }
 
   async submitInstruction(text) {
+    const cue = triggerSoundFromInstruction(text);
+    if (cue) {
+      this.setTalkState("ready", `Played ${cue.label}`);
+      return;
+    }
+
     const instructionReadyAt = performance.now();
     this.setTalkState("thinking");
     try {
