@@ -67,6 +67,21 @@ function parseGuestLabel(label) {
 
 const GUEST_SEAT_COUNT = 3;
 
+// _checkDurableSessionStatus's own cadence — deliberately its OWN interval, NOT the 4s guest-seat poll.
+// Proven production root cause (commit 4d7e33c real-device retest): GET /api/sessions/:id sits behind
+// nginx's toasty_render rate-limit zone (6 requests/minute, burst=8 — see
+// scripts/nginx-render.conf.example's own comment, "sized for infrequent human-triggered calls"). Calling
+// it every 4s (worse: also on every VDO push-connection/view-connection event via _handleVdoMessage,
+// unbounded) sustains ~15+ req/min against a 6 req/min budget, so nginx's limiter starts rejecting most of
+// them with a 503 that carries NO CORS headers (limit_req's own rejection never reaches the location
+// block's add_header/Node — confirmed live: a rate-limited request returns bare "503 Service Temporarily
+// Unavailable" with zero Access-Control-* headers, while every non-rate-limited response, even a 401, has
+// them). A browser cross-origin fetch() that gets a CORS-headerless response doesn't see a 503 at all — it
+// throws TypeError: Failed to fetch, indistinguishable from a real outage. That chronic exhaustion is what
+// made a normal Producer refresh's OWN session-resolve/gate calls land in the same starved bucket and fail
+// the same way. 20s keeps this well under budget (3 req/min) with headroom for genuine gate/list calls.
+const SESSION_STATUS_POLL_MS = 20000;
+
 // LiveSession is the single shared production core behind Host View and Producer View. Both views are
 // thin control surfaces: they read this state and call these actions, and re-render on the events this
 // emits. Neither view owns its own VideoEngine, guest list, program state, or ProgramSync — there is
@@ -135,6 +150,7 @@ export class LiveSession {
 
     this._programSync = null;
     this._guestListTimerId = null;
+    this._sessionStatusTimerId = null;
     this._recordingTimerId = null;
     this._recorder = null;
     this._containers = null;
@@ -431,13 +447,22 @@ export class LiveSession {
     if (this._guestListTimerId) window.clearInterval(this._guestListTimerId);
     this._refreshGuestSeats();
     this._guestListTimerId = window.setInterval(() => this._refreshGuestSeats(), 4000);
+    // Own interval, own (much slower) cadence — see SESSION_STATUS_POLL_MS's comment for why this was
+    // split off the 4s guest-list poll rather than piggybacking on it.
+    if (this._sessionStatusTimerId) window.clearInterval(this._sessionStatusTimerId);
+    this._checkDurableSessionStatus();
+    this._sessionStatusTimerId = window.setInterval(() => this._checkDurableSessionStatus(), SESSION_STATUS_POLL_MS);
   }
 
-  // Piggybacks on the existing 4s guest-list poll rather than a second interval — catches the session
-  // having been ended from elsewhere (another Producer tab/device, or this same tab's own endDurableSession
-  // already having flipped the local record) and tears this browser down the same way Leave Studio does.
-  // A no-op session with no durableSession (rooms created before this pass) or one this poll already
-  // reacted to (avoid double-teardown).
+  _stopGuestListPolling() {
+    if (this._guestListTimerId) { window.clearInterval(this._guestListTimerId); this._guestListTimerId = null; }
+    if (this._sessionStatusTimerId) { window.clearInterval(this._sessionStatusTimerId); this._sessionStatusTimerId = null; }
+  }
+
+  // Detects the session having been ended from elsewhere (another Producer tab/device, or this same tab's
+  // own endDurableSession already having flipped the local record) and tears this browser down the same
+  // way Leave Studio does. A no-op for a session with no durableSession (rooms created before that schema
+  // existed) or one this poll already reacted to (avoid double-teardown).
   async _checkDurableSessionStatus() {
     if (!this.durableSession || this.durableSession.status === "ENDED" || this.hostState !== HostState.IN_STUDIO) return;
     try {
@@ -455,7 +480,6 @@ export class LiveSession {
   }
 
   async _refreshGuestSeats() {
-    await this._checkDurableSessionStatus();
     const hostStreamId = `${this.roomId}h`;
     const guestsAll = await this.engine.requestGuestList();
     const guests = guestsAll.filter((entry) => entry.id !== hostStreamId);
@@ -832,6 +856,12 @@ export class LiveSession {
     this.setHostState(HostState.LEAVING);
     this.engine.disconnectLocalFrames();
     if (this._containers?.hostTransport) this.engine.unmountFrame(this._containers.hostTransport, "host", "");
+    // Neither timer was ever being cleared here before this fix — a Host who left Studio (or a tab that
+    // just sat open past a session ending elsewhere) kept polling both the 4s guest-list check AND
+    // /api/sessions/:id forever, which is exactly what chronically exhausted the toasty_render rate-limit
+    // bucket (see SESSION_STATUS_POLL_MS's comment) and made a later, genuinely human-triggered refresh
+    // fail with "Failed to fetch".
+    this._stopGuestListPolling();
     this._stopRecordingTimer();
     this._hostPreviewStream?.getTracks().forEach((track) => track.stop());
     this._hostPreviewStream = null;

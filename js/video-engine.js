@@ -239,13 +239,26 @@ export class VideoEngine {
   handleMessage(event){if(event.origin!==this.baseUrl)return;this.listeners.forEach(callback=>callback(event.data,event.source));}
 }
 
-// VDO.Ninja's own docs: a device-name string matches via "NameStartsWith" then "NameIncludes" before
-// falling back to an exact device-id match — whitespace can be replaced with underscores for a cleaner
-// match. Returns undefined (not an empty string) for a blank/generic label so callers correctly fall back
-// to VDO's own default-device auto-select instead of sending it a param that can't match anything.
+// ROOT CAUSE of "phone self-preview shows front camera, Mac receives back camera" (real-device retest
+// against commit 4d7e33c, diagnosed by reading VDO.Ninja's own source — lib.js's gotDevices, the function
+// that actually resolves &videodevice= against the iframe's own enumerateDevices() list): VDO compares
+// using its OWN normalizeDeviceLabel, `String(deviceName).replace(/[\W]+/g, "_").toLowerCase()` — EVERY
+// non-word character collapsed to one underscore, AND lowercased. This function used to only replace
+// whitespace and never lowercased, so any label with punctuation (a comma, parens, a period — which is
+// most real camera labels, e.g. Android's own "camera2 1, facing front") or mixed case (e.g. Mac's
+// "FaceTime HD Camera") normalized to a DIFFERENT string than VDO computes from the identical raw label,
+// so startsWith/includes always failed silently. On a Mac with exactly one real (non-Camo) camera, the
+// failed match didn't matter — whatever's left after Camo-filtering is still the only real device. On a
+// phone with two real cameras, a failed match falls through to VDO's raw, unsorted enumerateDevices()
+// order (see gotDevices' tmp/tmp2/tmp3 fallthrough) — which is what silently published the back camera
+// while Toasty's own native preview (a separate getUserMedia call, unaffected by this) correctly showed
+// front. Mirroring VDO's exact algorithm here (not just approximating it) is what makes the two origins'
+// label strings byte-identical, restoring the "NameStartsWith"/"NameIncludes" match VDO's own docs
+// describe. Returns undefined (not an empty string) for a blank/generic label so callers correctly fall
+// back to VDO's own default-device auto-select instead of sending it a param that can't match anything.
 function normalizeVdoDeviceLabel(label) {
   const trimmed = String(label || "").trim();
-  return trimmed ? trimmed.replace(/\s+/g, "_") : undefined;
+  return trimmed ? trimmed.replace(/[\W]+/g, "_").toLowerCase() : undefined;
 }
 
 function normalizeGuestListEntries(raw) {
