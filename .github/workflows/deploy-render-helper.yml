@@ -4,6 +4,11 @@ name: Deploy render auth helper
 # Does not touch the SQLite DB, environment file, nginx, or broadcast.
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/toasty-auth-db.py"
+      - ".github/workflows/deploy-render-helper.yml"
 
 concurrency:
   group: toasty-render-helper
