@@ -61,6 +61,17 @@ export function buildShowContext(session) {
     // grid capacity yet". Empty when no guest has joined; never fabricated.
     guests: session.guestSeats.filter(Boolean).map((seat) => ({ displayName: seat.displayName || seat.label, title: seat.title || "", company: seat.company || "" })),
     audienceMessages: session.audience.recent(200),
-    producerHistory: session.aiProducerFeed.recent(10).map((entry) => ({ type: entry.type, title: entry.title, summary: entry.summary, instruction: entry.instruction, sources: entry.sources }))
+    producerHistory: session.aiProducerFeed.recent(10).map((entry) => ({ type: entry.type, title: entry.title, summary: entry.summary, instruction: entry.instruction, sources: entry.sources })),
+    // Research sessions (focus groups, customer interviews, expert panels) can attach a bounded research
+    // context to the same Producer/Hottie pipeline. This keeps the AI aware of the client objective and
+    // questions without mixing client-private session content into reusable participant profiles.
+    researchContext: session.researchContext ? {
+      id: session.researchContext.id || null,
+      title: session.researchContext.title || "",
+      objective: session.researchContext.objective || "",
+      researchQuestions: session.researchContext.researchQuestions || [],
+      cohort: session.researchContext.cohort || {},
+      concepts: session.researchContext.concepts || []
+    } : null
   };
 }
