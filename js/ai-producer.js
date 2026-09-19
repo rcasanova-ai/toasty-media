@@ -194,8 +194,10 @@ export class HeuristicAIProducerProvider {
   async respond(instruction, context, persona) {
     const intent = classifyIntent(instruction);
     if (intent === "audience_questions") return curateAudienceQuestions(instruction, context);
-    if (intent === "uncovered") return findUncoveredContext(context);
-    if (intent === "whats_next") return whatsNext(context);
+    if (intent === "quiet_participants") return focusGroupParticipation(context);
+    if (intent === "research_probe") return focusGroupProbe(context);
+    if (intent === "uncovered") return context.researchContext ? focusGroupCoverage(context) : findUncoveredContext(context);
+    if (intent === "whats_next") return context.researchContext ? focusGroupNext(context) : whatsNext(context);
     if (intent === "transition") return buildTransition(instruction, context);
     if (intent === "timing") return topicTiming(context);
     if (intent === "recall_speaker") return recallSpeaker(instruction, context);
@@ -210,8 +212,10 @@ function classifyIntent(instructionRaw) {
   // has to stand on its own rather than being AND'd with the questions? branch.
   if (/\bquestions?\b/.test(instruction) && /(audience|chat|good|best|any)/.test(instruction)) return "audience_questions";
   if (/audience/.test(instruction) && /(good|best|interesting|anything|any)/.test(instruction)) return "audience_questions";
-  if (/haven'?t covered|missed anything|anything (else|we)/.test(instruction)) return "uncovered";
-  if (/what'?s next|next topic|coming up/.test(instruction)) return "whats_next";
+  if (/who (hasn'?t|has not) (spoken|talked)|quiet participant|bring .* in|not heard from/.test(instruction)) return "quiet_participants";
+  if (/what should i (ask|probe)|what.*probe|who disagreed|disagree|push on|follow.?up/.test(instruction)) return "research_probe";
+  if (/haven'?t covered|missed anything|anything (else|we)|what are we missing/.test(instruction)) return "uncovered";
+  if (/what'?s next|next topic|coming up|ask next/.test(instruction)) return "whats_next";
   if (/transition|segue|move (us )?into|wrap.*into|into (vietnam|canada|thailand|closing)/.test(instruction)) return "transition";
   if (/how long|elapsed|time (on|spent)/.test(instruction)) return "timing";
   if (/remind me|what did .* say|said about/.test(instruction)) return "recall_speaker";
@@ -285,6 +289,66 @@ function findUncoveredContext(context) {
   return baseEntry(ProducerEntryType.CONTEXT, `Not yet covered · ${topic.title}`, "Looks like the prepared points on this topic have all come up.");
 }
 
+function focusGroupCoverage(context) {
+  const questions = context.researchContext?.researchQuestions || [];
+  if (!questions.length) return baseEntry(ProducerEntryType.CONTEXT, "Research coverage", "No research questions are attached to this session yet.");
+  const transcriptTexts = context.transcript.map((l) => l.text);
+  const uncovered = questions.filter((q) => maxJaccardAgainstTexts(q, transcriptTexts) < 0.22);
+  return {
+    type: ProducerEntryType.CONTEXT,
+    title: "Research coverage",
+    summary: uncovered.length ? `${uncovered.length} research question(s) are not clearly covered yet.` : "The current transcript touches every prepared research question.",
+    items: uncovered.slice(0,4).map((text) => ({ text }))
+  };
+}
+
+function focusGroupParticipation(context) {
+  const turns = new Map();
+  context.transcript.forEach((l) => turns.set(l.speaker, (turns.get(l.speaker) || 0) + 1));
+  (context.guests || []).forEach((g) => { const n=g.displayName; if(n && !turns.has(n)) turns.set(n,0); });
+  const ordered=[...turns.entries()].sort((a,b)=>a[1]-b[1]);
+  if(!ordered.length) return baseEntry(ProducerEntryType.CONTEXT,"Participation","No participant transcript is available yet.");
+  const low=ordered.filter(([,count])=>count<=Math.max(1,ordered[ordered.length-1][1]*0.4)).slice(0,3);
+  return {
+    type: ProducerEntryType.CONTEXT,
+    title:"Bring someone in",
+    summary: low.length ? `You have heard least from ${low.map(([name])=>name).join(", ")}.` : "Participation looks reasonably balanced.",
+    items: low.map(([name,count])=>({from:name,text:`${count} captured turn${count===1?"":"s"} — ask directly for their view before moving on.`}))
+  };
+}
+
+function focusGroupProbe(context) {
+  const recent=context.transcript.slice(-20);
+  const disagreementWords=/\b(but|however|disagree|different|not for me|wouldn'?t|would not|don'?t|do not)\b/i;
+  const confusionWords=/\b(confus|unclear|not sure|don'?t understand|do not understand|complicated)\b/i;
+  const disagreement=recent.filter(l=>disagreementWords.test(l.text)).slice(-3);
+  const confusion=recent.filter(l=>confusionWords.test(l.text)).slice(-3);
+  const items=[];
+  confusion.forEach(l=>items.push({from:l.speaker,text:`Probe this: “${l.text}” Ask what they expected instead.`}));
+  disagreement.forEach(l=>items.push({from:l.speaker,text:`Explore this difference: “${l.text}” Ask what would change their view.`}));
+  if(!items.length && recent.length){
+    const last=recent[recent.length-1];
+    items.push({from:last.speaker,text:`Go one level deeper on: “${last.text}” Ask why that matters to them.`});
+  }
+  return {
+    type:ProducerEntryType.RESEARCH,
+    title:"Moderator probe",
+    summary:items.length?"Best follow-up opportunities from the recent conversation.":"Not enough transcript yet to suggest a useful probe.",
+    items:items.slice(0,4)
+  };
+}
+
+function focusGroupNext(context) {
+  const coverage=focusGroupCoverage(context);
+  if(coverage.items?.length) return {
+    type:ProducerEntryType.RESEARCH,
+    title:"Ask next",
+    summary:"Use the next uncovered research question.",
+    items:[{text:coverage.items[0].text}]
+  };
+  return focusGroupProbe(context);
+}
+
 function whatsNext(context) {
   const next = context.agenda.find((a) => a.status === "upcoming");
   if (!next) return baseEntry(ProducerEntryType.TIMING, "What's next", "Nothing upcoming — this looks like the last topic.");
@@ -330,6 +394,15 @@ function recallSpeaker(instruction, context) {
 }
 
 function genericFallback(context) {
+  if (context.researchContext) {
+    const objective=context.researchContext.objective || "the research objective";
+    const speakers=context.speakers?.length||0;
+    return baseEntry(
+      ProducerEntryType.RESEARCH,
+      "Research session status",
+      `${speakers} speaker${speakers===1?"":"s"} captured. Keep the conversation tied to ${objective}.`
+    );
+  }
   const topic = context.currentTopic;
   return baseEntry(
     ProducerEntryType.PRODUCTION_SUGGESTION,
