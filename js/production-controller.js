@@ -1,10 +1,16 @@
 // Deterministic production actions. Hottie proposes; this controller executes.
 //
 // No model-generated JavaScript, selectors, or DOM instructions. TAKE LIVE is the only path that
-// can place a ProgramAsset onto ProgramComposition / Program Renderer.
+// can place a visual ProgramAsset onto ProgramComposition / Program Renderer.
+//
+// PLAY_AUDIO / STOP_AUDIO are the Program Audio path: they publish a catalogue file onto the
+// Program Audio bus (audience Program Output). PLAY_ASSET is the same execute as PLAY_AUDIO so a
+// future Hottie [ PLAY ] button can fire a structured action without touching the audio DOM.
 
 import { ProgramAssetStatus, serializeProgramAsset } from "./program-asset.js";
 import { ProgramLayout } from "./program-composition.js";
+import { programAssetFromCatalogueItem } from "./asset-catalogue.js";
+import { buildPlayAudioCommand, buildStopAudioCommand, serializeProgramAudio } from "./program-audio.js";
 
 export const ProductionActionType = Object.freeze({
   RESEARCH_REQUEST: "RESEARCH_REQUEST",
@@ -20,12 +26,17 @@ export const ProductionActionType = Object.freeze({
   TICKER: "TICKER",
   CHAT_MESSAGE: "CHAT_MESSAGE",
   PLAY_AUDIO: "PLAY_AUDIO",
+  PLAY_ASSET: "PLAY_ASSET",
+  STOP_AUDIO: "STOP_AUDIO",
   PLAY_VIDEO: "PLAY_VIDEO"
 });
 
 const EXECUTABLE = new Set([
   ProductionActionType.TAKE_ASSET,
-  ProductionActionType.REMOVE_ASSET
+  ProductionActionType.REMOVE_ASSET,
+  ProductionActionType.PLAY_AUDIO,
+  ProductionActionType.PLAY_ASSET,
+  ProductionActionType.STOP_AUDIO
 ]);
 
 const ASSET_LAYOUTS = new Set([
@@ -76,7 +87,62 @@ export class ProgramController {
     }
     if (type === ProductionActionType.TAKE_ASSET) return this.takeAsset(action);
     if (type === ProductionActionType.REMOVE_ASSET) return this.removeAsset(action);
+    if (type === ProductionActionType.PLAY_AUDIO || type === ProductionActionType.PLAY_ASSET) return this.playAudio(action);
+    if (type === ProductionActionType.STOP_AUDIO) return this.stopAudio(action);
     return { ok: false, reason: "unsupported" };
+  }
+
+  ensureCatalogueAsset(item) {
+    const existing = this.session.assets?.get(item.id);
+    if (existing) return existing;
+    const asset = programAssetFromCatalogueItem(item, { createdBy: "catalogue", status: ProgramAssetStatus.APPROVED });
+    return this.session.assets.add(asset) || asset;
+  }
+
+  playAudio({ assetId, initiator = "producer", volume } = {}) {
+    const item = this.session.catalogue?.get(assetId);
+    if (!item) return { ok: false, reason: "missing-asset" };
+    const command = buildPlayAudioCommand(item, {
+      initiator,
+      volume: volume ?? this.session.programAudio?.volume ?? 0.65
+    });
+    if (!command) return { ok: false, reason: "missing-media" };
+    const asset = this.ensureCatalogueAsset(item);
+    this.session.program.audio = command;
+    this.session.productionLog?.record(ProductionActionType.PLAY_AUDIO, {
+      assetId: item.id,
+      playId: command.playId,
+      initiator,
+      duration: command.duration,
+      src: command.src
+    });
+    this.session.emit?.("program-audio", command);
+    this.session.publishProgramState?.();
+    // Producer monitor is a parallel play of the same command. Program Audio is Program Output.
+    if (this.session.programAudio) {
+      this.session.programAudio.applyCommand(command).then((played) => {
+        if (!played?.ok) this.session.emit?.("program-audio-error", played);
+      }).catch((error) => {
+        this.session.emit?.("program-audio-error", { ok: false, reason: "decode-failed", error: String(error?.message || error) });
+      });
+    }
+    return { ok: true, command: serializeProgramAudio(command), asset: serializeProgramAsset(asset) };
+  }
+
+  stopAudio({ initiator = "producer" } = {}) {
+    const command = buildStopAudioCommand(this.session.program?.audio, { initiator });
+    this.session.program.audio = command;
+    this.session.productionLog?.record(ProductionActionType.STOP_AUDIO, {
+      assetId: command.assetId,
+      playId: command.playId,
+      initiator,
+      duration: command.duration,
+      src: command.src
+    });
+    this.session.emit?.("program-audio", command);
+    this.session.publishProgramState?.();
+    this.session.programAudio?.stop();
+    return { ok: true, command: serializeProgramAudio(command) };
   }
 
   takeAsset({ assetId, layout } = {}) {

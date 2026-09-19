@@ -239,7 +239,8 @@ console.log("\nSessionPolicy still blocks research; Hottie cannot execute DOM/ac
   const unsupported = jam.programController.execute({ type: "document.body.innerHTML = 'pwn'" });
   assertEqual(unsupported.ok, false, "arbitrary action strings are rejected");
   const liveOnly = jam.programController.execute({ type: ProductionActionType.PLAY_AUDIO, assetId: "x" });
-  assertEqual(liveOnly.ok, false, "future PLAY_AUDIO is reserved, not executed");
+  assertEqual(liveOnly.ok, false, "PLAY_AUDIO without a catalogue item is rejected");
+  assertEqual(liveOnly.reason, "missing-asset", "missing catalogue audio does not invent a sound");
 }
 
 console.log("\nExisting participant layouts and publisher/renderer freeze");

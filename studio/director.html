@@ -573,11 +573,14 @@
 
             <section class="lv-panel lv-audio" aria-label="Soundboard">
               <div class="soundboard-head">
-                <div><p class="rail-card-title">Sound Board</p><p class="control-note">Host + Producer · tap a pad or tell Hottie “give me a drum roll”.</p></div>
-                <label class="volume-control" for="lvSoundboardVolume">
-                  <span>Volume</span>
-                  <input id="lvSoundboardVolume" type="range" min="0" max="1" value="0.65" step="0.05">
-                </label>
+                <div><p class="rail-card-title">Sound Board</p><p class="control-note">Real catalogue files into Program Audio. Press a pad. Audience hears Program Output, not this monitor.</p></div>
+                <div class="soundboard-head-controls">
+                  <button type="button" class="soundboard-stop" id="lvSoundboardStop" disabled>Stop</button>
+                  <label class="volume-control" for="lvSoundboardVolume">
+                    <span>Volume</span>
+                    <input id="lvSoundboardVolume" type="range" min="0" max="1" value="0.65" step="0.05">
+                  </label>
+                </div>
               </div>
               <div class="soundboard-tabs" id="lvSoundboardTabs" role="tablist" aria-label="Sound categories"></div>
               <input id="lvSoundboardSearch" type="search" class="soundboard-search" placeholder="Search sounds…" aria-label="Search sounds">

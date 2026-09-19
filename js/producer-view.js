@@ -24,6 +24,7 @@ export class ProducerView {
       soundboardVolume: root.querySelector("#lvSoundboardVolume"),
       soundboardTabs: root.querySelector("#lvSoundboardTabs"),
       soundboardSearch: root.querySelector("#lvSoundboardSearch"),
+      soundboardStop: root.querySelector("#lvSoundboardStop"),
       openProgramOutput: root.querySelector("#lvOpenProgramOutput"),
       endShow: root.querySelector("#lvEndShow"),
       feedListProducer: root.querySelector("#lvFeedListProducer"),
@@ -42,7 +43,9 @@ export class ProducerView {
       container: this.elements.soundboard,
       volumeInput: this.elements.soundboardVolume,
       tabsContainer: this.elements.soundboardTabs,
-      searchInput: this.elements.soundboardSearch
+      searchInput: this.elements.soundboardSearch,
+      stopButton: this.elements.soundboardStop,
+      session: this.session
     });
 
     this.elements.layoutGroup.querySelectorAll("[data-layout]").forEach((button) => {

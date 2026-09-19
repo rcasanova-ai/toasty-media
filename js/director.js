@@ -102,6 +102,10 @@ function initStudio() {
 
   new HostView({ session }).init();
   new ProducerView({ session }).init();
+  session.loadAssetCatalogue().catch((error) => {
+    console.error("[Toasty] Asset Catalogue failed to load", error);
+    session.emit("catalogue-error", error);
+  });
   const hostPrejoin = new HostPrejoin({ session });
   hostPrejoin.init();
   // The one place LEAVING is ever emitted is LiveSession.leaveStudio() — see js/host-state.js — so this
