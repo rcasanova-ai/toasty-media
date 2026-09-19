@@ -40,6 +40,10 @@
 
           <div class="preview-stage" id="previewStage" data-background="none">
             <video id="cameraPreview" autoplay muted playsinline></video>
+            <!-- Publisher lives in the visible PiP after Join (not a 2×2 off-screen iframe). Exclusive-
+                 camera phones never complete VDO push while the parent page still holds getUserMedia;
+                 a hidden iframe also cannot show a vdo.ninja permission prompt. See js/guest.js joinStudio. -->
+            <div class="guest-publisher-slot" id="guestTransportFrame" hidden></div>
             <div class="preview-overlay">
               <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="" data-brand-logo>
             </div>
@@ -95,11 +99,6 @@
           </details>
         </section>
       </div>
-
-      <!-- Transport-only: VDO.Ninja's guest push/publish connection lives here, never as visible product
-           UI — see js/guest.js's joinStudio. Kept permanently off-screen (not display:none) so the encoder
-           isn't throttled for being hidden, same as the Host's #lvHostTransportFrame. -->
-      <div class="lv-hidden-transport" id="guestTransportFrame" aria-hidden="true"></div>
 
       <section class="joined-room" id="joinedRoom" hidden aria-label="Live guest room">
         <!-- Participant View, not Program Output — this is "who am I talking to," a clean per-participant

@@ -17,7 +17,8 @@ export function getOrCreateRoomId(search = window.location.search) { return getR
 export function getGuestInviteUrl(roomId, brandTheme) { const url=new URL("../studio/guest.html",window.location.href); url.searchParams.set("room",roomId); if(brandTheme)url.searchParams.set("brand",brandTheme); return url.toString(); }
 export function getListenerInviteUrl(roomId, brandTheme) { const url=new URL("../studio/listener.html",window.location.href); url.searchParams.set("room",roomId); if(brandTheme)url.searchParams.set("brand",brandTheme); return url.toString(); }
 export function createGuestStreamId(roomId) {
-  return `${roomId}g${Date.now().toString(36).slice(-4)}`.slice(0, 24);
+  const salt = Math.random().toString(36).slice(2, 6).padEnd(4, "x");
+  return `${roomId}g${Date.now().toString(36).slice(-4)}${salt}`.slice(0, 24);
 }
 
 export class VideoEngine {
@@ -129,7 +130,11 @@ export class VideoEngine {
   // same initial-capture point per lib.js's grabVideo) is VDO's own supported fix for this, not a value we
   // invented. Desktop guests are untouched (isMobile only ever true from js/guest.js's own UA check) since
   // a landscape webcam has no portrait problem to correct.
-  mountGuestFrame(container,{roomId,guestName,backgroundMode,videoDeviceLabel,audioDeviceLabel,streamId,micMuted,isMobile}) { const id=streamId||createGuestStreamId(roomId); this.mountFrame(container,"guest",{room:roomId,push:id,label:guestName||"Guest",webcam:"1",showlabels:"1",cleanoutput:"1",autostart:"1",cover:"1",videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),effects:effectForBackground(backgroundMode),muted:micMuted?true:undefined,ar:isMobile?"portrait":undefined}); return id; }
+  mountGuestFrame(container, options) {
+    const { streamId, params } = buildGuestPublisherParams(options);
+    this.mountFrame(container, "guest", params);
+    return streamId;
+  }
   mountListenerFrame(container,{roomId}) { return this.mountFrame(container,"listener",{room:roomId,scene:"0",showlabels:"1",cleanoutput:"1"}); }
 
   // Hidden viewer-only frame used purely to query the room's live guest list (id + label) for the Program
@@ -152,7 +157,19 @@ export class VideoEngine {
   // scene), this is unmuted: Program Output's audio is the real program audio for broadcast/recording.
   mountProgramFrame(container,{roomId,layout="grid"},frameId) { return this.mountFrame(container,frameId,{room:roomId,scene:"0",cleanoutput:"1",transparent:"1",showlabels:"1",controls:"0",...layoutParams(layout)}); }
 
-  mountFrame(container,frameId,params) { const iframe=document.createElement("iframe"); iframe.allow=IFRAME_ALLOW; iframe.allowFullscreen=true; iframe.src=this.buildUrl(params); iframe.title=`Toasty Studio ${frameId}`; container.replaceChildren(iframe); container.removeAttribute("data-empty"); this.frames.set(frameId,iframe); return iframe; }
+  mountFrame(container,frameId,params) {
+    const iframe=document.createElement("iframe");
+    iframe.allow=IFRAME_ALLOW;
+    iframe.allowFullscreen=true;
+    iframe.src=this.buildUrl(params);
+    iframe.title=`Toasty Studio ${frameId}`;
+    iframe.dataset.frameId=frameId;
+    iframe.name = params.push ? `toasty-push-${params.push}` : params.view ? `toasty-view-${params.view}` : `toasty-${frameId}`;
+    container.replaceChildren(iframe);
+    container.removeAttribute("data-empty");
+    this.frames.set(frameId,iframe);
+    return iframe;
+  }
   buildUrl(params) { const url=new URL("/",this.baseUrl); const merged={...DEFAULT_PARAMS,...params}; Object.entries(merged).forEach(([key,value])=>{ if(value===true)url.searchParams.set(key,""); else if(value!==undefined&&value!==null&&value!==false&&value!=="")url.searchParams.set(key,value); }); return url.toString(); }
   send(frameId,command) { const iframe=this.frames.get(frameId); if(!iframe?.contentWindow)return false; iframe.contentWindow.postMessage(command,this.baseUrl); return true; }
   setMicrophone(enabled){return this.send("host",{mic:enabled});}
@@ -181,6 +198,23 @@ export class VideoEngine {
   // Only the local half is guaranteed — see sendToGuest's caveat above for the remote half.
   disconnectAll(guestIds=[]){ this.disconnectLocalFrames(); guestIds.forEach((id)=>this.forceGuestHangup(id)); }
   requestDetailedState(frameId="host"){return this.send(frameId,{getDetailedState:true});}
+
+  // Publisher completion — not "an iframe exists." Correlates getDetailedState on THIS page's own
+  // push frame so guest.js can tell iframe-mounted / connecting / live / error apart. Same cib
+  // pattern as requestPeerVideoState; returns the raw object VDO posted back (or null on timeout).
+  requestPublisherDetailedState(frameId="guest", timeoutMs=2500) {
+    return new Promise((resolve) => {
+      const cib = `pubstate-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
+      let done = false;
+      const finish = (value) => { if(done) return; done=true; clearTimeout(timer); off(); resolve(value); };
+      const off = this.onMessage((message) => {
+        if (message?.cib !== cib) return;
+        finish(message.detailedState || message.getDetailedState || null);
+      });
+      const timer = setTimeout(() => finish(null), timeoutMs);
+      if (!this.send(frameId, { getDetailedState: true, cib })) finish(null);
+    });
+  }
 
   // Asks the hidden director-control frame for the room's current guest list. Resolves to a normalized
   // [{id,label}] array (tolerant of the VDO.Ninja response using id/streamID/UUID and label/name keys, and
@@ -340,6 +374,30 @@ function normalizeGuestListEntries(raw) {
     id: entry?.id || entry?.streamID || entry?.UUID || entry?.uuid || entry?.streamId,
     label: entry?.label || entry?.name || entry?.title || ""
   })).filter((entry) => entry.id);
+}
+
+// URL/query surface for one guest publisher. Exported so tests can prove two guests in the same
+// room differ only by push id — no shared password/hash/scene/director/iframe name.
+export function buildGuestPublisherParams({roomId,guestName,backgroundMode,videoDeviceLabel,audioDeviceLabel,streamId,micMuted,isMobile}={}) {
+  const id=streamId||createGuestStreamId(roomId);
+  return {
+    streamId: id,
+    params: {
+      room:roomId,
+      push:id,
+      label:guestName||"Guest",
+      webcam:"1",
+      showlabels:"1",
+      cleanoutput:"1",
+      autostart:"1",
+      cover:"1",
+      videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),
+      audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),
+      effects:effectForBackground(backgroundMode),
+      muted:micMuted?true:undefined,
+      ar:isMobile?"portrait":undefined
+    }
+  };
 }
 
 function effectForBackground(backgroundMode){if(backgroundMode===BackgroundMode.BLUR)return"3";return"0";}

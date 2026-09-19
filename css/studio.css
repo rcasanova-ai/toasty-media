@@ -3621,19 +3621,39 @@
   min-height: 0;
 }
 
-/* ROOT CAUSE of "wide distorted pill" (Guest, phone) — a SEPARATE, confirmed bug: on studio/guest.html,
-   .lv-stage-pip and .preview-stage are two classes on the SAME element (js/guest.js adds lv-stage-pip
-   directly to #previewStage), never parent and child. The old selector
-   ".joined-room .lv-stage-pip .preview-stage" required a descendant relationship that could never exist
-   here, so this rule never matched anything on the guest page at all — the PiP was silently falling back
-   to the prejoin-sized base .preview-stage rule (aspect-ratio: 16/10, wider still, with none of the
-   min-width/max-width bounds .lv-stage-pip sets on the article-wrapped Host equivalent). Fixed by
-   targeting the actual element directly and matching the Host PiP's own 4/3 ratio, so both platforms
-   render the same shape. */
+/* Guest self-PiP: phones capture 3/4 (diagnostics: 480×640 ar=.75 face=user). A 4/3 landscape
+   box + object-fit:cover cropped that portrait frame into a tight eye-level zoom. 3/4 matches
+   the captured aspect. Selector must target the SAME element that has both .lv-stage-pip and
+   .preview-stage (js/guest.js adds lv-stage-pip to #previewStage) — a descendant selector never
+   matches here. */
 .joined-room .lv-stage-pip.preview-stage {
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 3 / 4;
   max-height: none;
   min-height: 0;
+}
+
+.guest-publisher-slot {
+  background: #000;
+  inset: 0;
+  position: absolute;
+  z-index: 2;
+}
+
+.guest-publisher-slot iframe {
+  border: 0;
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.preview-stage--publishing .guest-publisher-slot {
+  display: block;
+}
+
+.preview-stage--publishing > video,
+.preview-stage--publishing > .preview-overlay,
+.preview-stage--publishing::before {
+  display: none;
 }
 
 /* Overrides .vdo-frame's aspect-ratio:4/3 for this dense layout specifically: with a definite

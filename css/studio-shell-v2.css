@@ -947,6 +947,11 @@ body.studio-public-shell[data-brand-theme] {
   aspect-ratio: 3 / 4;
 }
 
+.guest-shell[data-brand-theme] .joined-room .lv-stage-pip.preview-stage {
+  aspect-ratio: 3 / 4;
+  min-height: 0;
+}
+
 .guest-shell[data-brand-theme] .preview-overlay img {
   background: color-mix(in srgb, var(--ui-panel) 78%, transparent);
   border: 1px solid var(--ui-line);
