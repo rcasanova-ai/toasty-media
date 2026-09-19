@@ -22,6 +22,8 @@ import { HostDirectiveLog } from "./host-directive.js";
 import { LiveProducerController, ingestAttributedTranscript } from "./live-producer.js";
 import { ProgramAssetCatalog, serializeProgramAsset } from "./program-asset.js";
 import { ProgramController, ProductionActionLog } from "./production-controller.js";
+import { AssetCatalogue } from "./asset-catalogue.js";
+import { ProgramAudioBus, serializeProgramAudio } from "./program-audio.js";
 import { createResearchProvider } from "./hottie-research.js";
 import { ParticipantRegistry, createParticipant, ParticipantRole, ConnectionStatus, SourceKind } from "./participant-registry.js";
 import { HostState } from "./host-state.js";
@@ -120,7 +122,8 @@ export class LiveSession {
       // the next time screen share toggles off (see toggleScreenShare).
       layout: "grid",
       layoutManualOverride: false,
-      assetLayout: null
+      assetLayout: null,
+      audio: null
     };
 
     // Seat -> {id,label,mic,camera,onProgram} — stable across join/leave order noise, backfilled only
@@ -194,6 +197,8 @@ export class LiveSession {
     this._transcriptionProvider = null;
     this.demoMode = false;
     this.assets = new ProgramAssetCatalog();
+    this.catalogue = new AssetCatalogue();
+    this.programAudio = new ProgramAudioBus({ role: "producer-monitor" });
     this.productionLog = new ProductionActionLog();
     this.programController = new ProgramController(this);
     this.researchProvider = createResearchProvider({ preferSeeded: false });
@@ -212,6 +217,12 @@ export class LiveSession {
   }
 
   elapsedMs() { return Date.now() - this._startedAt; }
+
+  async loadAssetCatalogue(url) {
+    await this.catalogue.load(url);
+    this.emit("catalogue", this.catalogue);
+    return this.catalogue;
+  }
 
   // Swaps the AI Producer's provider (backend-with-fallback <-> heuristic-only) without touching
   // feed/history state. "Force heuristic" is a deliberate demo-resilience switch, not a config leak of
@@ -338,6 +349,8 @@ export class LiveSession {
     this.assets.clear();
     this.productionLog.clear();
     this.program.assetLayout = null;
+    this.program.audio = null;
+    this.programAudio?.stop();
     this.aiProducerFeed.clear();
     this.aiProducerService.resetSessionTotals();
     this._startedAt = Date.now();
@@ -869,7 +882,8 @@ export class LiveSession {
       guestCount: this.guestCount(),
       participants: this.participants.list().map(serializeProgramParticipant),
       asset: serializeProgramAsset(this.programController.liveAsset()),
-      assetLayout: this.program.assetLayout
+      assetLayout: this.program.assetLayout,
+      audio: serializeProgramAudio(this.program.audio)
     });
   }
 

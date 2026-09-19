@@ -4,6 +4,7 @@ import { VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js"
 import { ProgramSync } from "./program-sync.js";
 import { composeProgram } from "./program-composition.js";
 import { syncProgramRenderer, clearProgramRenderer } from "./program-renderer.js";
+import { ProgramAudioBus, serializeProgramAudio } from "./program-audio.js";
 
 // Toasty Studio Program Output — the finished, audience-facing broadcast canvas.
 // This page contains ONLY the composited show: no director/guest/camera/scene controls of any kind.
@@ -23,6 +24,8 @@ const mountedProgramTiles = new Map();
 // carries real (unmuted) program audio on purpose, so participant views are not mounted until the
 // operator clicks the audio gate once — see renderLiveStage() and the click handler below.
 let audioUnlocked = false;
+const programAudio = new ProgramAudioBus({ role: "program" });
+let lastAudioPlayId = null;
 
 const elements = {
   canvas: document.querySelector("#poCanvas"),
@@ -66,9 +69,11 @@ function init() {
 function unlockAudio() {
   audioUnlocked = true;
   elements.audioGate.hidden = true;
+  programAudio.resume().catch(() => {});
   // Mount now, inside this click's user-activation window, if the show is already live — a render
   // that arrives later without a fresh gesture wouldn't reliably get an unmuted autoplay.
   if (lastProgramState?.scene === "live") renderLiveStage(lastProgramState);
+  syncProgramAudio(lastProgramState);
 }
 
 function render(programState) {
@@ -96,6 +101,7 @@ function render(programState) {
     clearStage();
     elements.audioGate.hidden = true;
   }
+  syncProgramAudio(programState);
 }
 
 function programParticipants(programState) {
@@ -167,6 +173,25 @@ function clearStage() {
   clearProgramRenderer({ engine, mounted: mountedProgramTiles, stage: elements.stage });
 }
 
+function syncProgramAudio(programState) {
+  const command = serializeProgramAudio(programState?.audio);
+  if (!command) return;
+  if (!audioUnlocked) return;
+  if (command.action === "STOP_AUDIO") {
+    if (lastAudioPlayId) programAudio.stop();
+    lastAudioPlayId = null;
+    return;
+  }
+  if (command.playId && command.playId === lastAudioPlayId) return;
+  lastAudioPlayId = command.playId;
+  programAudio.applyCommand(command).then((result) => {
+    if (!result?.ok && result?.reason !== "elapsed" && result?.reason !== "already") {
+      lastAudioPlayId = null;
+    }
+  }).catch(() => {
+    lastAudioPlayId = null;
+  });
+}
 function applyBrand(themeId) {
   const theme = applyBrandTheme(themeId, { root: document.body, poweredBy: elements.poweredBy });
   const brandProfile = getBrandProfile(theme.id);

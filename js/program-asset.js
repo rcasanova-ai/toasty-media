@@ -85,6 +85,26 @@ export function allowlistedImageUrl(url) {
   }
 }
 
+const CATALOGUE_PREFIX = "assets/catalogue/";
+const CATALOGUE_MEDIA_EXT = /\.(ogg|oga|wav|mp3|webm|png|jpe?g|webp|gif)$/i;
+
+// First-party catalogue files only. Remote URLs never ride this path — Program Audio plays bundled
+// files, and TAKE LIVE visuals still use allowlistedImageUrl for Wikimedia images.
+export function allowlistedCatalogueSrc(src) {
+  if (!src) return null;
+  const value = String(src).trim();
+  if (!value || value.includes("..") || value.includes("\\") || /[\0\s]/.test(value)) return null;
+  if (/^[a-z]+:/i.test(value)) return null;
+  const normalized = value.replace(/^\.\//, "").replace(/^\/+/, "");
+  if (!normalized.startsWith(CATALOGUE_PREFIX)) return null;
+  if (!CATALOGUE_MEDIA_EXT.test(normalized)) return null;
+  return `/${normalized}`;
+}
+
+export function isAudioProgramAssetType(type) {
+  return type === ProgramAssetType.SOUND || type === ProgramAssetType.MUSIC || type === ProgramAssetType.STINGER;
+}
+
 export function normalizeProgramAssetType(value) {
   return Object.values(ProgramAssetType).includes(value) ? value : ProgramAssetType.ARTICLE;
 }
@@ -94,8 +114,9 @@ export function createProgramAsset(fields = {}) {
   const sourceName = sanitizeBroadcastText(fields.sourceName || hostnameFromUrl(sourceUrl) || "Source", MAX_NAME);
   const title = sanitizeBroadcastText(fields.title || "Untitled", MAX_TITLE);
   const excerpt = sanitizeBroadcastText(fields.excerpt || fields.preview?.excerpt || "", MAX_EXCERPT);
-  const imageUrl = allowlistedImageUrl(fields.imageUrl || fields.preview?.imageUrl || fields.media?.src);
   const type = normalizeProgramAssetType(fields.type);
+  const audioSrc = isAudioProgramAssetType(type) ? allowlistedCatalogueSrc(fields.media?.src || fields.src) : null;
+  const imageUrl = allowlistedImageUrl(fields.imageUrl || fields.preview?.imageUrl || (!audioSrc && fields.media?.src));
   const retrievedAt = fields.retrievedAt || fields.provenance?.retrievedAt || Date.now();
   return {
     id: fields.id || nextId(),
@@ -106,32 +127,41 @@ export function createProgramAsset(fields = {}) {
     attribution: sanitizeBroadcastText(fields.attribution || sourceName, MAX_NAME),
     excerpt,
     preview: {
-      kind: "card",
+      kind: audioSrc ? "audio" : "card",
       title,
       sourceName,
       excerpt,
       imageUrl
     },
     media: {
-      kind: imageUrl ? "image" : "card",
-      src: imageUrl
+      kind: audioSrc ? "audio" : (imageUrl ? "image" : "card"),
+      src: audioSrc || imageUrl
     },
+    duration: Number(fields.duration) || null,
+    catalogueId: fields.catalogueId || fields.provenance?.catalogueId || null,
     createdAt: fields.createdAt || Date.now(),
     createdBy: fields.createdBy || "hottie",
     status: fields.status || ProgramAssetStatus.DRAFT,
     provenance: {
       sourceUrl,
       sourceName,
-      domain: hostnameFromUrl(sourceUrl),
+      domain: hostnameFromUrl(sourceUrl) || fields.provenance?.domain || "",
       retrievedAt,
       assetType: type,
-      directiveId: fields.directiveId || fields.provenance?.directiveId || null
+      directiveId: fields.directiveId || fields.provenance?.directiveId || null,
+      catalogueId: fields.catalogueId || fields.provenance?.catalogueId || null,
+      license: fields.provenance?.license || fields.license || "",
+      licenseUrl: fields.provenance?.licenseUrl || fields.licenseUrl || "",
+      creator: fields.provenance?.creator || fields.creator || "",
+      attributionRequired: Boolean(fields.provenance?.attributionRequired || fields.attributionRequired)
     }
   };
 }
 
 export function serializeProgramAsset(asset) {
   if (!asset) return null;
+  const audioSrc = isAudioProgramAssetType(asset.type) ? allowlistedCatalogueSrc(asset.media?.src) : null;
+  const imageUrl = allowlistedImageUrl(asset.preview?.imageUrl || (!audioSrc && asset.media?.src));
   return {
     id: asset.id,
     type: asset.type,
@@ -141,16 +171,18 @@ export function serializeProgramAsset(asset) {
     attribution: asset.attribution || "",
     excerpt: asset.excerpt || "",
     preview: {
-      kind: "card",
+      kind: audioSrc ? "audio" : "card",
       title: asset.preview?.title || asset.title || "",
       sourceName: asset.preview?.sourceName || asset.sourceName || "",
       excerpt: asset.preview?.excerpt || asset.excerpt || "",
-      imageUrl: allowlistedImageUrl(asset.preview?.imageUrl || asset.media?.src)
+      imageUrl
     },
     media: {
-      kind: asset.media?.kind || "card",
-      src: allowlistedImageUrl(asset.media?.src)
+      kind: audioSrc ? "audio" : (asset.media?.kind || (imageUrl ? "image" : "card")),
+      src: audioSrc || imageUrl
     },
+    duration: Number(asset.duration) || null,
+    catalogueId: asset.catalogueId || asset.provenance?.catalogueId || null,
     createdAt: asset.createdAt,
     createdBy: asset.createdBy || "hottie",
     status: asset.status,
@@ -160,7 +192,12 @@ export function serializeProgramAsset(asset) {
       domain: asset.provenance?.domain || hostnameFromUrl(asset.sourceUrl),
       retrievedAt: asset.provenance?.retrievedAt || asset.createdAt,
       assetType: asset.provenance?.assetType || asset.type,
-      directiveId: asset.provenance?.directiveId || null
+      directiveId: asset.provenance?.directiveId || null,
+      catalogueId: asset.catalogueId || asset.provenance?.catalogueId || null,
+      license: asset.provenance?.license || "",
+      licenseUrl: asset.provenance?.licenseUrl || "",
+      creator: asset.provenance?.creator || "",
+      attributionRequired: Boolean(asset.provenance?.attributionRequired)
     }
   };
 }

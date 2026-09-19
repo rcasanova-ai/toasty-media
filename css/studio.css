@@ -1498,6 +1498,37 @@
   width: 110px;
 }
 
+.soundboard-head-controls {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+}
+
+.soundboard-stop {
+  background: var(--studio-surface-2);
+  border: 1px solid var(--studio-line);
+  border-radius: 8px;
+  color: var(--studio-cream);
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  min-height: auto;
+  padding: 0.35rem 0.7rem;
+  text-transform: uppercase;
+}
+
+.soundboard-stop:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.sound-tile.is-playing {
+  background: rgba(255, 122, 41, 0.16);
+  border-color: var(--studio-orange);
+}
+
 .soundboard-tabs {
   border-bottom: 1px solid var(--studio-line);
   display: flex;

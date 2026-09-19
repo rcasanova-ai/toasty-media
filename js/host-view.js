@@ -359,9 +359,10 @@ export class HostView {
   }
 
   async submitInstruction(text) {
-    const cue = triggerSoundFromInstruction(text);
-    if (cue) {
-      this.setTalkState("ready", `Played ${cue.label}`);
+    const played = triggerSoundFromInstruction(text, this.session);
+    if (played?.cue) {
+      const name = played.cue.displayName || played.cue.label || played.cue.id;
+      this.setTalkState("ready", played.ok === false ? `Could not play ${name}` : `Played ${name}`);
       return;
     }
 
