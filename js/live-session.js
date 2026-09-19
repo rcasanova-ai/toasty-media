@@ -20,6 +20,9 @@ import { TranscriptStore, ShowContextMemory } from "./show-context.js";
 import { createTranscriptionProvider } from "./transcription.js";
 import { HostDirectiveLog } from "./host-directive.js";
 import { LiveProducerController, ingestAttributedTranscript } from "./live-producer.js";
+import { ProgramAssetCatalog, serializeProgramAsset } from "./program-asset.js";
+import { ProgramController, ProductionActionLog } from "./production-controller.js";
+import { createResearchProvider } from "./hottie-research.js";
 import { ParticipantRegistry, createParticipant, ParticipantRole, ConnectionStatus, SourceKind } from "./participant-registry.js";
 import { HostState } from "./host-state.js";
 import { RoomPresence } from "./room-presence.js";
@@ -116,7 +119,8 @@ export class LiveSession {
       // set by the producer, stops the automatic screen-share behavior from fighting their choice until
       // the next time screen share toggles off (see toggleScreenShare).
       layout: "grid",
-      layoutManualOverride: false
+      layoutManualOverride: false,
+      assetLayout: null
     };
 
     // Seat -> {id,label,mic,camera,onProgram} — stable across join/leave order noise, backfilled only
@@ -189,6 +193,10 @@ export class LiveSession {
     this._demoAudienceFeed = new DemoAudienceFeed(this.audience);
     this._transcriptionProvider = null;
     this.demoMode = false;
+    this.assets = new ProgramAssetCatalog();
+    this.productionLog = new ProductionActionLog();
+    this.programController = new ProgramController(this);
+    this.researchProvider = createResearchProvider({ preferSeeded: false });
     this.liveProducer = new LiveProducerController(this);
     this.runOfShow.on(() => this.liveProducer.onShowAgendaChanged());
 
@@ -305,6 +313,7 @@ export class LiveSession {
 
   setDemoMode(enabled) {
     this.demoMode = enabled;
+    this.researchProvider = createResearchProvider({ preferSeeded: enabled });
     if (enabled) {
       this._demoAudienceFeed.start();
       this.startTranscription({ demo: true });
@@ -326,6 +335,9 @@ export class LiveSession {
     this.showMemory.clear();
     this.hostDirectives.clear();
     this.liveProducer.resetNotices();
+    this.assets.clear();
+    this.productionLog.clear();
+    this.program.assetLayout = null;
     this.aiProducerFeed.clear();
     this.aiProducerService.resetSessionTotals();
     this._startedAt = Date.now();
@@ -656,7 +668,9 @@ export class LiveSession {
       participants: this.participants.list(),
       mounted: this._mountedProgramTiles,
       frameIdPrefix: "program-preview",
-      muted: true
+      muted: true,
+      asset: this.programController.liveAsset(),
+      assetLayout: this.program.assetLayout
     });
   }
 
@@ -853,7 +867,9 @@ export class LiveSession {
       layout: this.program.layout,
       hostStarted: this.engine.frames.has("host"),
       guestCount: this.guestCount(),
-      participants: this.participants.list().map(serializeProgramParticipant)
+      participants: this.participants.list().map(serializeProgramParticipant),
+      asset: serializeProgramAsset(this.programController.liveAsset()),
+      assetLayout: this.program.assetLayout
     });
   }
 

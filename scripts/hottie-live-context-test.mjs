@@ -16,6 +16,9 @@ import {
 } from "../js/host-directive.js";
 import { LiveProducerController, ingestAttributedTranscript, ProducerEventType } from "../js/live-producer.js";
 import { createTranscriptionProvider, HOTTIE_LIVE_PRODUCER_SCRIPT, HOTTIE_LIVE_PRODUCER_RESEARCH } from "../js/transcription.js";
+import { ProgramAssetCatalog } from "../js/program-asset.js";
+import { ProgramController, ProductionActionLog } from "../js/production-controller.js";
+import { SeededResearchProvider } from "../js/hottie-research.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -55,8 +58,16 @@ function fixtureSession({ policy, researchContext } = {}) {
     audience: new AudienceStore(),
     researchContext: researchContext || { ...HOTTIE_LIVE_PRODUCER_RESEARCH },
     guestSeats: [],
-    elapsedMs: () => 0
+    elapsedMs: () => 0,
+    assets: new ProgramAssetCatalog(),
+    productionLog: new ProductionActionLog(),
+    researchProvider: new SeededResearchProvider()
   };
+  session.program = { assetLayout: null };
+  session.programController = new ProgramController(session);
+  session.emit = () => {};
+  session._syncProgramPreview = () => {};
+  session.publishProgramState = () => {};
   session.liveProducer = new LiveProducerController(session);
   return session;
 }
@@ -135,6 +146,7 @@ console.log("\nSeeded Hottie producer sequence");
   const events = [];
   session.liveProducer.onEvent((event) => events.push(event));
   HOTTIE_LIVE_PRODUCER_SCRIPT.forEach((line) => ingestAttributedTranscript(session, line));
+  await session.liveProducer.ready();
   session.liveProducer.checkpoint();
 
   assertEqual(session.transcript.lines.length, HOTTIE_LIVE_PRODUCER_SCRIPT.length, "all fixture lines stored");
@@ -153,8 +165,8 @@ console.log("\nSeeded Hottie producer sequence");
   assert(guestToasty.length >= 2, "guest mentioned Toasty without creating extra directives");
 
   const feed = session.aiProducerFeed.visible();
-  assert(feed.some((e) => e.type === ProducerEntryType.DIRECTIVE && /Find:/i.test(e.summary)), "find directive is on the private feed");
-  assert(feed.some((e) => e.type === ProducerEntryType.DIRECTIVE && /Research action is not wired yet/.test(e.items?.[0]?.text || "")), "find feed says research is not wired");
+  assert(feed.some((e) => e.type === ProducerEntryType.DIRECTIVE && /Find:/i.test(e.summary) || e.type === ProducerEntryType.WORKING || e.type === ProducerEntryType.ASSET_PROPOSAL), "find directive starts research rather than a dead-end note");
+  assert(!feed.some((e) => /Research action is not wired yet/.test(e.items?.[0]?.text || "")), "find research is wired");
   assert(feed.some((e) => /not heard from Sarah/i.test(e.summary)), "quiet Sarah surfaced privately");
   assert(feed.some((e) => (e.items || []).some((item) => /stop you from using this/i.test(item.text))), "uncovered research question surfaced");
   assert(feed.some((e) => e.title === "Disagreement" && /Pat/.test(e.summary)), "disagreement surfaced");

@@ -136,7 +136,12 @@ export class ProducerView {
       return;
     }
     this.elements.feedListProducer.replaceChildren(...entries.map((entry) => renderFeedEntry(entry, {
-      onSendToProgram: (id) => this.session.aiProducerService.sendEntryToProgram(id)
+      onSendToProgram: (id) => this.session.aiProducerService.sendEntryToProgram(id),
+      onTakeLive: (id) => this.session.liveProducer.takeProposalLive(id),
+      onFindAnother: (id) => this.session.liveProducer.findAnother(id),
+      onDiscardProposal: (id) => this.session.liveProducer.discardProposal(id),
+      onRetryResearch: (id) => this.session.liveProducer.retryResearch(id),
+      onRemoveAsset: (id) => this.session.liveProducer.removeLiveAsset(id)
     })));
   }
 

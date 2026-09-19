@@ -1,5 +1,6 @@
 import { buildShowContext } from "./show-context.js";
 import { ProducerActionType, normalizeActionType, normalizeAutonomy, ProducerAutonomy } from "./producer-persona.js";
+import { buildProgramAssetCard } from "./program-renderer.js";
 
 let uid = 0;
 function nextId(prefix) { return `${prefix}-${Date.now().toString(36)}-${(uid++).toString(36)}`; }
@@ -12,6 +13,7 @@ export const ProducerEntryType = Object.freeze({
   RESEARCH: "research",
   PRODUCTION_SUGGESTION: "production_suggestion",
   DIRECTIVE: "directive",
+  ASSET_PROPOSAL: "asset_proposal",
   WORKING: "working",
   ERROR: "error"
 });
@@ -546,7 +548,16 @@ const ACTION_LABELS = {
   [ProducerActionType.SEND_TO_PROGRAM]: "Program Output"
 };
 
-export function renderFeedEntry(entry, { onDismiss, onPin, onSendToProgram } = {}) {
+export function renderFeedEntry(entry, {
+  onDismiss,
+  onPin,
+  onSendToProgram,
+  onTakeLive,
+  onFindAnother,
+  onDiscardProposal,
+  onRetryResearch,
+  onRemoveAsset
+} = {}) {
   const el = document.createElement("article");
   el.className = "lv-feed-entry";
   el.dataset.type = entry.type;
@@ -556,7 +567,7 @@ export function renderFeedEntry(entry, { onDismiss, onPin, onSendToProgram } = {
   head.className = "lv-feed-entry-head";
   const title = document.createElement("span");
   title.className = "lv-feed-entry-title";
-  title.textContent = entry.type === ProducerEntryType.WORKING ? "Thinking…" : entry.title;
+  title.textContent = entry.title || (entry.type === ProducerEntryType.WORKING ? "Thinking…" : "");
   head.appendChild(title);
 
   if (onDismiss || onPin) {
@@ -620,6 +631,29 @@ export function renderFeedEntry(entry, { onDismiss, onPin, onSendToProgram } = {
   // compete for attention. Only the three audience-facing actions get a visible marker, and only
   // SEND_TO_PROGRAM while still pending gets a confirm control — see AIProducerService.sendEntryToProgram
   // for why this button, not autonomy, is what actually gates anything reaching Program Output.
+  const proposal = entry.proposal;
+  if (proposal?.asset && !proposal.exhausted) {
+    const preview = document.createElement("div");
+    preview.className = "lv-feed-asset-preview";
+    preview.appendChild(buildProgramAssetCard(proposal.asset));
+    el.appendChild(preview);
+  }
+
+  if (entry.type === ProducerEntryType.ASSET_PROPOSAL || entry.retryDirectiveId || proposal?.exhausted) {
+    const actionRow = document.createElement("div");
+    actionRow.className = "lv-feed-entry-action lv-feed-entry-action--producer";
+    if (proposal?.live && onRemoveAsset) {
+      actionRow.appendChild(feedButton("REMOVE", () => onRemoveAsset(entry.id)));
+    } else if (proposal?.requiresApproval) {
+      if (onTakeLive) actionRow.appendChild(feedButton("TAKE LIVE", () => onTakeLive(entry.id), true));
+      if (onFindAnother) actionRow.appendChild(feedButton("FIND ANOTHER", () => onFindAnother(entry.id)));
+      if (onDiscardProposal) actionRow.appendChild(feedButton("DISCARD", () => onDiscardProposal(entry.id)));
+    } else if (onRetryResearch && (entry.retryDirectiveId || proposal?.exhausted)) {
+      actionRow.appendChild(feedButton("TRY AGAIN", () => onRetryResearch(entry.id)));
+    }
+    if (actionRow.childNodes.length) el.appendChild(actionRow);
+  }
+
   if (entry.action && entry.action !== ProducerActionType.PRIVATE) {
     const actionRow = document.createElement("div");
     actionRow.className = "lv-feed-entry-action";
@@ -640,4 +674,13 @@ export function renderFeedEntry(entry, { onDismiss, onPin, onSendToProgram } = {
   }
 
   return el;
+}
+
+function feedButton(label, onClick, primary = false) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = primary ? "lv-feed-mini-btn lv-feed-mini-btn--primary" : "lv-feed-mini-btn";
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  return button;
 }

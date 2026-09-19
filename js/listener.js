@@ -103,6 +103,13 @@ function programParticipants(programState) {
 }
 
 function isRoomEmpty(programState) {
+  if (programState?.asset?.status === "live" || programState?.asset?.id) {
+    const composed = composeProgram(programParticipants(programState), {
+      asset: programState.asset,
+      assetLayout: programState.assetLayout
+    });
+    if (composed.asset) return false;
+  }
   const participants = programParticipants(programState);
   if (participants.length) return composeProgram(participants).slots.length === 0;
   return !programState.hostStarted && !programState.guestCount;
@@ -125,7 +132,9 @@ function renderLiveStage(programState) {
     mounted: mountedProgramTiles,
     frameIdPrefix: "program",
     muted: false,
-    videoEnabled: audioUnlocked
+    videoEnabled: audioUnlocked,
+    asset: programState.asset || null,
+    assetLayout: programState.assetLayout || null
   });
 }
 
