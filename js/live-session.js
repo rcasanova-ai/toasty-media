@@ -425,12 +425,28 @@ export class LiveSession {
     history.replaceState({}, "", url);
   }
 
+  // Visual state only — never touches VDO, the participant registry, or any media track. Local
+  // application (this.brandTheme/saveBrandTheme/publishProgramState/emit) is unchanged and stays
+  // synchronous so THIS browser (Host + any same-browser Program Output tab, via ProgramSync's
+  // BroadcastChannel) updates instantly regardless of the network. The durable-session persist below is
+  // what reaches OTHER devices: BroadcastChannel is same-browser-only, so it can never reach a phone
+  // Guest — see scripts/render-production-server.mjs's new /api/sessions/:id/brand and
+  // js/room-presence.js's brandId, which is what Guests actually pick this up from, on their own existing
+  // 5s heartbeat (no new poll, no reconnect). Best-effort/fire-and-forget like endDurableSession/kickGuest
+  // — a Guest whose heartbeat catches this a few seconds later than the Host's own local update is the
+  // worst case, not a broken feature.
   changeBrandTheme(brandTheme) {
     this.brandTheme = normalizeBrandTheme(brandTheme);
     saveBrandTheme(this.brandTheme);
     this._updateInviteAndHistory();
     this.publishProgramState();
     this.emit("brand", this.brandTheme);
+    if (this.durableSession && this.durableSession.status !== "ENDED") {
+      studioRequest(`/api/sessions/${this.durableSession.id}/brand`, {
+        method: "POST",
+        body: JSON.stringify({ brandId: this.brandTheme })
+      }).catch((error) => console.error("[LiveSession] persisting brand theme failed", error));
+    }
   }
 
   applyBrand(elements) {

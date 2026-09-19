@@ -1,5 +1,5 @@
 import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js";
-import { applyBrandTheme, getInitialBrandTheme } from "./brand-themes.js";
+import { applyBrandTheme, getInitialBrandTheme, normalizeBrandTheme } from "./brand-themes.js";
 import { startDevicePreview, selectedDeviceLabel, classifyCameraFacing } from "./device-picker.js";
 import { RoomPresence } from "./room-presence.js";
 import { RemoteMediaState, REMOTE_MEDIA_STATE_LABEL } from "./remote-media-state.js";
@@ -93,21 +93,46 @@ const elements = {
 
 init();
 
+// VISUAL STATE ONLY — never touches VDO, camera, mic, participant registry, or the room connection. A
+// live session's brand is Host/Producer-controlled shared state (see js/live-session.js's
+// changeBrandTheme), not this guest's own independent choice — this is the one place that actually
+// repaints the page, so both the initial resolve and every later live update in joinStudio's
+// onRosterChange go through it.
+function applyGuestBrandTheme(brandId) {
+  state.brandTheme = normalizeBrandTheme(brandId);
+  const theme = applyBrandTheme(state.brandTheme, {
+    root: document.body,
+    brandLink: elements.studioBrandLink,
+    logoImg: elements.studioBrandLogo,
+    logoText: elements.studioBrandText,
+    poweredBy: elements.poweredBy
+  });
+  state.brandLabel = theme.textLogo || `${theme.label} Studio`;
+}
+
 async function init() {
   try {
-    const theme = applyBrandTheme(state.brandTheme, {
-      root: document.body,
-      brandLink: elements.studioBrandLink,
-      logoImg: elements.studioBrandLogo,
-      logoText: elements.studioBrandText,
-      poweredBy: elements.poweredBy
-    });
-    state.brandLabel = theme.textLogo || `${theme.label} Studio`;
+    applyGuestBrandTheme(state.brandTheme);
     elements.roomLabel.textContent = state.roomId ? state.roomId : "Missing room";
     if (!isValidRoomId(state.roomId)) {
       elements.joinStudio.disabled = true;
       elements.guestStatus.textContent = "This Studio invite has an invalid or expired room ID. Ask the host for a fresh invite.";
       return;
+    }
+    // Late-joiner correction: the invite link's own ?brand= is only a snapshot from whenever it was
+    // copied — if the Host has changed the session's theme since, this repaints BEFORE the guest ever
+    // sees the prejoin screen, rather than leaving them on a stale brand until their first post-join
+    // heartbeat (see the onRosterChange handler in joinStudio for the live/post-join half of this).
+    // Unauthenticated, same endpoint the capacity preflight already calls — best-effort, same as that
+    // preflight: a failure here just leaves the invite-link brand in place, never blocks prejoin.
+    try {
+      const response = await fetch(`${studioApiEndpoint()}/api/presence/room?roomId=${encodeURIComponent(state.roomId)}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.brandId) applyGuestBrandTheme(data.brandId);
+      }
+    } catch (error) {
+      log("live brand resolve failed, using invite-link brand", error?.message);
     }
     bindControls();
     engine.onMessage(handleVdoMessage);
@@ -281,6 +306,11 @@ async function joinStudio() {
   });
   state.presence.onRosterChange((roster) => {
     renderRemoteParticipants(roster);
+    // Live brand sync — piggybacks on the SAME 5s heartbeat that already refreshes the roster (see
+    // room-presence.js's brandId comment) rather than a second poll. Visual only, no camera/mic/registry
+    // impact — a Host mid-session brand change reaches every connected Guest within one heartbeat.
+    const liveBrandId = state.presence?.brandId;
+    if (liveBrandId && liveBrandId !== state.brandTheme) applyGuestBrandTheme(liveBrandId);
   });
   // See js/room-presence.js's onRejected comment — 403/409/410 are terminal for THIS admission specifically
   // (kicked / session full / session ended), not a network hiccup to silently retry past. Each shows a real

@@ -29,6 +29,12 @@ export class RoomPresence {
     this.company = company;
     this.transportSourceId = null;
     this.roster = [];
+    // The live session's CURRENT brand, straight from the same 5s heartbeat that already refreshes the
+    // roster — see scripts/render-production-server.mjs's handlePresenceAnnounce, which rides this on its
+    // existing session_get_by_room call. null until the first successful poll. No separate event: callers
+    // read this.brandId inside their own onRosterChange callback (already fires every successful poll),
+    // rather than this module inventing a second notification channel for one more field.
+    this.brandId = null;
     this._timerId = null;
     this._listeners = new Set();
     this._rejectionListeners = new Set();
@@ -116,6 +122,7 @@ export class RoomPresence {
       }
       const data = await response.json();
       this.roster = data.roster || [];
+      if (data.brandId !== undefined) this.brandId = data.brandId;
       this._listeners.forEach((callback) => callback(this.roster));
     } catch (_) {
       // Network hiccup or the presence backend being briefly unreachable — deliberately non-fatal: the

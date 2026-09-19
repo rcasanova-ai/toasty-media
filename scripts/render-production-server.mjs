@@ -290,6 +290,16 @@ const server = createServer(async (req, res) => {
     await handleSessionKick(req, res, session);
     return;
   }
+  // Live brand/theme sync — see js/live-session.js's changeBrandTheme, which calls this so every
+  // connected Guest picks the change up on their own next presence heartbeat (handlePresenceAnnounce's
+  // session_get_by_room call already runs every 5s; brandId now rides along on that, no new poll added).
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/brand")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sessions-brand", 60, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSessionBrand(req, res, session);
+    return;
+  }
   if (req.method !== "POST" || req.url !== "/render") {
     sendJson(req, res, 404, { error: "Render helper is running. POST /render to create an MP4." });
     return;
@@ -1646,14 +1656,19 @@ async function handlePresenceAnnounce(req, res) {
   if (result.error === "kicked") throw httpError(403, "You have been removed from this session.");
   if (result.error === "full") throw httpError(409, "This session is currently full.");
   await db("session_touch", { roomId });
-  sendJson(req, res, 200, { roster: result.roster || [] });
+  // brandId rides along on the SAME session_get_by_room call already made above for the ended-session
+  // check — every connected participant's own 5s heartbeat (js/room-presence.js) is what picks up a Host
+  // brand change live, with no separate poll or reconnect (see js/live-session.js's changeBrandTheme).
+  sendJson(req, res, 200, { roster: result.roster || [], brandId: sessionStatus.brandId ?? null });
 }
 
 async function handlePresenceRoom(req, res) {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const roomId = requirePresenceId(url.searchParams.get("roomId"), "roomId");
   const result = await db("presence_list", { roomId });
-  sendJson(req, res, 200, { roster: result.roster || [] });
+  // brandId lets a Guest's prejoin screen (before it ever announces presence) resolve the LIVE session's
+  // current brand instead of only the invite link's ?brand= snapshot from whenever it was copied.
+  sendJson(req, res, 200, { roster: result.roster || [], brandId: result.brandId ?? null });
 }
 
 async function handlePresenceLeave(req, res) {
@@ -1706,6 +1721,22 @@ async function handleSessionEnd(req, res, authSession) {
   const id = decodeURIComponent(path);
   if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
   const result = await db("session_end", { id, ownerUserId: authSession.id, endedBy: authSession.id });
+  if (!result.session) throw httpError(404, "Session not found.");
+  sendJson(req, res, 200, { session: result.session });
+}
+
+// Host/Producer-only, live, no reconnect: see js/live-session.js's changeBrandTheme — a canonical brand
+// id (js/brand-themes.js's own set, same values already used at session_create), never free text. The
+// UPDATE itself is owner-scoped in SQL (mirrors handleSessionEnd's own pattern) rather than a separate
+// session_get pre-check — a non-owner's request just matches zero rows and comes back 404, same
+// not-found-not-403 shape session_get already uses to avoid confirming a session id exists to a non-owner.
+async function handleSessionBrand(req, res, authSession) {
+  const path = req.url.slice("/api/sessions/".length, -"/brand".length);
+  const id = decodeURIComponent(path);
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
+  const body = await readJson(req);
+  const brandId = sessionText(body.brandId, 60);
+  const result = await db("session_set_brand", { id, ownerUserId: authSession.id, brandId });
   if (!result.session) throw httpError(404, "Session not found.");
   sendJson(req, res, 200, { session: result.session });
 }

@@ -180,6 +180,15 @@ def presence_roster(conn, room_id):
     return [public_presence(row) for row in rows]
 
 
+def session_brand_for_room(conn, room_id):
+    # Same "unauthenticated, brandId/status only" contract as session_get_by_room — used by presence_list
+    # (GET /api/presence/room) so a Guest's prejoin screen can resolve the LIVE session's current brand
+    # before ever announcing presence, not just the invite-link's ?brand= snapshot from whenever it was
+    # copied.
+    row = conn.execute("SELECT brand_id FROM live_sessions WHERE room_id = ?", (room_id,)).fetchone()
+    return row["brand_id"] if row else None
+
+
 def main():
     payload = json.load(sys.stdin)
     db_path = payload["dbPath"]
@@ -294,7 +303,10 @@ def main():
         return
 
     if action == "presence_list":
-        print(json.dumps({"roster": presence_roster(conn, payload["roomId"])}))
+        print(json.dumps({
+            "roster": presence_roster(conn, payload["roomId"]),
+            "brandId": session_brand_for_room(conn, payload["roomId"]),
+        }))
         return
 
     if action == "presence_leave":
@@ -365,10 +377,30 @@ def main():
     if action == "session_get_by_room":
         # Deliberately UNAUTHENTICATED and NOT owner-scoped — this is what a Guest's join flow calls
         # (see handlePresenceAnnounce) to check "has the owner ended this session" before admitting them.
-        # A guest has no Toasty account and no ownerUserId to scope by; this only ever returns status,
-        # never anything else about the session or its owner.
+        # A guest has no Toasty account and no ownerUserId to scope by; this only ever returns status and
+        # brandId — never anything owner-identifying. brandId added so the SAME already-polled call
+        # (handlePresenceAnnounce runs this on every 5s heartbeat, from every participant) doubles as the
+        # live brand-sync channel — see session_set_brand below for how the Host updates it.
         row = conn.execute("SELECT * FROM live_sessions WHERE room_id = ?", (payload["roomId"],)).fetchone()
-        print(json.dumps({"status": row["status"] if row else None}))
+        print(json.dumps({"status": row["status"] if row else None, "brandId": row["brand_id"] if row else None}))
+        return
+
+    if action == "session_set_brand":
+        # Ownership already verified by the caller (handleSessionBrand looks up the session by id+
+        # ownerUserId before calling this) — mirrors session_kick's own ownership-check-in-caller pattern.
+        # Host-only, live, no reconnect: the room's connected participants pick this up on their own next
+        # presence heartbeat (session_get_by_room above), not through any VDO/media channel.
+        now = utc_now()
+        conn.execute(
+            "UPDATE live_sessions SET brand_id = ?, last_active_at = ? WHERE id = ? AND owner_user_id = ?",
+            (payload.get("brandId") or "", now, payload["id"], payload["ownerUserId"]),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM live_sessions WHERE id = ? AND owner_user_id = ?",
+            (payload["id"], payload["ownerUserId"]),
+        ).fetchone()
+        print(json.dumps({"session": public_session(row)}))
         return
 
     if action == "session_end":
