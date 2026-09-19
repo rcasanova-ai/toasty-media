@@ -10,6 +10,7 @@
 // child <div> that mountParticipantView targets individually; only THAT tile is ever touched when only
 // that one participant's stream changes.
 import { composeParticipantView, RemoteLayout } from "./program-composition.js";
+import { buildParticipantLowerThird, updateParticipantLowerThird } from "./participant-lower-third.js";
 
 // stage: the outer container (e.g. #lvGuestFrame's PARENT, or an equivalent — see call sites for what
 //   element this actually is on each page). Gets `data-remote-layout` set to drive the CSS grid.
@@ -42,30 +43,36 @@ export function syncParticipantStage({ stage, engine, roomId, participants, self
 
   // Mount tiles for anyone newly in the composition, in composition order — appending only NEW tiles
   // (never reordering existing ones) is what keeps everyone else visually stable (see
-  // js/program-composition.js's stableOrder comment).
+  // js/program-composition.js's stableOrder comment). Already-mounted participants still get their lower
+  // third's TEXT refreshed below (identity can resolve/change after the tile's first render — e.g.
+  // presence filling in title/company a beat after the initial announce) without touching video at all.
   composition.others.forEach((participant) => {
-    if (mounted.has(participant.participantId)) return;
+    const existing = mounted.get(participant.participantId);
+    if (existing) {
+      updateParticipantLowerThird(existing.lowerThird, participant);
+      return;
+    }
     if (!participant.transportSourceId) return; // presence known but VDO source not resolved yet
     // Two nested elements, not one: mountParticipantView/VideoEngine.mountFrame replaces its ENTIRE
     // container's children on mount (container.replaceChildren(iframe) — see js/video-engine.js), which
-    // would wipe out a label placed directly on the same element. The outer .lv-remote-tile is what this
-    // module tracks/positions in the grid and never touches again after creating it; the inner .vdo-frame
-    // is the ONLY thing mountParticipantView ever sees.
+    // would wipe out a lower third placed directly on the same element. The outer .lv-remote-tile is what
+    // this module tracks/positions in the grid and never touches again after creating it; the inner
+    // .vdo-frame is the ONLY thing mountParticipantView ever sees.
     const tile = document.createElement("div");
     tile.className = "lv-remote-tile";
     tile.dataset.participantId = participant.participantId;
     const videoContainer = document.createElement("div");
     videoContainer.className = "vdo-frame lv-video-tile";
     tile.appendChild(videoContainer);
-    const label = document.createElement("div");
-    label.className = "lv-remote-tile-label";
-    const role = [participant.title, participant.company].filter(Boolean).join(", ");
-    label.textContent = [participant.displayName, role].filter(Boolean).join(" · ") || "Participant";
-    tile.appendChild(label);
+    // js/participant-lower-third.js — the ONE canonical broadcast nameplate, themed via CSS custom
+    // properties js/brand-themes.js's applyBrandTheme already sets (see css/studio.css's own comment), not
+    // decided here.
+    const lowerThird = buildParticipantLowerThird(participant);
+    tile.appendChild(lowerThird);
     stage.appendChild(tile);
     const frameId = `${frameIdPrefix}-${participant.participantId}`;
     engine.mountParticipantView(videoContainer, { roomId, streamId: participant.transportSourceId }, frameId);
-    mounted.set(participant.participantId, { tile, videoContainer, frameId, transportSourceId: participant.transportSourceId });
+    mounted.set(participant.participantId, { tile, videoContainer, frameId, lowerThird, transportSourceId: participant.transportSourceId });
   });
 
   if (composition.others.length === 0 && onEmpty) onEmpty(composition.layout);

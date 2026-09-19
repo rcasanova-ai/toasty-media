@@ -311,7 +311,14 @@ export function applyBrandTheme(themeId, elements = {}) {
   // to) must NOT fall through to Toasty's mark either — that would leak Toasty's own brand as a faint
   // watermark inside an immersive client workspace, which is exactly the stale-branding failure mode
   // this theme system exists to prevent.
-  root.style.setProperty("--studio-mark-image", studioMarkImage(theme));
+  const markImage = studioMarkImage(theme);
+  root.style.setProperty("--studio-mark-image", markImage);
+  // A blank div with only a CSS background-image still has zero DOM children, so a plain :empty selector
+  // can't tell "no mark for this theme" apart from "has a mark" — this explicit flag (css/studio.css's
+  // .lv-lower-third-mark) is what actually lets the participant lower third hide its mark square instead
+  // of always showing an empty box for the several themes (8alta/santati/optimai/tangem) with no artwork
+  // watermark to show.
+  root.dataset.lowerThirdMark = markImage === "none" ? "hidden" : "shown";
   root.style.setProperty("--po-font-heading", theme.vars["--brand-heading-font"]);
   root.style.setProperty("--po-font-body", theme.vars["--brand-body-font"]);
   if (elements.logoImg) {
@@ -369,6 +376,24 @@ function applyArtworkTokens(root, theme) {
     const value = art[key];
     if (value) root.dataset[key] = value;
     else delete root.dataset[key];
+  });
+  // Unlike the other four treatments above (which stay absent when a theme doesn't define one — existing,
+  // untouched behavior), the participant lower-third/nameplate always needs SOME determinate CSS hook: it
+  // renders on every theme, including the five (toasty/8alta/santati/optimai/tangem) that have no artwork
+  // block at all. "solid-accent-bar" (css/studio.css) is the default look, built entirely from each
+  // theme's own --brand-primary/--brand-text/--brand-surface/--brand-border — no new per-theme data
+  // required. superteam/peeps opt into their own bespoke treatments via the SAME existing
+  // artwork.lowerThirdTreatment field.
+  root.dataset.lowerThirdTreatment = art.lowerThirdTreatment || "solid-accent-bar";
+  // Optional per-theme escape hatch — only ever sets a property when a theme explicitly overrides it, so
+  // css/studio.css's own body-level defaults (derived from existing --brand-*/--studio-* tokens) are what
+  // apply everywhere else, never duplicated here.
+  const lowerThird = art.lowerThird || {};
+  ["Background", "Accent", "Foreground", "Secondary", "Border", "Radius", "Shadow"].forEach((suffix) => {
+    const prop = `--lower-third-${suffix.toLowerCase()}`;
+    const value = lowerThird[suffix.charAt(0).toLowerCase() + suffix.slice(1)];
+    if (value) root.style.setProperty(prop, value);
+    else root.style.removeProperty(prop);
   });
 }
 

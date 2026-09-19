@@ -4546,17 +4546,161 @@
   width: 100%;
 }
 
-.lv-remote-tile-label {
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.75), transparent);
-  bottom: 0;
-  color: var(--studio-cream);
-  font-size: 0.7rem;
-  font-weight: 700;
-  left: 0;
-  padding: 0.4rem 0.6rem 0.3rem;
+/* Broadcast lower-third / nameplate — js/participant-lower-third.js builds the DOM (NAME + "Company —
+   Title", the one hierarchy every surface uses), this file owns 100% of its look. Tokens derive from each
+   theme's OWN existing --brand- and --studio- prefixed custom properties (js/brand-themes.js's applyBrandTheme
+   already sets these per theme) rather than duplicating color values here — a live brand change (Host
+   changes Superteam -> Santati) repaints every mounted lower third for free, since these are just CSS
+   custom property lookups, no re-render needed. A theme can override any single token via its OWN
+   artwork.lowerThird.* fields (see applyArtworkTokens) without this file changing.
+   color-mix() (broadly supported in current Chrome/Safari) is what makes --lower-third-bg semi-transparent
+   without needing a second, separately-maintained alpha color per theme. */
+body {
+  --lower-third-bg: color-mix(in srgb, var(--studio-surface) 82%, transparent);
+  --lower-third-accent: var(--brand-primary);
+  --lower-third-fg: var(--brand-text);
+  --lower-third-secondary: var(--brand-text-muted);
+  --lower-third-border: var(--brand-border);
+  --lower-third-radius: var(--studio-card-radius, 10px);
+  --lower-third-shadow: 0 6px 18px color-mix(in srgb, var(--studio-button-shadow, #000) 55%, transparent);
+}
+
+.lv-lower-third {
+  align-items: center;
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  background: var(--lower-third-bg);
+  border: 1px solid var(--lower-third-border);
+  border-radius: var(--lower-third-radius);
+  bottom: 8px;
+  box-shadow: var(--lower-third-shadow);
+  display: flex;
+  gap: 0.5rem;
+  left: 8px;
+  max-width: calc(100% - 16px);
+  overflow: hidden;
+  padding: 0.4rem 0.7rem 0.4rem 0.6rem;
   pointer-events: none;
   position: absolute;
-  right: 0;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  right: 8px;
+  width: fit-content;
   z-index: 3;
+}
+
+/* Accent bar — the "connected to the broadcast identity" cue every treatment keeps, only the color/width
+   changes per theme (solid-accent-bar's plain --lower-third-accent vs. e.g. navy-flag-bar's own
+   multi-stripe --studio-identity-stripe, already computed per theme by applyArtworkTokens). */
+.lv-lower-third::before {
+  background: var(--lower-third-accent);
+  bottom: 0;
+  content: "";
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: 4px;
+}
+
+.lv-lower-third-mark {
+  background-image: var(--studio-mark-image, none);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  flex: 0 0 auto;
+  height: 1.35rem;
+  margin-left: 0.2rem;
+  opacity: 0.92;
+  width: 1.35rem;
+}
+
+/* body[data-lower-third-mark] — js/brand-themes.js's applyBrandTheme sets this explicitly per theme
+   (whether a real watermark/logo asset exists), since a background-image-only div always has zero DOM
+   children and so can never be distinguished by a plain :empty selector. */
+body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
+  display: none;
+}
+
+.lv-lower-third-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.lv-lower-third-name {
+  color: var(--lower-third-fg);
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lv-lower-third-role {
+  color: var(--lower-third-secondary);
+  font-size: 0.68rem;
+  font-weight: 500;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* navy-flag-bar (Superteam Thailand) — reuses the SAME --studio-identity-stripe/-width tokens the theme
+   already defines for its title cards, instead of a separate lower-third-only stripe value. */
+[data-lower-third-treatment="navy-flag-bar"] .lv-lower-third {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--studio-canvas-2) 94%, transparent), color-mix(in srgb, var(--studio-surface) 88%, transparent));
+}
+[data-lower-third-treatment="navy-flag-bar"] .lv-lower-third::before {
+  background: var(--studio-identity-stripe, var(--lower-third-accent));
+  width: var(--studio-identity-stripe-width, 4px);
+}
+
+/* cream-orange-bar (Toasty Peeps) — light theme, so the lower third needs light-surface text colors
+   rather than the default's dark-theme assumption baked into most brands' --brand-text. */
+[data-lower-third-treatment="cream-orange-bar"] .lv-lower-third {
+  background: color-mix(in srgb, var(--studio-surface) 92%, transparent);
+}
+[data-lower-third-treatment="cream-orange-bar"] .lv-lower-third-name {
+  color: var(--studio-brown, var(--lower-third-fg));
+}
+[data-lower-third-treatment="cream-orange-bar"] .lv-lower-third-role {
+  color: var(--studio-muted, var(--lower-third-secondary));
+}
+
+/* Responsive: smaller tiles (more participants, or a phone in portrait) get a proportionally smaller
+   nameplate via clamp() rather than a hard cutover, so it scales continuously with the tile instead of
+   jumping at a breakpoint — never lets the lower third consume a meaningful fraction of the video. Layout-
+   count rules (data-remote-layout, already set by js/participant-stage.js) tighten this further since more
+   tiles means less room per tile regardless of viewport width. */
+.lv-lower-third-name { font-size: clamp(0.62rem, 2.6vw, 0.85rem); }
+.lv-lower-third-role { font-size: clamp(0.52rem, 2vw, 0.68rem); }
+
+.lv-participant-tiles[data-remote-layout="two-remote"] .lv-lower-third,
+.lv-participant-tiles[data-remote-layout="three-remote"] .lv-lower-third {
+  border-radius: calc(var(--lower-third-radius) * 0.75);
+  bottom: 5px;
+  gap: 0.35rem;
+  left: 5px;
+  padding: 0.28rem 0.5rem 0.28rem 0.4rem;
+  right: 5px;
+}
+
+.lv-participant-tiles[data-remote-layout="three-remote"] .lv-lower-third-mark {
+  height: 1rem;
+  margin-left: 0.1rem;
+  width: 1rem;
+}
+
+@media (max-width: 480px) {
+  .lv-lower-third {
+    bottom: 6px;
+    left: 6px;
+    padding: 0.3rem 0.55rem 0.3rem 0.45rem;
+    right: 6px;
+  }
+  .lv-lower-third-mark {
+    height: 1.1rem;
+    width: 1.1rem;
+  }
 }
