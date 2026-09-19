@@ -86,7 +86,19 @@ export class VideoEngine {
   // &codec=vp9 on the viewer side as the fix. Applied here (not just for Android) since it's the documented
   // remedy for exactly the "healthy connection metadata, no real picture" signature seen on a real Android
   // device viewing a Mac-published stream — not a blind param guess.
-  mountParticipantView(container,{roomId,streamId},frameId="participant-view") { return this.mountFrame(container,frameId,{room:roomId,scene:true,view:streamId,cleanoutput:"1",transparent:"1",cover:"1",codec:"vp9"}); }
+  mountParticipantView(container,{roomId,streamId,muted},frameId="participant-view") {
+    return this.mountFrame(container,frameId,{
+      room:roomId,
+      scene:true,
+      view:streamId,
+      cleanoutput:"1",
+      transparent:"1",
+      cover:"1",
+      codec:"vp9",
+      muted:muted?"1":undefined,
+      mute:muted?"1":undefined
+    });
+  }
   // Tears a mounted view back down to an empty container (used when a guest disconnects) without
   // guessing at any VDO.Ninja "close" command — just stop pointing an iframe at it at all. emptyText
   // restores the exact placeholder .vdo-frame[data-empty]::before renders (see css/studio.css) — passed

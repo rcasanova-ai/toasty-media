@@ -38,6 +38,7 @@ const elements = {
   hostFrame: document.querySelector("#lvHostFrame"),
   hostTransportFrame: document.querySelector("#lvHostTransportFrame"),
   guestFrame: document.querySelector("#lvGuestFrame"),
+  programPreviewStage: document.querySelector("#lvProgramPreviewStage"),
   directorControlFrame: document.querySelector("#directorControlFrame"),
   recChip: document.querySelector("#lvRecChip"),
   recChipTime: document.querySelector("#lvRecChipTime"),
@@ -91,7 +92,13 @@ async function init() {
 }
 
 function initStudio() {
-  session.start({ host: elements.hostFrame, hostTransport: elements.hostTransportFrame, roomPreview: elements.guestFrame, control: elements.directorControlFrame });
+  session.start({
+    host: elements.hostFrame,
+    hostTransport: elements.hostTransportFrame,
+    roomPreview: elements.guestFrame,
+    control: elements.directorControlFrame,
+    programPreview: elements.programPreviewStage
+  });
 
   new HostView({ session }).init();
   new ProducerView({ session }).init();

@@ -2,36 +2,31 @@ import { applyBrandTheme, normalizeBrandTheme } from "./brand-themes.js";
 import { getBrandProfile } from "./brand-profile.js";
 import { VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js";
 import { ProgramSync } from "./program-sync.js";
+import { composeProgram } from "./program-composition.js";
+import { syncProgramRenderer, clearProgramRenderer } from "./program-renderer.js";
 
 // Toasty Studio Program Output — the finished, audience-facing broadcast canvas.
 // This page contains ONLY the composited show: no director/guest/camera/scene controls of any kind.
 // It is the single feed re-used for the Toasty viewer, tab-capture RTMP broadcasting, and local recording.
 //
-// The video layer is VDO.Ninja's own auto-mixed room view (scene=0), not an individually-addressed
-// per-seat composite. Two per-seat approaches (solo/view, and director-assigned numbered scenes) were
-// each implemented and directly tested against real published streams; both failed inside VDO.Ninja
-// itself (solo/view hits a cross-origin localStorage bug in VDO.Ninja's own TURN-selection code;
-// numbered scenes accept the director's assignment over signaling but never negotiate media to the
-// viewer). scene=0 is the one mode that has shown video reliably, every time, including on production.
-// Toasty's own branded chrome (logo, LIVE badge, topic, ticker, holding/ending screens) still wraps it.
+// Video is the ONE Program Renderer (js/program-renderer.js): composeProgram() + one clean per-person
+// source per slot. Producer Program Preview uses the same renderer. VDO is transport only
+// (`&room&scene&view=<id>&cleanoutput`) — never a visible scene=0 auto-mix.
 
 const roomId = getRoomIdFromUrl();
 const engine = new VideoEngine();
 let sync = null;
-let programMounted = false;
-let mountedLayout = null;
 let tickerRafId = null;
 let lastProgramState = null;
-// Browsers block autoplay of unmuted <video> without a user gesture in that frame. The program frame
-// carries real (unmuted) program audio on purpose, so it isn't mounted until the operator clicks the
-// audio gate once — see mountProgramVideo() and the click handler below.
+const mountedProgramTiles = new Map();
+// Browsers block autoplay of unmuted <video> without a user gesture in that frame. Program Output
+// carries real (unmuted) program audio on purpose, so participant views are not mounted until the
+// operator clicks the audio gate once — see renderLiveStage() and the click handler below.
 let audioUnlocked = false;
 
 const elements = {
   canvas: document.querySelector("#poCanvas"),
   brandLogo: document.querySelector("#poBrandLogo"),
-  liveBadge: document.querySelector("#poLiveBadge"),
-  liveBadgeText: document.querySelector("#poLiveBadgeText"),
   stage: document.querySelector("#poStage"),
   holding: document.querySelector("#poHolding"),
   holdingLogo: document.querySelector("#poHoldingLogo"),
@@ -58,7 +53,6 @@ function init() {
     elements.audioGate.hidden = true;
     return;
   }
-  elements.stage.dataset.layout = "1";
   elements.audioGate.addEventListener("click", unlockAudio, { once: true });
   sync = new ProgramSync(roomId);
   const lastState = sync.readLastState();
@@ -87,8 +81,6 @@ function render(programState) {
   elements.holdingTopic.textContent = programState.topic || elements.holdingTopic.textContent;
 
   const isLive = Boolean(programState.live);
-  elements.liveBadge.dataset.live = String(isLive);
-  elements.liveBadgeText.textContent = isLive ? "LIVE" : "ON SET";
   elements.liveChip.hidden = !isLive;
 
   const tickerOn = Boolean(programState.ticker?.enabled && programState.ticker.text);
@@ -102,53 +94,39 @@ function render(programState) {
     renderLiveStage(programState);
   } else {
     clearStage();
-    elements.audioGate.hidden = true; // nothing to unlock on holding/ending — no media playing there
+    elements.audioGate.hidden = true;
   }
 }
 
-// Distinguishes "genuinely nobody has joined yet" from "video is loading" so the audience sees a real
-// branded waiting-room instead of a blank frame. hostStarted/guestCount come from Director (see
-// publishProgramState) — hostStarted is only true once the host has actually clicked "Start camera &
-// microphone", not just because Director's page is open.
+function programParticipants(programState) {
+  return Array.isArray(programState?.participants) ? programState.participants.filter(Boolean) : [];
+}
+
+function isRoomEmpty(programState) {
+  const participants = programParticipants(programState);
+  if (participants.length) return composeProgram(participants).slots.length === 0;
+  return !programState.hostStarted && !programState.guestCount;
+}
+
 function renderLiveStage(programState) {
-  const roomEmpty = !programState.hostStarted && !programState.guestCount;
-  if (roomEmpty) {
-    if (programMounted) clearStage();
+  if (isRoomEmpty(programState)) {
+    clearStage();
     elements.stage.replaceChildren(buildWaitingRoom());
-    elements.audioGate.hidden = true; // no real media yet, nothing to unlock
+    elements.audioGate.hidden = true;
     return;
   }
-  const layout = programState.layout || "grid";
-  // A layout change (e.g. host starts/stops screen share) needs the mixer re-mounted with different
-  // VDO.Ninja params (see mountProgramFrame) — there's no live postMessage to reconfigure slots/cover on
-  // an already-connected mixer frame, so this accepts a brief reconnect blip on layout changes.
-  if (programMounted && mountedLayout !== layout) clearStage();
-  elements.audioGate.hidden = audioUnlocked; // real video is due — show the gate until it's clicked
-  mountProgramVideo(layout);
-}
-
-function mountProgramVideo(layout = "grid") {
-  if (programMounted) return;
-  if (!audioUnlocked) {
-    elements.stage.replaceChildren(buildTile(false));
-    return;
-  }
-  programMounted = true;
-  mountedLayout = layout;
-  const tile = buildTile(true);
-  elements.stage.replaceChildren(tile);
-  engine.mountProgramFrame(tile.querySelector(".po-tile-video"), { roomId, layout }, "program");
-}
-
-function buildTile(withVideo) {
-  const el = document.createElement("article");
-  el.className = "po-tile";
-  el.dataset.role = "speaker";
-  const videoHost = document.createElement("div");
-  videoHost.className = "po-tile-video";
-  if (!withVideo) videoHost.classList.add("po-tile-video--empty");
-  el.appendChild(videoHost);
-  return el;
+  elements.stage.querySelector(".po-waitingroom")?.remove();
+  elements.audioGate.hidden = audioUnlocked;
+  syncProgramRenderer({
+    stage: elements.stage,
+    engine,
+    roomId,
+    participants: programParticipants(programState),
+    mounted: mountedProgramTiles,
+    frameIdPrefix: "program",
+    muted: false,
+    videoEnabled: audioUnlocked
+  });
 }
 
 function buildWaitingRoom() {
@@ -177,13 +155,7 @@ function buildWaitingRoom() {
 }
 
 function clearStage() {
-  if (programMounted) {
-    engine.frames.get("program")?.remove();
-    engine.frames.delete("program");
-    programMounted = false;
-    mountedLayout = null;
-  }
-  elements.stage.replaceChildren();
+  clearProgramRenderer({ engine, mounted: mountedProgramTiles, stage: elements.stage });
 }
 
 function applyBrand(themeId) {
