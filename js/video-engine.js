@@ -391,6 +391,12 @@ export function buildGuestPublisherParams({roomId,guestName,backgroundMode,video
       cleanoutput:"1",
       autostart:"1",
       cover:"1",
+      // Bare &view (no stream IDs): VDO.Ninja's documented publish-only mode. Without it, a room
+      // &push guest auto-loads every other participant into THIS iframe — which is what turned the
+      // visible self-PiP into a miniature room composite after the publisher was moved on-screen.
+      // Local self-preview is not a remote stream, so it still paints; ParticipantStage keeps
+      // rendering Host/other guests. Do NOT pass view=ownId (that pulls a remote copy of self).
+      view:true,
       videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),
       audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),
       effects:effectForBackground(backgroundMode),

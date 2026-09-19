@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createGuestStreamId, buildGuestPublisherParams } from "../js/video-engine.js";
+import { createGuestStreamId, buildGuestPublisherParams, VideoEngine } from "../js/video-engine.js";
 import { PublisherState, derivePublisherState, pickLocalPublisherEntry } from "../js/publisher-state.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -40,6 +40,17 @@ assert(p2.params.scene === undefined && p3.params.scene === undefined, "publishe
 assert(p2.params.director === undefined && p3.params.director === undefined, "guest publisher is not director");
 assert(p2.params.webcam === "1" && p2.params.autostart === "1", "webcam+autostart is the publish path");
 assert(p2.params.ar === "portrait" && p3.params.ar === "portrait", "mobile publishers request portrait capture");
+assert(p2.params.view === true && p3.params.view === true, "bare &view: publisher iframe does not auto-load other guests");
+assert(p2.params.view !== p2.params.push, "view is not the local push id (that would pull a remote copy of self)");
+assert(p2.params.nopreview === undefined && p3.params.nopreview === undefined, "local self-preview stays enabled");
+
+globalThis.window = globalThis.window || { addEventListener() {} };
+const publisherUrl = new URL(new VideoEngine().buildUrl(p2.params));
+assert(publisherUrl.searchParams.has("view"), "built URL includes &view");
+assert(publisherUrl.searchParams.get("view") === "", "built URL uses empty &view, not a stream id");
+assert(publisherUrl.searchParams.get("push") === a, "built URL still pushes this guest's source id");
+assert(!publisherUrl.searchParams.has("scene"), "built URL is not scene=0");
+assert(!publisherUrl.searchParams.has("solo"), "built URL does not use &solo");
 
 const name2 = `toasty-push-${p2.params.push}`;
 const name3 = `toasty-push-${p3.params.push}`;
