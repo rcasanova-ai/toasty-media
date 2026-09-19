@@ -1,0 +1,126 @@
+name: Deploy render auth helper
+
+# Copies ONLY scripts/toasty-auth-db.py onto the Ubuntu render host.
+# Does not touch the SQLite DB, environment file, nginx, or broadcast.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: toasty-render-helper
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-helper:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.TOASTY_RENDER_SSH_PRIVATE_KEY || secrets.TOASTY_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$SSH_PRIVATE_KEY" ]]; then
+            echo "No TOASTY_RENDER_SSH_PRIVATE_KEY or TOASTY_SSH_PRIVATE_KEY secret is set." >&2
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/toasty_render_deploy
+          chmod 600 ~/.ssh/toasty_render_deploy
+          ssh-keyscan -p 22 -H 165.22.57.61 >> ~/.ssh/known_hosts
+
+      - name: Inspect render unit and helper
+        id: inspect
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          echo '===== systemctl cat toasty-render.service ====='
+          systemctl cat toasty-render.service
+          echo '===== is-active ====='
+          systemctl is-active toasty-render.service || true
+          echo '===== env helper/path hints ====='
+          if [[ -f /etc/toasty-render.env ]]; then
+            echo 'HAS /etc/toasty-render.env'
+            grep -E '^(TOASTY_AUTH_DB_HELPER|TOASTY_AUTH_DB|TOASTY_RENDER_PORT|TOASTY_RENDER_HOST)=' /etc/toasty-render.env || true
+          else
+            echo 'NO /etc/toasty-render.env'
+          fi
+          echo '===== process cwd ====='
+          systemctl show toasty-render.service -p WorkingDirectory -p ExecStart -p EnvironmentFiles -p FragmentPath --no-pager
+          REMOTE
+
+      - name: Sync canonical helper if hash differs
+        run: |
+          set -euo pipefail
+          LOCAL_HASH="$(sha256sum scripts/toasty-auth-db.py | awk '{print $1}')"
+          echo "Git canonical sha256=$LOCAL_HASH"
+          INSPECT="$(ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          WD="$(systemctl show -p WorkingDirectory --value toasty-render.service)"
+          EXEC="$(systemctl show -p ExecStart --value toasty-render.service)"
+          ENVFILES="$(systemctl show -p EnvironmentFiles --value toasty-render.service)"
+          HELPER=""
+          if [[ -f /etc/toasty-render.env ]]; then
+            HELPER="$(grep -E '^TOASTY_AUTH_DB_HELPER=' /etc/toasty-render.env | tail -n1 | cut -d= -f2- | tr -d "\"'" || true)"
+          fi
+          if [[ -z "$HELPER" && -n "$WD" && -f "$WD/scripts/toasty-auth-db.py" ]]; then
+            HELPER="$WD/scripts/toasty-auth-db.py"
+          fi
+          if [[ -z "$HELPER" && -f /opt/toasty-render/scripts/toasty-auth-db.py ]]; then
+            HELPER=/opt/toasty-render/scripts/toasty-auth-db.py
+          fi
+          echo "WD=$WD"
+          echo "EXEC=$EXEC"
+          echo "ENVFILES=$ENVFILES"
+          echo "HELPER=$HELPER"
+          if [[ -n "$HELPER" && -f "$HELPER" ]]; then
+            echo "HASH=$(sha256sum "$HELPER" | awk '{print $1}')"
+          else
+            echo "HASH=MISSING"
+          fi
+          REMOTE
+          )"
+          echo "$INSPECT"
+          REMOTE_HELPER="$(printf '%s\n' "$INSPECT" | awk -F= '/^HELPER=/{print substr($0,8)}')"
+          REMOTE_HASH="$(printf '%s\n' "$INSPECT" | awk -F= '/^HASH=/{print $2}')"
+          if [[ -z "$REMOTE_HELPER" || "$REMOTE_HELPER" == *..* || "${REMOTE_HELPER:0:1}" != "/" ]]; then
+            echo "Refusing to copy: could not resolve an absolute helper path" >&2
+            exit 1
+          fi
+          if [[ "$(basename "$REMOTE_HELPER")" != "toasty-auth-db.py" ]]; then
+            echo "Refusing to overwrite $REMOTE_HELPER" >&2
+            exit 1
+          fi
+          echo "remote_helper=$REMOTE_HELPER" >> "$GITHUB_ENV"
+          echo "local_hash=$LOCAL_HASH" >> "$GITHUB_ENV"
+          if [[ "$REMOTE_HASH" == "$LOCAL_HASH" ]]; then
+            echo "Hashes already match. No copy, no restart."
+            echo "copied=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          echo "Hash mismatch (remote=$REMOTE_HASH local=$LOCAL_HASH). Backing up and copying helper only."
+          STAMP="$(date -u +%Y%m%d-%H%M%S)"
+          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "set -euo pipefail; if [[ -f '$REMOTE_HELPER' ]]; then cp -a '$REMOTE_HELPER' '$REMOTE_HELPER.bak-$STAMP'; fi"
+          scp -P 22 -i ~/.ssh/toasty_render_deploy -o BatchMode=yes scripts/toasty-auth-db.py "root@165.22.57.61:$REMOTE_HELPER"
+          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "set -euo pipefail; systemctl restart toasty-render.service; systemctl is-active toasty-render.service"
+          echo "copied=true" >> "$GITHUB_ENV"
+
+      - name: Hash-verify and health
+        run: |
+          set -euo pipefail
+          REMOTE_HASH="$(ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "sha256sum '$REMOTE_HELPER' | awk '{print \$1}'")"
+          echo "remote sha256=$REMOTE_HASH"
+          echo "local  sha256=$LOCAL_HASH"
+          test "$REMOTE_HASH" = "$LOCAL_HASH"
+          curl --fail --silent --show-error https://render.toasty.media/health
+          echo
+          curl --fail --silent --show-error 'https://render.toasty.media/api/presence/room?roomId=tmu8te8yv1s7n0f'
+          echo
+          systemctl_status="$(ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 'systemctl is-active toasty-render.service')"
+          echo "service=$systemctl_status"
+          test "$systemctl_status" = "active"
