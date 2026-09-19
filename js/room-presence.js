@@ -38,6 +38,13 @@ export class RoomPresence {
     this._timerId = null;
     this._listeners = new Set();
     this._rejectionListeners = new Set();
+    // Compact, non-secret status for ?debugMedia=1 — see js/media-diagnostics.js. presenceState is
+    // the admission lifecycle (idle until the first announce, then admitted/rejected/error);
+    // heartbeatStatus is the most recent announce HTTP outcome, including the in-flight tick.
+    this.presenceState = "idle";
+    this.heartbeatStatus = "idle";
+    this.lastHttpStatus = null;
+    this.lastAnnounceError = "";
   }
 
   onRosterChange(callback) {
@@ -62,16 +69,55 @@ export class RoomPresence {
     return this.roster.filter((entry) => entry.participantId !== this.participantId);
   }
 
-  // Called once the real VDO push id is known — the SAME point Host (joinAsHost) and Guest (joinStudio)
-  // already mount their hidden transport today; this doesn't move that point, just adds an announce right
-  // after it. Announces immediately (so the very first roster read after Join already includes yourself)
-  // and starts the heartbeat/poll loop. Re-callable if transportSourceId ever changes (e.g. a future
-  // reconnect) without needing a whole new RoomPresence instance.
-  async start(transportSourceId) {
+  rosterContainsSelf() {
+    return this.roster.some((entry) => entry.participantId === this.participantId);
+  }
+
+  snapshot() {
+    return {
+      participantId: this.participantId,
+      role: this.role,
+      roomId: this.roomId,
+      transportSourceId: this.transportSourceId,
+      presenceState: this.presenceState,
+      heartbeatStatus: this.heartbeatStatus,
+      lastHttpStatus: this.lastHttpStatus,
+      lastAnnounceError: this.lastAnnounceError,
+      rosterContainsSelf: this.rosterContainsSelf(),
+      roster: this.roster.map((entry) => ({
+        participantId: entry.participantId,
+        role: entry.role,
+        transportSourceId: entry.transportSourceId || null
+      }))
+    };
+  }
+
+  // Admission-only announce — does NOT start the 5s heartbeat and does NOT mount any VDO transport.
+  // js/guest.js calls this BEFORE mountGuestFrame so a rejected/failed presence announce cannot leave
+  // the guest as a receive-only VDO participant. Returns true only when this participant is actually
+  // on the returned roster.
+  async admit(transportSourceId) {
     this.transportSourceId = transportSourceId;
     this.stop();
-    await this._announce();
+    this.presenceState = "announcing";
+    const ok = await this._announce({ retryOnFailure: false });
+    if (ok) this.presenceState = "admitted";
+    return ok;
+  }
+
+  startHeartbeat() {
+    this.stop();
     this._timerId = window.setInterval(() => this._announce(), HEARTBEAT_MS);
+  }
+
+  // Called once the real VDO push id is known. Host still uses this combined form (joinAsHost); Guest
+  // now splits admit() → mountGuestFrame → startHeartbeat() so transport cannot start before Toasty
+  // presence admission succeeds. Re-callable if transportSourceId ever changes (e.g. a future
+  // reconnect) without needing a whole new RoomPresence instance.
+  async start(transportSourceId) {
+    const ok = await this.admit(transportSourceId);
+    if (ok) this.startHeartbeat();
+    return ok;
   }
 
   stop() {
@@ -96,7 +142,8 @@ export class RoomPresence {
     }
   }
 
-  async _announce() {
+  async _announce({ retryOnFailure = true } = {}) {
+    this.heartbeatStatus = "pending";
     try {
       const response = await fetch(`${studioApiEndpoint()}/api/presence/announce`, {
         method: "POST",
@@ -111,23 +158,38 @@ export class RoomPresence {
           transportSourceId: this.transportSourceId
         })
       });
+      this.lastHttpStatus = response.status;
       if (!response.ok) {
+        let body = {};
+        try { body = await response.json(); } catch (_) {}
+        this.lastAnnounceError = body.error || `http_${response.status}`;
         if (response.status === 403 || response.status === 409 || response.status === 410) {
+          this.presenceState = "rejected";
+          this.heartbeatStatus = "rejected";
           this.stop();
-          let body = {};
-          try { body = await response.json(); } catch (_) {}
           this._rejectionListeners.forEach((callback) => callback(response.status, body.error || ""));
+        } else {
+          this.heartbeatStatus = "error";
+          if (!retryOnFailure && this.presenceState !== "admitted") this.presenceState = "error";
         }
-        return;
+        return false;
       }
       const data = await response.json();
       this.roster = data.roster || [];
       if (data.brandId !== undefined) this.brandId = data.brandId;
+      this.lastAnnounceError = "";
+      this.heartbeatStatus = this.rosterContainsSelf() ? "ok" : "error";
+      if (this.heartbeatStatus === "ok") this.presenceState = "admitted";
       this._listeners.forEach((callback) => callback(this.roster));
+      return this.heartbeatStatus === "ok";
     } catch (_) {
-      // Network hiccup or the presence backend being briefly unreachable — deliberately non-fatal: the
-      // next heartbeat (HEARTBEAT_MS away) retries, and until then callers keep whatever roster they
-      // already had rather than the whole page breaking on one dropped request.
+      // Network hiccup or the presence backend being briefly unreachable — heartbeat ticks retry;
+      // admit() does not, so a guest cannot enter transport after a failed first announce.
+      this.lastHttpStatus = 0;
+      this.lastAnnounceError = "network";
+      this.heartbeatStatus = "error";
+      if (!retryOnFailure && this.presenceState !== "admitted") this.presenceState = "error";
+      return false;
     }
   }
 }

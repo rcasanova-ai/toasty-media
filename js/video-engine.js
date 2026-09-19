@@ -16,6 +16,9 @@ export function getRoomIdFromUrl(search = window.location.search) { const roomId
 export function getOrCreateRoomId(search = window.location.search) { return getRoomIdFromUrl(search)||createDisposableRoomId(); }
 export function getGuestInviteUrl(roomId, brandTheme) { const url=new URL("../studio/guest.html",window.location.href); url.searchParams.set("room",roomId); if(brandTheme)url.searchParams.set("brand",brandTheme); return url.toString(); }
 export function getListenerInviteUrl(roomId, brandTheme) { const url=new URL("../studio/listener.html",window.location.href); url.searchParams.set("room",roomId); if(brandTheme)url.searchParams.set("brand",brandTheme); return url.toString(); }
+export function createGuestStreamId(roomId) {
+  return `${roomId}g${Date.now().toString(36).slice(-4)}`.slice(0, 24);
+}
 
 export class VideoEngine {
   constructor(options={}) { this.baseUrl=options.baseUrl||VDO_ORIGIN; this.frames=new Map(); this.listeners=new Set(); window.addEventListener("message",event=>this.handleMessage(event)); }
@@ -126,7 +129,7 @@ export class VideoEngine {
   // same initial-capture point per lib.js's grabVideo) is VDO's own supported fix for this, not a value we
   // invented. Desktop guests are untouched (isMobile only ever true from js/guest.js's own UA check) since
   // a landscape webcam has no portrait problem to correct.
-  mountGuestFrame(container,{roomId,guestName,backgroundMode,videoDeviceLabel,audioDeviceLabel,streamId,micMuted,isMobile}) { const id=streamId||`${roomId}g${Date.now().toString(36).slice(-4)}`.slice(0,24); this.mountFrame(container,"guest",{room:roomId,push:id,label:guestName||"Guest",webcam:"1",showlabels:"1",cleanoutput:"1",autostart:"1",cover:"1",videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),effects:effectForBackground(backgroundMode),muted:micMuted?true:undefined,ar:isMobile?"portrait":undefined}); return id; }
+  mountGuestFrame(container,{roomId,guestName,backgroundMode,videoDeviceLabel,audioDeviceLabel,streamId,micMuted,isMobile}) { const id=streamId||createGuestStreamId(roomId); this.mountFrame(container,"guest",{room:roomId,push:id,label:guestName||"Guest",webcam:"1",showlabels:"1",cleanoutput:"1",autostart:"1",cover:"1",videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),effects:effectForBackground(backgroundMode),muted:micMuted?true:undefined,ar:isMobile?"portrait":undefined}); return id; }
   mountListenerFrame(container,{roomId}) { return this.mountFrame(container,"listener",{room:roomId,scene:"0",showlabels:"1",cleanoutput:"1"}); }
 
   // Hidden viewer-only frame used purely to query the room's live guest list (id + label) for the Program

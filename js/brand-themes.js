@@ -263,6 +263,9 @@ export const BRAND_THEMES = Object.freeze({
 
 export const BRAND_THEME_IDS = Object.freeze(Object.keys(BRAND_THEMES));
 export const BRAND_THEME_VAR_KEYS = Object.freeze(Object.keys(BRAND_THEMES.toasty.vars));
+export function isKnownBrandId(themeId) {
+  return BRAND_THEME_IDS.includes(themeId);
+}
 
 const THEME_ALIASES = Object.freeze({
   workspace: "8alta",
