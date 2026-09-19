@@ -403,9 +403,44 @@ function stopPreview() {
   state.previewStream = null;
 }
 
+// PRIVACY-CRITICAL — must fail closed. Real-device retest of 6a451ee found live mute unreliable: audio
+// kept reaching the Mac after pressing Mute. Traced as far as source alone can prove: VDO.Ninja's own
+// toggleMute (lib.js) disables audio by setting session.streamSrc.getAudioTracks()[...].enabled = false,
+// but the SAME file's sender-reconciliation code (senderAudioUpdate, getSenderSourceTrack,
+// replaceAudioTrackSafely — built for VDO's mixMinus multi-audio-track feature) tracks "the source track
+// logically feeding a given RTCRtpSender" as a SEPARATE concept from sender.track itself, including
+// clone()-based "muted track" substitution in some paths. That means "disable session.streamSrc's track"
+// is not guaranteed to be the same object actually attached to the sender transmitting to the Mac in every
+// internal code path — a plausible, source-grounded explanation, not a proven one. There is no way to
+// verify from here either way: getDetailedState (lib.js) only reports REMOTE peers' mute state, never the
+// local publisher's own outgoing state, confirmed by reading its full source — VDO exposes no self-mute
+// confirmation channel at all.
+// Given that lack of any confirmation channel, this fails closed rather than trusting a single fire-and-
+// forget command: (1) the MUTE direction sends {mic:false} twice, back to back, zero added delay — cheap
+// insurance against one dropped postMessage, not a timed retry; (2) engine.setGuestMicrophone's return
+// value (previously discarded entirely) is now checked — if the command could not even be dispatched
+// (send() returns false, e.g. the frame is somehow gone), state.micMuted is forced to true and the guest
+// is shown an explicit "couldn't confirm" warning instead of a confident "Muted" the transport was never
+// told about. This cannot prove the mic is actually silent on the wire — only a real-device retest can.
 function toggleMic() {
-  state.micMuted = !state.micMuted;
-  engine.setGuestMicrophone(!state.micMuted);
+  const wantMuted = !state.micMuted;
+  const dispatched = engine.setGuestMicrophone(!wantMuted);
+  if (wantMuted && dispatched) engine.setGuestMicrophone(false);
+  if (!dispatched) {
+    // Fail closed regardless of which direction was attempted — an unconfirmed command is never treated
+    // as a confirmed unmute.
+    state.micMuted = true;
+    elements.guestStatus.dataset.error = "true";
+    elements.guestStatus.textContent = "Couldn't confirm mute — check your connection, then try again.";
+    updatePressed(elements.guestToggleMic, true, "Mute mic", "Unmute mic");
+    return;
+  }
+  state.micMuted = wantMuted;
+  // Only clears OUR OWN prior warning (never an unrelated error some other flow is showing).
+  if (elements.guestStatus.textContent === "Couldn't confirm mute — check your connection, then try again.") {
+    elements.guestStatus.dataset.error = "false";
+    elements.guestStatus.textContent = "";
+  }
   updatePressed(elements.guestToggleMic, state.micMuted, "Mute mic", "Unmute mic");
 }
 
