@@ -9,9 +9,16 @@ import { execFile, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { isKnownBrandId } from "../js/brand-themes.js";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+
+// Inlined from js/brand-themes.js BRAND_THEME_IDS. This process is deployed to the render host as a
+// self-contained file (see js/producer-persona.js) — a relative import of ../js/brand-themes.js would
+// crash Node on that host if the static js/ tree is not sitting next to this script.
+const KNOWN_BRAND_IDS = new Set(["toasty", "8alta", "santati", "optimai", "tangem", "superteam", "peeps"]);
+function isKnownBrandId(themeId) {
+  return KNOWN_BRAND_IDS.has(themeId);
+}
 
 loadLocalEnv();
 

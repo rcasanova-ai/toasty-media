@@ -6,11 +6,6 @@ import { RemoteMediaState, REMOTE_MEDIA_STATE_LABEL } from "./remote-media-state
 import { studioApiEndpoint } from "./studio-api.js";
 import { syncParticipantStage, clearParticipantStage } from "./participant-stage.js";
 import { BUILD_ID } from "./build-info.js";
-import {
-  mountMediaDiagnostics,
-  trackSnapshot,
-  videoElementSnapshot
-} from "./media-diagnostics.js";
 
 const MAX_GUESTS_PER_ROOM = 3;
 
@@ -142,11 +137,13 @@ async function init() {
     }
     bindControls();
     engine.onMessage(handleVdoMessage);
-    mountMediaDiagnostics(guestDiagnosticsSnapshot);
     await startPreview();
   } catch (error) {
     log("init() THREW", error);
   }
+  // Observational only — must never block or break Join. Dynamic import so a missing
+  // media-diagnostics.js (404 on a partial deploy) cannot take down the guest module graph.
+  void startGuestDebugMedia();
 }
 
 function bindControls() {
@@ -587,7 +584,7 @@ function getBackgroundNote(background) {
   return "";
 }
 
-function guestDiagnosticsSnapshot() {
+function guestDiagnosticsSnapshot(trackSnapshot, videoElementSnapshot) {
   const presence = state.presence?.snapshot() || {};
   const remotes = (presence.roster || []).filter((entry) => entry.participantId !== state.participantId).map((entry) => {
     const mounted = state.mountedRemoteTiles.get(entry.participantId);
@@ -624,6 +621,24 @@ function guestDiagnosticsSnapshot() {
     },
     remotes
   };
+}
+
+async function startGuestDebugMedia() {
+  const debugMedia = new URLSearchParams(window.location.search).get("debugMedia") === "1";
+  if (!debugMedia) return;
+  try {
+    const { startMediaDiagnostics, trackSnapshot, videoElementSnapshot } = await import("./media-diagnostics.js");
+    startMediaDiagnostics(() => {
+      try {
+        return guestDiagnosticsSnapshot(trackSnapshot, videoElementSnapshot);
+      } catch (err) {
+        console.error("[Guest] debugMedia snapshot failed", err);
+        return { role: "guest", error: String(err?.message || err) };
+      }
+    });
+  } catch (err) {
+    console.error("[Guest] debugMedia failed open; join continues", err);
+  }
 }
 
 function handleVdoMessage(message) {

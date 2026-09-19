@@ -4,7 +4,7 @@
 // on the page itself. Deliberately omits credentials, cookies, tokens, deviceIds, and names
 // that aren't already on the presence roster the product shows anyway.
 
-const SECRET_KEY = /token|secret|password|cookie|authorization|credential/i;
+const SECRET_KEY = /token|secret|password|cookie|authorization|credential|deviceid/i;
 
 export function isDebugMediaEnabled(search = window.location.search) {
   return new URLSearchParams(search).get("debugMedia") === "1";
@@ -137,4 +137,16 @@ export function mountMediaDiagnostics(getSnapshot) {
       overlay.remove();
     }
   };
+}
+
+// Fail-open wrapper. Guest Join / Host Studio must keep working if the overlay cannot mount
+// (missing DOM, thrown snapshot, unexpected runtime). Diagnostics disappear; session continues.
+export function startMediaDiagnostics(getSnapshot) {
+  try {
+    if (!isDebugMediaEnabled()) return { stop() {}, overlay: null };
+    return mountMediaDiagnostics(getSnapshot);
+  } catch (error) {
+    console.error("[debugMedia] failed open; app continues", error);
+    return { stop() {}, overlay: null };
+  }
 }

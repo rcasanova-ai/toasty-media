@@ -11,7 +11,6 @@ import { HostPrejoin } from "./host-prejoin.js";
 import { HostState } from "./host-state.js";
 import { BUILD_ID } from "./build-info.js";
 import { resolveSession } from "./session-manager.js";
-import { mountMediaDiagnostics } from "./media-diagnostics.js";
 
 // Set by js/studio-auth.js's openStudio when /auth/session reports a "locked" account (a brand-locked
 // customer like Moe @ Superteam Thailand) — a UX nicety only (hides the selector, blocks the local optimistic
@@ -141,7 +140,25 @@ function initStudio() {
   renderBroadcastChip();
   updateInviteFields();
   mountTimeOfDay();
-  mountMediaDiagnostics(() => ({ buildId: BUILD_ID, ...session.diagnosticsSnapshot() }));
+  void startHostDebugMedia();
+}
+
+async function startHostDebugMedia() {
+  const debugMedia = new URLSearchParams(window.location.search).get("debugMedia") === "1";
+  if (!debugMedia) return;
+  try {
+    const { startMediaDiagnostics } = await import("./media-diagnostics.js");
+    startMediaDiagnostics(() => {
+      try {
+        return { buildId: BUILD_ID, ...session.diagnosticsSnapshot() };
+      } catch (err) {
+        console.error("[Director] debugMedia snapshot failed", err);
+        return { role: "host", error: String(err?.message || err) };
+      }
+    });
+  } catch (err) {
+    console.error("[Director] debugMedia failed open; studio continues", err);
+  }
 }
 
 function bindViewSwitch() {

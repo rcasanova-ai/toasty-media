@@ -25,7 +25,6 @@ import { RemoteMediaState } from "./remote-media-state.js";
 import { ProducerFeed, AIProducerService, createAIProducerProvider } from "./ai-producer.js";
 import { studioRequest } from "./studio-api.js";
 import { syncParticipantStage, clearParticipantStage } from "./participant-stage.js";
-import { trackSnapshot } from "./media-diagnostics.js";
 import {
   DEFAULT_HOST_RELATIONSHIP_MODE,
   DEFAULT_SHOW_TONE,
@@ -621,8 +620,39 @@ export class LiveSession {
 
   // Compact non-secret snapshot for ?debugMedia=1 (js/media-diagnostics.js). Surfaces the two
   // independently-true layers the three-device bug split: Toasty presence roster vs VDO guest-list
-  // (what Mac's Guests chip actually counts).
+  // (what Mac's Guests chip actually counts). Local helper — this module must not statically import
+  // media-diagnostics.js, or a missing diagnostic file takes down Host/Producer with Guest Join.
   diagnosticsSnapshot() {
+    try {
+      return this._diagnosticsSnapshot();
+    } catch (error) {
+      console.error("[LiveSession] debugMedia snapshot failed", error);
+      return { role: "host", error: String(error?.message || error) };
+    }
+  }
+
+  _hostTrackSnapshot(stream, kind) {
+    try {
+      const track = stream?.getTracks?.().find((entry) => entry.kind === kind) || null;
+      if (!track) return { readyState: "missing" };
+      const settings = typeof track.getSettings === "function" ? track.getSettings() : {};
+      const width = settings.width || null;
+      const height = settings.height || null;
+      return {
+        readyState: track.readyState,
+        enabled: track.enabled,
+        muted: track.muted,
+        width,
+        height,
+        aspectRatio: settings.aspectRatio || (width && height ? Number((width / height).toFixed(4)) : null),
+        facingMode: settings.facingMode || null
+      };
+    } catch (_) {
+      return { readyState: "error" };
+    }
+  }
+
+  _diagnosticsSnapshot() {
     const presence = this.presence?.snapshot() || { roster: [], presenceState: "idle", heartbeatStatus: "idle" };
     const presenceGuests = (presence.roster || []).filter((entry) => entry.role === "guest");
     const vdoIds = (this._lastVdoGuestList || []).map((entry) => entry.id).filter(Boolean);
@@ -663,8 +693,8 @@ export class LiveSession {
         rosterContainsSelf: presence.rosterContainsSelf === true,
         transportSourceId: `${this.roomId}h`,
         publisherSourceId: `${this.roomId}h`,
-        videoTrack: trackSnapshot(this._hostPreviewStream, "video"),
-        audioTrack: trackSnapshot(this._hostPreviewStream, "audio"),
+        videoTrack: this._hostTrackSnapshot(this._hostPreviewStream, "video"),
+        audioTrack: this._hostTrackSnapshot(this._hostPreviewStream, "audio"),
         transportState: this.engine.frames.has("host") ? "publisher-mounted" : "no-iframe",
         nativePreview: null
       },

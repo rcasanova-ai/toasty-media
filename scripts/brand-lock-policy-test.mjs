@@ -5,7 +5,7 @@
 //
 // Run: node scripts/brand-lock-policy-test.mjs
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +17,10 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const scratchDir = mkdtempSync(join(tmpdir(), "toasty-brand-lock-test-"));
 const dbPath = join(scratchDir, "toasty.sqlite");
 const helper = join(ROOT, "scripts", "toasty-auth-db.py");
+const renderSrc = readFileSync(join(ROOT, "scripts", "render-production-server.mjs"), "utf8");
+if (/from\s+["']\.\.\/js\//.test(renderSrc)) {
+  throw new Error("render-production-server.mjs must stay self-contained (no ../js/ imports)");
+}
 
 function assert(condition, message) {
   if (!condition) throw new Error(`FAILED: ${message}`);
@@ -87,6 +91,10 @@ async function main() {
   assert(pyCatalog.error === "invalid_brand", "Python rejects a brand that is not in the catalog");
   const listed = [...BRAND_THEME_IDS].sort().join(",");
   assert(listed === "8alta,optimai,peeps,santati,superteam,tangem,toasty", "JS catalog is the canonical Studio brand set");
+  const knownMatch = renderSrc.match(/KNOWN_BRAND_IDS = new Set\(\[([^\]]+)\]\)/);
+  assert(Boolean(knownMatch), "render server inlines KNOWN_BRAND_IDS");
+  const renderListed = knownMatch[1].split(",").map((entry) => entry.trim().replace(/['"]/g, "")).filter(Boolean).sort().join(",");
+  assert(renderListed === listed, "inlined render catalog matches js/brand-themes.js");
 
   console.log("\n1. new users default flexible; mode=locked requires a valid brandId");
   const flexible = await jsonFetch("/auth/register", {

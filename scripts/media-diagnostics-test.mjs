@@ -2,7 +2,12 @@
 // Unit tests for js/media-diagnostics.js — no browser, no credentials. Proves the overlay formatter
 // is default-off, redacts secret-looking keys, and prints the presence vs publish fields the next
 // three-device test has to fill in.
-import { isDebugMediaEnabled, sanitizeDiagnostics, formatDiagnostics, trackSnapshot } from "../js/media-diagnostics.js";
+import { isDebugMediaEnabled, sanitizeDiagnostics, formatDiagnostics, trackSnapshot, startMediaDiagnostics } from "../js/media-diagnostics.js";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 function assert(condition, message) {
   if (!condition) throw new Error(`FAILED: ${message}`);
@@ -33,6 +38,11 @@ assert(sanitized.cookie === undefined, "drops cookie");
 assert(sanitized.authorization === undefined, "drops authorization");
 assert(sanitized.nested.refreshToken === undefined, "drops nested refreshToken");
 assert(sanitized.nested.heartbeatStatus === "ok", "keeps nested heartbeatStatus");
+
+console.log("\nsanitize — never leak deviceIds");
+const noDevice = sanitizeDiagnostics({ facingMode: "user", deviceId: "deadbeefcamera" });
+assert(noDevice.facingMode === "user", "keeps facingMode");
+assert(noDevice.deviceId === undefined, "drops deviceId");
 
 console.log("\nformat — matrices the next test will fill");
 const text = formatDiagnostics({
@@ -81,4 +91,15 @@ console.log("\ntrackSnapshot — missing stream is explicit, not thrown");
 assert(trackSnapshot(null, "video").readyState === "missing", "null stream → missing");
 assert(trackSnapshot({ getTracks: () => [] }, "audio").readyState === "missing", "empty tracks → missing");
 
-console.log("\nALL PASSED — media diagnostics stay default-off and non-secret.");
+console.log("\nfail-open — diagnostics must not throw into Join");
+const failedOpen = startMediaDiagnostics(() => ({ role: "guest" }));
+assert(typeof failedOpen.stop === "function", "startMediaDiagnostics returns a stop handle without window/document");
+
+console.log("\nstatic import — Guest/Host module graph must not depend on media-diagnostics.js");
+for (const relative of ["js/guest.js", "js/director.js", "js/live-session.js"]) {
+  const source = readFileSync(join(ROOT, relative), "utf8");
+  const staticImport = source.match(/^import\s+[^;]*from\s+["']\.\/media-diagnostics\.js["'];/m);
+  assert(!staticImport, `${relative} has no static import of media-diagnostics.js`);
+}
+
+console.log("\nALL PASSED — media diagnostics stay default-off, non-secret, and fail-open.");
