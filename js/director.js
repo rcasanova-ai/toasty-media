@@ -11,6 +11,7 @@ import { HostPrejoin } from "./host-prejoin.js";
 import { HostState } from "./host-state.js";
 import { BUILD_ID } from "./build-info.js";
 import { resolveSession } from "./session-manager.js";
+import { mountMediaDiagnostics } from "./media-diagnostics.js";
 
 // Set by js/studio-auth.js's openStudio when /auth/session reports a "locked" account (a brand-locked
 // customer like Moe @ Superteam Thailand) — a UX nicety only (hides the selector, blocks the local optimistic
@@ -140,6 +141,7 @@ function initStudio() {
   renderBroadcastChip();
   updateInviteFields();
   mountTimeOfDay();
+  mountMediaDiagnostics(() => ({ buildId: BUILD_ID, ...session.diagnosticsSnapshot() }));
 }
 
 function bindViewSwitch() {

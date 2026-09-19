@@ -1,10 +1,16 @@
-import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js";
+import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId, createGuestStreamId } from "./video-engine.js";
 import { applyBrandTheme, getInitialBrandTheme, normalizeBrandTheme } from "./brand-themes.js";
 import { startDevicePreview, selectedDeviceLabel, classifyCameraFacing } from "./device-picker.js";
 import { RoomPresence } from "./room-presence.js";
 import { RemoteMediaState, REMOTE_MEDIA_STATE_LABEL } from "./remote-media-state.js";
 import { studioApiEndpoint } from "./studio-api.js";
 import { syncParticipantStage, clearParticipantStage } from "./participant-stage.js";
+import { BUILD_ID } from "./build-info.js";
+import {
+  mountMediaDiagnostics,
+  trackSnapshot,
+  videoElementSnapshot
+} from "./media-diagnostics.js";
 
 const MAX_GUESTS_PER_ROOM = 3;
 
@@ -136,6 +142,7 @@ async function init() {
     }
     bindControls();
     engine.onMessage(handleVdoMessage);
+    mountMediaDiagnostics(guestDiagnosticsSnapshot);
     await startPreview();
   } catch (error) {
     log("init() THREW", error);
@@ -271,31 +278,16 @@ async function joinStudio() {
   // (flipCamera reuses it when remounting after a camera switch) — metadata/fallback only, never what
   // Toasty itself reads for identity.
   state.selfLabel = label;
-  // Move the SAME preview node (not a clone — a live <video> with srcObject already set) into the joined
-  // view as the small self PiP — see css/studio.css's .lv-participant-stage comment ("solve the
-  // remote-source primitive once"): PARTICIPANT VIEW puts the OTHER person on the main stage and your own
-  // camera in a corner.
-  elements.guestParticipantStage.appendChild(elements.previewStage);
-  elements.previewStage.classList.remove("preview-stage--live");
-  elements.previewStage.classList.add("lv-stage-pip");
 
-  // Deliberately NOT stopping state.previewStream here — same fix as the Host's joinAsHost: the visible
-  // preview the guest has already been looking at is the SAME stream that stays live through Join, instead
-  // of being torn down and replaced by whatever VDO.Ninja's iframe happens to render.
-  state.streamId = engine.mountGuestFrame(elements.guestTransportFrame, {
-    roomId: state.roomId,
-    guestName: label,
-    backgroundMode: state.selectedBackground,
-    videoDeviceLabel,
-    audioDeviceLabel,
-    micMuted: state.micMuted,
-    isMobile: IS_MOBILE_DEVICE
-  });
+  // Planned VDO push id — same generator mountGuestFrame uses — so presence can admit THIS identity
+  // BEFORE the iframe exists. Real-device three-guest failure: Device 3 could receive Mac+Device 2
+  // while Mac's guest count (VDO getGuestList, not Toasty presence) never saw Device 3. Code order
+  // before this change was mountGuestFrame → fire-and-forget presence.start → IN_STUDIO regardless
+  // of announce outcome, which is exactly "start VDO transport, discover afterward that presence
+  // admission failed." Desired order, proven from this file not assumed from the symptom: admit →
+  // only then mount transport → heartbeat → IN_STUDIO.
+  const plannedStreamId = createGuestStreamId(state.roomId);
 
-  // PARTICIPANT VIEW of the room — Toasty Presence (js/room-presence.js) is the source of truth for "who
-  // is actually in this room and which transportSourceId is theirs"; VDO.Ninja stays pure media transport.
-  // Announces this guest's OWN presence (now that the real push id is known) and renders whoever presence
-  // says is here except self on every roster update.
   state.presence = new RoomPresence({
     roomId: state.roomId,
     participantId: state.participantId,
@@ -316,7 +308,42 @@ async function joinStudio() {
   // (kicked / session full / session ended), not a network hiccup to silently retry past. Each shows a real
   // message and tears the connection down; none of them auto-rejoin.
   state.presence.onRejected((status, errorMessage) => handlePresenceRejected(status, errorMessage));
-  state.presence.start(state.streamId);
+  const admitted = await state.presence.admit(plannedStreamId);
+  if (!admitted) {
+    if (state.lifecycle === GuestLifecycle.JOINING) {
+      await state.presence?.leave();
+      state.presence = null;
+      setLifecycle(GuestLifecycle.PREJOIN_READY);
+      elements.joinStudio.disabled = false;
+      elements.joinState.textContent = "Not joined";
+      elements.guestStatus.dataset.error = "true";
+      elements.guestStatus.textContent = "Couldn't join the session. Check your connection and try again.";
+    }
+    return;
+  }
+
+  // Move the SAME preview node (not a clone — a live <video> with srcObject already set) into the joined
+  // view as the small self PiP — see css/studio.css's .lv-participant-stage comment ("solve the
+  // remote-source primitive once"): PARTICIPANT VIEW puts the OTHER person on the main stage and your own
+  // camera in a corner.
+  elements.guestParticipantStage.appendChild(elements.previewStage);
+  elements.previewStage.classList.remove("preview-stage--live");
+  elements.previewStage.classList.add("lv-stage-pip");
+
+  // Deliberately NOT stopping state.previewStream here — same fix as the Host's joinAsHost: the visible
+  // preview the guest has already been looking at is the SAME stream that stays live through Join, instead
+  // of being torn down and replaced by whatever VDO.Ninja's iframe happens to render.
+  state.streamId = engine.mountGuestFrame(elements.guestTransportFrame, {
+    roomId: state.roomId,
+    guestName: label,
+    backgroundMode: state.selectedBackground,
+    videoDeviceLabel,
+    audioDeviceLabel,
+    streamId: plannedStreamId,
+    micMuted: state.micMuted,
+    isMobile: IS_MOBILE_DEVICE
+  });
+  state.presence.startHeartbeat();
 
   // The check-in form (name/title/company/device pickers/background swatches) has done its job —
   // once joined, guests should see only the live feed and the mute/camera/screen-share dock.
@@ -558,6 +585,45 @@ function getBackgroundNote(background) {
     return "Joined. Preset backgrounds are preview-only in this hosted VDO.Ninja MVP; production replacement needs hosted image-list support.";
   }
   return "";
+}
+
+function guestDiagnosticsSnapshot() {
+  const presence = state.presence?.snapshot() || {};
+  const remotes = (presence.roster || []).filter((entry) => entry.participantId !== state.participantId).map((entry) => {
+    const mounted = state.mountedRemoteTiles.get(entry.participantId);
+    return {
+      participantId: entry.participantId,
+      role: entry.role,
+      requestedSourceId: entry.transportSourceId,
+      mounted: Boolean(mounted),
+      mediaState: mounted ? "iframe-mounted" : "not-mounted",
+      error: entry.transportSourceId ? "" : "no-source-id"
+    };
+  });
+  const requestedFacing = state.selectedFacing || classifyCameraFacing(selectedDeviceLabel(elements.cameraSelect));
+  const transportMounted = Boolean(elements.guestTransportFrame?.querySelector("iframe"));
+  return {
+    buildId: BUILD_ID,
+    role: "guest",
+    roomId: state.roomId,
+    lifecycle: state.lifecycle,
+    self: {
+      participantId: state.participantId,
+      presenceState: presence.presenceState || "idle",
+      heartbeatStatus: presence.heartbeatStatus || "idle",
+      lastHttpStatus: presence.lastHttpStatus,
+      rosterContainsSelf: presence.rosterContainsSelf === true,
+      transportSourceId: presence.transportSourceId || state.streamId,
+      publisherSourceId: state.streamId,
+      videoTrack: trackSnapshot(state.previewStream, "video"),
+      audioTrack: trackSnapshot(state.previewStream, "audio"),
+      transportState: transportMounted ? (state.lifecycle === GuestLifecycle.IN_STUDIO ? "publisher-mounted" : "iframe-present") : "no-iframe",
+      requested: { video: requestedFacing ? `facingMode:${requestedFacing}` : "deviceId-exact-or-default" },
+      nativePreview: videoElementSnapshot(elements.cameraPreview),
+      vdoAr: IS_MOBILE_DEVICE ? "portrait" : "none"
+    },
+    remotes
+  };
 }
 
 function handleVdoMessage(message) {

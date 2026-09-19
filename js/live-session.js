@@ -25,6 +25,7 @@ import { RemoteMediaState } from "./remote-media-state.js";
 import { ProducerFeed, AIProducerService, createAIProducerProvider } from "./ai-producer.js";
 import { studioRequest } from "./studio-api.js";
 import { syncParticipantStage, clearParticipantStage } from "./participant-stage.js";
+import { trackSnapshot } from "./media-diagnostics.js";
 import {
   DEFAULT_HOST_RELATIONSHIP_MODE,
   DEFAULT_SHOW_TONE,
@@ -156,6 +157,7 @@ export class LiveSession {
     this._containers = null;
     this._listeners = new Map();
     this._startedAt = Date.now();
+    this._lastVdoGuestList = [];
 
     // Run of Show + Audience + AI Producer — see run-of-show.js/audience.js/ai-producer.js. These are
     // sub-modules with their OWN emitters; HostView/ProducerView subscribe to them directly rather than
@@ -499,6 +501,7 @@ export class LiveSession {
     const hostStreamId = `${this.roomId}h`;
     const guestsAll = await this.engine.requestGuestList();
     const guests = guestsAll.filter((entry) => entry.id !== hostStreamId);
+    this._lastVdoGuestList = guests;
     const stillPresent = new Set(guests.map((guest) => guest.id));
 
     // Keep existing seat holders steady so counts/controls don't flicker or reset on a repeat poll;
@@ -614,6 +617,67 @@ export class LiveSession {
 
   guestCount() {
     return this.guestSeats.filter(Boolean).length;
+  }
+
+  // Compact non-secret snapshot for ?debugMedia=1 (js/media-diagnostics.js). Surfaces the two
+  // independently-true layers the three-device bug split: Toasty presence roster vs VDO guest-list
+  // (what Mac's Guests chip actually counts).
+  diagnosticsSnapshot() {
+    const presence = this.presence?.snapshot() || { roster: [], presenceState: "idle", heartbeatStatus: "idle" };
+    const presenceGuests = (presence.roster || []).filter((entry) => entry.role === "guest");
+    const vdoIds = (this._lastVdoGuestList || []).map((entry) => entry.id).filter(Boolean);
+    const presenceIds = presenceGuests.map((entry) => entry.participantId);
+    const presenceSources = presenceGuests.map((entry) => entry.transportSourceId).filter(Boolean);
+    const remotes = presenceGuests.map((entry) => {
+      const inVdo = vdoIds.includes(entry.transportSourceId);
+      const seated = this.guestSeats.some((seat) => seat?.id === entry.transportSourceId);
+      return {
+        participantId: entry.participantId,
+        role: entry.role,
+        requestedSourceId: entry.transportSourceId,
+        mounted: Boolean(this._mountedGuestTiles?.get(entry.transportSourceId) || seated),
+        mediaState: inVdo ? "in-vdo-guest-list" : "presence-only",
+        error: inVdo ? "" : "not-in-vdo-guest-list"
+      };
+    });
+    (this._lastVdoGuestList || []).forEach((entry) => {
+      if (presenceSources.includes(entry.id)) return;
+      remotes.push({
+        participantId: entry.id,
+        role: "guest",
+        requestedSourceId: entry.id,
+        mounted: this.guestSeats.some((seat) => seat?.id === entry.id),
+        mediaState: "vdo-only",
+        error: "not-in-presence-roster"
+      });
+    });
+    return {
+      role: "host",
+      roomId: this.roomId,
+      lifecycle: this.hostState,
+      self: {
+        participantId: "host",
+        presenceState: presence.presenceState || "idle",
+        heartbeatStatus: presence.heartbeatStatus || "idle",
+        lastHttpStatus: presence.lastHttpStatus,
+        rosterContainsSelf: presence.rosterContainsSelf === true,
+        transportSourceId: `${this.roomId}h`,
+        publisherSourceId: `${this.roomId}h`,
+        videoTrack: trackSnapshot(this._hostPreviewStream, "video"),
+        audioTrack: trackSnapshot(this._hostPreviewStream, "audio"),
+        transportState: this.engine.frames.has("host") ? "publisher-mounted" : "no-iframe",
+        nativePreview: null
+      },
+      remotes,
+      host: {
+        vdoGuestCount: vdoIds.length,
+        presenceGuestCount: presenceGuests.length,
+        uiGuestCount: this.guestCount(),
+        vdoGuestIds: vdoIds,
+        presenceIds,
+        presenceNotInVdo: presenceSources.filter((id) => !vdoIds.includes(id))
+      }
+    };
   }
 
   // ---- LiveSession (durable) ----
