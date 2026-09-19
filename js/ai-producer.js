@@ -11,6 +11,7 @@ export const ProducerEntryType = Object.freeze({
   TIMING: "timing",
   RESEARCH: "research",
   PRODUCTION_SUGGESTION: "production_suggestion",
+  DIRECTIVE: "directive",
   WORKING: "working",
   ERROR: "error"
 });

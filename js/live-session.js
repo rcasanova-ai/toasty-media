@@ -16,8 +16,10 @@ import { ProgramSync } from "./program-sync.js";
 import { SessionPolicy } from "./session-policy.js";
 import { RunOfShow } from "./run-of-show.js";
 import { AudienceStore, DemoAudienceFeed } from "./audience.js";
-import { TranscriptStore } from "./show-context.js";
+import { TranscriptStore, ShowContextMemory } from "./show-context.js";
 import { createTranscriptionProvider } from "./transcription.js";
+import { HostDirectiveLog } from "./host-directive.js";
+import { LiveProducerController, ingestAttributedTranscript } from "./live-producer.js";
 import { ParticipantRegistry, createParticipant, ParticipantRole, ConnectionStatus, SourceKind } from "./participant-registry.js";
 import { HostState } from "./host-state.js";
 import { RoomPresence } from "./room-presence.js";
@@ -169,6 +171,8 @@ export class LiveSession {
     this.runOfShow = new RunOfShow();
     this.audience = new AudienceStore();
     this.transcript = new TranscriptStore();
+    this.showMemory = new ShowContextMemory();
+    this.hostDirectives = new HostDirectiveLog();
     this.aiProducerFeed = new ProducerFeed();
     this.aiUseBackend = loadUseBackendPreference();
     // Producer Persona layer (see js/producer-persona.js) — Toasty CONFIGURATION, never something a
@@ -185,6 +189,8 @@ export class LiveSession {
     this._demoAudienceFeed = new DemoAudienceFeed(this.audience);
     this._transcriptionProvider = null;
     this.demoMode = false;
+    this.liveProducer = new LiveProducerController(this);
+    this.runOfShow.on(() => this.liveProducer.onShowAgendaChanged());
 
     // See js/remote-media-state.js and _setRemoteMediaState below.
     this.remoteMediaState = RemoteMediaState.WAITING_FOR_PARTICIPANT;
@@ -251,17 +257,40 @@ export class LiveSession {
   // See transcription.js: createTranscriptionProvider itself refuses (returns null) when the policy
   // forbids capture, so this can't accidentally start transcribing under a policy that says not to.
 
-  startTranscription({ demo = false } = {}) {
+  startTranscription({ demo = false, script } = {}) {
     this.stopTranscription();
-    this._transcriptionProvider = createTranscriptionProvider({ policy: this.policy, preferDemo: demo });
+    this._transcriptionProvider = createTranscriptionProvider({
+      policy: this.policy,
+      preferDemo: demo,
+      script,
+      speaker: this.hostProfile?.displayName || "Host",
+      participantId: "host",
+      role: "host"
+    });
     if (!this._transcriptionProvider) {
       this.emit("transcription", { active: false, blocked: true });
       return false;
     }
-    this._transcriptionProvider.onTranscript((line) => this.transcript.append(line));
-    this._transcriptionProvider.start();
+    this._transcriptionProvider.onTranscript((line) => ingestAttributedTranscript(this, line));
+    try {
+      this._transcriptionProvider.start();
+    } catch (error) {
+      console.error("[LiveSession] transcription start failed open", error);
+      this.stopTranscription();
+      this.emit("transcription", { active: false, error: String(error?.message || error) });
+      return false;
+    }
     this.emit("transcription", { active: true, demo });
     return true;
+  }
+
+  ingestTranscriptLine(line) {
+    return ingestAttributedTranscript(this, line);
+  }
+
+  _startLiveTranscription() {
+    if (this.demoMode) return;
+    this.startTranscription({ demo: false });
   }
 
   stopTranscription() {
@@ -294,6 +323,9 @@ export class LiveSession {
     this.runOfShow.reset();
     this.audience.clear();
     this.transcript.clear();
+    this.showMemory.clear();
+    this.hostDirectives.clear();
+    this.liveProducer.resetNotices();
     this.aiProducerFeed.clear();
     this.aiProducerService.resetSessionTotals();
     this._startedAt = Date.now();
@@ -377,6 +409,7 @@ export class LiveSession {
     this.emit("host-profile", this.hostProfile);
     this.publishProgramState();
     this._syncProgramPreview();
+    this._startLiveTranscription();
   }
 
   setHostState(state) {
@@ -1019,6 +1052,7 @@ export class LiveSession {
     // fail with "Failed to fetch".
     this._stopGuestListPolling();
     this._stopRecordingTimer();
+    this.stopTranscription();
     this._teardownProgramPreview();
     this._hostPreviewStream?.getTracks().forEach((track) => track.stop());
     this._hostPreviewStream = null;
@@ -1041,6 +1075,7 @@ export class LiveSession {
     this.setLive(false);
     this.engine.disconnectAll(guestIds);
     this._stopRecordingTimer();
+    this.stopTranscription();
     // VDO's own iframe teardown (disconnectAll above) never touches this — it's a plain getUserMedia
     // stream Toasty owns directly for the native tile, so nothing else will turn the camera light off.
     this._hostPreviewStream?.getTracks().forEach((track) => track.stop());
