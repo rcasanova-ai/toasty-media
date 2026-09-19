@@ -93,6 +93,9 @@ export class LiveSession {
     this.brandTheme = normalizeBrandTheme(getInitialBrandTheme());
     this.engine = new VideoEngine();
     this.policy = new SessionPolicy();
+    // Optional client-private research brief used by focus groups / research interviews / panels.
+    // Hottie reads this through buildShowContext(); it is session-scoped and is never a participant Dub.
+    this.researchContext = null;
 
     this.av = { micMuted: false, cameraOff: false };
     this.recording = { active: false, startedAt: null };
@@ -811,6 +814,11 @@ export class LiveSession {
     this.policy.setSessionType(sessionType);
     this.emit("policy", this.policy);
     this._enforcePolicy();
+  }
+
+  setResearchContext(context) {
+    this.researchContext = context ? { ...context } : null;
+    this.emit("research-context", this.researchContext);
   }
 
   setPolicy(patch) {
