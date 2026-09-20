@@ -46,6 +46,8 @@ let lastServerProgramRevision = 0;
 let lastServerUpdateAt = null;
 let lastProgramSource = "startup";
 let lastServerError = "";
+let lastInitError = "";
+let debugMediaStarted = false;
 let connection = OutputConnection.CONNECTING;
 let connectedAt = null;
 
@@ -73,7 +75,12 @@ const elements = {
   poweredBy: document.querySelector("#programPoweredBy")
 };
 
-init();
+void startOutputDebugMedia();
+init().catch((error) => {
+  lastInitError = String(error?.stack || error?.message || error);
+  lastServerError = lastInitError;
+  console.error("[Program Output] init failed", error);
+});
 
 async function init() {
   applyBrand(normalizeBrandTheme(new URLSearchParams(window.location.search).get("brand")));
@@ -470,6 +477,11 @@ function outputDiagnosticsSnapshot(buildId) {
     server: {
       connected: !lastServerError,
       lastError: lastServerError || null,
+      initError: lastInitError || null,
+      entrypoint: "studio/listener.html",
+      subscriber: serverSync ? "CREATED" : "NOT CREATED",
+      pollCount: serverSync?.pollCount || 0,
+      lastPollHttpStatus: serverSync?.lastHttpStatus ?? null,
       lastUpdateAt: lastServerUpdateAt || serverSync?.lastUpdateAt || null,
       programRevision: lastServerProgramRevision || lastProgramState?.revision || 0,
       programSource: lastProgramSource,
@@ -518,7 +530,9 @@ function outputDiagnosticsSnapshot(buildId) {
 }
 
 async function startOutputDebugMedia() {
+  if (debugMediaStarted) return;
   if (new URLSearchParams(window.location.search).get("debugMedia") !== "1") return;
+  debugMediaStarted = true;
   try {
     const [{ startMediaDiagnostics }, { BUILD_ID }] = await Promise.all([
       import("./media-diagnostics.js"),
