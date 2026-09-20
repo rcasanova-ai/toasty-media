@@ -431,11 +431,11 @@
           </section>
         </section>
 
-        <section class="live-console live-studio-panel" id="liveConsole" data-lv-view="host" aria-label="Live Studio console">
+        <section class="live-console live-studio-panel" id="liveConsole" data-lv-view="producer" aria-label="Live Studio console">
           <header class="lv-topbar">
             <nav class="lv-view-switch" aria-label="Studio view">
-              <button type="button" class="lv-view-btn" data-lv-view-btn="host" aria-pressed="true">Host</button>
-              <button type="button" class="lv-view-btn" data-lv-view-btn="producer" aria-pressed="false">Producer</button>
+              <button type="button" class="lv-view-btn" data-lv-view-btn="host" aria-pressed="false">Host</button>
+              <button type="button" class="lv-view-btn" data-lv-view-btn="producer" aria-pressed="true">Producer</button>
             </nav>
             <div class="lv-topbar-status">
               <span class="lv-rec-chip" id="lvRecChip" hidden>
@@ -450,10 +450,10 @@
           <div class="lv-body">
             <section class="lv-panel lv-program" aria-label="Studio stage">
               <div class="lv-panel-head">
-                <span data-lv-only="host">Participant View</span>
-                <span data-lv-only="producer" hidden>Program</span>
+                <span data-lv-only="host" hidden>Participant View</span>
+                <span data-lv-only="producer">Program</span>
                 <span class="lv-chip" id="lvHostPanelStatus">Loading</span>
-                <span class="lv-output-state" id="lvOutputStateChip" data-lv-only="producer" hidden data-scene="holding">WAITING</span>
+                <span class="lv-output-state" id="lvOutputStateChip" data-lv-only="producer" data-scene="holding">WAITING</span>
               </div>
               <!-- Participant View (who the Host is talking to), not Program Output (what the Producer
                    broadcasts — a separate concept, see studio/listener.html). Remote guest is the main
@@ -509,7 +509,7 @@
                    Muted here. Parked off-screen in Host view (never display:none) so switching to
                    Producer does not remount. -->
               <div class="lv-program-preview po-stage" id="lvProgramPreviewStage"></div>
-              <div class="lv-transport" data-lv-only="producer" hidden>
+              <div class="lv-transport" data-lv-only="producer">
                 <div class="po-button-group" id="lvPoSceneGroup" role="radiogroup" aria-label="Program scene">
                   <button type="button" class="po-swatch" data-scene="holding" aria-pressed="true">Waiting</button>
                   <button type="button" class="po-swatch po-swatch--live" data-scene="live" aria-pressed="false">Live</button>
@@ -519,7 +519,7 @@
                 </div>
                 <button id="lvOpenProgramOutput" class="btn btn-ghost btn-small" type="button">Open Program Output</button>
               </div>
-              <div class="lv-host-controls" data-lv-only="host">
+              <div class="lv-host-controls" data-lv-only="host" hidden>
                 <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
                 <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>
                 <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Share screen">Screen</button>
@@ -528,7 +528,7 @@
             </section>
 
             <!-- HOST-only panels -->
-            <aside class="lv-panel lv-ai-producer" data-lv-only="host" aria-label="AI Producer">
+            <aside class="lv-panel lv-ai-producer" data-lv-only="host" hidden aria-label="AI Producer">
               <div class="lv-panel-head"><span>AI Producer</span></div>
               <div class="lv-feed-list" id="lvFeedListHost">
                 <p class="lv-placeholder">Following conversation…</p>
@@ -578,7 +578,7 @@
                 <button id="lvTeleAuto" class="lv-mini-btn" type="button" aria-pressed="false">Auto</button>
               </div>
             </section>
-            <aside class="lv-panel lv-audience" data-lv-only="host" aria-label="Audience">
+            <aside class="lv-panel lv-audience" data-lv-only="host" hidden aria-label="Audience">
               <div class="lv-panel-head">
                 <span>Audience</span>
                 <label class="lv-audience-demo-toggle">
@@ -594,7 +594,7 @@
             </aside>
 
             <!-- PRODUCER-only panels -->
-            <section class="lv-panel lv-sources" data-lv-only="producer" hidden aria-label="Participants">
+            <section class="lv-panel lv-sources" data-lv-only="producer" aria-label="Participants">
               <div class="lv-panel-head"><span>Participants</span><span class="lv-chip" id="lvSourceCount">Available</span></div>
               <div class="lv-source-row">
                 <span class="lv-source-name">Host (you)</span>
@@ -636,7 +636,7 @@
               </div>
             </aside>
 
-            <section class="lv-panel lv-tools" data-lv-only="producer" hidden aria-label="Broadcast tools">
+            <section class="lv-panel lv-tools" data-lv-only="producer" aria-label="Broadcast tools">
               <div class="lv-tools-tabs" id="lvToolsTabs">
                 <button type="button" data-tools-tab="graphics" aria-pressed="true">Graphics</button>
                 <button type="button" data-tools-tab="media" aria-pressed="false">Media</button>
@@ -649,7 +649,7 @@
               <div class="lv-panel-head"><span>Brand</span></div>
               <p class="control-note">The active skin is the Workspace selector in the session rail. Program Output skins stay separate from this application chrome.</p>
             </section>
-            <section class="lv-panel lv-graphics" data-tools-panel="graphics" aria-label="Graphics">
+            <section class="lv-panel lv-graphics" data-lv-only="producer" data-tools-panel="graphics" aria-label="Graphics">
               <div class="lv-panel-head"><span>Graphics</span></div>
               <label class="po-field">Show / topic
                 <input id="lvPoTopic" type="text" placeholder="Audience-facing headline" maxlength="120">

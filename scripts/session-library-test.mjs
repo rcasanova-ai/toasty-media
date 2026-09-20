@@ -49,7 +49,9 @@ console.log("Studio chrome exists without fake nav");
   assert(/data-studio-nav="assets"/.test(html) && /data-studio-mode="ai"/.test(html), "Assets and Production remain wired to existing surfaces");
   assert(/id="studioAvatarMenu"/.test(html), "account actions live in an avatar menu");
   assert(/id="sessionGateLiveList"/.test(html) && /id="sessionGateUpcomingList"/.test(html), "session library has Live and Upcoming buckets");
-  assert(/data-scene="technical-difficulties"/.test(html), "Technical Difficulties remains on the producer transport");
+  assert(/id="liveConsole" data-lv-view="producer"/.test(html), "producer workspace is the default live console, not Host");
+  assert(/class="lv-transport" data-lv-only="producer"/.test(html), "Waiting/Live/TD/End transport is in the producer program pane");
+  assert(/id="lvToolsTabs"/.test(html) && /data-tools-tab="hottie"/.test(html), "Graphics/Media/Audio/Brand/Hottie tabs exist");
 }
 
 console.log("session-library-test: all passed");
