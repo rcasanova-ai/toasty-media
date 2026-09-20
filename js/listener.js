@@ -69,9 +69,6 @@ const elements = {
   ticker: document.querySelector("#poTicker"),
   tickerTrack: document.querySelector("#poTickerTrack"),
   tickerText: document.querySelector("#poTickerText"),
-  audioGate: document.querySelector("#poAudioGate"),
-  audioGateLabel: document.querySelector(".po-audio-gate-label"),
-  audioGateNote: document.querySelector(".po-audio-gate-note"),
   poweredBy: document.querySelector("#programPoweredBy")
 };
 
@@ -87,10 +84,14 @@ async function init() {
   if (!isValidRoomId(roomId)) {
     document.body.dataset.scene = SceneId.HOLDING;
     elements.holdingTopic.textContent = "Invalid Program Output link";
-    elements.audioGate.hidden = true;
     return;
   }
-  elements.audioGate.addEventListener("click", unlockAudio);
+  // No startup "Enable Audio" modal: this page is a broadcast source fed into tab-capture/OBS, not
+  // something a human sits and clicks through. Attempt to unlock immediately, and fall back to a silent
+  // one-time listener on the next interaction for browsers that require a real gesture first.
+  void unlockAudio();
+  document.addEventListener("click", unlockAudioOnce, { once: true, capture: true });
+  document.addEventListener("keydown", unlockAudioOnce, { once: true, capture: true });
   engine.onMessage(handleTransportMessage);
 
   presence = new RoomPresence({
@@ -167,11 +168,13 @@ function consumeServerBundle(bundle, source = "server") {
   if (bundle?.program) render(bundle.program, source);
 }
 
+function unlockAudioOnce() {
+  if (!audioUnlocked) void unlockAudio();
+}
+
 async function unlockAudio() {
   audioError = null;
   const failures = [];
-  if (elements.audioGateLabel) elements.audioGateLabel.textContent = "Enabling program audio…";
-  if (elements.audioGateNote) elements.audioGateNote.textContent = "Resuming audio, unmuting participant paths, and confirming the Program Audio bus.";
 
   try {
     const ctx = await programAudio.resume();
@@ -194,16 +197,12 @@ async function unlockAudio() {
   if (failures.length) {
     audioUnlocked = false;
     audioError = failures.join(" · ");
-    elements.audioGate.hidden = false;
-    if (elements.audioGateLabel) elements.audioGateLabel.textContent = "Program audio failed";
-    if (elements.audioGateNote) elements.audioGateNote.textContent = audioError;
     reportOutputStatus(true);
     return;
   }
 
   audioUnlocked = true;
   audioError = null;
-  elements.audioGate.hidden = true;
   if (!previous && normalizeScene(lastProgramState?.scene) === SceneId.LIVE) renderLiveStage(lastProgramState);
   syncProgramAudio(lastProgramState);
   reportOutputStatus(true);
@@ -257,7 +256,6 @@ function render(programState, source = "unknown") {
     renderLiveStage(programState);
   } else {
     clearStage();
-    elements.audioGate.hidden = true;
   }
   syncProgramAudio(programState);
   reportOutputStatus();
@@ -283,20 +281,9 @@ function renderLiveStage(programState) {
   if (isRoomEmpty(programState)) {
     clearStage();
     elements.stage.replaceChildren(buildWaitingRoom());
-    elements.audioGate.hidden = true;
     return;
   }
   elements.stage.querySelector(".po-waitingroom")?.remove();
-  elements.audioGate.hidden = audioUnlocked && !audioError;
-  if (!audioUnlocked) {
-    if (elements.audioGateLabel) {
-      elements.audioGateLabel.textContent = audioError ? "Program audio failed" : "AUDIO BLOCKED — CLICK TO ENABLE";
-    }
-    if (elements.audioGateNote) {
-      elements.audioGateNote.textContent = audioError
-        || "Click to enable Program Output audio.";
-    }
-  }
   syncProgramRenderer({
     stage: elements.stage,
     engine,
