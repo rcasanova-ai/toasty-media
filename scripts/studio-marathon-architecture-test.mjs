@@ -26,6 +26,9 @@ import { detectHostDirective, isHostSpeaker } from "../js/host-directive.js";
 import { ProgramController, ProductionActionType } from "../js/production-controller.js";
 import { formatDiagnostics } from "../js/media-diagnostics.js";
 import { cameraSourceFromParticipant, ParticipantSourceKind } from "../js/participant-source.js";
+import { formatHottieProposalFeed } from "../js/hottie-show-runner.js";
+import { LiveProducerController } from "../js/live-producer.js";
+import { ProducerFeed, ProducerEntryType } from "../js/ai-producer.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -197,5 +200,49 @@ const destinations = new ProgramDestinationRouter();
 assert(destinations.list().some((item) => item.kind === ProgramDestinationKind.TOASTY_AUDIENCE), "Toasty Audience destination exists");
 assertEqual(destinations.goLive("youtube").ok, false, "unimplemented destinations are not faked live");
 assertEqual(cameraSourceFromParticipant(host).kind, ParticipantSourceKind.CAMERA, "participant camera is a distinct source from screen");
+
+console.log("\nHottie proposal approval actually reaches ProgramController.execute (audit repair)");
+{
+  // Regression test for the exact seam the integration audit found broken: formatHottieProposalFeed
+  // built a real, executable action on every proposal, but no UI path ever called
+  // ProgramController.execute with it (renderFeedEntry only rendered an action row for
+  // ASSET_PROPOSAL/retry entries, never PRODUCTION_SUGGESTION). This proves the repaired wire
+  // (LiveProducerController.approveHottieProposal, js/ai-producer.js's new render branch) without a DOM.
+  let spotlighted = null;
+  const fakeSession = {
+    aiProducerFeed: new ProducerFeed(),
+    productionLog: { record() {} },
+    setSpotlight(participantId) { spotlighted = participantId; }
+  };
+  fakeSession.programController = new ProgramController(fakeSession);
+  const producer = new LiveProducerController(fakeSession);
+
+  const proposal = {
+    type: "BRING_QUIET_PARTICIPANT",
+    noticed: "Guest B has not spoken.",
+    recommends: "Spotlight Guest B for a beat.",
+    action: { type: ProductionActionType.SET_SPOTLIGHT, participantId: "guest-b" },
+    requiresApproval: true
+  };
+  const entry = fakeSession.aiProducerFeed.push(formatHottieProposalFeed(proposal));
+  assertEqual(entry.type, ProducerEntryType.PRODUCTION_SUGGESTION, "Hottie proposal lands as a PRODUCTION_SUGGESTION feed entry");
+  assertEqual(entry.proposal.requiresApproval, true, "proposal starts requiring approval");
+
+  const result = producer.approveHottieProposal(entry.id);
+  assertEqual(result.ok, true, "approveHottieProposal's execute() call succeeds");
+  assertEqual(spotlighted, "guest-b", "the proposed action's participantId actually reached session.setSpotlight — not just logged");
+
+  const updated = fakeSession.aiProducerFeed.entries.find((item) => item.id === entry.id);
+  assertEqual(updated.proposal.executed, true, "feed entry is marked executed after approval");
+  assertEqual(updated.proposal.requiresApproval, false, "approved proposal no longer requires approval (button won't re-render)");
+
+  // Dismiss path — the other half of the wire (Producer can reject instead of approving).
+  const proposal2 = { ...proposal, action: { type: ProductionActionType.SET_SPOTLIGHT, participantId: "guest-c" } };
+  const entry2 = fakeSession.aiProducerFeed.push(formatHottieProposalFeed(proposal2));
+  producer.dismissHottieProposal(entry2.id);
+  const dismissed = fakeSession.aiProducerFeed.entries.find((item) => item.id === entry2.id);
+  assertEqual(dismissed.dismissed, true, "dismissHottieProposal marks the entry dismissed without executing it");
+  assertEqual(spotlighted, "guest-b", "dismissing a second proposal does not execute its action (still guest-b from the approved one)");
+}
 
 console.log("\nAll studio marathon architecture tests passed.");

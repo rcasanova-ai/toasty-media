@@ -188,7 +188,9 @@ export class ProducerView {
       onFindAnother: (id) => this.session.liveProducer.findAnother(id),
       onDiscardProposal: (id) => this.session.liveProducer.discardProposal(id),
       onRetryResearch: (id) => this.session.liveProducer.retryResearch(id),
-      onRemoveAsset: (id) => this.session.liveProducer.removeLiveAsset(id)
+      onRemoveAsset: (id) => this.session.liveProducer.removeLiveAsset(id),
+      onApproveHottieProposal: (id) => this.session.liveProducer.approveHottieProposal(id),
+      onDismissHottieProposal: (id) => this.session.liveProducer.dismissHottieProposal(id)
     })));
   }
 

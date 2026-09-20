@@ -666,6 +666,14 @@ export class LiveSession {
 
     // Keep existing seat holders steady so counts/controls don't flicker or reset on a repeat poll;
     // only backfill empty seats, and only drop a seat once its id is genuinely gone from the room.
+    // Timeline record here (not just in kickGuest) is what covers the more common case — a guest whose
+    // connection simply dropped, never explicitly kicked. A kicked seat is already null by the time this
+    // runs (kickGuest nulls it directly), so this never double-records a kick.
+    this.guestSeats.forEach((seat) => {
+      if (seat && !stillPresent.has(seat.id)) {
+        this.timeline.record(ProductionEventType.PARTICIPANT_LEFT, { role: "guest" }, { participantId: seat.id, sessionId: this.durableSession?.id || this.roomId });
+      }
+    });
     this.guestSeats = this.guestSeats.map((seat) => (seat && stillPresent.has(seat.id) ? seat : null));
     guests.forEach((guest) => {
       if (this.guestSeats.some((seat) => seat?.id === guest.id)) return;
@@ -690,6 +698,10 @@ export class LiveSession {
           // Host by, so recomposition on a later join/leave never reshuffles someone already positioned.
           joinedAt: Date.now()
         };
+        // Mirrors the existing Host PARTICIPANT_JOINED record (see joinAsHost) — the production timeline
+        // had a Host-only gap here (audit finding: every guest join was silently missing from the
+        // timeline even though PARTICIPANT_JOINED/PARTICIPANT_LEFT were already defined event types).
+        this.timeline.record(ProductionEventType.PARTICIPANT_JOINED, { role: "guest" }, { participantId: guest.id, sessionId: this.durableSession?.id || this.roomId });
       }
     });
 
