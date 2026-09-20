@@ -158,6 +158,17 @@ export function formatDiagnostics(snapshot) {
   if (self.publisherReason) lines.push(`pubReason ${self.publisherReason}`);
   if (self.ice || self.signaling) lines.push(`ice ${self.ice || "?"}  signaling ${self.signaling || "?"}`);
   if (self.vdoAr) lines.push(`vdo ar=${self.vdoAr}`);
+  if (safe.server) {
+    const server = safe.server;
+    lines.push("— SERVER —");
+    lines.push(`connected ${server.connected ? "yes" : "NO"} revision ${server.programRevision ?? "?"}`);
+    lines.push(`scene ${server.scene || "?"} source ${server.programSource || "?"}`);
+    lines.push(`last ${server.lastUpdateAt || "none"}${server.lastError ? ` error ${server.lastError}` : ""}`);
+    lines.push(`hostSource ${server.hostSourceId || "none"}`);
+    const guestSources = (server.guestSourceIds || []).map((entry) => `${entry.participantId}:${entry.transportSourceId || "none"}`).join(",");
+    lines.push(`guestSources ${guestSources || "none"}`);
+    lines.push(`screenSource ${server.screenSourceId || "none"}`);
+  }
   lines.push("— REMOTE —");
   const remotes = Array.isArray(safe.remotes) ? safe.remotes : [];
   if (!remotes.length) lines.push("(none)");

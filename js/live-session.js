@@ -461,7 +461,7 @@ export class LiveSession {
     this._restartProgramSync();
     this._restartGuestListPolling();
     this._updateInviteAndHistory();
-    this.publishProgramState();
+    this._publishControlNow();
     this.emit("room", { roomId: this.roomId });
     this.exposeProgramSources();
     this.hydrateLastMaster().catch(() => {});
@@ -526,7 +526,7 @@ export class LiveSession {
     this.setHostState(HostState.IN_STUDIO);
     this.exposeProgramSources();
     this.emit("host-profile", this.hostProfile);
-    this.publishProgramState();
+    this._publishControlNow();
     this._syncProgramPreview();
     this._startLiveTranscription();
   }
@@ -601,7 +601,7 @@ export class LiveSession {
     this.brandTheme = normalizeBrandTheme(brandTheme);
     saveBrandTheme(this.brandTheme);
     this._updateInviteAndHistory();
-    this.publishProgramState();
+    this._publishControlNow();
     this.emit("brand", this.brandTheme);
     if (this.durableSession && this.durableSession.status !== "ENDED") {
       studioRequest(`/api/sessions/${this.durableSession.id}/brand`, {
@@ -781,7 +781,7 @@ export class LiveSession {
     this._syncProgramPreview();
     this._applyRosterScreenShare(presenceRoster);
     this.emit("guests", this.guestCount());
-    this.publishProgramState();
+    this._publishControlNow();
   }
 
   // Mounts/tears down one tile per connected Guest (up to 3) on Host's participant stage — see
@@ -1161,7 +1161,7 @@ export class LiveSession {
     this.program.shareLayout = this.program.shareLayout || ShareLayout.SCREEN_SPEAKER;
     this.program.layout = this.program.shareLayout;
     this.timeline.record(ProductionEventType.SHARE_STARTED, { transportSourceId: incoming.transportSourceId }, { participantId: incoming.ownerParticipantId });
-    this.publishProgramState();
+    this._publishControlNow();
     this.emit("screenshare", this.screenShare);
     this.emit("program", this.program);
     this._syncProgramPreview();
@@ -1204,7 +1204,7 @@ export class LiveSession {
 
   setTopic(topic) {
     this.program.topic = topic;
-    this.publishProgramState();
+    this._publishControlNow();
     this.emit("program", this.program);
   }
 
@@ -1220,7 +1220,7 @@ export class LiveSession {
     if (enabled !== undefined) this.program.tickerEnabled = enabled;
     if (text !== undefined) this.program.tickerText = text;
     if (speed !== undefined) this.program.tickerSpeed = Math.max(8, Math.min(40, Number(speed) || 16));
-    this.publishProgramState();
+    this._publishControlNow();
     this.emit("program", this.program);
   }
 
@@ -1250,7 +1250,7 @@ export class LiveSession {
       shareLayout: this.program.shareLayout || null,
       manual
     });
-    this.publishProgramState();
+    this._publishControlNow();
     this.emit("program", this.program);
     this._syncProgramPreview();
   }
@@ -1269,7 +1269,7 @@ export class LiveSession {
     this.program.layout = CompositionMode.SPOTLIGHT;
     this.program.layoutManualOverride = true;
     this.timeline.record(ProductionEventType.SPOTLIGHT_CHANGED, { participantId }, { participantId });
-    this.publishProgramState();
+    this._publishControlNow();
     this.emit("program", this.program);
     this._syncProgramPreview();
   }
@@ -1281,7 +1281,7 @@ export class LiveSession {
     this.program.compositionMode = restore;
     this.program.layout = restore === CompositionMode.BALANCED ? "grid" : restore;
     this.timeline.record(ProductionEventType.SPOTLIGHT_CHANGED, { participantId: null, restored: restore });
-    this.publishProgramState();
+    this._publishControlNow();
     this.emit("program", this.program);
     this._syncProgramPreview();
   }
@@ -1295,7 +1295,7 @@ export class LiveSession {
       shareLayout: this.program.shareLayout,
       manual: true
     });
-    this.publishProgramState();
+    this._publishControlNow();
     this.emit("program", this.program);
     this._syncProgramPreview();
   }
@@ -1314,7 +1314,7 @@ export class LiveSession {
     if (nextId !== this.program.activeParticipantId) {
       this.program.activeParticipantId = nextId;
       if (this.program.compositionMode === CompositionMode.ACTIVE_SPEAKER) {
-        this.publishProgramState();
+        this._publishControlNow();
         this.emit("program", this.program);
         this._syncProgramPreview();
       }
@@ -1500,7 +1500,7 @@ export class LiveSession {
     this.engine.setGuestRemoteCamera(guestId, onProgram);
     this.emit("guests", this.guestCount());
     this._syncProgramPreview();
-    this.publishProgramState();
+    this._publishControlNow();
   }
 
   // ---- Session policy (Jam foundation) ----
@@ -1578,7 +1578,7 @@ export class LiveSession {
         last: this.recording.last
       }));
       this._recordingTimerId = window.setInterval(() => this.emit("recording", this.recording), 1000);
-      this.publishProgramState();
+      this._publishControlNow();
       return this.recording;
     } catch (error) {
       this._masterRecorder = null;
@@ -1592,7 +1592,7 @@ export class LiveSession {
     this._stopRecordingTimer();
     if (!recorder) {
       this._setRecording(idleRecordingState(this.recording.last));
-      this.publishProgramState();
+      this._publishControlNow();
       return this.recording.last;
     }
     this._setRecording({ ...this.recording, status: "saving" });
@@ -1661,7 +1661,7 @@ export class LiveSession {
       durationSeconds: manifest.durationSeconds,
       persisted
     });
-    this.publishProgramState();
+    this._publishControlNow();
     this.emit("recording-status", persisted ? "RECORDING SAVED" : "Recording saved in this tab. Download it now.");
     return last;
   }

@@ -7,7 +7,7 @@ import { syncProgramRenderer, clearProgramRenderer, programFeedBindings, program
 import { ProgramAudioBus, serializeProgramAudio } from "./program-audio.js";
 import { ProgramAudioMixer } from "./program-audio-mixer.js";
 import { RoomPresence } from "./room-presence.js";
-import { studioApiEndpoint } from "./studio-api.js";
+import { ProgramServerSubscriber } from "./program-server-sync.js";
 import {
   OutputConnection,
   SceneId,
@@ -40,6 +40,12 @@ const programAudio = new ProgramAudioBus({ role: "program" });
 const programMixer = new ProgramAudioMixer({ bus: programAudio, role: "program" });
 let lastAudioPlayId = null;
 let statusTimerId = null;
+let serverSync = null;
+let lastServerBundle = null;
+let lastServerProgramRevision = 0;
+let lastServerUpdateAt = null;
+let lastProgramSource = "startup";
+let lastServerError = "";
 let connection = OutputConnection.CONNECTING;
 let connectedAt = null;
 
@@ -88,24 +94,29 @@ async function init() {
   });
   presence.setOutputStatus(outputStatusPayload());
   presence.onControlChange((bundle) => {
-    if (bundle.program) render(bundle.program);
+    consumeServerBundle(bundle, "presence-announce");
   });
 
   sync = new ProgramSync(roomId);
   const lastState = sync.readLastState();
-  if (lastState) render(lastState);
+  if (lastState) render(lastState, "browser-local-cache");
   sync.onMessage((message) => {
-    if (message?.type === "state") render(message.payload);
+    if (message?.type === "state") render(message.payload, "browser-local");
   });
   sync.requestState();
 
-  try {
-    const response = await fetch(`${studioApiEndpoint()}/api/presence/room?roomId=${encodeURIComponent(roomId)}`);
-    if (response.ok) {
-      const data = await response.json();
-      if (data.program) render(data.program);
+  serverSync = new ProgramServerSubscriber({
+    roomId,
+    onBundle: (bundle) => {
+      lastServerBundle = bundle || null;
+    },
+    onProgram: (program, meta) => render(program, meta?.source || "server-poll"),
+    onError: (error) => {
+      lastServerError = error;
     }
-  } catch (_) {}
+  });
+  await serverSync.poll({ force: true });
+  serverSync.start();
 
   connection = OutputConnection.CONNECTING;
   reportOutputStatus();
@@ -113,7 +124,7 @@ async function init() {
   if (admitted) {
     connection = OutputConnection.CONNECTED;
     connectedAt = Date.now();
-    if (presence.program) render(presence.program);
+    if (presence.program) render(presence.program, "presence-admit");
   } else {
     connection = OutputConnection.DISCONNECTED;
   }
@@ -142,6 +153,11 @@ function ownedStreamFor(participant) {
   } catch (_) {
     return null;
   }
+}
+
+function consumeServerBundle(bundle, source = "server") {
+  lastServerBundle = bundle || null;
+  if (bundle?.program) render(bundle.program, source);
 }
 
 async function unlockAudio() {
@@ -200,9 +216,15 @@ async function unmuteParticipantAudio() {
   return failures;
 }
 
-function render(programState) {
+function render(programState, source = "unknown") {
   if (!programState) return;
   lastProgramState = programState;
+  lastProgramSource = source;
+  if (source.startsWith("server") || source.startsWith("presence")) {
+    lastServerProgramRevision = Number(programState.revision) || lastServerProgramRevision || 0;
+    lastServerUpdateAt = Date.now();
+    lastServerError = "";
+  }
   applyBrand(programState.brandTheme);
   const scene = normalizeScene(programState.scene);
   document.body.dataset.scene = scene;
@@ -436,14 +458,31 @@ function restartTicker() {
 
 function outputDiagnosticsSnapshot(buildId) {
   const snap = presence?.snapshot() || {};
+  const participants = programParticipants(lastProgramState);
+  const host = participants.find((entry) => entry.role === "host" || entry.participantId === "host") || null;
+  const guests = participants.filter((entry) => entry.role === "guest" || entry.participantId !== "host");
   return {
     buildId,
     role: "output",
     roomId,
     sessionId: lastProgramState?.sessionId || snap.sessionId || roomId,
     lifecycle: connection,
+    server: {
+      connected: !lastServerError,
+      lastError: lastServerError || null,
+      lastUpdateAt: lastServerUpdateAt || serverSync?.lastUpdateAt || null,
+      programRevision: lastServerProgramRevision || lastProgramState?.revision || 0,
+      programSource: lastProgramSource,
+      scene: normalizeScene(lastProgramState?.scene),
+      participantCount: participants.length,
+      hostSourceId: host?.transportSourceId || null,
+      guestSourceIds: guests.map((entry) => ({ participantId: entry.participantId, transportSourceId: entry.transportSourceId || null })),
+      screenSourceId: lastProgramState?.screenShare?.transportSourceId || null
+    },
     roster: snap.roster || [],
     outputs: snap.outputs || [],
+    serverRoster: lastServerBundle?.roster || [],
+    serverOutputs: lastServerBundle?.outputs || [],
     presence: snap,
     self: {
       participantId: outputId,
@@ -469,6 +508,8 @@ function outputDiagnosticsSnapshot(buildId) {
       audioLevel: entry.audioActivity?.audioLevel ?? 0,
       speaking: Boolean(entry.audioActivity?.speaking)
     })),
+    programBindings: programFeedBindings(mountedProgramTiles),
+    programHealth: programFeedHealth(mountedProgramTiles),
     screenShare: lastProgramState?.screenShare || null,
     screenHealth: mountedProgramTiles.get("__screen__")?.health || lastProgramState?.screenShare?.state || "inactive",
     activity: lastProgramState?.audioActivity || [],
