@@ -97,6 +97,7 @@ includes(html, "Ask Hottie");
 includes(director, 'setView("producer")');
 includes(director, "function setProducerTool");
 includes(director, "function setProducerDomain");
+includes(director, "function bindChassisUi");
 includes(director, 'session.on("program-output", renderBroadcastChip)');
 includes(director, "studioProgramOutputPill");
 includes(director, "studioTruthOutput");
@@ -111,7 +112,8 @@ includes(chassisCss, ".producer-tool-nav");
 includes(chassisCss, ".producer-domain-nav");
 includes(chassisCss, "aspect-ratio: 16 / 9");
 includes(chassisCss, "@media (max-width: 760px)");
-includes(chassisCss, '[data-lv-view="host"]');
+includes(chassisCss, "[data-lv-only=\"host\"]");
+includes(chassisCss, "[data-lv-only=\"producer\"]");
 
 assert.ok(!brandThemes.includes("clients/superteam-thailand/silhouette-skyline.png") || !/8alta[\s\S]{0,1800}silhouette-skyline/.test(brandThemes), "8ALTA must not reuse Superteam skyline in nearby artwork");
 const altaBlock = brandThemes.slice(brandThemes.indexOf('"8alta"'), brandThemes.indexOf("santati:"));

@@ -485,7 +485,7 @@
                 <span class="studio-truth-item" data-truth="rec" id="studioTruthRec" data-state="idle"><span class="studio-truth-dot" aria-hidden="true"></span> Rec <strong>Idle</strong></span>
                 <span class="studio-truth-item" data-truth="stream" id="studioTruthStream" data-state="idle"><span class="studio-truth-dot" aria-hidden="true"></span> Stream <strong>Idle</strong></span>
               </div>
-              <div class="lv-host-controls" data-lv-only="host">
+              <div class="lv-host-controls" data-lv-only="host" hidden>
                 <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
                 <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>
                 <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Share screen">Screen</button>
@@ -519,7 +519,7 @@
             </section>
 
             <!-- HOST-only panels -->
-            <aside class="lv-panel lv-ai-producer" data-lv-only="host" aria-label="AI Producer">
+            <aside class="lv-panel lv-ai-producer" data-lv-only="host" hidden aria-label="AI Producer">
               <div class="lv-panel-head"><span>AI Producer</span></div>
               <div class="lv-feed-list" id="lvFeedListHost">
                 <p class="lv-placeholder">Following conversation…</p>
@@ -535,7 +535,7 @@
                 <button type="submit" class="btn btn-ghost btn-small">Send</button>
               </form>
             </aside>
-            <section class="lv-panel lv-host-effects" data-lv-only="host" aria-label="Host background and effects">
+            <section class="lv-panel lv-host-effects" data-lv-only="host" hidden aria-label="Host background and effects">
               <div class="lv-panel-head">
                 <span>Background / Effects</span>
                 <span class="lv-chip">Reserved</span>
@@ -597,7 +597,7 @@
                 <button type="submit" class="lv-mini-btn">Add</button>
               </form>
             </section>
-            <section class="lv-panel lv-teleprompter" data-lv-only="host" aria-label="Private teleprompter">
+            <section class="lv-panel lv-teleprompter" data-lv-only="host" hidden aria-label="Private teleprompter">
               <div class="lv-panel-head">
                 <span>Teleprompter</span>
                 <span class="lv-chip">Private</span>
@@ -611,7 +611,7 @@
                 <button id="lvTeleAuto" class="lv-mini-btn" type="button" aria-pressed="false">Auto</button>
               </div>
             </section>
-            <aside class="lv-panel lv-audience" data-lv-only="producer" data-studio-tool-panel="audience" aria-label="Audience">
+            <aside class="lv-panel lv-audience" data-lv-only="producer" data-studio-tool-panel="audience" hidden aria-label="Audience">
               <div class="lv-panel-head">
                 <span>Audience</span>
                 <label class="lv-audience-demo-toggle">

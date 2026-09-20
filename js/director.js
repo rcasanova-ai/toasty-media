@@ -142,6 +142,7 @@ init();
 // target the right room from the very first frame mount, not a throwaway one that gets swapped out later.
 async function init() {
   applySelectedBrand();
+  bindChassisUi();
   const durableSession = await resolveSession({ brandId: session.brandTheme });
   session.applyDurableSession(durableSession);
   if (elements.studioSessionStatus) elements.studioSessionStatus.textContent = durableSession.title || "Untitled";
@@ -192,8 +193,7 @@ function initStudio() {
     onError: () => renderBroadcastError()
   }).init();
 
-  bindViewSwitch();
-  bindRailControls();
+  bindChassisUi();
   bindPolicyDrawer();
   bindAiProviderDrawer();
   bindPersonaDrawer();
@@ -230,6 +230,13 @@ async function startHostDebugMedia() {
   } catch (err) {
     console.error("[Director] debugMedia failed open; studio continues", err);
   }
+}
+
+function bindChassisUi() {
+  if (bindChassisUi.bound) return;
+  bindChassisUi.bound = true;
+  bindViewSwitch();
+  bindRailControls();
 }
 
 function bindViewSwitch() {

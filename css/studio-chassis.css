@@ -6,6 +6,24 @@
 
 .director-shell {
   overflow-x: clip;
+  position: relative;
+}
+
+.director-shell .studio-grid {
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+}
+
+.director-shell .rail-right {
+  position: absolute;
+  right: clamp(0.75rem, 2vw, 1.5rem);
+  top: 0.85rem;
+  width: min(240px, 28vw);
+  z-index: 6;
+}
+
+.studio-chassis[data-lv-view="producer"] [data-lv-only="host"],
+.studio-chassis[data-lv-view="host"] [data-lv-only="producer"] {
+  display: none !important;
 }
 
 .studio-chassis-header {
