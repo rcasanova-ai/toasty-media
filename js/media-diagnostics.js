@@ -162,8 +162,11 @@ export function formatDiagnostics(snapshot) {
     const server = safe.server;
     lines.push("— SERVER —");
     lines.push(`connected ${server.connected ? "yes" : "NO"} revision ${server.programRevision ?? "?"}`);
+    lines.push(`entry ${server.entrypoint || "?"} subscriber ${server.subscriber || "?"}`);
+    lines.push(`polls ${server.pollCount ?? 0} http ${server.lastPollHttpStatus ?? "—"}`);
     lines.push(`scene ${server.scene || "?"} source ${server.programSource || "?"}`);
     lines.push(`last ${server.lastUpdateAt || "none"}${server.lastError ? ` error ${server.lastError}` : ""}`);
+    if (server.initError) lines.push(`initError ${server.initError}`);
     lines.push(`hostSource ${server.hostSourceId || "none"}`);
     const guestSources = (server.guestSourceIds || []).map((entry) => `${entry.participantId}:${entry.transportSourceId || "none"}`).join(",");
     lines.push(`guestSources ${guestSources || "none"}`);

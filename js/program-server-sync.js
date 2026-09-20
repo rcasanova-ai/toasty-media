@@ -28,6 +28,8 @@ export class ProgramServerSubscriber {
     this.lastRevision = 0;
     this.lastUpdateAt = null;
     this.lastError = "";
+    this.pollCount = 0;
+    this.lastHttpStatus = null;
   }
 
   start() {
@@ -47,8 +49,10 @@ export class ProgramServerSubscriber {
 
   async poll({ force = false } = {}) {
     if (!this.roomId || !this.endpoint || !this.fetchImpl) return null;
+    this.pollCount += 1;
     try {
       const response = await this.fetchImpl(`${this.endpoint}/api/presence/room?roomId=${encodeURIComponent(this.roomId)}`);
+      this.lastHttpStatus = response?.status || 0;
       if (!response?.ok) throw new Error(`presence_room_${response?.status || 0}`);
       const bundle = await response.json();
       this.lastError = "";

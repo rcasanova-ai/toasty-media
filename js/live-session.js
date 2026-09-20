@@ -227,6 +227,8 @@ export class LiveSession {
     this._recordingTimerId = null;
     this._masterRecorder = null;
     this._programOutputTimerId = null;
+    this._programControlPublishInFlight = false;
+    this._programControlPublishQueued = false;
     this._containers = null;
     this._listeners = new Map();
     this._startedAt = Date.now();
@@ -1110,7 +1112,44 @@ export class LiveSession {
 
   _publishControlNow() {
     this.publishProgramState();
-    this.presence?.publishNow();
+    if (this.presence) {
+      this.presence.publishNow();
+    } else {
+      this._publishProgramControlWithoutPresence();
+    }
+  }
+
+  _publishProgramControlWithoutPresence() {
+    if (this._programControlPublishInFlight) {
+      this._programControlPublishQueued = true;
+      return;
+    }
+    this._programControlPublishInFlight = true;
+    const participant = this.participants.get("host");
+    const payload = {
+      roomId: this.roomId,
+      participantId: "host",
+      role: "host",
+      displayName: this.hostProfile?.displayName || participant?.displayName || "Host",
+      title: this.hostProfile?.title || participant?.title || "",
+      company: this.hostProfile?.company || participant?.company || "",
+      transportSourceId: participant?.transportSourceId || undefined,
+      micEnabled: typeof this.av?.micMuted === "boolean" ? !this.av.micMuted : undefined,
+      cameraEnabled: typeof this.av?.cameraOff === "boolean" ? !this.av.cameraOff : undefined,
+      program: this.canonicalControlState()
+    };
+    studioRequest("/api/presence/announce", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }).catch((error) => {
+      console.error("[LiveSession] server program publish failed", error);
+    }).finally(() => {
+      this._programControlPublishInFlight = false;
+      if (this._programControlPublishQueued) {
+        this._programControlPublishQueued = false;
+        this._publishProgramControlWithoutPresence();
+      }
+    });
   }
 
   _applyControlBundle(bundle = {}) {

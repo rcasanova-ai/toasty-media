@@ -100,6 +100,8 @@ async function main() {
 
   await announceProgram(state({ scene: SceneId.HOLDING }));
   await subscriber.poll({ force: true });
+  assertEqual(subscriber.pollCount, 1, "subscriber records first poll count");
+  assertEqual(subscriber.lastHttpStatus, 200, "subscriber records last poll HTTP status");
   assertEqual(received.length, 1, "listener consumes initial server snapshot");
   assertEqual(received[0].revision, 1, "initial snapshot is server revision 1");
   assertEqual(received[0].scene, SceneId.HOLDING, "revision 1 is STARTING SOON");
@@ -137,6 +139,16 @@ async function main() {
   const listenerSource = readFileSync(join(ROOT, "js/listener.js"), "utf8");
   assert(listenerSource.includes("ProgramServerSubscriber"), "Program Output listener uses server subscriber");
   assert(listenerSource.includes("serverSync.start()"), "Program Output keeps polling server truth after load");
+  assert(listenerSource.indexOf("void startOutputDebugMedia();") < listenerSource.indexOf("init().catch"), "debug overlay starts before listener init can fail");
+  assert(listenerSource.includes("lastPollHttpStatus"), "debug overlay exposes poll HTTP status");
+
+  const diagnosticsSource = readFileSync(join(ROOT, "js/media-diagnostics.js"), "utf8");
+  assert(diagnosticsSource.includes("subscriber"), "debug overlay shows subscriber creation state");
+  assert(diagnosticsSource.includes("polls "), "debug overlay shows poll count");
+
+  const liveSessionSource = readFileSync(join(ROOT, "js/live-session.js"), "utf8");
+  assert(liveSessionSource.includes("_publishProgramControlWithoutPresence"), "Producer has a server publish fallback before Host presence exists");
+  assert(liveSessionSource.includes('studioRequest("/api/presence/announce"'), "fallback uses the existing presence announce endpoint");
 
   subscriber.stop();
   console.log("\nAll Program Output server sync tests passed.");
