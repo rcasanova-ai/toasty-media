@@ -55,6 +55,7 @@ export class RoomPresence {
     this.heartbeatStatus = "idle";
     this.lastHttpStatus = null;
     this.lastAnnounceError = "";
+    this._lastAnnounceAt = null;
   }
 
   onRosterChange(callback) {
@@ -125,17 +126,44 @@ export class RoomPresence {
       participantId: this.participantId,
       role: this.role,
       roomId: this.roomId,
+      sessionId: this.program?.sessionId || this.roomId,
       transportSourceId: this.transportSourceId,
       presenceState: this.presenceState,
       heartbeatStatus: this.heartbeatStatus,
       lastHttpStatus: this.lastHttpStatus,
       lastAnnounceError: this.lastAnnounceError,
+      lastAnnounceAt: this._lastAnnounceAt || null,
       rosterContainsSelf: this.rosterContainsSelf(),
-      roster: this.roster.map((entry) => ({
-        participantId: entry.participantId,
-        role: entry.role,
-        transportSourceId: entry.transportSourceId || null
-      }))
+      programScene: this.program?.scene || null,
+      roster: this.roster.map((entry) => {
+        const isSelf = entry.participantId === this.participantId;
+        return {
+          participantId: entry.participantId,
+          role: entry.role,
+          transportSourceId: entry.transportSourceId || null,
+          lastSeenAt: isSelf ? (this._lastAnnounceAt || entry.lastSeenAt || null) : (entry.lastSeenAt || null),
+          sessionId: this.program?.sessionId || this.roomId,
+          roomId: entry.roomId || this.roomId,
+          micEnabled: entry.micEnabled ?? null,
+          cameraEnabled: entry.cameraEnabled ?? null
+        };
+      }),
+      outputs: (this.outputs || []).map((entry) => {
+        const id = entry.outputId || entry.participantId || null;
+        const isSelf = id === this.participantId;
+        return {
+          outputId: id,
+          participantId: id,
+          role: "output",
+          connection: entry.connection || null,
+          lastSeenAt: isSelf ? (this._lastAnnounceAt || entry.updatedAt || entry.lastSeenAt || null) : (entry.updatedAt || entry.lastSeenAt || null),
+          updatedAt: entry.updatedAt || entry.lastSeenAt || null,
+          scene: entry.scene || null,
+          audioEnabled: Boolean(entry.audioEnabled || entry.audioReady),
+          sessionId: entry.sessionId || this.program?.sessionId || this.roomId,
+          roomId: entry.roomId || this.roomId
+        };
+      })
     };
   }
 
@@ -236,6 +264,7 @@ export class RoomPresence {
       this._ackCommandIds = [];
       if (data.brandId !== undefined) this.brandId = data.brandId;
       this.lastAnnounceError = "";
+      this._lastAnnounceAt = Date.now();
       this.heartbeatStatus = this.rosterContainsSelf() ? "ok" : "error";
       if (this.heartbeatStatus === "ok") this.presenceState = "admitted";
       this._listeners.forEach((callback) => callback(this.roster));

@@ -46,6 +46,75 @@ export function videoElementSnapshot(videoEl) {
   };
 }
 
+function seenAtMs(value) {
+  const n = Number(value);
+  if (Number.isFinite(n) && n > 0) return n;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function heartbeatLabel(lastSeenAt, now = Date.now()) {
+  const seen = seenAtMs(lastSeenAt);
+  if (!seen) return "NO-HB";
+  const age = Math.max(0, now - seen);
+  const secs = (age / 1000).toFixed(1);
+  if (age <= 4000) return `LIVE ${secs}s`;
+  if (age <= 8000) return `STALE ${secs}s`;
+  return `DEAD ${secs}s`;
+}
+
+function decorateLocalHeartbeat(entry, snapshot) {
+  const selfId = snapshot.self?.participantId || snapshot.presence?.participantId;
+  const selfLast = snapshot.self?.lastAnnounceAt || snapshot.presence?.lastAnnounceAt || snapshot.lastAnnounceAt;
+  const id = entry.participantId || entry.outputId;
+  if (!selfLast || !selfId || id !== selfId) return entry;
+  return {
+    ...entry,
+    lastSeenAt: entry.lastSeenAt || entry.updatedAt || selfLast,
+    lastAnnounceAt: entry.lastAnnounceAt || selfLast
+  };
+}
+
+export function formatPresenceBoard(snapshot = {}, now = Date.now()) {
+  const sessionId = snapshot.sessionId || snapshot.presence?.sessionId || "none";
+  const roomId = snapshot.roomId || snapshot.presence?.roomId || "none";
+  const roster = (snapshot.presence?.roster || snapshot.roster || []).map((entry) => decorateLocalHeartbeat(entry, snapshot));
+  const outputs = (snapshot.presence?.outputs || snapshot.outputs || []).map((entry) => decorateLocalHeartbeat(entry, snapshot));
+  const hosts = roster.filter((entry) => entry.role === "host");
+  const guests = roster.filter((entry) => entry.role === "guest");
+  const outs = outputs.length ? outputs : roster.filter((entry) => entry.role === "output");
+  const lines = ["— PRESENCE —", `session ${sessionId}`, `room ${roomId}`];
+  if (!hosts.length) lines.push("host MISSING");
+  else {
+    hosts.forEach((entry) => {
+      lines.push(`host ${entry.participantId || "?"} hb ${heartbeatLabel(entry.lastSeenAt || entry.lastAnnounceAt, now)}`);
+    });
+  }
+  if (!guests.length) lines.push("guest MISSING");
+  else {
+    guests.forEach((entry) => {
+      lines.push(`guest ${entry.participantId || "?"} hb ${heartbeatLabel(entry.lastSeenAt || entry.lastAnnounceAt, now)}`);
+    });
+  }
+  if (!outs.length) lines.push("output MISSING");
+  else {
+    outs.forEach((entry) => {
+      const id = entry.outputId || entry.participantId || "?";
+      const connection = entry.connection || "connected";
+      lines.push(`output ${id} ${connection} hb ${heartbeatLabel(entry.lastSeenAt || entry.updatedAt || entry.lastAnnounceAt, now)}`);
+    });
+  }
+  const rooms = [...hosts, ...guests, ...outs]
+    .map((entry) => entry.roomId)
+    .filter(Boolean);
+  if (rooms.length && rooms.some((id) => id !== roomId)) lines.push("ROOM MISMATCH");
+  const sessions = [...hosts, ...guests, ...outs]
+    .map((entry) => entry.sessionId)
+    .filter(Boolean);
+  if (sessions.length && sessions.some((id) => id !== sessionId)) lines.push("SESSION MISMATCH");
+  return lines.join("\n");
+}
+
 export function sanitizeDiagnostics(value, depth = 0) {
   if (depth > 6 || value == null) return value;
   if (Array.isArray(value)) return value.map((entry) => sanitizeDiagnostics(entry, depth + 1));
@@ -63,6 +132,7 @@ export function formatDiagnostics(snapshot) {
   const lines = [];
   lines.push(`BUILD ${safe.buildId || "?"}  role=${safe.role || "?"}`);
   lines.push(`room=${safe.roomId || "?"}  life=${safe.lifecycle || "?"}`);
+  lines.push(formatPresenceBoard(safe));
   const self = safe.self || {};
   lines.push("— SELF —");
   lines.push(`pid ${self.participantId || "?"}`);

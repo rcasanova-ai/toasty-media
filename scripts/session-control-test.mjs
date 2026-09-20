@@ -21,6 +21,7 @@ import {
   commandTargetsParticipant,
   OUTPUT_STALE_MS
 } from "../js/session-control.js";
+import { formatPresenceBoard } from "../js/media-diagnostics.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = 4201;
@@ -240,6 +241,57 @@ async function main() {
   const producerView = summarizeOutputForProducer(host.outputs);
   assertEqual(producerView.connection, OutputConnection.CONNECTED, "Producer sees Program Output CONNECTED");
   assertEqual(host.roster.length, 2, "Producer sees 2 canonical participants");
+  assert(host.roster.every((entry) => entry.lastSeenAt), "Host+Guest roster heartbeats include lastSeenAt");
+  assert(host.outputs[0].lastSeenAt || host.outputs[0].updatedAt, "output heartbeat includes lastSeenAt");
+
+  guest = await announce({
+    participantId: "guest-tukta",
+    role: "guest",
+    displayName: "Tukta",
+    transportSourceId: `${ROOM_ID}gtukta`,
+    micEnabled: true,
+    cameraEnabled: true
+  });
+  output = await announce({
+    participantId: "output-1",
+    role: "output",
+    displayName: "Program Output",
+    outputStatus: {
+      outputId: "output-1",
+      sessionId: ROOM_ID,
+      connection: OutputConnection.CONNECTED,
+      connectedAt: Date.now(),
+      scene: SceneId.HOLDING,
+      expectedFeeds: 0,
+      boundFeeds: 0,
+      playingFeeds: 0,
+      emptyFeeds: 0,
+      audioEnabled: false
+    }
+  });
+  const sessionId = host.program?.sessionId || ROOM_ID;
+  const shapeBoard = (bundle, role, participantId) => formatPresenceBoard({
+    role,
+    sessionId,
+    roomId: ROOM_ID,
+    roster: (bundle.roster || []).map((entry) => ({ ...entry, sessionId, roomId: ROOM_ID })),
+    outputs: (bundle.outputs || []).map((entry) => ({ ...entry, sessionId, roomId: ROOM_ID })),
+    self: { participantId }
+  }, Date.now());
+  for (const [label, bundle, role, participantId] of [
+    ["Host", host, "host", "host"],
+    ["Guest", guest, "guest", "guest-tukta"],
+    ["Program Output", output, "output", "output-1"]
+  ]) {
+    const board = shapeBoard(bundle, role, participantId);
+    assert(/host .+ hb LIVE /.test(board), `${label} overlay lists LIVE host`);
+    assert(/guest .+ hb LIVE /.test(board), `${label} overlay lists LIVE guest`);
+    assert(/output .+ hb LIVE /.test(board), `${label} overlay lists LIVE Program Output`);
+    assert(!board.includes("MISSING"), `${label} overlay has Host+Guest+Output together`);
+    assert(!board.includes("MISMATCH"), `${label} overlay agrees on roomId/sessionId`);
+    assert(board.includes(`room ${ROOM_ID}`), `${label} overlay prints the production roomId`);
+    assert(board.includes(`session ${sessionId}`), `${label} overlay prints the production sessionId`);
+  }
 
   console.log("\n4. Guest mute → Producer state changes");
   guest = await announce({
@@ -429,9 +481,14 @@ async function main() {
     assert(liveSession.includes("createMediaCommand"), "Producer mute enqueues a command");
     const listener = readFileSync(join(ROOT, "js/listener.js"), "utf8");
     assert(listener.includes('role: "output"'), "Program Output joins presence as output");
+    assert(listener.includes("startOutputDebugMedia"), "Program Output mounts the presence debug overlay");
     assert(listener.includes("syncProgramRenderer"), "listener still uses Program Renderer");
     assert(listener.includes("Program audio failed"), "failed audio handshake stays visible");
     assert(listener.includes("await programAudio.resume()"), "audio handshake resumes AudioContext");
+    const engineDebug = readFileSync(join(ROOT, "js/video-engine.js"), "utf8");
+    assert(engineDebug.includes("copyDebugMediaFlag"), "Guest and Program Output invites inherit debugMedia");
+    const diagnostics = readFileSync(join(ROOT, "js/media-diagnostics.js"), "utf8");
+    assert(diagnostics.includes("formatPresenceBoard"), "overlay prints the Host+Guest+Output presence board");
   }
 
   console.log("\nALL PASSED — Host/Guest/Producer/Program Output share one canonical control plane.");
