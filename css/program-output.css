@@ -584,25 +584,24 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
   text-transform: uppercase;
 }
 
-/* One-time audio/video unlock gate. Browsers block autoplay of unmuted video without a user
-   gesture in that frame; the VDO.Ninja tiles carry real (unmuted) program audio on purpose, and
-   cleanoutput hides VDO.Ninja's own "click to play" prompt, so Program Output needs its own. Tiles
-   are only mounted after this is clicked (see listener.js), so the resulting iframe loads happen
-   inside a genuine user gesture and are allowed to autoplay with sound. */
+/* Audio enable control. Video mounts immediately while live; this banner must NOT cover the
+   participant tiles — Producer has to see Host/Guest video before recording. */
 .po-audio-gate {
-  align-items: center;
-  background: rgba(6, 5, 4, 0.86);
+  align-items: stretch;
+  background: linear-gradient(0deg, rgba(6, 5, 4, 0.94), rgba(6, 5, 4, 0.72) 70%, transparent);
   border: 0;
+  bottom: 0;
   color: var(--po-video-text);
   cursor: pointer;
   display: flex;
   flex-direction: column;
   font-family: var(--po-font-body);
   gap: 0.5rem;
-  inset: 0;
-  justify-content: center;
-  padding: 2rem;
+  justify-content: flex-end;
+  left: 0;
+  padding: 2.4rem 1.4rem 1.2rem;
   position: absolute;
+  right: 0;
   text-align: center;
   z-index: 20;
 }

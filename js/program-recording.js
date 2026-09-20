@@ -166,19 +166,65 @@ export function assetsUsedFromTimeline(timeline = [], assets = []) {
   return [...byId.values()];
 }
 
+export const PROGRAM_OUTPUT_PICKER_INSTRUCTION =
+  "Select:\n“Toasty Studio — Program Output”\nMake sure:\n“Share tab audio” is ON.";
+
+function trackReadyState(track) {
+  if (!track) return "missing";
+  return track.readyState || "unknown";
+}
+
+function trackIsLive(track) {
+  if (!track) return false;
+  // Node fakes and some polyfills omit readyState; presence of the track is enough there.
+  if (!track.readyState) return true;
+  return track.readyState === "live";
+}
+
 export function assertMasterTracks({ videoTracks = [], audioTracks = [] } = {}) {
   const video = (videoTracks || []).filter(Boolean);
   const audio = (audioTracks || []).filter(Boolean);
-  if (!video.length) return { ok: false, reason: "missing-video" };
-  if (!audio.length) return { ok: false, reason: "missing-audio" };
-  return { ok: true, videoTracks: video, audioTracks: audio };
+  if (!video.length) return { ok: false, reason: "missing-video", videoReadyState: "missing", audioReadyState: trackReadyState(audio[0]) };
+  if (!audio.length) return { ok: false, reason: "missing-audio", videoReadyState: trackReadyState(video[0]), audioReadyState: "missing" };
+  if (!trackIsLive(video[0])) {
+    return { ok: false, reason: "video-not-live", videoReadyState: trackReadyState(video[0]), audioReadyState: trackReadyState(audio[0]) };
+  }
+  if (!trackIsLive(audio[0])) {
+    return { ok: false, reason: "audio-not-live", videoReadyState: trackReadyState(video[0]), audioReadyState: trackReadyState(audio[0]) };
+  }
+  return {
+    ok: true,
+    videoTracks: video,
+    audioTracks: audio,
+    videoReadyState: trackReadyState(video[0]),
+    audioReadyState: trackReadyState(audio[0])
+  };
 }
 
+export function inspectMasterCapture(stream) {
+  const videoTracks = stream?.getVideoTracks?.() || [];
+  const audioTracks = stream?.getAudioTracks?.() || [];
+  const check = assertMasterTracks({ videoTracks, audioTracks });
+  return {
+    ...check,
+    streamActive: stream?.active !== false,
+    videoTrackCount: videoTracks.length,
+    audioTrackCount: audioTracks.length,
+    surfaceLabel: videoTracks[0]?.label || "",
+    looksLikeProgramOutput: looksLikeProgramOutput(videoTracks[0]),
+    selectedProgramOutput: looksLikeProgramOutput(videoTracks[0]) === true
+  };
+}
+
+// Kept for tests and a future server-mix composer. MediaRecorder must record the original
+// getDisplayMedia stream — wrapping those tracks in a new MediaStream is what threw
+// InvalidStateError on MediaRecorder.start() in production (BUILD 2026.09.20-masterrec).
 export function composeMasterMediaStream(tracks) {
   const check = assertMasterTracks(tracks);
   if (!check.ok) {
-    const error = new Error(check.reason);
+    const error = new Error(captureFailureMessage(check.reason));
     error.reason = check.reason;
+    error.diagnostics = check;
     throw error;
   }
   if (typeof MediaStream !== "function") return check;
@@ -189,16 +235,107 @@ export function composeMasterMediaStream(tracks) {
 }
 
 export function captureFailureMessage(reason) {
-  if (reason === "missing-audio") {
-    return "Program Output tab audio was not captured. Select that tab and enable tab audio so guest speech and soundboard are in the master.";
+  if (reason === "missing-audio" || reason === "audio-not-live") {
+    return "Program Output audio was not shared. Start again and enable Share tab audio.";
   }
-  if (reason === "missing-video") {
-    return "Program Output video was not captured. Select the Program Output tab.";
+  if (reason === "missing-video" || reason === "video-not-live") {
+    return "Program Output video capture is unavailable.";
   }
   if (reason === "unsupported") {
     return "This browser cannot capture Program Output (getDisplayMedia + MediaRecorder).";
   }
+  if (reason === "invalid-recorder-state") {
+    return "Program Output capture could not start. Select “Toasty Studio — Program Output” and turn Share tab audio ON.";
+  }
   return "Master recording could not capture Program Output.";
+}
+
+export function isInvalidStateError(error) {
+  return error?.name === "InvalidStateError" || /invalid state|state is invalid/i.test(String(error?.message || error || ""));
+}
+
+export function describeRecorderDiagnostics({
+  recorder = null,
+  capture = null,
+  mimeType = "",
+  operation = "",
+  attempt = "",
+  error = null
+} = {}) {
+  const inspection = capture ? inspectMasterCapture(capture) : {};
+  return {
+    operation,
+    attempt,
+    recorderState: recorder?.state || "none",
+    mimeType: recorder?.mimeType || mimeType || "",
+    streamActive: inspection.streamActive ?? capture?.active ?? null,
+    videoReadyState: inspection.videoReadyState || "missing",
+    audioReadyState: inspection.audioReadyState || "missing",
+    videoTrackCount: inspection.videoTrackCount ?? 0,
+    audioTrackCount: inspection.audioTrackCount ?? 0,
+    surfaceLabel: inspection.surfaceLabel || "",
+    selectedProgramOutput: inspection.selectedProgramOutput ?? null,
+    errorName: error?.name || "",
+    errorMessage: error?.message || "",
+    errorStack: error?.stack || ""
+  };
+}
+
+export function wrapMediaRecorderError(error, diagnostics = {}, operation = "MediaRecorder.start") {
+  const reason = isInvalidStateError(error) ? "invalid-recorder-state" : (diagnostics.reason || "recorder-failed");
+  const wrapped = new Error(captureFailureMessage(reason));
+  wrapped.reason = reason;
+  wrapped.operation = diagnostics.operation || operation;
+  wrapped.userMessage = wrapped.message;
+  wrapped.causeName = error?.name || "";
+  wrapped.causeMessage = error?.message || String(error || "");
+  wrapped.causeStack = error?.stack || "";
+  wrapped.diagnostics = diagnostics;
+  try {
+    console.error("[MasterProgramRecorder]", wrapped.operation, wrapped.reason, diagnostics, error);
+  } catch (_) {}
+  return wrapped;
+}
+
+export function startMasterMediaRecorder(Rec, stream, mimeType, { onRecorder } = {}) {
+  const attempts = [
+    {
+      id: "mime-bitrate-timeslice",
+      options: mimeType ? { mimeType, audioBitsPerSecond: 160000, videoBitsPerSecond: 6000000 } : undefined,
+      timeslice: 1000
+    },
+    { id: "mime-timeslice", options: mimeType ? { mimeType } : undefined, timeslice: 1000 },
+    { id: "mime", options: mimeType ? { mimeType } : undefined, timeslice: undefined },
+    { id: "default", options: undefined, timeslice: undefined }
+  ];
+  let lastError = null;
+  let lastOperation = "MediaRecorder";
+  let lastAttempt = "";
+  let lastRecorder = null;
+  for (const attempt of attempts) {
+    lastAttempt = attempt.id;
+    lastRecorder = null;
+    try {
+      lastOperation = `MediaRecorder constructor (${attempt.id})`;
+      lastRecorder = attempt.options ? new Rec(stream, attempt.options) : new Rec(stream);
+      onRecorder?.(lastRecorder);
+      lastOperation = `MediaRecorder.start (${attempt.id})`;
+      if (attempt.timeslice != null) lastRecorder.start(attempt.timeslice);
+      else lastRecorder.start();
+      return { recorder: lastRecorder, attempt: attempt.id, mimeType: lastRecorder.mimeType || mimeType || "" };
+    } catch (error) {
+      lastError = error;
+      lastError.operation = lastOperation;
+    }
+  }
+  throw wrapMediaRecorderError(lastError, describeRecorderDiagnostics({
+    recorder: lastRecorder,
+    capture: stream,
+    mimeType,
+    operation: lastOperation,
+    attempt: lastAttempt,
+    error: lastError
+  }), lastOperation);
 }
 
 export function programOutputDisplayConstraints() {
@@ -474,34 +611,60 @@ export class MasterProgramRecorder {
     this.chunks = [];
     this.stoppedAt = null;
     this._stopping = false;
-    this.status?.("Select the Program Output tab (already audio-enabled) and enable tab audio.");
+    this.status?.(PROGRAM_OUTPUT_PICKER_INSTRUCTION);
     const capture = await getDisplayMedia(programOutputDisplayConstraints());
     this.captureStream = capture;
-    const videoTracks = capture.getVideoTracks();
-    const audioTracks = capture.getAudioTracks();
-    const check = assertMasterTracks({ videoTracks, audioTracks });
-    if (!check.ok) {
+    const inspection = inspectMasterCapture(capture);
+    if (!inspection.ok) {
       capture.getTracks().forEach((track) => track.stop());
       this.captureStream = null;
-      throw Object.assign(new Error(captureFailureMessage(check.reason)), { reason: check.reason });
+      const error = new Error(captureFailureMessage(inspection.reason));
+      error.reason = inspection.reason;
+      error.operation = "assertMasterTracks";
+      error.diagnostics = describeRecorderDiagnostics({
+        capture,
+        operation: "assertMasterTracks",
+        error
+      });
+      error.diagnostics = { ...error.diagnostics, ...inspection };
+      try { console.error("[MasterProgramRecorder] capture rejected", error.diagnostics); } catch (_) {}
+      throw error;
     }
-    this.surfaceLabel = videoTracks[0]?.label || "";
-    if (looksLikeProgramOutput(videoTracks[0]) === false) {
-      this.status?.("That share does not look like Program Output. The master records the tab you selected. Stop and re-share Program Output if this is the Director.");
+    this.surfaceLabel = inspection.surfaceLabel;
+    if (inspection.looksLikeProgramOutput === false) {
+      this.status?.("That share does not look like Program Output. Stop and select “Toasty Studio — Program Output”.");
     }
-    this.masterStream = typeof MediaStream === "function" ? composeMasterMediaStream(check) : capture;
-    videoTracks[0]?.addEventListener?.("ended", () => {
+    // Record the original getDisplayMedia stream. Do not wrap tracks in a new MediaStream —
+    // that reconstructed stream made MediaRecorder.start() throw InvalidStateError.
+    this.masterStream = capture;
+    capture.getVideoTracks()[0]?.addEventListener?.("ended", () => {
       if (this.recorder?.state === "recording") this.stop().catch(() => {});
     });
     this.mimeType = MASTER_MIME.find((type) => Rec.isTypeSupported?.(type)) || "";
-    this.recorder = new Rec(this.masterStream, this.mimeType ? { mimeType: this.mimeType, audioBitsPerSecond: 160000, videoBitsPerSecond: 6000000 } : undefined);
-    this.recorder.addEventListener("dataavailable", (event) => {
-      if (event.data?.size) this.chunks.push(event.data);
+    const started = startMasterMediaRecorder(Rec, capture, this.mimeType, {
+      onRecorder: (recorder) => {
+        recorder.addEventListener("dataavailable", (event) => {
+          if (event.data?.size) this.chunks.push(event.data);
+        });
+      }
     });
-    this.recorder.start(1000);
+    this.recorder = started.recorder;
+    this.mimeType = started.mimeType || this.mimeType;
+    this.startAttempt = started.attempt;
     this.startedAt = Date.now();
-    this.status?.("Recording master Program Output.");
-    return { recordingId: this.recordingId, startedAt: this.startedAt, surfaceLabel: this.surfaceLabel };
+    this.status?.("RECORDING");
+    return {
+      recordingId: this.recordingId,
+      startedAt: this.startedAt,
+      surfaceLabel: this.surfaceLabel,
+      diagnostics: describeRecorderDiagnostics({
+        recorder: this.recorder,
+        capture,
+        mimeType: this.mimeType,
+        operation: `MediaRecorder.start (${started.attempt})`,
+        attempt: started.attempt
+      })
+    };
   }
 
   async stop() {
@@ -534,7 +697,7 @@ export class MasterProgramRecorder {
         this.masterStream = null;
         this.captureStream = null;
         this.chunks = [];
-        this.status?.("Master recording captured.");
+        this.status?.("SAVING RECORDING…");
         resolve(result);
       };
       this.recorder.addEventListener("stop", finish, { once: true });
