@@ -661,7 +661,17 @@ export class LiveSession {
     const hostStreamId = `${this.roomId}h`;
     const screenPrefix = `${this.roomId}s`;
     const guestsAll = await this.engine.requestGuestList();
-    const guests = guestsAll.filter((entry) => entry.id !== hostStreamId && !String(entry.id || "").startsWith(screenPrefix));
+    const presenceRoster = this.presence?.roster || [];
+    const hostSourceIds = new Set([
+      hostStreamId,
+      ...presenceRoster.filter((entry) => entry.role === "host").map((entry) => entry.transportSourceId).filter(Boolean)
+    ]);
+    const guests = guestsAll.filter((entry) => {
+      const id = String(entry.id || "");
+      if (!id || hostSourceIds.has(id) || id.startsWith(screenPrefix)) return false;
+      const presenceMatch = presenceRoster.find((rosterEntry) => rosterEntry.transportSourceId === id || rosterEntry.participantId === id);
+      return presenceMatch?.role !== "host";
+    });
     this._lastVdoGuestList = guests;
     const stillPresent = new Set(guests.map((guest) => guest.id));
 
@@ -724,7 +734,6 @@ export class LiveSession {
     // that detection is untouched, it already works) against Presence by transportSourceId, and overrides
     // identity only, never connection/count. A seat with no matching presence entry yet keeps its
     // VDO-label-derived fallback from above rather than showing nothing.
-    const presenceRoster = this.presence?.roster || [];
     this.guestSeats.filter(Boolean).forEach((seat) => {
       const match = presenceRoster.find((entry) => entry.transportSourceId === seat.id || entry.participantId === seat.id);
       if (!match) return;
@@ -1551,7 +1560,6 @@ export class LiveSession {
     const blocked = this.recordingBlockReason();
     if (blocked) throw new Error(blocked);
     if (this.recording.active) return this.recording;
-    this.ensureProgramOutputWindow();
     this.emit("recording-status", PROGRAM_OUTPUT_PICKER_INSTRUCTION);
     const recordingId = nextRecordingId();
     this._masterRecorder = new MasterRecorder({

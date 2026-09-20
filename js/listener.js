@@ -330,8 +330,9 @@ function outputStatusPayload() {
   const scene = normalizeScene(lastProgramState?.scene);
   const expectedFeeds = composition.slots.length;
   const playingFeeds = health.playing || counts.playing || 0;
+  const readyFeeds = (health.items || []).filter((item) => item.health === SourceHealth.PLAYING || item.health === "attached" || item.health === "bound").length;
   const emptyFeeds = health.empty || counts.empty || feeds.empty;
-  const videoReady = scene === SceneId.LIVE && expectedFeeds > 0 && playingFeeds === expectedFeeds && emptyFeeds === 0 && !health.failed;
+  const videoReady = scene === SceneId.LIVE && expectedFeeds > 0 && readyFeeds === expectedFeeds && emptyFeeds === 0 && !health.failed;
   const audioReady = Boolean(audioUnlocked) && !audioError;
   return {
     outputId,
@@ -346,6 +347,7 @@ function outputStatusPayload() {
     expectedFeeds,
     boundFeeds: feeds.bound,
     playingFeeds,
+    readyFeeds,
     emptyFeeds,
     stalledFeeds: health.stalled || counts.stalled || 0,
     failedFeeds: health.failed || counts.failed || 0,
