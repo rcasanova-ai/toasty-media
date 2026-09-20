@@ -11,7 +11,20 @@ import {
   normalizeBrandTheme,
   saveBrandTheme,
 } from "./brand-themes.js";
-import { LocalIsolatedRecorder } from "./recording.js";
+import {
+  MasterProgramRecorder,
+  MarkerLog,
+  RecordingKind,
+  nextRecordingId,
+  assembleMasterPackage,
+  persistMasterRecording,
+  loadMasterRecording,
+  idleRecordingState,
+  activeRecordingState,
+  markerTypeFromProduction,
+  rememberLastMasterRecording,
+  recalledMasterRecordingId
+} from "./program-recording.js";
 import { ProgramSync } from "./program-sync.js";
 import { SessionPolicy } from "./session-policy.js";
 import { RunOfShow } from "./run-of-show.js";
@@ -21,7 +34,7 @@ import { createTranscriptionProvider } from "./transcription.js";
 import { HostDirectiveLog } from "./host-directive.js";
 import { LiveProducerController, ingestAttributedTranscript } from "./live-producer.js";
 import { ProgramAssetCatalog, serializeProgramAsset } from "./program-asset.js";
-import { ProgramController, ProductionActionLog } from "./production-controller.js";
+import { ProgramController, ProductionActionLog, ProductionActionType } from "./production-controller.js";
 import { AssetCatalogue } from "./asset-catalogue.js";
 import { ProgramAudioBus, serializeProgramAudio } from "./program-audio.js";
 import { createResearchProvider } from "./hottie-research.js";
@@ -106,7 +119,7 @@ export class LiveSession {
     this.researchContext = null;
 
     this.av = { micMuted: false, cameraOff: false };
-    this.recording = { active: false, startedAt: null };
+    this.recording = idleRecordingState();
     this.connection = { status: "idle", label: "Ready" };
 
     this.program = {
@@ -165,7 +178,7 @@ export class LiveSession {
     this._guestListTimerId = null;
     this._sessionStatusTimerId = null;
     this._recordingTimerId = null;
-    this._recorder = null;
+    this._masterRecorder = null;
     this._containers = null;
     this._listeners = new Map();
     this._startedAt = Date.now();
@@ -200,6 +213,7 @@ export class LiveSession {
     this.catalogue = new AssetCatalogue();
     this.programAudio = new ProgramAudioBus({ role: "producer-monitor" });
     this.productionLog = new ProductionActionLog();
+    this.markers = new MarkerLog();
     this.programController = new ProgramController(this);
     this.researchProvider = createResearchProvider({ preferSeeded: false });
     this.liveProducer = new LiveProducerController(this);
@@ -348,6 +362,7 @@ export class LiveSession {
     this.liveProducer.resetNotices();
     this.assets.clear();
     this.productionLog.clear();
+    this.markers.clear();
     this.program.assetLayout = null;
     this.program.audio = null;
     this.programAudio?.stop();
@@ -387,6 +402,7 @@ export class LiveSession {
     this._updateInviteAndHistory();
     this.publishProgramState();
     this.emit("room", { roomId: this.roomId });
+    this.hydrateLastMaster().catch(() => {});
   }
 
   // ---- Host identity ----
@@ -467,9 +483,10 @@ export class LiveSession {
   // js/host-prejoin.js to show its form again.
   createNewRoom() {
     this.roomId = createDisposableRoomId();
-    this._stopRecordingTimer();
+    if (this.recording.active) this.stopRecording().catch(() => {});
+    else this._abandonMasterRecorder();
     this.av = { micMuted: false, cameraOff: false };
-    this.recording = { active: false, startedAt: null };
+    if (!this.recording.active) this.recording = idleRecordingState(this.recording.last);
     this.connection = { status: "idle", label: "Ready" };
     this.emit("av", this.av);
     this.emit("recording", this.recording);
@@ -883,7 +900,14 @@ export class LiveSession {
       participants: this.participants.list().map(serializeProgramParticipant),
       asset: serializeProgramAsset(this.programController.liveAsset()),
       assetLayout: this.program.assetLayout,
-      audio: serializeProgramAudio(this.program.audio)
+      audio: serializeProgramAudio(this.program.audio),
+      // Snapshot only. Program Output must never render REC chrome — it would bake into the master.
+      recording: {
+        kind: this.recording.kind || RecordingKind.MASTER,
+        active: Boolean(this.recording.active),
+        recordingId: this.recording.recordingId || null,
+        startedAt: this.recording.startedAt || null
+      }
     });
   }
 
@@ -1030,30 +1054,179 @@ export class LiveSession {
     if (!this.policy.canRecord() && this.recording.active) this.stopRecording().catch(() => {});
   }
 
-  // ---- Recording (policy-gated) ----
+  // ---- Master Program Recording (policy-gated) ----
+  // Producer Record captures Program Output (audience picture + sound). Isolated Host
+  // getUserMedia (LocalIsolatedRecorder) is a source tape, not this master — starting it here would
+  // steal the Host camera and would not contain guest speech, layouts, or soundboard.
 
   canRecord() {
-    return this.policy.canRecord() && LocalIsolatedRecorder.isSupported();
+    return this.policy.canRecord() && MasterProgramRecorder.isSupported();
+  }
+
+  ensureProgramOutputWindow() {
+    if (typeof window === "undefined") return null;
+    return window.open(this.inviteUrls().listener, "toasty-program-output");
   }
 
   async startRecording() {
     if (!this.policy.canRecord()) throw new Error("Recording is disabled by this session's capture policy.");
-    this._recorder = new LocalIsolatedRecorder({
-      role: "host",
-      roomId: this.roomId,
+    if (!MasterProgramRecorder.isSupported()) {
+      throw new Error("This browser cannot capture Program Output (getDisplayMedia + MediaRecorder).");
+    }
+    if (this.recording.active) return this.recording;
+    this.ensureProgramOutputWindow();
+    const recordingId = nextRecordingId();
+    this._masterRecorder = new MasterProgramRecorder({
       status: (message) => this.emit("recording-status", message)
     });
-    await this._recorder.start();
-    this.recording = { active: true, startedAt: Date.now() };
-    this._recordingTimerId = window.setInterval(() => this.emit("recording", this.recording), 1000);
-    this.emit("recording", this.recording);
+    try {
+      const started = await this._masterRecorder.start({ recordingId });
+      this._setRecording(activeRecordingState({
+        recordingId: started.recordingId,
+        startedAt: started.startedAt,
+        last: this.recording.last
+      }));
+      this._recordingTimerId = window.setInterval(() => this.emit("recording", this.recording), 1000);
+      this.publishProgramState();
+      return this.recording;
+    } catch (error) {
+      this._masterRecorder = null;
+      throw error;
+    }
   }
 
   async stopRecording() {
-    await this._recorder?.stop();
-    this.recording = { active: false, startedAt: null };
+    const recorder = this._masterRecorder;
+    this._masterRecorder = null;
     this._stopRecordingTimer();
+    if (!recorder) {
+      this._setRecording(idleRecordingState(this.recording.last));
+      this.publishProgramState();
+      return this.recording.last;
+    }
+    const captureResult = await recorder.stop();
+    const { startedAt, stoppedAt } = captureResult;
+    const { manifest } = assembleMasterPackage({
+      sessionId: this.durableSession?.id || this.roomId,
+      roomId: this.roomId,
+      recordingId: captureResult.recordingId,
+      startedAt,
+      stoppedAt,
+      brandTheme: this.brandTheme,
+      participants: this.participants.list(),
+      captureResult,
+      productionActions: this.productionLog.items,
+      assets: this.assets.items,
+      liveAsset: this.programController.liveAsset(),
+      playingAudio: this.program.audio,
+      markers: this.markers.during(startedAt, stoppedAt),
+      transcript: {
+        kind: "TranscriptStore",
+        available: this.transcript.lines.length > 0,
+        lineCount: this.transcript.lines.length
+      },
+      chat: {
+        kind: "audience-chat",
+        available: this.audience.messages.length > 0,
+        messageCount: this.audience.messages.length,
+        note: "Unified audience + Hottie chat is a later slice. This is the current audience store."
+      },
+      isolatedTracks: []
+    });
+    let persisted = false;
+    try {
+      await persistMasterRecording({
+        recordingId: captureResult.recordingId,
+        blob: captureResult.blob,
+        manifest
+      });
+      rememberLastMasterRecording(this.roomId, captureResult.recordingId);
+      persisted = true;
+    } catch (error) {
+      this.emit("recording-status", `Master captured in this tab, but IndexedDB persist failed: ${error.message}`);
+    }
+    if (this.recording.last?.objectUrl && this.recording.last.objectUrl !== captureResult.objectUrl) {
+      try { URL.revokeObjectURL(this.recording.last.objectUrl); } catch (_) {}
+    }
+    const last = {
+      kind: RecordingKind.MASTER,
+      recordingId: captureResult.recordingId,
+      startedAt,
+      stoppedAt,
+      durationSeconds: manifest.durationSeconds,
+      blob: captureResult.blob,
+      objectUrl: URL.createObjectURL(captureResult.blob),
+      mimeType: captureResult.mimeType,
+      bytes: captureResult.bytes,
+      manifest,
+      persisted
+    };
+    this._setRecording(idleRecordingState(last));
+    this.publishProgramState();
+    this.emit("recording-status", persisted
+      ? "Master Program Recording saved. Play it back below."
+      : "Master Program Recording captured in this tab. Download it — IndexedDB persist failed.");
+    return last;
+  }
+
+  noteProductionMarker(type, label, source = "producer") {
+    const marker = this.markers.add({
+      type: markerTypeFromProduction(type),
+      label,
+      source,
+      timestamp: Date.now()
+    });
+    this.productionLog.record(ProductionActionType.MARKER, {
+      markerId: marker.id,
+      markerType: marker.type,
+      label: marker.label,
+      source: marker.source
+    });
+    this.emit("marker", marker);
+    return marker;
+  }
+
+  addMarker(label = "Marker") {
+    const count = this.markers.items.length + 1;
+    return this.noteProductionMarker("manual", label || `Marker ${count}`, "producer");
+  }
+
+  async hydrateLastMaster() {
+    const recordingId = recalledMasterRecordingId(this.roomId);
+    if (!recordingId || this.recording.active) return null;
+    try {
+      const loaded = await loadMasterRecording(recordingId);
+      if (!loaded?.blob || !loaded.manifest) return null;
+      const last = {
+        kind: RecordingKind.MASTER,
+        recordingId,
+        startedAt: Date.parse(loaded.manifest.startedAt),
+        stoppedAt: Date.parse(loaded.manifest.stoppedAt),
+        durationSeconds: loaded.manifest.durationSeconds,
+        blob: loaded.blob,
+        objectUrl: URL.createObjectURL(loaded.blob),
+        mimeType: loaded.blob.type,
+        bytes: loaded.blob.size,
+        manifest: loaded.manifest,
+        persisted: true
+      };
+      this._setRecording(idleRecordingState(last));
+      return last;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  _setRecording(next) {
+    this.recording = next;
     this.emit("recording", this.recording);
+  }
+
+  _abandonMasterRecorder() {
+    this._stopRecordingTimer();
+    const recorder = this._masterRecorder;
+    this._masterRecorder = null;
+    recorder?.stop().catch(() => {});
   }
 
   _stopRecordingTimer() {
@@ -1081,7 +1254,8 @@ export class LiveSession {
     // bucket (see SESSION_STATUS_POLL_MS's comment) and made a later, genuinely human-triggered refresh
     // fail with "Failed to fetch".
     this._stopGuestListPolling();
-    this._stopRecordingTimer();
+    if (this.recording.active) this.stopRecording().catch(() => {});
+    else this._stopRecordingTimer();
     this.stopTranscription();
     this._teardownProgramPreview();
     this._hostPreviewStream?.getTracks().forEach((track) => track.stop());
@@ -1104,7 +1278,8 @@ export class LiveSession {
     this.setScene("ending");
     this.setLive(false);
     this.engine.disconnectAll(guestIds);
-    this._stopRecordingTimer();
+    if (this.recording.active) this.stopRecording().catch(() => {});
+    else this._stopRecordingTimer();
     this.stopTranscription();
     // VDO's own iframe teardown (disconnectAll above) never touches this — it's a plain getUserMedia
     // stream Toasty owns directly for the native tile, so nothing else will turn the camera light off.

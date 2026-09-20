@@ -110,8 +110,8 @@ export class LocalIsolatedRecorder {
         videoBytes: videoBlob?.size || 0
       },
       notes: [
-        "This is browser-local isolated recording for this participant only.",
-        "Program Audio (soundboard / catalogue files) is not on this recorder. Future master Program recording must mix Program Output video with ProgramAudioBus.captureStream() — see js/program-audio.js.",
+        "This is browser-local isolated recording for this participant only. It is a SOURCE tape, not the Master Program Recording.",
+        "Program Audio (soundboard / catalogue files) is not on this recorder. ProgramAudioBus.captureStream() is the native-stream mix hook; the master is Program Output tab capture in js/program-recording.js.",
         audioOnly
           ? "AI Production uses real creator voice audio as the future avatar provider input."
           : "The guest must stop and save their own local package; hosted VDO.Ninja iframes do not expose remote isolated tracks to this page."
