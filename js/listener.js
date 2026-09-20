@@ -8,6 +8,7 @@ import { ProgramAudioBus, serializeProgramAudio } from "./program-audio.js";
 import { ProgramAudioMixer } from "./program-audio-mixer.js";
 import { RoomPresence } from "./room-presence.js";
 import { ProgramServerSubscriber } from "./program-server-sync.js";
+import { END_CARD_SOCIAL_PLATFORMS, END_CARD_SOCIAL_LABELS, END_CARD_SOCIAL_ICONS } from "./end-card.js";
 import {
   OutputConnection,
   SceneId,
@@ -63,7 +64,12 @@ const elements = {
   brbTopic: document.querySelector("#poBrbTopic"),
   ending: document.querySelector("#poEnding"),
   endingLogo: document.querySelector("#poEndingLogo"),
-  endingCta: document.querySelector("#poEndingCta"),
+  endingHeadline: document.querySelector("#poEndingHeadline"),
+  endingMessage: document.querySelector("#poEndingMessage"),
+  endingWebsite: document.querySelector("#poEndingWebsite"),
+  endingSocials: document.querySelector("#poEndingSocials"),
+  endingQr: document.querySelector("#poEndingQr"),
+  endingQrImage: document.querySelector("#poEndingQrImage"),
   liveChip: document.querySelector("#poLiveChip"),
   topic: document.querySelector("#poTopic"),
   ticker: document.querySelector("#poTicker"),
@@ -257,8 +263,43 @@ function render(programState, source = "unknown") {
   } else {
     clearStage();
   }
+  if (scene === SceneId.ENDING) renderEndCard(programState.endCard);
   syncProgramAudio(programState);
   reportOutputStatus();
+}
+
+// programState.endCard already arrives fully resolved (session override -> profile default -> tasteful
+// fallback all happen Producer-side in LiveSession.canonicalControlState/resolveEndCard) — Program Output
+// just renders whatever it's handed.
+function renderEndCard(endCard) {
+  if (!endCard) return;
+  if (elements.endingHeadline) elements.endingHeadline.textContent = endCard.headline || "Thanks for watching";
+  if (elements.endingMessage) {
+    elements.endingMessage.hidden = !endCard.message;
+    elements.endingMessage.textContent = endCard.message || "";
+  }
+  if (elements.endingWebsite) {
+    elements.endingWebsite.hidden = !endCard.website;
+    elements.endingWebsite.textContent = endCard.website || "";
+  }
+  if (elements.endingSocials) {
+    const entries = END_CARD_SOCIAL_PLATFORMS.map((platform) => [platform, endCard.socials?.[platform]]).filter(([, url]) => url);
+    elements.endingSocials.hidden = entries.length === 0;
+    elements.endingSocials.replaceChildren(...entries.map(([platform, url]) => {
+      const link = document.createElement("span");
+      link.className = "po-ending-social";
+      link.dataset.platform = platform;
+      link.title = END_CARD_SOCIAL_LABELS[platform] || platform;
+      link.innerHTML = END_CARD_SOCIAL_ICONS[platform] || "";
+      void url; // Program Output is a broadcast source, not a clickable page — the URL is shown for context only.
+      return link;
+    }));
+  }
+  if (elements.endingQr && elements.endingQrImage) {
+    const showQr = Boolean(endCard.showQr && endCard.qrImage);
+    elements.endingQr.hidden = !showQr;
+    elements.endingQrImage.src = showQr ? endCard.qrImage : "";
+  }
 }
 
 function programParticipants(programState) {
@@ -438,9 +479,13 @@ function applyBrand(themeId) {
     if (programMark) { img.hidden = false; img.src = programMark; img.alt = theme.logoAlt || theme.label; }
     else img.hidden = true;
   });
-  elements.endingCta.textContent = brandProfile.defaultCTA
-    ? `${brandProfile.defaultCTA}${brandProfile.website ? " · " + brandProfile.website : ""}`
-    : theme.label;
+  // Fallback only for the instant before the first real programState.endCard arrives — renderEndCard
+  // (called from render() on every update) is the actual source of truth once program state exists.
+  if (!lastProgramState?.endCard) {
+    elements.endingHeadline.textContent = brandProfile.defaultCTA
+      ? `${brandProfile.defaultCTA}${brandProfile.website ? " · " + brandProfile.website : ""}`
+      : theme.label;
+  }
 }
 
 function restartTicker() {

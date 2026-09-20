@@ -722,6 +722,37 @@
               <button id="lvApplyFocusBrief" class="btn btn-primary btn-small" type="button">Create Focus Group Run of Show</button>
               <p class="control-note" id="lvFocusSummary">Target 5 · matched 0 · confirmed 0 · remaining 5</p>
             </section>
+
+            <section class="lv-panel lv-end-card" data-lv-only="producer" hidden aria-label="End card">
+              <div class="lv-panel-head"><span>End Card</span></div>
+              <input id="lvEndCardHeadline" type="text" placeholder="Headline (e.g. Follow Ricardo / Toasty Peeps)" maxlength="120">
+              <textarea id="lvEndCardMessage" rows="2" placeholder="Message (e.g. Building the human layer for the agent economy.)" maxlength="400"></textarea>
+              <input id="lvEndCardWebsite" type="text" placeholder="Website (e.g. toasty.media/peeps)" maxlength="300">
+              <div class="lv-end-card-grid">
+                <input id="lvEndCardSocialX" type="text" placeholder="X URL">
+                <input id="lvEndCardSocialLinkedin" type="text" placeholder="LinkedIn URL">
+                <input id="lvEndCardSocialYoutube" type="text" placeholder="YouTube URL">
+                <input id="lvEndCardSocialInstagram" type="text" placeholder="Instagram URL">
+                <input id="lvEndCardSocialTiktok" type="text" placeholder="TikTok URL">
+                <input id="lvEndCardSocialGithub" type="text" placeholder="GitHub URL">
+                <input id="lvEndCardSocialTelegram" type="text" placeholder="Telegram URL">
+              </div>
+              <label class="po-field po-ticker-toggle">
+                <input id="lvEndCardShowQr" type="checkbox">
+                Show QR code on the end card
+              </label>
+              <div class="lv-end-card-qr-row">
+                <div class="lv-end-card-qr-preview" id="lvEndCardQrPreview" hidden><img id="lvEndCardQrPreviewImage" alt="QR preview"></div>
+                <label class="btn btn-ghost btn-small" for="lvEndCardQrUpload">Upload QR image</label>
+                <input id="lvEndCardQrUpload" type="file" accept="image/*" hidden>
+              </div>
+              <div class="lv-end-card-actions">
+                <button id="lvEndCardUseProfileDefault" class="btn btn-ghost btn-small" type="button">Use Profile Default</button>
+                <button id="lvEndCardSaveProfileDefault" class="btn btn-ghost btn-small" type="button">Save as Profile Default</button>
+                <button id="lvEndCardSaveSession" class="btn btn-primary btn-small" type="button">Save for This Session</button>
+              </div>
+              <p class="control-note" id="lvEndCardStatus"></p>
+            </section>
           </div>
         </section>
       </section>

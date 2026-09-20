@@ -3374,6 +3374,39 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.lv-end-card-grid {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.lv-end-card-qr-row {
+  align-items: center;
+  display: flex;
+  gap: 0.6rem;
+}
+
+.lv-end-card-qr-preview {
+  background: #ffffff;
+  border: 1px solid var(--studio-line);
+  border-radius: 8px;
+  flex: 0 0 auto;
+  padding: 0.25rem;
+}
+
+.lv-end-card-qr-preview img {
+  display: block;
+  height: 44px;
+  object-fit: contain;
+  width: 44px;
+}
+
+.lv-end-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 .po-lower-thirds {
   border-top: 1px solid var(--studio-line);
   display: grid;

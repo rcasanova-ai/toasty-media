@@ -70,6 +70,7 @@ import { RemoteMediaState } from "./remote-media-state.js";
 import { ProducerFeed, AIProducerService, createAIProducerProvider } from "./ai-producer.js";
 import { studioRequest } from "./studio-api.js";
 import { syncParticipantStage, clearParticipantStage } from "./participant-stage.js";
+import { resolveEndCard, sanitizeEndCard } from "./end-card.js";
 import { syncProgramRenderer, clearProgramRenderer, serializeProgramParticipant } from "./program-renderer.js";
 import { CompositionMode, ShareLayout } from "./program-composition.js";
 import {
@@ -220,6 +221,11 @@ export class LiveSession {
     // record and simply won't have one — end/kick/capacity-by-session simply don't apply to those rooms.
     this.durableSession = null;
     this._sessionEndedTimerId = null;
+    // Outro CTA (see js/end-card.js): sessionEndCard rides on the durable session row (applyDurableSession
+    // below), profileEndCard comes from the account's own /auth/session read (loadProfileEndCard). Both
+    // start empty, which resolveEndCard() treats as "not set" and falls through to the next tier.
+    this.sessionEndCard = {};
+    this.profileEndCard = {};
 
     this._programSync = null;
     this._guestListTimerId = null;
@@ -982,7 +988,54 @@ export class LiveSession {
   applyDurableSession(record) {
     this.durableSession = record;
     this.roomId = record.roomId;
+    this.sessionEndCard = record.endCard || {};
     this.emit("durable-session", record);
+    this.emit("end-card", { sessionEndCard: this.sessionEndCard, profileEndCard: this.profileEndCard });
+  }
+
+  // Loads the account's profile-default end card. Best-effort: if it fails, resolveEndCard() just falls
+  // through to the tasteful fallback tier same as an account that never set one.
+  async loadProfileEndCard() {
+    try {
+      const result = await studioRequest("/auth/session", { method: "GET" });
+      this.profileEndCard = result?.user?.endCard || {};
+      this.emit("end-card", { sessionEndCard: this.sessionEndCard, profileEndCard: this.profileEndCard });
+    } catch (error) {
+      console.error("[LiveSession] loadProfileEndCard failed", error);
+    }
+  }
+
+  async setSessionEndCard(endCard) {
+    const sanitized = sanitizeEndCard(endCard);
+    this.sessionEndCard = sanitized;
+    this._publishControlNow();
+    this.emit("end-card", { sessionEndCard: this.sessionEndCard, profileEndCard: this.profileEndCard });
+    if (!this.durableSession?.id) return sanitized;
+    try {
+      const result = await studioRequest(`/api/sessions/${this.durableSession.id}/end-card`, {
+        method: "POST",
+        body: JSON.stringify({ endCard: sanitized })
+      });
+      if (result?.session) this.durableSession = result.session;
+    } catch (error) {
+      console.error("[LiveSession] setSessionEndCard failed", error);
+    }
+    return sanitized;
+  }
+
+  async setProfileEndCard(endCard) {
+    const sanitized = sanitizeEndCard(endCard);
+    this.profileEndCard = sanitized;
+    this.emit("end-card", { sessionEndCard: this.sessionEndCard, profileEndCard: this.profileEndCard });
+    try {
+      await studioRequest("/api/profile/end-card", {
+        method: "POST",
+        body: JSON.stringify({ endCard: sanitized })
+      });
+    } catch (error) {
+      console.error("[LiveSession] setProfileEndCard failed", error);
+    }
+    return sanitized;
   }
 
   // Producer-initiated, authoritative: marks the backend record ENDED (blocking every future join/
@@ -1106,7 +1159,8 @@ export class LiveSession {
         recordingId: this.recording.recordingId || null,
         startedAt: this.recording.startedAt || null
       },
-      outputs: this.presence?.outputs || []
+      outputs: this.presence?.outputs || [],
+      endCard: resolveEndCard({ sessionEndCard: this.sessionEndCard, profileEndCard: this.profileEndCard })
     });
   }
 

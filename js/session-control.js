@@ -75,6 +75,7 @@ export function buildCanonicalState({
   audioActivity = [],
   recording = null,
   outputs = [],
+  endCard = null,
   revision = 0,
   updatedAt = Date.now()
 } = {}) {
@@ -109,6 +110,7 @@ export function buildCanonicalState({
     audio: audio || null,
     recording: recording || null,
     outputs: (outputs || []).map(normalizeOutputStatus).filter(Boolean),
+    endCard: endCard || null,
     revision: Number(revision) || 0,
     updatedAt: Number(updatedAt) || Date.now()
   };

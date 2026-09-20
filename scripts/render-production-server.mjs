@@ -308,6 +308,20 @@ const server = createServer(async (req, res) => {
     await handleSessionBrand(req, res, session);
     return;
   }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/end-card")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sessions-end-card", 60, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSessionEndCard(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/profile/end-card") {
+    if (!requireCsrf(req, res) || !limit(req, res, "profile-end-card", 60, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleProfileEndCard(req, res, session);
+    return;
+  }
   if (req.method !== "POST" || req.url !== "/render") {
     sendJson(req, res, 404, { error: "Render helper is running. POST /render to create an MP4." });
     return;
@@ -1317,7 +1331,7 @@ async function readSession(req) {
 }
 
 function publicSessionUser(user) {
-  return user ? { id: user.id, name: user.name, email: user.email, status: user.status, branding: user.branding || { mode: "flexible", brandId: null } } : null;
+  return user ? { id: user.id, name: user.name, email: user.email, status: user.status, branding: user.branding || { mode: "flexible", brandId: null }, endCard: user.endCard || {} } : null;
 }
 
 function googleConfigured() {
@@ -1735,6 +1749,35 @@ function sessionText(value, maxLength) {
   return String(value ?? "").trim().slice(0, maxLength);
 }
 
+const END_CARD_SOCIAL_PLATFORMS = new Set(["x", "linkedin", "youtube", "instagram", "tiktok", "github", "telegram"]);
+
+// Whitelists fields and caps lengths server-side — this JSON blob rides inside a DB row (users.end_card_json
+// / live_sessions.end_card_json), not a dedicated upload store, so it needs a real ceiling. qrImage is a
+// data: URL (the user uploads their own QR, we don't generate one) — capped generously above what a
+// reasonably-compressed QR PNG needs, well under nginx's default client_max_body_size.
+function sanitizeEndCard(input) {
+  const raw = input && typeof input === "object" ? input : {};
+  const socials = {};
+  const rawSocials = raw.socials && typeof raw.socials === "object" ? raw.socials : {};
+  for (const platform of END_CARD_SOCIAL_PLATFORMS) {
+    const value = sessionText(rawSocials[platform], 300);
+    if (value) socials[platform] = value;
+  }
+  const qrImage = sessionText(raw.qrImage, 200000);
+  if (qrImage && !/^data:image\/(png|jpeg|jpg|webp|svg\+xml);base64,/.test(qrImage)) {
+    throw httpError(400, "qrImage must be a data:image/... base64 URL.");
+  }
+  return {
+    headline: sessionText(raw.headline, 120),
+    message: sessionText(raw.message, 400),
+    website: sessionText(raw.website, 300),
+    socials,
+    showQr: Boolean(raw.showQr),
+    qrImage,
+    qrTarget: sessionText(raw.qrTarget, 300)
+  };
+}
+
 function resolveAuthoritativeBrandId(authSession, requestedBrandId) {
   if (authSession.branding?.mode === "locked") {
     const locked = authSession.branding.brandId;
@@ -1816,6 +1859,30 @@ async function handleSessionBrand(req, res, authSession) {
   if (result.error === "brand_forbidden") throw httpError(403, "This session is outside your account's permitted brand.");
   if (!result.session) throw httpError(404, "Session not found.");
   sendJson(req, res, 200, { session: result.session });
+}
+
+// Session-level end-card override — same precedent as handleSessionBrand above (a per-session field on
+// the same durable live_sessions row). Wins over the account's profile default when present; resolution
+// order (session override -> profile default -> tasteful fallback) happens client-side in js/end-card.js.
+async function handleSessionEndCard(req, res, authSession) {
+  const path = req.url.slice("/api/sessions/".length, -"/end-card".length);
+  const id = decodeURIComponent(path);
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
+  const body = await readJson(req);
+  const endCard = sanitizeEndCard(body.endCard);
+  const result = await db("session_set_end_card", { id, ownerUserId: authSession.id, endCard });
+  if (!result.session) throw httpError(404, "Session not found.");
+  sendJson(req, res, 200, { session: result.session });
+}
+
+// Account-level end-card default — reused across every session for this logged-in Studio account until a
+// session sets its own override. Deliberately not a separate "profile" table: users already has exactly
+// one durable per-account row (see branding above), and this is one more field on it.
+async function handleProfileEndCard(req, res, authSession) {
+  const body = await readJson(req);
+  const endCard = sanitizeEndCard(body.endCard);
+  const result = await db("user_set_end_card", { ownerUserId: authSession.id, endCard });
+  sendJson(req, res, 200, { user: result.user });
 }
 
 async function handleSessionKick(req, res, authSession) {
