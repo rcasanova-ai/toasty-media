@@ -51,6 +51,15 @@ let lastInitError = "";
 let debugMediaStarted = false;
 let connection = OutputConnection.CONNECTING;
 let connectedAt = null;
+// Declared here (not next to renderSocialLinks() below) so it's initialized before init() ever runs.
+// init() calls render() synchronously — via sync.readLastState()'s cached-state render — for any room
+// that already has a previously published state in localStorage (i.e. virtually every real session,
+// since Director publishes on join, before Program Output is ever opened). render() calls
+// renderSocialLinks() in that same synchronous call stack, which starts before the module's remaining
+// top-level statements execute — so a `let` declared further down the file was still in its temporal
+// dead zone, throwing a ReferenceError that aborted init() before presence.start()/serverSync.start()
+// ever ran, permanently freezing Program Output on its initial render with no live sync of any kind.
+let lastSocialLinksKey = "";
 
 const elements = {
   canvas: document.querySelector("#poCanvas"),
@@ -348,7 +357,7 @@ function renderEndCard(endCard) {
 // tab-capture/recording/OBS instead. Small and bottom-right so they never compete with the broadcast
 // composition; only populated platforms render, and the whole region collapses to nothing when the
 // resolved end card has no socials at all — no permanent dead space, no placeholder icons.
-let lastSocialLinksKey = "";
+// (lastSocialLinksKey is declared near the top of the file — see the comment there for why.)
 function renderSocialLinks(endCard) {
   if (!elements.socialLinks) return;
   const entries = END_CARD_SOCIAL_PLATFORMS.map((platform) => [platform, endCard?.socials?.[platform]]).filter(([, url]) => url);
