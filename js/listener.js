@@ -117,6 +117,7 @@ async function init() {
   }
   statusTimerId = window.setInterval(reportOutputStatus, 2000);
   reportOutputStatus(true);
+  void startOutputDebugMedia();
 }
 
 function ownedStreamFor(participant) {
@@ -407,5 +408,59 @@ function restartTicker() {
   tickerRafId = requestAnimationFrame(() => { elements.tickerTrack.style.animation = ""; });
 }
 
-void statusTimerId;
-void SourceHealth;
+function outputDiagnosticsSnapshot(buildId) {
+  const snap = presence?.snapshot() || {};
+  return {
+    buildId,
+    role: "output",
+    roomId,
+    sessionId: lastProgramState?.sessionId || snap.sessionId || roomId,
+    lifecycle: connection,
+    roster: snap.roster || [],
+    outputs: snap.outputs || [],
+    presence: snap,
+    self: {
+      participantId: outputId,
+      presenceState: snap.presenceState || "idle",
+      heartbeatStatus: snap.heartbeatStatus || "idle",
+      lastHttpStatus: snap.lastHttpStatus,
+      lastAnnounceAt: snap.lastAnnounceAt || null,
+      lastSeenAt: snap.lastAnnounceAt || null,
+      rosterContainsSelf: snap.rosterContainsSelf === true,
+      transportSourceId: outputId,
+      publisherSourceId: outputId,
+      videoTrack: { readyState: "n/a" },
+      audioTrack: { readyState: audioUnlocked ? "unlocked" : "gated" },
+      transportState: connection
+    },
+    remotes: (snap.roster || []).map((entry) => ({
+      participantId: entry.participantId,
+      role: entry.role,
+      requestedSourceId: entry.transportSourceId,
+      mounted: mountedProgramTiles.has(entry.participantId),
+      mediaState: mountedProgramTiles.get(entry.participantId)?.health || "presence",
+      lastSeenAt: entry.lastSeenAt || null
+    }))
+  };
+}
+
+async function startOutputDebugMedia() {
+  if (new URLSearchParams(window.location.search).get("debugMedia") !== "1") return;
+  try {
+    const [{ startMediaDiagnostics }, { BUILD_ID }] = await Promise.all([
+      import("./media-diagnostics.js"),
+      import("./build-info.js")
+    ]);
+    startMediaDiagnostics(() => {
+      try {
+        return outputDiagnosticsSnapshot(BUILD_ID);
+      } catch (error) {
+        console.error("[Program Output] debugMedia snapshot failed", error);
+        return { role: "output", error: String(error?.message || error) };
+      }
+    });
+  } catch (error) {
+    console.error("[Program Output] debugMedia failed open; output continues", error);
+  }
+}
+

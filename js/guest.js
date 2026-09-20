@@ -798,8 +798,20 @@ function guestDiagnosticsSnapshot(trackSnapshot, videoElementSnapshot) {
       requestedSourceId: entry.transportSourceId,
       mounted: Boolean(mounted),
       mediaState: mounted ? "iframe-mounted" : "not-mounted",
-      error: entry.transportSourceId ? "" : "no-source-id"
+      error: entry.transportSourceId ? "" : "no-source-id",
+      lastSeenAt: entry.lastSeenAt || null
     };
+  });
+  (presence.outputs || []).forEach((entry) => {
+    remotes.push({
+      participantId: entry.outputId || entry.participantId,
+      role: "output",
+      requestedSourceId: entry.outputId || entry.participantId,
+      mounted: false,
+      mediaState: entry.connection || "output",
+      error: "",
+      lastSeenAt: entry.lastSeenAt || entry.updatedAt || null
+    });
   });
   const requestedFacing = state.selectedFacing || classifyCameraFacing(selectedDeviceLabel(elements.cameraSelect));
   const derived = currentPublisher();
@@ -809,12 +821,18 @@ function guestDiagnosticsSnapshot(trackSnapshot, videoElementSnapshot) {
     buildId: BUILD_ID,
     role: "guest",
     roomId: state.roomId,
+    sessionId: presence.sessionId || state.roomId,
     lifecycle: state.lifecycle,
+    roster: presence.roster || [],
+    outputs: presence.outputs || [],
+    presence,
     self: {
       participantId: state.participantId,
       presenceState: presence.presenceState || "idle",
       heartbeatStatus: presence.heartbeatStatus || "idle",
       lastHttpStatus: presence.lastHttpStatus,
+      lastAnnounceAt: presence.lastAnnounceAt || null,
+      lastSeenAt: presence.lastAnnounceAt || null,
       rosterContainsSelf: presence.rosterContainsSelf === true,
       transportSourceId: presence.transportSourceId || state.streamId,
       publisherSourceId: state.streamId,

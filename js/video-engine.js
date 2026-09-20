@@ -14,8 +14,16 @@ export function createDisposableRoomId() {
 export function isValidRoomId(roomId) { return typeof roomId === "string" && /^[a-zA-Z0-9]{1,30}$/.test(roomId); }
 export function getRoomIdFromUrl(search = window.location.search) { const roomId=new URLSearchParams(search).get("room"); return isValidRoomId(roomId)?roomId:null; }
 export function getOrCreateRoomId(search = window.location.search) { return getRoomIdFromUrl(search)||createDisposableRoomId(); }
-export function getGuestInviteUrl(roomId, brandTheme) { const url=new URL("../studio/guest.html",window.location.href); url.searchParams.set("room",roomId); if(brandTheme)url.searchParams.set("brand",brandTheme); return url.toString(); }
-export function getListenerInviteUrl(roomId, brandTheme) { const url=new URL("../studio/listener.html",window.location.href); url.searchParams.set("room",roomId); if(brandTheme)url.searchParams.set("brand",brandTheme); return url.toString(); }
+function copyDebugMediaFlag(url) {
+  try {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("debugMedia") === "1") {
+      url.searchParams.set("debugMedia", "1");
+    }
+  } catch (_) {}
+  return url;
+}
+export function getGuestInviteUrl(roomId, brandTheme) { const url=new URL("../studio/guest.html",window.location.href); url.searchParams.set("room",roomId); if(brandTheme)url.searchParams.set("brand",brandTheme); return copyDebugMediaFlag(url).toString(); }
+export function getListenerInviteUrl(roomId, brandTheme) { const url=new URL("../studio/listener.html",window.location.href); url.searchParams.set("room",roomId); if(brandTheme)url.searchParams.set("brand",brandTheme); return copyDebugMediaFlag(url).toString(); }
 export function createGuestStreamId(roomId) {
   const salt = Math.random().toString(36).slice(2, 6).padEnd(4, "x");
   return `${roomId}g${Date.now().toString(36).slice(-4)}${salt}`.slice(0, 24);

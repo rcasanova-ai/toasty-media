@@ -2,7 +2,7 @@
 // Unit tests for js/media-diagnostics.js — no browser, no credentials. Proves the overlay formatter
 // is default-off, redacts secret-looking keys, and prints the presence vs publish fields the next
 // three-device test has to fill in.
-import { isDebugMediaEnabled, sanitizeDiagnostics, formatDiagnostics, trackSnapshot, startMediaDiagnostics } from "../js/media-diagnostics.js";
+import { isDebugMediaEnabled, sanitizeDiagnostics, formatDiagnostics, formatPresenceBoard, heartbeatLabel, trackSnapshot, startMediaDiagnostics } from "../js/media-diagnostics.js";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -94,15 +94,86 @@ console.log("\ntrackSnapshot — missing stream is explicit, not thrown");
 assert(trackSnapshot(null, "video").readyState === "missing", "null stream → missing");
 assert(trackSnapshot({ getTracks: () => [] }, "audio").readyState === "missing", "empty tracks → missing");
 
+console.log("\npresence board — Host + Guest + Output, same session, LIVE heartbeats");
+const now = 1_747_000_000_000;
+const sameSession = {
+  sessionId: "sess-live-1",
+  roomId: "tmroomlive",
+  roster: [
+    { role: "host", participantId: "host", lastSeenAt: now - 800, sessionId: "sess-live-1", roomId: "tmroomlive" },
+    { role: "guest", participantId: "guest-1", lastSeenAt: new Date(now - 1200).toISOString(), sessionId: "sess-live-1", roomId: "tmroomlive" }
+  ],
+  outputs: [
+    { role: "output", outputId: "output-1", connection: "connected", lastSeenAt: now - 500, sessionId: "sess-live-1", roomId: "tmroomlive" }
+  ]
+};
+const board = formatPresenceBoard(sameSession, now);
+assert(board.includes("session sess-live-1"), "prints sessionId");
+assert(board.includes("room tmroomlive"), "prints roomId");
+assert(board.includes("host host hb LIVE 0.8s"), "host heartbeat is LIVE");
+assert(/guest guest-1 hb LIVE /.test(board), "guest heartbeat is LIVE (ISO lastSeenAt from SQLite)");
+assert(board.includes("output output-1 connected hb LIVE 0.5s"), "output heartbeat is LIVE");
+assert(!board.includes("MISSING"), "no role is missing when Host+Guest+Output are present");
+assert(!board.includes("MISMATCH"), "same roomId/sessionId does not flag a mismatch");
+assert(formatDiagnostics(sameSession).includes("— PRESENCE —"), "overlay formatter includes the presence board");
+
+const missing = formatPresenceBoard({ sessionId: "sess-empty", roomId: "tmempty", roster: [], outputs: [] }, now);
+assert(missing.includes("host MISSING"), "host MISSING when roster has no host");
+assert(missing.includes("guest MISSING"), "guest MISSING when roster has no guest");
+assert(missing.includes("output MISSING"), "output MISSING when no Program Output heartbeat");
+
+const mismatched = formatPresenceBoard({
+  sessionId: "sess-a",
+  roomId: "room-a",
+  roster: [
+    { role: "host", participantId: "host", lastSeenAt: now, sessionId: "sess-a", roomId: "room-a" },
+    { role: "guest", participantId: "guest-1", lastSeenAt: now, sessionId: "sess-b", roomId: "room-b" }
+  ],
+  outputs: [
+    { role: "output", outputId: "output-1", lastSeenAt: now, sessionId: "sess-a", roomId: "room-a" }
+  ]
+}, now);
+assert(mismatched.includes("ROOM MISMATCH"), "flags members on a different roomId");
+assert(mismatched.includes("SESSION MISMATCH"), "flags members on a different sessionId");
+
+assert(heartbeatLabel(now - 1000, now) === "LIVE 1.0s", "≤4s is LIVE");
+assert(heartbeatLabel(now - 5000, now) === "STALE 5.0s", "≤8s is STALE");
+assert(heartbeatLabel(now - 9000, now) === "DEAD 9.0s", ">8s is DEAD");
+assert(heartbeatLabel(null, now) === "NO-HB", "missing heartbeat is NO-HB");
+
+const localOutput = formatPresenceBoard({
+  role: "output",
+  sessionId: "sess-live-1",
+  roomId: "tmroomlive",
+  self: { participantId: "output-1", lastAnnounceAt: now - 200 },
+  roster: [
+    { role: "host", participantId: "host", lastSeenAt: now - 800, sessionId: "sess-live-1", roomId: "tmroomlive" },
+    { role: "guest", participantId: "guest-1", lastSeenAt: now - 700, sessionId: "sess-live-1", roomId: "tmroomlive" }
+  ],
+  outputs: [
+    { role: "output", outputId: "output-1", participantId: "output-1", connection: "connected", sessionId: "sess-live-1", roomId: "tmroomlive" }
+  ]
+}, now);
+assert(localOutput.includes("output output-1 connected hb LIVE 0.2s"), "Program Output overlay uses its own lastAnnounceAt when server lastSeenAt is still catching up");
+
 console.log("\nfail-open — diagnostics must not throw into Join");
 const failedOpen = startMediaDiagnostics(() => ({ role: "guest" }));
 assert(typeof failedOpen.stop === "function", "startMediaDiagnostics returns a stop handle without window/document");
 
-console.log("\nstatic import — Guest/Host module graph must not depend on media-diagnostics.js");
-for (const relative of ["js/guest.js", "js/director.js", "js/live-session.js"]) {
+console.log("\nstatic import — Guest/Host/Program Output module graph must not depend on media-diagnostics.js");
+for (const relative of ["js/guest.js", "js/director.js", "js/live-session.js", "js/listener.js"]) {
   const source = readFileSync(join(ROOT, relative), "utf8");
   const staticImport = source.match(/^import\s+[^;]*from\s+["']\.\/media-diagnostics\.js["'];/m);
   assert(!staticImport, `${relative} has no static import of media-diagnostics.js`);
 }
+const listener = readFileSync(join(ROOT, "js/listener.js"), "utf8");
+assert(listener.includes("startOutputDebugMedia"), "Program Output mounts the debug overlay");
+assert(listener.includes("outputDiagnosticsSnapshot"), "Program Output snapshot feeds the presence board");
+const poCss = readFileSync(join(ROOT, "css/program-output.css"), "utf8");
+assert(poCss.includes("#toastyMediaDiagnostics"), "Program Output stylesheet styles the overlay");
+assert(/#toastyMediaDiagnostics[\s\S]*z-index:\s*9999/.test(poCss), "overlay z-index sits above the audio gate");
+const engine = readFileSync(join(ROOT, "js/video-engine.js"), "utf8");
+assert(engine.includes("copyDebugMediaFlag"), "invite URLs copy debugMedia onto Guest and Program Output");
+assert(engine.includes("getGuestInviteUrl") && engine.includes("getListenerInviteUrl"), "both invite helpers exist");
 
 console.log("\nALL PASSED — media diagnostics stay default-off, non-secret, and fail-open.");

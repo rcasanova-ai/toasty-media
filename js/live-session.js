@@ -818,7 +818,7 @@ export class LiveSession {
   }
 
   _diagnosticsSnapshot() {
-    const presence = this.presence?.snapshot() || { roster: [], presenceState: "idle", heartbeatStatus: "idle" };
+    const presence = this.presence?.snapshot() || { roster: [], outputs: [], presenceState: "idle", heartbeatStatus: "idle" };
     const presenceGuests = (presence.roster || []).filter((entry) => entry.role === "guest");
     const vdoIds = (this._lastVdoGuestList || []).map((entry) => entry.id).filter(Boolean);
     const presenceIds = presenceGuests.map((entry) => entry.participantId);
@@ -832,7 +832,8 @@ export class LiveSession {
         requestedSourceId: entry.transportSourceId,
         mounted: Boolean(this._mountedGuestTiles?.get(entry.transportSourceId) || seated),
         mediaState: inVdo ? "in-vdo-guest-list" : "presence-only",
-        error: inVdo ? "" : "not-in-vdo-guest-list"
+        error: inVdo ? "" : "not-in-vdo-guest-list",
+        lastSeenAt: entry.lastSeenAt || null
       };
     });
     (this._lastVdoGuestList || []).forEach((entry) => {
@@ -846,15 +847,32 @@ export class LiveSession {
         error: "not-in-presence-roster"
       });
     });
+    (presence.outputs || []).forEach((entry) => {
+      remotes.push({
+        participantId: entry.outputId || entry.participantId,
+        role: "output",
+        requestedSourceId: entry.outputId || entry.participantId,
+        mounted: this.programOutput?.connection === "connected",
+        mediaState: entry.connection || "output",
+        error: "",
+        lastSeenAt: entry.lastSeenAt || entry.updatedAt || null
+      });
+    });
     return {
       role: "host",
       roomId: this.roomId,
+      sessionId: this.durableSession?.id || presence.sessionId || this.roomId,
       lifecycle: this.hostState,
+      roster: presence.roster || [],
+      outputs: presence.outputs || [],
+      presence,
       self: {
         participantId: "host",
         presenceState: presence.presenceState || "idle",
         heartbeatStatus: presence.heartbeatStatus || "idle",
         lastHttpStatus: presence.lastHttpStatus,
+        lastAnnounceAt: presence.lastAnnounceAt || null,
+        lastSeenAt: presence.lastAnnounceAt || null,
         rosterContainsSelf: presence.rosterContainsSelf === true,
         transportSourceId: `${this.roomId}h`,
         publisherSourceId: `${this.roomId}h`,
@@ -868,6 +886,7 @@ export class LiveSession {
         vdoGuestCount: vdoIds.length,
         presenceGuestCount: presenceGuests.length,
         uiGuestCount: this.guestCount(),
+        outputCount: (presence.outputs || []).length,
         vdoGuestIds: vdoIds,
         presenceIds,
         presenceNotInVdo: presenceSources.filter((id) => !vdoIds.includes(id))
