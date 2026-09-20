@@ -23,6 +23,7 @@ const LAYOUT_COUNT = Object.freeze({
   [ProgramLayout.ASSET_SPEAKER]: ProgramLayout.ASSET_SPEAKER,
   [ProgramLayout.ASSET_SPEAKER_PIP]: ProgramLayout.ASSET_SPEAKER_PIP
 });
+const REBIND_STALE_MS = 5000;
 
 // JSON-safe participant snapshot for ProgramSync. MediaStreams cannot cross BroadcastChannel.
 export function serializeProgramParticipant(participant) {
@@ -178,12 +179,13 @@ export function syncProgramRenderer({
     if (existing) {
       existing.tile.dataset.role = featured ? "featured" : "speaker";
       updateParticipantLowerThird(existing.lowerThird, participant);
-      if (existing.sourceKey !== nextSource) {
+      if (existing.sourceKey !== nextSource || shouldRebindProgramSlot(existing)) {
         unmountProgramSlot(engine, existing);
         mountProgramSlotVideo(engine, existing.videoContainer, participant, roomId, existing.frameId, muted, videoEnabled, resolveOwnedStream);
         existing.sourceKey = nextSource;
         existing.transportSourceId = participant.transportSourceId || null;
         existing._healthBound = false;
+        existing.mountedAt = Date.now();
         existing.health = inspectSourceHealth(existing);
         bindProgramSourceHealth(existing);
       } else {
@@ -211,6 +213,7 @@ export function syncProgramRenderer({
       lowerThird,
       transportSourceId: participant.transportSourceId || null,
       sourceKey: nextSource,
+      mountedAt: Date.now(),
       health: inspectSourceHealth({ videoContainer })
     });
     bindProgramSourceHealth(mounted.get(participant.participantId));
@@ -316,11 +319,12 @@ function syncProgramScreenTile(stage, screen, { engine, roomId, frameIdPrefix, m
     return screen.stream || null;
   }, muted);
   if (existing) {
-    if (existing.sourceKey !== nextSource) {
+    if (existing.sourceKey !== nextSource || shouldRebindProgramSlot(existing)) {
       unmountProgramSlot(engine, existing);
       mountProgramSlotVideo(engine, existing.videoContainer, fakeParticipant, roomId, existing.frameId, muted, videoEnabled, () => screen.stream || resolveOwnedStream?.({ role: "screen", participantId: screen.ownerParticipantId || "host" }));
       existing.sourceKey = nextSource;
       existing._healthBound = false;
+      existing.mountedAt = Date.now();
       existing.health = inspectSourceHealth(existing);
       bindProgramSourceHealth(existing);
     } else {
@@ -354,9 +358,18 @@ function syncProgramScreenTile(stage, screen, { engine, roomId, frameIdPrefix, m
     lowerThird: null,
     transportSourceId: screen.transportSourceId || null,
     sourceKey: nextSource,
+    mountedAt: Date.now(),
     health: inspectSourceHealth({ videoContainer })
   });
   bindProgramSourceHealth(mounted.get("__screen__"));
+}
+
+function shouldRebindProgramSlot(entry) {
+  if (!entry?.transportSourceId) return false;
+  const health = inspectSourceHealth(entry);
+  if (!["binding", "stalled", "failed", "empty"].includes(health)) return false;
+  const mountedAt = Number(entry.mountedAt) || 0;
+  return Boolean(mountedAt && Date.now() - mountedAt > REBIND_STALE_MS);
 }
 
 function syncProgramAssetTile(stage, asset) {

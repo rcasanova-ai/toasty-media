@@ -93,11 +93,9 @@ export class VideoEngine {
   // which this codebase already found unreliable, see mountProgramFrame's comment) + &view=<streamID>
   // (filters the mixer to just this one participant). cleanoutput strips VDO's UI chrome; no &showlabels,
   // since Toasty renders its OWN name/title/company label instead of VDO's redundant one.
-  // codec:"vp9" — VDO.Ninja's own docs (docs.vdo.ninja/platform-specific-issues/android, "Corrupted Video;
-  // Green or Grey Pixels") document Android-side decode corruption as a known issue class and recommend
-  // &codec=vp9 on the viewer side as the fix. Applied here (not just for Android) since it's the documented
-  // remedy for exactly the "healthy connection metadata, no real picture" signature seen on a real Android
-  // device viewing a Mac-published stream — not a blind param guess.
+  // Do not force a codec here. Program Output and participant views need to negotiate whatever the live
+  // publisher is actually sending; forcing vp9 globally made desktop production capable of mounting a
+  // viewer shell while never receiving visible media from a non-vp9 publisher.
   mountParticipantView(container,{roomId,streamId,muted},frameId="participant-view") {
     return this.mountFrame(container,frameId,{
       room:roomId,
@@ -106,7 +104,6 @@ export class VideoEngine {
       cleanoutput:"1",
       transparent:"1",
       cover:"1",
-      codec:"vp9",
       muted:muted?"1":undefined,
       mute:muted?"1":undefined
     });

@@ -34,7 +34,7 @@ let presence = null;
 let tickerRafId = null;
 let lastProgramState = null;
 const mountedProgramTiles = new Map();
-let audioUnlocked = false;
+let audioUnlocked = true;
 let audioError = null;
 const programAudio = new ProgramAudioBus({ role: "program" });
 const programMixer = new ProgramAudioMixer({ bus: programAudio, role: "program" });
@@ -117,7 +117,10 @@ async function init() {
   } else {
     connection = OutputConnection.DISCONNECTED;
   }
-  statusTimerId = window.setInterval(reportOutputStatus, 2000);
+  statusTimerId = window.setInterval(() => {
+    if (normalizeScene(lastProgramState?.scene) === SceneId.LIVE) renderLiveStage(lastProgramState);
+    reportOutputStatus();
+  }, 2000);
   reportOutputStatus(true);
   void startOutputDebugMedia();
 }
@@ -255,14 +258,14 @@ function renderLiveStage(programState) {
     return;
   }
   elements.stage.querySelector(".po-waitingroom")?.remove();
-  elements.audioGate.hidden = audioUnlocked;
+  elements.audioGate.hidden = audioUnlocked && !audioError;
   if (!audioUnlocked) {
     if (elements.audioGateLabel) {
-      elements.audioGateLabel.textContent = audioError ? "Program audio failed" : "Enable program audio";
+      elements.audioGateLabel.textContent = audioError ? "Program audio failed" : "AUDIO BLOCKED — CLICK TO ENABLE";
     }
     if (elements.audioGateNote) {
       elements.audioGateNote.textContent = audioError
-        || "Video is already on. Click once so the audience (and the master recording) can hear the room and soundboard.";
+        || "Click to enable Program Output audio.";
     }
   }
   syncProgramRenderer({
@@ -408,6 +411,7 @@ function syncProgramAudio(programState) {
 function applyBrand(themeId) {
   const theme = applyBrandTheme(themeId, { root: document.body, poweredBy: elements.poweredBy });
   const brandProfile = getBrandProfile(theme.id);
+  const programMark = theme.compactMark || (theme.id === "peeps" ? "../shared/brand/toasty-media/ToastyTransparent.png" : theme.logoSrc);
   if (!lastProgramState?.topic) {
     elements.holdingTopic.textContent = theme.textLogo || `${theme.label} Studio`;
     elements.topic.textContent = theme.textLogo || `${theme.label} Studio`;
@@ -415,7 +419,7 @@ function applyBrand(themeId) {
   }
   [elements.brandLogo, elements.holdingLogo, elements.brbLogo, elements.endingLogo].forEach((img) => {
     if (!img) return;
-    if (theme.logoSrc) { img.hidden = false; img.src = theme.logoSrc; img.alt = theme.logoAlt || theme.label; }
+    if (programMark) { img.hidden = false; img.src = programMark; img.alt = theme.logoAlt || theme.label; }
     else img.hidden = true;
   });
   elements.endingCta.textContent = brandProfile.defaultCTA

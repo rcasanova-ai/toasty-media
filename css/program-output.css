@@ -515,6 +515,56 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
   background: var(--studio-identity-stripe, var(--lower-third-accent));
 }
 
+[data-lower-third-treatment="cream-orange-bar"] .lv-lower-third {
+  align-items: center;
+  background: color-mix(in srgb, var(--studio-surface) 94%, transparent);
+  border: 1px solid color-mix(in srgb, var(--studio-line-strong) 70%, transparent);
+  border-left: 4px solid var(--studio-orange);
+  border-radius: 8px;
+  box-shadow: 0 16px 34px color-mix(in srgb, #000 28%, transparent);
+  clip-path: none;
+  gap: 0.7rem;
+  max-width: min(88%, 560px);
+  overflow: visible;
+  padding: 0.52rem 1.05rem 0.56rem 0.7rem;
+}
+
+[data-lower-third-treatment="cream-orange-bar"] .lv-lower-third-rail {
+  display: none;
+}
+
+[data-lower-third-treatment="cream-orange-bar"] .lv-lower-third-mark {
+  background-size: contain;
+  flex: 0 0 3.25rem;
+  height: 3.25rem;
+  margin: 0;
+  width: 3.25rem;
+}
+
+[data-lower-third-treatment="cream-orange-bar"] .lv-lower-third-plates {
+  gap: 0.12rem;
+  min-width: 12rem;
+}
+
+[data-lower-third-treatment="cream-orange-bar"] .lv-lower-third-name,
+[data-lower-third-treatment="cream-orange-bar"] .lv-lower-third-role {
+  background: transparent;
+  box-shadow: none;
+  margin: 0;
+  padding: 0;
+}
+
+[data-lower-third-treatment="cream-orange-bar"] .lv-lower-third-name {
+  color: var(--brand-text);
+  font-size: 1.02rem;
+  line-height: 1.05;
+}
+
+[data-lower-third-treatment="cream-orange-bar"] .lv-lower-third-role {
+  color: var(--brand-text-muted);
+  font-size: 0.72rem;
+}
+
 .po-tile[data-role="screen"] .lv-lower-third {
   display: none;
 }

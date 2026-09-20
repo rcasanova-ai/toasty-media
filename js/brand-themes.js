@@ -208,7 +208,7 @@ export const BRAND_THEMES = Object.freeze({
   peeps: Object.freeze({
     id: "peeps", label: "Toasty Peeps", showPoweredBy: false,
     logoSrc: "../shared/brand/toasty-peeps/logo.png", logoAlt: "Toasty Peeps",
-    compactMark: "../shared/brand/toasty-peeps/watermark-mascot.png",
+    compactMark: "../shared/brand/toasty-media/ToastyTransparent.png",
     faviconSrc: "../shared/brand/toasty-peeps/logo.png", homeUrl: "../peeps/",
     textLogo: "Toasty Peeps Studio", atmosphereBrand: "TOASTY", atmosphereProduct: "PEEPS",
     copy: Object.freeze({
