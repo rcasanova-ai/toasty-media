@@ -24,6 +24,10 @@ export class ProgramSync {
     this.channel?.postMessage({ type: "request-state" });
   }
 
+  publishOutputStatus(payload) {
+    this.channel?.postMessage({ type: "output-status", payload, sentAt: Date.now() });
+  }
+
   readLastState() {
     try { return JSON.parse(localStorage.getItem(this.storageKey) || "null"); } catch (_) { return null; }
   }

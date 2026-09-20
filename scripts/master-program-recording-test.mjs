@@ -22,7 +22,12 @@ import {
   programOutputDisplayConstraints,
   masterCaptureSupported,
   masterMediaId,
-  masterManifestId
+  masterManifestId,
+  inspectMasterCapture,
+  wrapMediaRecorderError,
+  startMasterMediaRecorder,
+  isInvalidStateError,
+  PROGRAM_OUTPUT_PICKER_INSTRUCTION
 } from "../js/program-recording.js";
 import { ProgramAssetCatalog, createProgramAsset, serializeProgramAsset, ProgramAssetStatus } from "../js/program-asset.js";
 import { ProgramController, ProductionActionLog, ProductionActionType } from "../js/production-controller.js";
@@ -45,11 +50,12 @@ function read(path) {
   return readFileSync(join(ROOT, path), "utf8");
 }
 
-function fakeTrack(kind, label = "") {
+function fakeTrack(kind, label = "", { readyState = "live" } = {}) {
   return {
     kind,
     label,
-    stop() { this.stopped = true; },
+    readyState,
+    stop() { this.stopped = true; this.readyState = "ended"; },
     addEventListener() {}
   };
 }
@@ -119,6 +125,12 @@ console.log("\nProgram Renderer capture source is Program Output, not a second c
   const renderer = read("js/program-renderer.js");
   assert(recording.includes("getDisplayMedia"), "master uses getDisplayMedia of Program Output");
   assert(recording.includes("program-output-tab"), "capture visual is the Program Output tab");
+  assert(recording.includes("original getDisplayMedia stream"), "InvalidStateError fix records original capture stream");
+  const startBody = recording.slice(recording.indexOf("async start("), recording.indexOf("async stop("));
+  assert(!startBody.includes("composeMasterMediaStream"), "start does not wrap capture tracks in a new MediaStream");
+  assert(startBody.includes("this.masterStream = capture"), "start assigns the original capture stream");
+  assert(startBody.includes("inspectMasterCapture"), "start validates live video and audio tracks before MediaRecorder");
+  assert(startBody.includes("startMasterMediaRecorder"), "start uses the fallback MediaRecorder lifecycle");
   assert(recording.includes("ONE") || recording.includes("second compositor") || recording.includes("second visual truth"), "forbids a second visual truth");
   assert(!recording.includes("document.createElement(\"canvas\")"), "master does not spin a recording canvas");
   assert(renderer.includes("Never scene=0"), "Program Renderer freeze");
@@ -156,21 +168,36 @@ console.log("\nMaster MediaStream composition and missing-track failure");
   assertEqual(ok.ok, true, "both tracks pass");
   const composed = composeMasterMediaStream({ videoTracks: [{ id: "v" }], audioTracks: [{ id: "a" }] });
   assert(composed.ok !== false, "compose does not throw when tracks exist");
-  assert(captureFailureMessage("missing-audio").includes("tab audio"), "missing-audio message tells the operator to enable tab audio");
-  assert(captureFailureMessage("missing-video").includes("Program Output"), "missing-video message names Program Output");
+  assert(captureFailureMessage("missing-audio").includes("Share tab audio"), "missing-audio message tells the operator to enable tab audio");
+  assertEqual(captureFailureMessage("missing-audio"), "Program Output audio was not shared. Start again and enable Share tab audio.", "exact missing-audio copy");
+  assertEqual(captureFailureMessage("missing-video"), "Program Output video capture is unavailable.", "exact missing-video copy");
+  const endedVideo = assertMasterTracks({ videoTracks: [fakeTrack("video", "Program Output", { readyState: "ended" })], audioTracks: [fakeTrack("audio")] });
+  assertEqual(endedVideo.ok, false, "ended video fails");
+  assertEqual(endedVideo.reason, "video-not-live", "reason is video-not-live");
+  const endedAudio = assertMasterTracks({ videoTracks: [fakeTrack("video")], audioTracks: [fakeTrack("audio", "Tab", { readyState: "ended" })] });
+  assertEqual(endedAudio.ok, false, "ended audio fails");
+  assertEqual(endedAudio.reason, "audio-not-live", "reason is audio-not-live");
+  const liveOk = assertMasterTracks({ videoTracks: [fakeTrack("video")], audioTracks: [fakeTrack("audio")] });
+  assertEqual(liveOk.ok, true, "live tracks pass");
+  assertEqual(liveOk.videoReadyState, "live", "video readyState recorded");
+  assertEqual(captureFailureMessage("audio-not-live"), captureFailureMessage("missing-audio"), "not-live audio uses the share-tab-audio copy");
 }
 
 console.log("\nMediaRecorder start/stop lifecycle");
 {
   assertEqual(masterCaptureSupported({ mediaDevices: {}, MediaRecorderImpl: null }), false, "unsupported without getDisplayMedia");
   assertEqual(masterCaptureSupported({ mediaDevices: { getDisplayMedia: () => {} }, MediaRecorderImpl: FakeMediaRecorder }), true, "supported when both exist");
+  const capture = fakeCapture({ audio: true, video: true });
   const recorder = new MasterProgramRecorder({
-    displayMedia: async () => fakeCapture({ audio: true, video: true }),
+    displayMedia: async () => capture,
     MediaRecorderImpl: FakeMediaRecorder
   });
   const started = await recorder.start({ recordingId: "rec-test" });
   assertEqual(started.recordingId, "rec-test", "start returns recordingId");
   assert(started.startedAt, "start stamps startedAt");
+  assertEqual(recorder.masterStream, capture, "records the original getDisplayMedia stream, not a reconstructed MediaStream");
+  assertEqual(recorder.captureStream, capture, "captureStream is the original share");
+  assert(started.diagnostics?.operation.includes("MediaRecorder.start"), "start returns diagnostics for the start operation");
   const stopped = await recorder.stop();
   assertEqual(stopped.recordingId, "rec-test", "stop keeps recordingId");
   assert(stopped.blob?.size > 0, "stop produces a real Blob");
@@ -189,6 +216,78 @@ console.log("\nMediaRecorder start/stop lifecycle");
   }
   assert(failed, "missing tab audio throws");
   assertEqual(failed.reason, "missing-audio", "does not silently substitute host-mic + catalogue");
+  assertEqual(failed.message, "Program Output audio was not shared. Start again and enable Share tab audio.", "missing audio is human-readable");
+
+  const noVideo = new MasterProgramRecorder({
+    displayMedia: async () => fakeCapture({ audio: true, video: false }),
+    MediaRecorderImpl: FakeMediaRecorder
+  });
+  let videoFailed = null;
+  try {
+    await noVideo.start({ recordingId: "rec-novideo" });
+  } catch (error) {
+    videoFailed = error;
+  }
+  assertEqual(videoFailed?.reason, "missing-video", "missing video throws");
+  assertEqual(videoFailed.message, "Program Output video capture is unavailable.", "missing video is human-readable");
+
+  class InvalidStateRecorder extends FakeMediaRecorder {
+    start() {
+      const error = new Error("Failed to execute 'start' on 'MediaRecorder': The MediaRecorder's state is invalid.");
+      error.name = "InvalidStateError";
+      throw error;
+    }
+  }
+  const invalid = new MasterProgramRecorder({
+    displayMedia: async () => fakeCapture({ audio: true, video: true }),
+    MediaRecorderImpl: InvalidStateRecorder
+  });
+  let invalidFailed = null;
+  try {
+    await invalid.start({ recordingId: "rec-invalid" });
+  } catch (error) {
+    invalidFailed = error;
+  }
+  assert(invalidFailed, "InvalidStateError from MediaRecorder.start is caught");
+  assertEqual(invalidFailed.reason, "invalid-recorder-state", "reason is invalid-recorder-state, not a raw browser string");
+  assert(invalidFailed.operation.includes("MediaRecorder.start"), "operation names MediaRecorder.start");
+  assertEqual(invalidFailed.causeName, "InvalidStateError", "cause name is preserved for logs");
+  assert(/state is invalid|invalid state/i.test(invalidFailed.causeMessage), "cause message keeps the browser InvalidStateError text");
+  assert(!/^invalid state$/i.test(invalidFailed.message), "user-facing message is not raw 'invalid state'");
+  assert(invalidFailed.diagnostics?.videoReadyState === "live", "diagnostics include live video track state");
+  assert(invalidFailed.diagnostics?.audioReadyState === "live", "diagnostics include live audio track state");
+  assert(PROGRAM_OUTPUT_PICKER_INSTRUCTION.includes("Share tab audio"), "picker instruction names Share tab audio");
+
+  let recoveredAttempts = 0;
+  class RecoveringRecorder extends FakeMediaRecorder {
+    start(timeslice) {
+      recoveredAttempts += 1;
+      if (recoveredAttempts < 4) {
+        const error = new Error("invalid state");
+        error.name = "InvalidStateError";
+        throw error;
+      }
+      super.start(timeslice);
+    }
+  }
+  const recovered = new MasterProgramRecorder({
+    displayMedia: async () => fakeCapture({ audio: true, video: true }),
+    MediaRecorderImpl: RecoveringRecorder
+  });
+  const recoveredStart = await recovered.start({ recordingId: "rec-recovered" });
+  assertEqual(recoveredStart.diagnostics.attempt, "default", "falls back to default MediaRecorder.start after InvalidStateError");
+  await recovered.stop();
+
+  const wrapped = wrapMediaRecorderError(Object.assign(new Error("invalid state"), { name: "InvalidStateError" }), {}, "MediaRecorder.start");
+  assertEqual(isInvalidStateError({ name: "InvalidStateError" }), true, "InvalidStateError detector");
+  assertEqual(wrapped.userMessage.includes("invalid state"), false, "wrapped user message does not say invalid state");
+
+  const inspection = inspectMasterCapture(fakeCapture({ audio: true, video: true }));
+  assertEqual(inspection.ok, true, "inspect accepts live Program Output tracks");
+  assertEqual(inspection.selectedProgramOutput, true, "inspect recognizes Program Output surface");
+  const startedRecorder = startMasterMediaRecorder(FakeMediaRecorder, fakeCapture(), "video/webm");
+  assertEqual(startedRecorder.attempt, "mime-bitrate-timeslice", "happy path uses the first MediaRecorder attempt");
+  assertEqual(startedRecorder.recorder.state, "recording", "MediaRecorder state is recording after start");
 }
 
 console.log("\nRecording manifest, production actions, assets-used, markers");
@@ -301,10 +400,18 @@ console.log("\nProducer controls are Producer-only; Program Output has no REC ch
   assert(director.includes("data-lv-only=\"producer\""), "recording panel is producer-only");
   assert(director.includes("Master Program Recording"), "panel is labeled master");
   assert(director.includes("lvMasterVideo"), "playback surface exists");
+  assert(director.includes("lvMasterPlay"), "PLAY control exists");
+  assert(director.includes("VIDEO READY") || director.includes("lvPoVideoFlag"), "VIDEO READY flag exists");
+  assert(director.includes("AUDIO READY") || director.includes("lvPoAudioFlag"), "AUDIO READY flag exists");
+  assert(director.includes("lvProgramOutputStatus"), "Program Output readiness panel exists");
   assert(director.includes("lvRecordMarker"), "manual marker control exists");
-  assert(producer.includes("Stop recording"), "STOP RECORDING control");
-  assert(producer.includes("Start recording"), "START RECORDING control");
-  assert(producer.includes("Recording"), "RECORDING status");
+  assert(producer.includes("STOP RECORDING"), "STOP RECORDING control");
+  assert(producer.includes("START RECORDING"), "START RECORDING control");
+  assert(producer.includes("RECORDING ·"), "RECORDING timer status");
+  assert(producer.includes("SAVING RECORDING"), "SAVING RECORDING status");
+  assert(producer.includes("RECORDING SAVED"), "RECORDING SAVED status");
+  assert(producer.includes("renderProgramOutputStatus"), "Producer renders Program Output readiness");
+  assert(!producer.includes("IndexedDB"), "Producer UX does not mention IndexedDB");
   assert(!listener.includes("lvRecordToggle"), "Program Output JS has no record toggle");
   assert(!listenerHtml.includes("Start recording"), "Program Output markup has no record button");
   assert(listener.includes("must never render") || listener.includes("Do not render recording chrome"), "listener documents no REC overlay");
@@ -317,6 +424,10 @@ console.log("\nLiveSession Producer record is master tab capture, not isolated g
   assert(startFn.includes("MasterProgramRecorder"), "startRecording constructs the master recorder");
   assert(!startFn.includes("LocalIsolatedRecorder"), "startRecording does not start isolated Host getUserMedia");
   assert(startFn.includes("ensureProgramOutputWindow") || startFn.includes("toasty-program-output"), "start opens Program Output");
+  assert(startFn.includes("recordingBlockReason"), "start refuses until Program Output is ready");
+  assert(liveSession.includes("PROGRAM_OUTPUT_PICKER_INSTRUCTION"), "picker instruction is shown before getDisplayMedia");
+  assert(liveSession.includes("readyToRecord") && liveSession.includes("canRecord()"), "Record is gated on Program Output readiness");
+  assert(!liveSession.includes("IndexedDB persist"), "persist failure does not mention IndexedDB");
   assert(liveSession.includes("assembleMasterPackage"), "stop attaches the session package");
   assert(liveSession.includes("persistMasterRecording"), "stop persists the master");
   const isolated = read("js/recording.js");

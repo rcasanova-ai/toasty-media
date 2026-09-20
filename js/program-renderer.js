@@ -39,6 +39,20 @@ export function programLayoutCount(layout) {
   return LAYOUT_COUNT[layout] || layout || "";
 }
 
+export function programFeedBindings(mounted) {
+  let bound = 0;
+  let empty = 0;
+  if (!mounted) return { bound: 0, empty: 0, tiles: 0 };
+  for (const entry of mounted.values()) {
+    const container = entry.videoContainer;
+    const hasSource = Boolean(container?.querySelector("iframe, video"));
+    const isEmpty = container?.classList.contains("po-tile-video--empty");
+    if (hasSource && !isEmpty) bound += 1;
+    else empty += 1;
+  }
+  return { bound, empty, tiles: mounted.size };
+}
+
 export function syncProgramRenderer({
   stage,
   engine,
@@ -49,7 +63,8 @@ export function syncProgramRenderer({
   muted = false,
   videoEnabled = true,
   asset = null,
-  assetLayout = null
+  assetLayout = null,
+  resolveOwnedStream = null
 }) {
   if (!stage || !mounted) return composeProgram(participants, { asset, assetLayout });
   const composition = composeProgram(participants, { asset, assetLayout });
@@ -68,14 +83,16 @@ export function syncProgramRenderer({
 
   composition.slots.forEach((participant) => {
     const existing = mounted.get(participant.participantId);
-    const nextSource = slotSourceKey(participant, videoEnabled);
+    const nextSource = slotSourceKey(participant, videoEnabled, resolveOwnedStream, muted);
     if (existing) {
       updateParticipantLowerThird(existing.lowerThird, participant);
       if (existing.sourceKey !== nextSource) {
         unmountProgramSlot(engine, existing);
-        mountProgramSlotVideo(engine, existing.videoContainer, participant, roomId, existing.frameId, muted, videoEnabled);
+        mountProgramSlotVideo(engine, existing.videoContainer, participant, roomId, existing.frameId, muted, videoEnabled, resolveOwnedStream);
         existing.sourceKey = nextSource;
         existing.transportSourceId = participant.transportSourceId || null;
+      } else {
+        syncOwnedVideoMute(existing.videoContainer, muted);
       }
       return;
     }
@@ -90,7 +107,7 @@ export function syncProgramRenderer({
     tile.appendChild(lowerThird);
     stage.appendChild(tile);
     const frameId = `${frameIdPrefix}-${participant.participantId}`;
-    mountProgramSlotVideo(engine, videoContainer, participant, roomId, frameId, muted, videoEnabled);
+    mountProgramSlotVideo(engine, videoContainer, participant, roomId, frameId, muted, videoEnabled, resolveOwnedStream);
     mounted.set(participant.participantId, {
       tile,
       videoContainer,
@@ -119,28 +136,46 @@ export function clearProgramRenderer({ engine, mounted, stage }) {
   }
 }
 
-function slotSourceKey(participant, videoEnabled = true) {
+function slotSourceKey(participant, videoEnabled = true, resolveOwnedStream = null, muted = false) {
   if (!videoEnabled) return `placeholder:${participant.participantId}`;
+  if (resolveOwnedStream?.(participant)) return `owned:${participant.participantId}`;
   if (participant?.videoSource?.kind === SourceKind.NATIVE_MEDIA_STREAM && participant.videoSource.stream) {
     return `native:${participant.participantId}`;
   }
-  return `vdo:${participant?.transportSourceId || ""}`;
+  return `vdo:${participant?.transportSourceId || ""}:${muted ? "muted" : "unmuted"}`;
 }
 
-function mountProgramSlotVideo(engine, container, participant, roomId, frameId, muted, videoEnabled = true) {
+function syncOwnedVideoMute(container, muted) {
+  container?.querySelectorAll("video").forEach((video) => {
+    video.muted = Boolean(muted);
+    if (!muted) video.play?.().catch(() => {});
+  });
+}
+
+function mountNativeProgramVideo(container, stream, muted) {
+  const video = document.createElement("video");
+  video.autoplay = true;
+  video.muted = Boolean(muted);
+  video.playsInline = true;
+  video.srcObject = stream;
+  video.play?.().catch(() => {});
+  container.classList.remove("po-tile-video--empty");
+  container.replaceChildren(video);
+}
+
+function mountProgramSlotVideo(engine, container, participant, roomId, frameId, muted, videoEnabled = true, resolveOwnedStream = null) {
   if (!videoEnabled) {
     container.classList.add("po-tile-video--empty");
     container.replaceChildren();
     return;
   }
+  const owned = resolveOwnedStream?.(participant);
+  if (owned) {
+    mountNativeProgramVideo(container, owned, muted);
+    return;
+  }
   if (participant?.videoSource?.kind === SourceKind.NATIVE_MEDIA_STREAM && participant.videoSource.stream) {
-    const video = document.createElement("video");
-    video.autoplay = true;
-    video.muted = true;
-    video.playsInline = true;
-    video.srcObject = participant.videoSource.stream;
-    container.classList.remove("po-tile-video--empty");
-    container.replaceChildren(video);
+    mountNativeProgramVideo(container, participant.videoSource.stream, muted);
     return;
   }
   const streamId = participant?.transportSourceId;

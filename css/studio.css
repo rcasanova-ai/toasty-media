@@ -1362,10 +1362,59 @@
   width: 0.5rem;
 }
 
-.rec-toggle:hover {
-  background: var(--studio-red-bright);
-  border-color: var(--studio-red-bright);
-  transform: translateY(-1px);
+.rec-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
+.rec-toggle:disabled:hover {
+  background: var(--studio-red);
+  border-color: rgba(255, 198, 112, 0.22);
+  transform: none;
+}
+
+.lv-po-readiness {
+  display: grid;
+  gap: 0.15rem;
+  margin-top: 0.75rem;
+}
+
+.lv-po-readiness-title {
+  color: var(--studio-cream);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.lv-po-readiness-line {
+  color: var(--studio-cream-dim);
+  font-size: 0.78rem;
+  margin: 0;
+}
+
+.lv-po-ready-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.55rem;
+}
+
+.lv-po-flag {
+  border: 1px solid var(--studio-line);
+  border-radius: 999px;
+  color: var(--studio-muted);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 0.2em 0.65em;
+}
+
+.lv-po-flag[data-ready="true"] {
+  border-color: rgba(90, 196, 120, 0.55);
+  color: #8ee0a6;
 }
 
 .rec-toggle[aria-pressed="true"] {

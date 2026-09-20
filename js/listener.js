@@ -3,7 +3,7 @@ import { getBrandProfile } from "./brand-profile.js";
 import { VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js";
 import { ProgramSync } from "./program-sync.js";
 import { composeProgram } from "./program-composition.js";
-import { syncProgramRenderer, clearProgramRenderer } from "./program-renderer.js";
+import { syncProgramRenderer, clearProgramRenderer, programFeedBindings } from "./program-renderer.js";
 import { ProgramAudioBus, serializeProgramAudio } from "./program-audio.js";
 
 // Toasty Studio Program Output — the finished, audience-facing broadcast canvas.
@@ -14,6 +14,11 @@ import { ProgramAudioBus, serializeProgramAudio } from "./program-audio.js";
 // Video is the ONE Program Renderer (js/program-renderer.js): composeProgram() + one clean per-person
 // source per slot. Producer Program Preview uses the same renderer. VDO is transport only
 // (`&room&scene&view=<id>&cleanoutput`) — never a visible scene=0 auto-mix.
+//
+// Host video: Director already owns the native camera MediaStream. Program Output, when opened from
+// Director (window.opener), binds THAT stream — no second camera acquire, same pixels as Preview.
+// Guest video: VDO view iframes, mounted muted first so autoplay is allowed, then unmuted after
+// the operator enables program audio.
 
 const roomId = getRoomIdFromUrl();
 const engine = new VideoEngine();
@@ -21,12 +26,10 @@ let sync = null;
 let tickerRafId = null;
 let lastProgramState = null;
 const mountedProgramTiles = new Map();
-// Browsers block autoplay of unmuted <video> without a user gesture in that frame. Program Output
-// carries real (unmuted) program audio on purpose, so participant views are not mounted until the
-// operator clicks the audio gate once — see renderLiveStage() and the click handler below.
 let audioUnlocked = false;
 const programAudio = new ProgramAudioBus({ role: "program" });
 let lastAudioPlayId = null;
+let statusTimerId = null;
 
 const elements = {
   canvas: document.querySelector("#poCanvas"),
@@ -44,6 +47,8 @@ const elements = {
   tickerTrack: document.querySelector("#poTickerTrack"),
   tickerText: document.querySelector("#poTickerText"),
   audioGate: document.querySelector("#poAudioGate"),
+  audioGateLabel: document.querySelector(".po-audio-gate-label"),
+  audioGateNote: document.querySelector(".po-audio-gate-note"),
   poweredBy: document.querySelector("#programPoweredBy")
 };
 
@@ -57,7 +62,7 @@ function init() {
     elements.audioGate.hidden = true;
     return;
   }
-  elements.audioGate.addEventListener("click", unlockAudio, { once: true });
+  elements.audioGate.addEventListener("click", unlockAudio);
   sync = new ProgramSync(roomId);
   const lastState = sync.readLastState();
   if (lastState) render(lastState);
@@ -65,16 +70,31 @@ function init() {
     if (message?.type === "state") render(message.payload);
   });
   sync.requestState();
+  statusTimerId = window.setInterval(reportOutputStatus, 2000);
+  reportOutputStatus();
+}
+
+function ownedStreamFor(participant) {
+  if (!participant || (participant.role !== "host" && participant.participantId !== "host")) return null;
+  try {
+    const api = window.opener?.__toastyProgramSources;
+    if (!api) return null;
+    if (typeof api.roomId === "function" && api.roomId() !== roomId) return null;
+    const stream = typeof api.hostStream === "function" ? api.hostStream() : null;
+    const videoLive = stream?.getVideoTracks?.().some((track) => track.readyState === "live");
+    return videoLive ? stream : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 function unlockAudio() {
   audioUnlocked = true;
   elements.audioGate.hidden = true;
   programAudio.resume().catch(() => {});
-  // Mount now, inside this click's user-activation window, if the show is already live — a render
-  // that arrives later without a fresh gesture wouldn't reliably get an unmuted autoplay.
   if (lastProgramState?.scene === "live") renderLiveStage(lastProgramState);
   syncProgramAudio(lastProgramState);
+  reportOutputStatus();
 }
 
 function render(programState) {
@@ -103,6 +123,7 @@ function render(programState) {
     elements.audioGate.hidden = true;
   }
   syncProgramAudio(programState);
+  reportOutputStatus();
 }
 
 function programParticipants(programState) {
@@ -131,6 +152,11 @@ function renderLiveStage(programState) {
   }
   elements.stage.querySelector(".po-waitingroom")?.remove();
   elements.audioGate.hidden = audioUnlocked;
+  if (!audioUnlocked) {
+    if (elements.audioGateLabel) elements.audioGateLabel.textContent = "Enable program audio";
+    if (elements.audioGateNote) elements.audioGateNote.textContent = "Video is already on. Click once so the audience (and the master recording) can hear the room and soundboard.";
+  }
+  // Video always mounts while live. Mute VDO/native until the audio gesture so autoplay is allowed.
   syncProgramRenderer({
     stage: elements.stage,
     engine,
@@ -138,10 +164,11 @@ function renderLiveStage(programState) {
     participants: programParticipants(programState),
     mounted: mountedProgramTiles,
     frameIdPrefix: "program",
-    muted: false,
-    videoEnabled: audioUnlocked,
+    muted: !audioUnlocked,
+    videoEnabled: true,
     asset: programState.asset || null,
-    assetLayout: programState.assetLayout || null
+    assetLayout: programState.assetLayout || null,
+    resolveOwnedStream: ownedStreamFor
   });
 }
 
@@ -172,6 +199,36 @@ function buildWaitingRoom() {
 
 function clearStage() {
   clearProgramRenderer({ engine, mounted: mountedProgramTiles, stage: elements.stage });
+}
+
+function outputStatusPayload() {
+  const participants = programParticipants(lastProgramState);
+  const composition = composeProgram(participants, {
+    asset: lastProgramState?.asset,
+    assetLayout: lastProgramState?.assetLayout
+  });
+  const feeds = programFeedBindings(mountedProgramTiles);
+  const scene = lastProgramState?.scene || "holding";
+  const expectedFeeds = composition.slots.length;
+  const videoReady = scene === "live" && expectedFeeds > 0 && feeds.bound === expectedFeeds && feeds.empty === 0;
+  const audioReady = Boolean(audioUnlocked);
+  return {
+    connected: true,
+    scene,
+    live: Boolean(lastProgramState?.live),
+    expectedFeeds,
+    boundFeeds: feeds.bound,
+    emptyFeeds: feeds.empty,
+    audioUnlocked: audioReady,
+    videoReady,
+    audioReady,
+    readyToRecord: videoReady && audioReady && scene === "live"
+  };
+}
+
+function reportOutputStatus() {
+  if (!sync) return;
+  sync.publishOutputStatus(outputStatusPayload());
 }
 
 function syncProgramAudio(programState) {
@@ -212,7 +269,8 @@ function applyBrand(themeId) {
 function restartTicker() {
   if (tickerRafId) cancelAnimationFrame(tickerRafId);
   elements.tickerTrack.style.animation = "none";
-  // Force reflow so the restarted CSS animation actually restarts from the beginning.
   void elements.tickerTrack.offsetWidth;
   tickerRafId = requestAnimationFrame(() => { elements.tickerTrack.style.animation = ""; });
 }
+
+void statusTimerId;

@@ -23,7 +23,8 @@ import {
   activeRecordingState,
   markerTypeFromProduction,
   rememberLastMasterRecording,
-  recalledMasterRecordingId
+  recalledMasterRecordingId,
+  PROGRAM_OUTPUT_PICKER_INSTRUCTION
 } from "./program-recording.js";
 import { ProgramSync } from "./program-sync.js";
 import { SessionPolicy } from "./session-policy.js";
@@ -87,6 +88,23 @@ function parseGuestLabel(label) {
 }
 
 const GUEST_SEAT_COUNT = 3;
+const PROGRAM_OUTPUT_STALE_MS = 6000;
+
+function idleProgramOutputState() {
+  return {
+    connected: false,
+    scene: null,
+    live: false,
+    expectedFeeds: 0,
+    boundFeeds: 0,
+    emptyFeeds: 0,
+    audioUnlocked: false,
+    videoReady: false,
+    audioReady: false,
+    readyToRecord: false,
+    updatedAt: null
+  };
+}
 
 // _checkDurableSessionStatus's own cadence — deliberately its OWN interval, NOT the 4s guest-seat poll.
 // Proven production root cause (commit 4d7e33c real-device retest): GET /api/sessions/:id sits behind
@@ -120,6 +138,7 @@ export class LiveSession {
 
     this.av = { micMuted: false, cameraOff: false };
     this.recording = idleRecordingState();
+    this.programOutput = idleProgramOutputState();
     this.connection = { status: "idle", label: "Ready" };
 
     this.program = {
@@ -179,6 +198,7 @@ export class LiveSession {
     this._sessionStatusTimerId = null;
     this._recordingTimerId = null;
     this._masterRecorder = null;
+    this._programOutputTimerId = null;
     this._containers = null;
     this._listeners = new Map();
     this._startedAt = Date.now();
@@ -402,7 +422,16 @@ export class LiveSession {
     this._updateInviteAndHistory();
     this.publishProgramState();
     this.emit("room", { roomId: this.roomId });
+    this.exposeProgramSources();
     this.hydrateLastMaster().catch(() => {});
+  }
+
+  exposeProgramSources() {
+    if (typeof window === "undefined") return;
+    window.__toastyProgramSources = {
+      roomId: () => this.roomId,
+      hostStream: () => this._hostPreviewStream
+    };
   }
 
   // ---- Host identity ----
@@ -447,6 +476,7 @@ export class LiveSession {
     this.presence = new RoomPresence({ roomId: this.roomId, participantId: "host", role: "host", displayName: name, title: this.hostProfile.title, company: this.hostProfile.company });
     this.presence.start(transportSourceId);
     this.setHostState(HostState.IN_STUDIO);
+    this.exposeProgramSources();
     this.emit("host-profile", this.hostProfile);
     this.publishProgramState();
     this._syncProgramPreview();
@@ -883,7 +913,40 @@ export class LiveSession {
     this._programSync = new ProgramSync(this.roomId);
     this._programSync.onMessage((message) => {
       if (message?.type === "request-state") this.publishProgramState();
+      if (message?.type === "output-status") this._setProgramOutput(message.payload);
     });
+    this._startProgramOutputWatch();
+  }
+
+  _setProgramOutput(payload = {}) {
+    const bound = Number(payload.boundFeeds) || 0;
+    const expected = Number(payload.expectedFeeds) || 0;
+    const empty = Number(payload.emptyFeeds) || 0;
+    const videoReady = Boolean(payload.videoReady) && expected > 0 && bound === expected && empty === 0;
+    this.programOutput = {
+      connected: true,
+      scene: payload.scene || null,
+      live: Boolean(payload.live),
+      expectedFeeds: expected,
+      boundFeeds: bound,
+      emptyFeeds: empty,
+      audioUnlocked: Boolean(payload.audioUnlocked),
+      videoReady,
+      audioReady: Boolean(payload.audioReady),
+      readyToRecord: Boolean(payload.readyToRecord) && videoReady && Boolean(payload.audioReady) && empty === 0,
+      updatedAt: Date.now()
+    };
+    this.emit("program-output", this.programOutput);
+  }
+
+  _startProgramOutputWatch() {
+    if (this._programOutputTimerId) window.clearInterval(this._programOutputTimerId);
+    this._programOutputTimerId = window.setInterval(() => {
+      if (!this.programOutput.updatedAt) return;
+      if (Date.now() - this.programOutput.updatedAt < PROGRAM_OUTPUT_STALE_MS) return;
+      this.programOutput = idleProgramOutputState();
+      this.emit("program-output", this.programOutput);
+    }, 2000);
   }
 
   publishProgramState() {
@@ -1060,7 +1123,19 @@ export class LiveSession {
   // steal the Host camera and would not contain guest speech, layouts, or soundboard.
 
   canRecord() {
-    return this.policy.canRecord() && MasterProgramRecorder.isSupported();
+    return this.policy.canRecord() && MasterProgramRecorder.isSupported() && Boolean(this.programOutput?.readyToRecord);
+  }
+
+  recordingBlockReason() {
+    if (!this.policy.canRecord()) return "Recording is disabled by this session's capture policy.";
+    if (!MasterProgramRecorder.isSupported()) return "This browser cannot capture Program Output. Use current Chrome.";
+    if (!this.programOutput?.connected) return "Open Program Output first. Wait until it shows participant video.";
+    if (!this.programOutput.videoReady) {
+      if (!this.programOutput.expectedFeeds) return "Program Output has no participant feeds yet. Join Host and Guest, then set the scene Live.";
+      return `Program Output video is not ready (${this.programOutput.boundFeeds}/${this.programOutput.expectedFeeds} feeds bound).`;
+    }
+    if (!this.programOutput.audioReady) return "Enable program audio on the Program Output tab, then start recording.";
+    return null;
   }
 
   ensureProgramOutputWindow() {
@@ -1073,8 +1148,11 @@ export class LiveSession {
     if (!MasterProgramRecorder.isSupported()) {
       throw new Error("This browser cannot capture Program Output (getDisplayMedia + MediaRecorder).");
     }
+    const blocked = this.recordingBlockReason();
+    if (blocked) throw new Error(blocked);
     if (this.recording.active) return this.recording;
     this.ensureProgramOutputWindow();
+    this.emit("recording-status", PROGRAM_OUTPUT_PICKER_INSTRUCTION);
     const recordingId = nextRecordingId();
     this._masterRecorder = new MasterProgramRecorder({
       status: (message) => this.emit("recording-status", message)
@@ -1104,6 +1182,8 @@ export class LiveSession {
       this.publishProgramState();
       return this.recording.last;
     }
+    this._setRecording({ ...this.recording, status: "saving" });
+    this.emit("recording-status", "SAVING RECORDING…");
     const captureResult = await recorder.stop();
     const { startedAt, stoppedAt } = captureResult;
     const { manifest } = assembleMasterPackage({
@@ -1143,7 +1223,7 @@ export class LiveSession {
       rememberLastMasterRecording(this.roomId, captureResult.recordingId);
       persisted = true;
     } catch (error) {
-      this.emit("recording-status", `Master captured in this tab, but IndexedDB persist failed: ${error.message}`);
+      this.emit("recording-status", "Recording saved in this tab. Download it now.");
     }
     if (this.recording.last?.objectUrl && this.recording.last.objectUrl !== captureResult.objectUrl) {
       try { URL.revokeObjectURL(this.recording.last.objectUrl); } catch (_) {}
@@ -1163,9 +1243,7 @@ export class LiveSession {
     };
     this._setRecording(idleRecordingState(last));
     this.publishProgramState();
-    this.emit("recording-status", persisted
-      ? "Master Program Recording saved. Play it back below."
-      : "Master Program Recording captured in this tab. Download it — IndexedDB persist failed.");
+    this.emit("recording-status", persisted ? "RECORDING SAVED" : "Recording saved in this tab. Download it now.");
     return last;
   }
 

@@ -17,6 +17,12 @@ export class ProducerView {
       poSceneGroup: root.querySelector("#lvPoSceneGroup"),
       poTickerEnabled: root.querySelector("#lvPoTickerEnabled"),
       poTickerText: root.querySelector("#lvPoTickerText"),
+      poConnection: root.querySelector("#lvPoConnection"),
+      poFeeds: root.querySelector("#lvPoFeeds"),
+      poAudioState: root.querySelector("#lvPoAudioState"),
+      poReadyState: root.querySelector("#lvPoReadyState"),
+      poVideoFlag: root.querySelector("#lvPoVideoFlag"),
+      poAudioFlag: root.querySelector("#lvPoAudioFlag"),
       recordToggle: root.querySelector("#lvRecordToggle"),
       recordNote: root.querySelector("#lvRecordNote"),
       recordTimer: root.querySelector("#lvRecordTimer"),
@@ -25,6 +31,7 @@ export class ProducerView {
       masterPlayback: root.querySelector("#lvMasterPlayback"),
       masterVideo: root.querySelector("#lvMasterVideo"),
       masterDownload: root.querySelector("#lvMasterDownload"),
+      masterPlay: root.querySelector("#lvMasterPlay"),
       masterManifest: root.querySelector("#lvMasterManifest"),
       masterManifestNote: root.querySelector("#lvMasterManifestNote"),
       soundboard: root.querySelector("#lvSoundboard"),
@@ -76,8 +83,9 @@ export class ProducerView {
     this.elements.recordToggle.addEventListener("click", () => this.toggleRecording());
     this.elements.recordMarker?.addEventListener("click", () => {
       const marker = this.session.addMarker();
-      this.elements.recordNote.textContent = `Marked ${formatTimer(Math.floor((marker.timestamp - (this.session.recording.startedAt || marker.timestamp)) / 1000))} · ${marker.label}`;
+      this.elements.recordNote.textContent = `Marked ${formatClock(Math.floor((marker.timestamp - (this.session.recording.startedAt || marker.timestamp)) / 1000))} · ${marker.label}`;
     });
+    this.elements.masterPlay?.addEventListener("click", () => this.playMaster());
     this.elements.masterDownload?.addEventListener("click", () => this.downloadMaster());
     this.elements.masterManifest?.addEventListener("click", () => this.downloadManifest());
     this.elements.openProgramOutput.addEventListener("click", () => {
@@ -101,8 +109,13 @@ export class ProducerView {
     this.session.on("av", () => this.renderGuests());
     this.session.on("program", (program) => this.renderProgram(program));
     this.session.on("recording", (recording) => this.renderRecording(recording));
-    this.session.on("recording-status", (message) => { this.elements.recordNote.textContent = message; });
+    this.session.on("recording-status", (message) => { this.elements.recordNote.textContent = message; this.elements.recordNote.dataset.error = "false"; });
     this.session.on("policy", () => this.renderRecordingGate());
+    this.session.on("program-output", () => {
+      this.elements.recordNote.dataset.error = "false";
+      this.renderProgramOutputStatus();
+      this.renderRecordingGate();
+    });
     this.session.aiProducerFeed.on(() => this.renderFeedMirror());
     this.session.on("transcription", (state) => this.renderTranscriptionStatus(state));
     this.session.aiProducerService.on((totals) => this.renderAiDiagnostics(totals));
@@ -110,6 +123,7 @@ export class ProducerView {
     this.renderGuests();
     this.renderProgram(this.session.program);
     this.renderRecording(this.session.recording);
+    this.renderProgramOutputStatus();
     this.renderRecordingGate();
     this.renderFeedMirror();
     this.renderAiDiagnostics(this.session.aiProducerService.sessionTotals());
@@ -209,23 +223,58 @@ export class ProducerView {
     });
   }
 
+  renderProgramOutputStatus() {
+    const output = this.session.programOutput || {};
+    const feeds = Number(output.boundFeeds) || 0;
+    const expected = Number(output.expectedFeeds) || 0;
+    if (this.elements.poConnection) {
+      this.elements.poConnection.textContent = output.connected ? "Connected" : "Not connected";
+    }
+    if (this.elements.poFeeds) {
+      this.elements.poFeeds.textContent = output.connected
+        ? `${feeds} participant feed${feeds === 1 ? "" : "s"}${expected ? ` bound (${feeds}/${expected})` : ""}`
+        : "0 participant feeds";
+    }
+    if (this.elements.poAudioState) {
+      this.elements.poAudioState.textContent = output.audioReady ? "Audio enabled" : "Audio off";
+    }
+    if (this.elements.poReadyState) {
+      this.elements.poReadyState.textContent = output.readyToRecord ? "Ready to record" : "Not ready to record";
+    }
+    if (this.elements.poVideoFlag) {
+      this.elements.poVideoFlag.textContent = output.videoReady ? "VIDEO READY" : "VIDEO —";
+      this.elements.poVideoFlag.dataset.ready = String(Boolean(output.videoReady));
+    }
+    if (this.elements.poAudioFlag) {
+      this.elements.poAudioFlag.textContent = output.audioReady ? "AUDIO READY" : "AUDIO —";
+      this.elements.poAudioFlag.dataset.ready = String(Boolean(output.audioReady));
+    }
+  }
+
   renderRecording(recording) {
     const active = Boolean(recording.active);
-    this.elements.recordToggle.setAttribute("aria-pressed", String(active));
-    this.elements.recordToggle.textContent = active ? "Stop recording" : "Start recording";
-    this.elements.recordTimer.hidden = !active;
+    const saving = recording.status === "saving";
+    this.elements.recordToggle.setAttribute("aria-pressed", String(active && !saving));
+    this.elements.recordToggle.textContent = saving ? "SAVING RECORDING…" : active ? "STOP RECORDING" : "START RECORDING";
+    this.elements.recordTimer.hidden = !active && !saving;
     if (this.elements.recordStatus) {
-      this.elements.recordStatus.textContent = active ? "Recording" : recording.last ? "Recorded" : "Idle";
+      if (saving) this.elements.recordStatus.textContent = "SAVING RECORDING…";
+      else if (active && recording.startedAt) {
+        const elapsed = Math.floor((Date.now() - recording.startedAt) / 1000);
+        this.elements.recordStatus.textContent = `RECORDING · ${formatClock(elapsed)}`;
+      } else if (recording.last) this.elements.recordStatus.textContent = "RECORDING SAVED";
+      else this.elements.recordStatus.textContent = "Idle";
     }
-    if (this.elements.recordMarker) this.elements.recordMarker.hidden = !active;
+    if (this.elements.recordMarker) this.elements.recordMarker.hidden = !active || saving;
     this.elements.recordToggle.closest(".lv-record")?.setAttribute("data-active", String(active));
     if (active && recording.startedAt) {
       const elapsed = Math.floor((Date.now() - recording.startedAt) / 1000);
-      this.elements.recordTimer.textContent = formatTimer(elapsed);
-    } else {
-      this.elements.recordTimer.textContent = "00:00:00";
+      this.elements.recordTimer.textContent = formatClock(elapsed);
+    } else if (!saving) {
+      this.elements.recordTimer.textContent = "00:00";
     }
     this.renderMasterPlayback(recording.last);
+    this.renderRecordingGate();
   }
 
   renderMasterPlayback(last) {
@@ -239,10 +288,15 @@ export class ProducerView {
       this.elements.masterVideo.src = last.objectUrl;
     }
     if (this.elements.masterManifestNote) {
-      const duration = formatTimer(Math.round(last.durationSeconds || 0));
-      const persisted = last.persisted ? "saved in this browser" : "in this tab only";
-      this.elements.masterManifestNote.textContent = `${last.recordingId} · ${duration} · ${persisted}. Play to confirm layout, lower thirds, TAKE LIVE, speech, and soundboard.`;
+      const duration = formatClock(Math.round(last.durationSeconds || 0));
+      this.elements.masterManifestNote.textContent = `${duration}. Play to confirm Host, Guest, lower thirds, TAKE LIVE, speech, and soundboard.`;
     }
+  }
+
+  playMaster() {
+    const video = this.elements.masterVideo;
+    if (!video?.src) return;
+    video.play?.().catch(() => {});
   }
 
   downloadMaster() {
@@ -258,48 +312,67 @@ export class ProducerView {
   }
 
   renderRecordingGate() {
+    const active = Boolean(this.session.recording.active);
+    const saving = this.session.recording.status === "saving";
     const allowed = this.session.canRecord();
-    this.elements.recordToggle.disabled = !allowed && !this.session.recording.active;
-    if (!allowed && !this.session.recording.active) {
-      this.elements.recordNote.textContent = this.session.policy.canRecord()
-        ? "Master recording needs a current Chromium browser with tab capture. Isolated Host camera recording is not the master."
-        : "Recording is disabled by this session's capture policy.";
-    } else if (!this.session.recording.active) {
-      this.elements.recordNote.textContent = "Open Program Output, click Enable audio, then Start recording. Share that tab with tab audio so Host, Guest, and soundboard are in the master.";
+    this.elements.recordToggle.disabled = saving || (!allowed && !active);
+    if (active || saving) return;
+    if (this.elements.recordNote.dataset.error === "true") return;
+    const blocked = this.session.recordingBlockReason?.();
+    if (blocked) {
+      this.elements.recordNote.textContent = blocked;
+      return;
     }
+    this.elements.recordNote.textContent = "Program Output is ready. Click START RECORDING, then select that tab and turn Share tab audio ON.";
   }
 
   async toggleRecording() {
     try {
       this.elements.recordToggle.disabled = true;
+      this.elements.recordNote.dataset.error = "false";
       if (this.session.recording.active) {
         await this.session.stopRecording();
       } else {
         await this.session.startRecording();
       }
     } catch (error) {
-      this.elements.recordNote.textContent = `Recording failed: ${humanizeError(error)}`;
+      this.elements.recordNote.textContent = humanizeError(error);
+      this.elements.recordNote.dataset.error = "true";
     } finally {
-      this.elements.recordToggle.disabled = !this.session.canRecord() && !this.session.recording.active;
+      this.elements.recordToggle.disabled = this.session.recording.status === "saving" || (!this.session.canRecord() && !this.session.recording.active);
       this.renderRecording(this.session.recording);
     }
   }
 }
 
-function formatTimer(totalSeconds) {
-  const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, "0");
-  const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, "0");
-  const seconds = String(totalSeconds % 60).padStart(2, "0");
-  return `${hours}:${minutes}:${seconds}`;
+function formatClock(totalSeconds) {
+  const seconds = Math.max(0, Number(totalSeconds) || 0);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remain = seconds % 60;
+  if (hours > 0) {
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remain).padStart(2, "0")}`;
+  }
+  return `${String(minutes).padStart(2, "0")}:${String(remain).padStart(2, "0")}`;
 }
 
 function humanizeError(error) {
-  if (error?.reason === "missing-audio") return error.message;
-  if (error?.reason === "missing-video") return error.message;
-  if (error?.name === "NotAllowedError") return "Program Output tab share was cancelled. Select that tab and enable tab audio.";
-  if (error?.name === "NotFoundError") return "no shareable tab was found.";
-  if (error?.name === "NotReadableError") return "the selected tab could not be captured.";
-  return error?.message || "unknown browser recording error.";
+  if (error?.userMessage) return error.userMessage;
+  if (error?.reason === "missing-audio" || error?.reason === "audio-not-live") {
+    return "Program Output audio was not shared. Start again and enable Share tab audio.";
+  }
+  if (error?.reason === "missing-video" || error?.reason === "video-not-live") {
+    return "Program Output video capture is unavailable.";
+  }
+  if (error?.reason === "invalid-recorder-state" || error?.name === "InvalidStateError" || /invalid state|state is invalid/i.test(error?.message || "")) {
+    return "Program Output capture could not start. Select “Toasty Studio — Program Output” and turn Share tab audio ON.";
+  }
+  if (error?.name === "NotAllowedError") return "Program Output tab share was cancelled. Select that tab and enable Share tab audio.";
+  if (error?.name === "NotFoundError") return "No shareable tab was found.";
+  if (error?.name === "NotReadableError") return "The selected tab could not be captured.";
+  const message = String(error?.message || "").trim();
+  if (message && !/invalid state/i.test(message)) return message;
+  return "Program Output capture could not start. Open Program Output, enable audio, and try again.";
 }
 
 function downloadFile(blob, name) {

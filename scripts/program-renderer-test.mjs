@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { composeProgram, ProgramLayout } from "../js/program-composition.js";
-import { serializeProgramParticipant, programLayoutCount } from "../js/program-renderer.js";
+import { serializeProgramParticipant, programLayoutCount, programFeedBindings } from "../js/program-renderer.js";
 import { createParticipant, ParticipantRole, ConnectionStatus, SourceKind } from "../js/participant-registry.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -105,8 +105,96 @@ assert(guestJs.includes("stopPreview();"), "guest Join still releases native cam
 const engine = readFileSync(join(ROOT, "js/video-engine.js"), "utf8");
 assert(engine.includes("view:true"), "guest publisher still uses bare &view (self-PiP freeze)");
 
+console.log("\nProgram Output binds participant sources; empty frames are not ready");
+{
+  const emptyMounted = new Map([
+    ["host", { videoContainer: { querySelector: () => null, classList: { contains: (name) => name === "po-tile-video--empty" } } }],
+    ["g2", { videoContainer: { querySelector: () => null, classList: { contains: (name) => name === "po-tile-video--empty" } } }]
+  ]);
+  const emptyFeeds = programFeedBindings(emptyMounted);
+  assertEqual(emptyFeeds.bound, 0, "empty frames are not bound");
+  assertEqual(emptyFeeds.empty, 2, "two empty frames counted");
+  const boundMounted = new Map([
+    ["host", { videoContainer: { querySelector: () => ({ tagName: "VIDEO" }), classList: { contains: () => false } } }],
+    ["g2", { videoContainer: { querySelector: () => ({ tagName: "IFRAME" }), classList: { contains: () => false } } }]
+  ]);
+  const boundFeeds = programFeedBindings(boundMounted);
+  assertEqual(boundFeeds.bound, 2, "host video + guest iframe count as bound feeds");
+  assertEqual(boundFeeds.empty, 0, "no empty frames when sources are attached");
+  const mixed = programFeedBindings(new Map([
+    ["host", { videoContainer: { querySelector: () => ({ tagName: "VIDEO" }), classList: { contains: () => false } } }],
+    ["g2", { videoContainer: { querySelector: () => null, classList: { contains: (name) => name === "po-tile-video--empty" } } }]
+  ]));
+  assertEqual(mixed.bound, 1, "one bound feed");
+  assertEqual(mixed.empty, 1, "one empty feed");
+  const readyToRecord = mixed.bound === 2 && mixed.empty === 0;
+  assertEqual(readyToRecord, false, "readiness is false while any frame is empty");
+
+  const renderer = readFileSync(join(ROOT, "js/program-renderer.js"), "utf8");
+  assert(renderer.includes("resolveOwnedStream"), "renderer can bind an opener-owned Host MediaStream");
+  assert(renderer.includes("mountNativeProgramVideo"), "native/owned streams mount a <video>, not an empty frame");
+  assert(renderer.includes('vdo:${participant?.transportSourceId || ""}:${muted ? "muted" : "unmuted"}'), "muted vs unmuted remounts the VDO iframe");
+}
+
+console.log("\nProgram Output receives serialized participants and always mounts video");
+{
+  assert(serialized.transportSourceId === "tmroomh", "Program Output still receives Host VDO source id");
+  assert(fromSync.slots.every((slot) => slot.transportSourceId), "serialized slots keep transportSourceId for iframe src");
+  assert(listener.includes("videoEnabled: true"), "Program Output always enables video while live");
+  assert(listener.includes("muted: !audioUnlocked"), "VDO mounts muted until program audio is enabled");
+  assert(listener.includes("resolveOwnedStream: ownedStreamFor"), "Host tile binds Director's native stream via opener");
+  assert(listener.includes("__toastyProgramSources"), "Program Output reads window.opener hostStream");
+  assert(listener.includes("publishOutputStatus"), "Program Output publishes readiness on ProgramSync");
+  assert(listener.includes("readyToRecord: videoReady && audioReady"), "readyToRecord requires bound feeds and audio");
+  assert(!/videoEnabled:\s*audioUnlocked/.test(listener), "video is not gated on the audio click");
+  const outputCss = readFileSync(join(ROOT, "css/program-output.css"), "utf8");
+  assert(outputCss.includes("must NOT cover the"), "audio gate documents that it must not cover tiles");
+  assert(!/^\s*inset:\s*0;/m.test(outputCss.slice(outputCss.indexOf(".po-audio-gate {"), outputCss.indexOf(".po-audio-gate[hidden]"))), "audio gate is not a full-canvas overlay");
+  const liveSessionSrc = readFileSync(join(ROOT, "js/live-session.js"), "utf8");
+  assert(liveSessionSrc.includes("exposeProgramSources"), "Director exposes hostStream to Program Output");
+  assert(liveSessionSrc.includes("output-status"), "Director consumes ProgramSync output-status");
+  assert(liveSessionSrc.includes("empty === 0"), "readyToRecord refuses empty frames");
+  const syncSrc = readFileSync(join(ROOT, "js/program-sync.js"), "utf8");
+  assert(syncSrc.includes('type: "output-status"'), "ProgramSync serializes output-status without breaking state messages");
+  assert(syncSrc.includes('type: "state"'), "ProgramSync state messages remain");
+}
+
 const listenerHtml = readFileSync(join(ROOT, "studio/listener.html"), "utf8");
 assert(!listenerHtml.includes("poLiveBadge"), "top-right LIVE markup removed");
 assert(listenerHtml.includes("poLiveChip"), "bottom-left LIVE chip remains");
+assert(listenerHtml.includes("Enable program audio"), "Program Output still has the audio gate");
+assert(!listener.includes("getUserMedia"), "Program Output does not reacquire cameras");
+
+console.log("\nProgramSync output-status does not break state messages");
+globalThis.window = globalThis;
+const posted = [];
+globalThis.BroadcastChannel = class {
+  constructor(name) { this.name = name; this.handler = null; }
+  addEventListener(type, cb) { if (type === "message") this.handler = cb; }
+  postMessage(data) { posted.push(data); this.handler?.({ data }); }
+  close() {}
+};
+globalThis.localStorage = {
+  data: {},
+  setItem(key, value) { this.data[key] = String(value); },
+  getItem(key) { return Object.prototype.hasOwnProperty.call(this.data, key) ? this.data[key] : null; }
+};
+{
+  const { ProgramSync } = await import("../js/program-sync.js");
+  const received = [];
+  const sync = new ProgramSync("tmroomtest1");
+  sync.onMessage((message) => received.push(message));
+  sync.publishState({ scene: "live", participants: [serialized] });
+  sync.publishOutputStatus({ connected: true, boundFeeds: 2, expectedFeeds: 2, emptyFeeds: 0, videoReady: true, audioReady: true, readyToRecord: true });
+  assert(posted.some((message) => message.type === "state"), "state messages still publish");
+  assert(posted.some((message) => message.type === "output-status"), "output-status messages publish");
+  assertEqual(received.filter((message) => message.type === "state").length, 1, "state listener still fires");
+  assertEqual(received.filter((message) => message.type === "output-status").length, 1, "output-status listener fires");
+  const stored = sync.readLastState();
+  assertEqual(stored.scene, "live", "localStorage still hydrates program state, not output-status");
+  sync.requestState();
+  assert(posted.some((message) => message.type === "request-state"), "request-state remains");
+  sync.close();
+}
 
 console.log("\nALL PASSED — Program Renderer is composeProgram + per-person sources, not scene=0.");
