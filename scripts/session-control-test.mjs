@@ -472,7 +472,7 @@ async function main() {
   console.log("\nFrozen source contracts still hold");
   {
     const guestJs = readFileSync(join(ROOT, "js/guest.js"), "utf8");
-    assert(guestJs.includes("stopPreview();"), "guest Join still releases native camera");
+    assert(guestJs.includes("releasePreviewVideo();") || guestJs.includes("stopPreview();"), "guest Join still releases native camera");
     assert(guestJs.includes("MediaCommandType.MUTE_MIC"), "guest executes mute-mic from canonical commands");
     const engine = readFileSync(join(ROOT, "js/video-engine.js"), "utf8");
     assert(engine.includes("view:true"), "guest publisher still uses bare &view");

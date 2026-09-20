@@ -152,7 +152,7 @@ console.log("\nProgramAudioBus capture source and native-stream mix hook");
   assert(bus.includes("Program Output cannot do this for"), "VDO iframe boundary is documented");
   assert(bus.includes("Producer-local playback is a MONITOR"), "producer play is not Program Audio");
   const listener = read("js/listener.js");
-  assert(listener.includes("programAudio.applyCommand"), "Program Output plays through the bus");
+  assert(listener.includes("programMixer.applyBusCommand") || listener.includes("programAudio.applyCommand"), "Program Output plays through the bus/mixer");
   assert(!listener.includes("createMediaStreamSource"), "Program Output does not fake-tap VDO iframe tracks");
 }
 

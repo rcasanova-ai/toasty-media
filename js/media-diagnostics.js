@@ -144,6 +144,10 @@ export function formatDiagnostics(snapshot) {
   const audio = self.audioTrack || {};
   lines.push(`v ${video.readyState || "?"} ${video.width || "?"}x${video.height || "?"} ar=${video.aspectRatio ?? "?"} face=${video.facingMode || "?"}`);
   lines.push(`a ${audio.readyState || "?"}  transport ${self.transportState || "?"}`);
+  if (self.audioLevel != null) lines.push(`audioLevel ${Number(self.audioLevel).toFixed(2)} speaking ${self.speaking ? "YES" : "NO"}`);
+  if (self.screenShare?.active) {
+    lines.push(`share ${self.screenShare.ownerParticipantId || self.screenShare.participantId || "?"} source ${self.screenShare.transportSourceId || "none"} ${self.screenShare.state || "?"}`);
+  }
   if (self.requested) {
     lines.push(`requested ${self.requested.video || "?"}`);
   }
@@ -161,6 +165,7 @@ export function formatDiagnostics(snapshot) {
     lines.push(`${remote.role || "?"} ${remote.participantId || "?"}`);
     lines.push(`  want ${remote.requestedSourceId || "?"}  mounted ${remote.mounted ? "yes" : "NO"}`);
     lines.push(`  media ${remote.mediaState || "?"} ${remote.error || ""}`.trimEnd());
+    if (remote.audioLevel != null) lines.push(`  audioLevel ${Number(remote.audioLevel).toFixed(2)} speaking ${remote.speaking ? "YES" : "NO"}`);
   });
   if (safe.host) {
     lines.push("— HOST COUNTS —");
@@ -171,6 +176,26 @@ export function formatDiagnostics(snapshot) {
     lines.push(`presence [${presenceIds}]`);
     const missing = safe.host.presenceNotInVdo || [];
     if (missing.length) lines.push(`presence∉vdo ${missing.join(",")}`);
+  }
+  if (safe.screenShare) {
+    lines.push("— SHARE —");
+    lines.push(`share ${safe.screenShare.ownerParticipantId || safe.screenShare.participantId || "?"} source ${safe.screenShare.transportSourceId || "none"} ${safe.screenHealth || safe.screenShare.state || "?"}`);
+  }
+  if (Array.isArray(safe.activity) && safe.activity.length) {
+    lines.push("— ACTIVITY —");
+    safe.activity.forEach((entry) => {
+      const name = entry.displayName || entry.participantId;
+      lines.push(`${name} audioLevel ${Number(entry.audioLevel || 0).toFixed(2)} speaking ${entry.speaking ? "YES" : "NO"}`);
+    });
+  }
+  if (safe.programAudio) {
+    lines.push("— PROGRAM AUDIO —");
+    lines.push(`completeness ${safe.programAudio.completeness || "?"} master ${safe.programAudio.masterReady ? "available" : "missing"} bus ${safe.programAudio.captureAvailable ? "available" : "missing"}`);
+    (safe.programAudio.sources || []).forEach((source) => {
+      const label = source.participantId ? `${source.participantId} voice` : source.id;
+      const state = source.connected ? "available" : (source.transportLimited ? "transport-limited" : "missing");
+      lines.push(`${label}: ${state}${source.reason ? ` (${source.reason})` : ""}`);
+    });
   }
   return lines.join("\n");
 }

@@ -1661,7 +1661,25 @@ async function handlePresenceAnnounce(req, res) {
     screenShare: body.screenShare && typeof body.screenShare === "object" ? {
       active: Boolean(body.screenShare.active),
       participantId: presenceText(body.screenShare.participantId || participantId, 80),
-      transportSourceId: body.screenShare.transportSourceId ? requirePresenceId(body.screenShare.transportSourceId, "screenShare.transportSourceId") : null
+      transportSourceId: body.screenShare.transportSourceId ? requirePresenceId(body.screenShare.transportSourceId, "screenShare.transportSourceId") : null,
+      state: presenceText(body.screenShare.state || (body.screenShare.active ? "expected" : "inactive"), 24)
+    } : null,
+    audioActivity: body.audioActivity && typeof body.audioActivity === "object" && !body.audioActivity.pcm && !body.audioActivity.samples ? {
+      participantId: presenceText(body.audioActivity.participantId || participantId, 80),
+      transportSourceId: body.audioActivity.transportSourceId ? requirePresenceId(body.audioActivity.transportSourceId, "audioActivity.transportSourceId") : null,
+      audioLevel: Math.min(1, Math.max(0, Number(body.audioActivity.audioLevel) || 0)),
+      speaking: Boolean(body.audioActivity.speaking),
+      measuredAt: Number(body.audioActivity.measuredAt) || Date.now()
+    } : null,
+    transcriptEvent: body.transcriptEvent && typeof body.transcriptEvent === "object" && body.transcriptEvent.text ? {
+      id: presenceText(body.transcriptEvent.id || "", 80),
+      participantId: presenceText(body.transcriptEvent.participantId || participantId, 80),
+      speaker: presenceText(body.transcriptEvent.speaker || "", 80),
+      role: presenceText(body.transcriptEvent.role || role, 24),
+      text: presenceText(body.transcriptEvent.text, 400),
+      timestamp: Number(body.transcriptEvent.timestamp) || Date.now(),
+      final: body.transcriptEvent.final !== false,
+      source: presenceText(body.transcriptEvent.source || "participant-local", 40)
     } : null,
     program: role === "host" && body.program && typeof body.program === "object" ? body.program : null,
     commands: role === "host" && Array.isArray(body.commands) ? body.commands.slice(0, 12) : [],

@@ -16,6 +16,7 @@ import { ProductionActionType } from "./production-controller.js";
 import { ProgramLayout } from "./program-composition.js";
 import { createResearchProvider } from "./hottie-research.js";
 import { resolveSoundCommand } from "./soundboard.js";
+import { ProductionEventType } from "./production-timeline.js";
 
 export const ProducerEventType = Object.freeze({
   HOST_DIRECTIVE: "host_directive",
@@ -133,6 +134,7 @@ export class LiveProducerController {
     this._emit({ type: ProducerEventType.CONTEXT_CHECKPOINT });
     this._noticeQuietParticipants();
     this._noticeUncoveredQuestions();
+    this.session.proposeHottieLoop?.();
   }
 
   async runFindDirective(directive, { feedEntryId = null } = {}) {
@@ -237,6 +239,49 @@ export class LiveProducerController {
     return result;
   }
 
+  // Hottie's own structured proposals (js/hottie-show-runner.js's PRODUCTION_SUGGESTION feed entries) —
+  // a separate approval path from the research/asset TAKE LIVE above, since a Hottie proposal's action is
+  // already a fully-formed ProgramController action object (SET_SPOTLIGHT/SURFACE_CHAT/etc. — see
+  // proposeHottieActions), not a research candidate that needs an asset looked up first.
+  //
+  // AUDIT FINDING (repair): entry.proposal.action was built and carried on every proposal feed entry, but
+  // no UI ever called ProgramController.execute with it — js/ai-producer.js's renderFeedEntry only renders
+  // an action row for ASSET_PROPOSAL/retry entries, never PRODUCTION_SUGGESTION, so the Producer had no
+  // control that could ever call this. This method plus renderFeedEntry's new PRODUCTION_SUGGESTION branch
+  // (see that file) is the missing wire — same "find the feed entry, execute via ProgramController, then
+  // update the feed" shape as takeProposalLive above. Hottie itself never calls this or execute() directly
+  // — approval is a human click, exactly like TAKE LIVE.
+  approveHottieProposal(feedEntryId) {
+    const entry = this.session.aiProducerFeed.entries.find((item) => item.id === feedEntryId);
+    const action = entry?.proposal?.action;
+    if (!entry || entry.type !== ProducerEntryType.PRODUCTION_SUGGESTION || !action || entry.proposal.doing) {
+      return { ok: false, reason: "missing-proposal" };
+    }
+    this.session.aiProducerFeed.replace(feedEntryId, { proposal: { ...entry.proposal, doing: true } });
+    const result = this.session.programController?.execute(action);
+    if (result?.ok) {
+      this.session.productionLog?.record(action.type, { feedEntryId, approved: true });
+      this.session.timeline?.record?.(ProductionEventType.HOTTIE_ACTION, {
+        feedEntryId,
+        type: action.type,
+        approved: true
+      });
+      this.session.aiProducerFeed.replace(feedEntryId, {
+        proposal: { ...entry.proposal, doing: false, requiresApproval: false, executed: true }
+      });
+    } else {
+      // Executed but rejected (e.g. an action type execute() doesn't support) — reset "doing" so the
+      // Producer can see it's still pending rather than silently stuck, but don't hide the reason.
+      this.session.aiProducerFeed.replace(feedEntryId, { proposal: { ...entry.proposal, doing: false } });
+    }
+    return result || { ok: false, reason: "unsupported" };
+  }
+
+  dismissHottieProposal(feedEntryId) {
+    this.session.aiProducerFeed.dismiss(feedEntryId);
+    return { ok: true };
+  }
+
   removeLiveAsset(feedEntryId) {
     const result = this.session.programController?.execute({ type: ProductionActionType.REMOVE_ASSET });
     if (feedEntryId) this.session.aiProducerFeed.dismiss(feedEntryId);
@@ -284,6 +329,11 @@ export class LiveProducerController {
     });
     if (directive.status) directive.status = DirectiveStatus.QUEUED;
     this.session.productionLog?.record(ProductionActionType.ASSET_PROPOSAL, {
+      directiveId: directive.id,
+      assetId: asset.id,
+      sourceUrl: asset.sourceUrl
+    });
+    this.session.timeline?.record?.(ProductionEventType.ASSET_PROPOSED, {
       directiveId: directive.id,
       assetId: asset.id,
       sourceUrl: asset.sourceUrl

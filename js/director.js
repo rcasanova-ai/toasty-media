@@ -37,6 +37,7 @@ const elements = {
   viewButtons: [...document.querySelectorAll("[data-lv-view-btn]")],
   hostFrame: document.querySelector("#lvHostFrame"),
   hostTransportFrame: document.querySelector("#lvHostTransportFrame"),
+  hostScreenTransportFrame: document.querySelector("#lvHostScreenTransport"),
   guestFrame: document.querySelector("#lvGuestFrame"),
   programPreviewStage: document.querySelector("#lvProgramPreviewStage"),
   directorControlFrame: document.querySelector("#directorControlFrame"),
@@ -95,6 +96,7 @@ function initStudio() {
   session.start({
     host: elements.hostFrame,
     hostTransport: elements.hostTransportFrame,
+    hostScreenTransport: elements.hostScreenTransportFrame,
     roomPreview: elements.guestFrame,
     control: elements.directorControlFrame,
     programPreview: elements.programPreviewStage

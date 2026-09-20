@@ -8,6 +8,10 @@ import { syncParticipantStage, clearParticipantStage } from "./participant-stage
 import { BUILD_ID } from "./build-info.js";
 import { PublisherState, derivePublisherState, pickLocalPublisherEntry } from "./publisher-state.js";
 import { MediaCommandType, commandTargetsParticipant } from "./session-control.js";
+import { createScreenShareSource, ScreenShareState, screenPublisherEndedMessage } from "./screen-share-source.js";
+import { createAudioActivityMeter, activityFromVdoDetailedState } from "./audio-activity.js";
+import { createTranscriptionProvider } from "./transcription.js";
+import { ParticipantTranscriptionUplink } from "./transcript-event.js";
 
 const MAX_GUESTS_PER_ROOM = 3;
 
@@ -55,6 +59,7 @@ const state = {
   micMuted: false,
   cameraOff: false,
   screenSharing: false,
+  screenShare: null,
   streamId: null,
   flipping: false,
   // "user" (front/selfie) or "environment" (back/rear) — the ONE explicit, logical camera selection
@@ -361,7 +366,7 @@ async function joinStudio() {
   // Release native capture first, then mount the publisher into this visible PiP so VDO can actually
   // acquire the camera, show a permission prompt if needed, and encode. Self-view becomes VDO's
   // local preview; Toasty composition/presence/scene=0 are unchanged.
-  stopPreview();
+  releasePreviewVideo();
   elements.cameraPreview.hidden = true;
   elements.guestTransportFrame.hidden = false;
   elements.previewStage.classList.add("preview-stage--publishing");
@@ -385,6 +390,8 @@ async function joinStudio() {
   elements.guestStatus.textContent = backgroundNote || `Joined. The ${state.brandLabel} room is open below.`;
   setLifecycle(GuestLifecycle.IN_STUDIO);
   applyPublisherUi();
+  startGuestActivityMeter();
+  startGuestTranscription();
 }
 
 // PARTICIPANT VIEW — "who Tukta is talking to," never Program Output (a separate concept entirely; see
@@ -480,9 +487,50 @@ async function flipCamera() {
 }
 
 function stopPreview() {
+  state.activityMeter?.stop?.();
+  state.activityMeter = null;
   state.previewStream?.getTracks().forEach((track) => track.stop());
   state.previewStream = null;
   if (elements.cameraPreview) elements.cameraPreview.srcObject = null;
+}
+
+function releasePreviewVideo() {
+  // Camera-only release. Audio tracks stay for activity + STT. Do not reacquire.
+  state.previewStream?.getVideoTracks().forEach((track) => track.stop());
+  if (elements.cameraPreview) elements.cameraPreview.srcObject = null;
+}
+
+function startGuestActivityMeter() {
+  state.activityMeter?.stop?.();
+  state.activityMeter = createAudioActivityMeter(state.previewStream, {
+    participantId: state.participantId,
+    transportSourceId: state.streamId,
+    onSample: (sample) => {
+      state.presence?.setAudioActivity(sample);
+    }
+  });
+}
+
+function startGuestTranscription() {
+  state.transcriptUplink?.stop?.();
+  const provider = createTranscriptionProvider({
+    policy: { canTranscribe: () => true },
+    speaker: state.selfLabel || "Guest",
+    participantId: state.participantId,
+    role: "guest"
+  });
+  if (!provider) return;
+  state.transcriptUplink = new ParticipantTranscriptionUplink({
+    sessionId: state.roomId,
+    participantId: state.participantId,
+    speaker: state.selfLabel || "Guest",
+    role: "guest",
+    provider,
+    onEvent: (event) => {
+      state.presence?.setTranscriptEvent(event);
+    }
+  });
+  state.transcriptUplink.start();
 }
 
 function currentPublisher() {
@@ -724,10 +772,18 @@ function startGuestScreenShare() {
     label: `${state.selfLabel || "Guest"} screen`
   });
   state.screenSharing = true;
+  state.screenShare = createScreenShareSource({
+    ownerParticipantId: state.participantId,
+    transportSourceId: screenId,
+    state: ScreenShareState.BINDING,
+    active: true,
+    displayName: `${state.selfLabel || "Guest"} screen`
+  });
   state.presence?.setScreenShare({
     active: true,
     participantId: state.participantId,
-    transportSourceId: screenId
+    transportSourceId: screenId,
+    state: ScreenShareState.BINDING
   });
   state.presence?.publishNow?.();
   if (state.streamId !== cameraStreamId) state.streamId = cameraStreamId;
@@ -740,7 +796,8 @@ function stopGuestScreenShare() {
   engine.send("screen-push", { hangup: true });
   state.screenSharing = false;
   state.screenStreamId = null;
-  state.presence?.setScreenShare({ active: false, participantId: state.participantId, transportSourceId: null });
+  state.screenShare = createScreenShareSource({ ownerParticipantId: state.participantId, state: ScreenShareState.ENDED });
+  state.presence?.setScreenShare({ active: false, participantId: state.participantId, transportSourceId: null, state: ScreenShareState.ENDED });
   state.presence?.publishNow?.();
   if (cameraStreamId) state.streamId = cameraStreamId;
   updatePressed(elements.guestToggleScreen, false, "Share screen", "Stop sharing");
@@ -752,6 +809,10 @@ async function leaveSession() {
   setLifecycle(GuestLifecycle.LEAVING);
   stopPublisherWatch({ reset: true });
   if (state.screenSharing) stopGuestScreenShare();
+  state.transcriptUplink?.stop?.();
+  state.transcriptUplink = null;
+  state.activityMeter?.stop?.();
+  state.activityMeter = null;
   engine.disconnectAll();
   stopPreview();
   restoreNativePreviewSlot();
@@ -882,6 +943,9 @@ function guestDiagnosticsSnapshot(trackSnapshot, videoElementSnapshot) {
       publisherSourceId: state.streamId,
       videoTrack: trackSnapshot(state.previewStream, "video"),
       audioTrack: trackSnapshot(state.previewStream, "audio"),
+      audioLevel: state.presence?.audioActivity?.audioLevel ?? 0,
+      speaking: Boolean(state.presence?.audioActivity?.speaking),
+      screenShare: state.screenShare,
       transportState: derived.state,
       publisherReason: derived.reason || "",
       iframeLoaded: state.publisher.iframeLoaded === true,
@@ -918,6 +982,11 @@ async function startGuestDebugMedia() {
 function handleVdoMessage(message, source) {
   if (!message) return;
   const fromPublisher = Boolean(source && source === engine.getFrameWindow("guest"));
+  const fromScreen = Boolean(source && source === engine.getFrameWindow("screen-push"));
+  if (fromScreen && state.screenSharing && screenPublisherEndedMessage(message)) {
+    stopGuestScreenShare();
+    return;
+  }
   if (fromPublisher && message.action === "push-connection") {
     state.publisher.pushConnection = message.value === true;
     if (message.value === false) state.publisher.lastError = "push-connection-false";
@@ -930,6 +999,11 @@ function handleVdoMessage(message, source) {
     state.publisher.detailedSelf = pickLocalPublisherEntry(detailed, state.streamId) || state.publisher.detailedSelf;
     applyPublisherUi();
     if (currentPublisher().state === PublisherState.LIVE) stopPublisherWatch();
+    const sample = activityFromVdoDetailedState(detailed, {
+      participantId: state.participantId,
+      transportSourceId: state.streamId
+    });
+    if (sample) state.presence?.setAudioActivity(sample);
   }
   if (message.action === "view-connection" && message.value === false) {
     elements.joinState.textContent = "Host disconnected";
