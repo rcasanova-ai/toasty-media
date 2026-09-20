@@ -16,9 +16,13 @@
   </head>
   <body class="program-output" data-scene="holding" data-layout="1">
     <div class="po-canvas" id="poCanvas">
-      <header class="po-chrome po-chrome-top">
+      <header class="po-chrome po-chrome-top po-masthead">
         <div class="po-brand">
           <img id="poBrandLogo" src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="">
+        </div>
+        <div class="po-masthead-text">
+          <h1 class="po-masthead-headline" id="poHeadline"></h1>
+          <p class="po-masthead-session" id="poSessionName" hidden></p>
         </div>
       </header>
 
@@ -30,6 +34,7 @@
         </div>
         <p class="po-scene-kicker">Starting soon</p>
         <h1 class="po-scene-topic" id="poHoldingTopic">Toasty Studio</h1>
+        <p class="po-scene-session" id="poHoldingSession" hidden></p>
       </section>
 
       <section class="po-scene-screen po-brb" id="poBrb" hidden>
@@ -38,6 +43,28 @@
         </div>
         <p class="po-scene-kicker">Be right back</p>
         <h1 class="po-scene-topic" id="poBrbTopic">We'll be right back</h1>
+      </section>
+
+      <!-- Producer-triggered "something broke" holding state — distinct from BRB (a planned break).
+           Reversible immediately back to Live without losing session/participant state: this is a scene
+           flag only, nothing here tears down presence, VDO transport, or Run of Show. Illustration is
+           CSS-animated using ONLY existing Toasty mascot assets (no external/AI-generated image, no
+           third-party IP) — see .po-technical-spark/.po-technical-smoke below for the asset-slot note if
+           a bespoke illustration is ever commissioned. -->
+      <section class="po-scene-screen po-technical" id="poTechnical" hidden>
+        <div class="po-technical-rig" aria-hidden="true">
+          <span class="po-technical-spark po-technical-spark--1"></span>
+          <span class="po-technical-spark po-technical-spark--2"></span>
+          <span class="po-technical-spark po-technical-spark--3"></span>
+          <span class="po-technical-smoke"></span>
+          <div class="po-scene-mark po-technical-mark">
+            <img id="poTechnicalLogo" src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="">
+          </div>
+          <svg class="po-technical-wrench" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22.7 19.3 15 11.6a5.5 5.5 0 0 0-6.9-6.9L11 7.6 7.6 11 4.7 8.1A5.5 5.5 0 0 0 11.6 15l7.7 7.7a1 1 0 0 0 1.4 0l2-2a1 1 0 0 0 0-1.4Z"/></svg>
+        </div>
+        <p class="po-scene-kicker">Technical difficulties</p>
+        <h1 class="po-scene-topic" id="poTechnicalHeadline">Technical Difficulties</h1>
+        <p class="po-technical-message" id="poTechnicalMessage">We're fixing something. Back shortly.</p>
       </section>
 
       <section class="po-scene-screen po-ending" id="poEnding" hidden>
@@ -56,10 +83,10 @@
 
       <footer class="po-chrome po-chrome-bottom" id="poChromeBottom">
         <span class="po-chip po-chip-live" id="poLiveChip">LIVE</span>
-        <span class="po-topic" id="poTopic">Toasty Studio</span>
         <div class="po-ticker" id="poTicker" hidden>
           <div class="po-ticker-track" id="poTickerTrack"><span id="poTickerText"></span></div>
         </div>
+        <div class="po-social-links" id="poSocialLinks" hidden></div>
       </footer>
 
       <span class="powered-by program-powered-by" id="programPoweredBy" hidden>
@@ -69,4 +96,3 @@
     </div>
   </body>
 </html>
-</content>

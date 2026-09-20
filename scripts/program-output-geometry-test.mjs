@@ -86,9 +86,13 @@ console.log("\n.po-canvas -> .po-chrome chain (the actual root cause of this pas
   const chromeRule = ruleBody(".po-chrome {");
   assert(/min-width:\s*0/.test(chromeRule), ".po-chrome (both -top and -bottom, grid items of .po-canvas's shared column) has min-width:0 — this is the actual fix for this pass");
 
-  const topicRule = ruleBody(".po-topic {");
-  assert(/min-width:\s*0/.test(topicRule), ".po-topic (the flex item whose un-guarded min-content actually caused the overflow) has min-width:0");
-  assert(/overflow:\s*hidden/.test(topicRule) && /text-overflow:\s*ellipsis/.test(topicRule), ".po-topic still truncates long text visually instead of just relying on min-width:0 to prevent overflow");
+  // .po-topic (bottom-bar headline) was removed in the visual pass that replaced it with the masthead
+  // (.po-masthead-headline, top of the canvas) — same flex-min-content risk, same fix required: the flex
+  // item wrapping the headline needs min-width:0, and the headline itself still visually truncates.
+  const masteadTextRule = ruleBody(".po-masthead-text {");
+  assert(/min-width:\s*0/.test(masteadTextRule), ".po-masthead-text (the flex item that replaced .po-topic's un-guarded min-content risk) has min-width:0");
+  const headlineRule = ruleBody(".po-masthead-headline {");
+  assert(/overflow:\s*hidden/.test(headlineRule) && /text-overflow:\s*ellipsis/.test(headlineRule), ".po-masthead-headline still truncates long text visually instead of just relying on min-width:0 to prevent overflow");
 
   const tickerRule = ruleBody(".po-ticker {");
   assert(/min-width:\s*0/.test(tickerRule) && /overflow:\s*hidden/.test(tickerRule), ".po-ticker (also a .po-chrome-bottom flex item) remains bounded");

@@ -59,9 +59,12 @@ const elements = {
   holding: document.querySelector("#poHolding"),
   holdingLogo: document.querySelector("#poHoldingLogo"),
   holdingTopic: document.querySelector("#poHoldingTopic"),
+  holdingSession: document.querySelector("#poHoldingSession"),
   brb: document.querySelector("#poBrb"),
   brbLogo: document.querySelector("#poBrbLogo"),
   brbTopic: document.querySelector("#poBrbTopic"),
+  technical: document.querySelector("#poTechnical"),
+  technicalLogo: document.querySelector("#poTechnicalLogo"),
   ending: document.querySelector("#poEnding"),
   endingLogo: document.querySelector("#poEndingLogo"),
   endingHeadline: document.querySelector("#poEndingHeadline"),
@@ -71,10 +74,12 @@ const elements = {
   endingQr: document.querySelector("#poEndingQr"),
   endingQrImage: document.querySelector("#poEndingQrImage"),
   liveChip: document.querySelector("#poLiveChip"),
-  topic: document.querySelector("#poTopic"),
+  headline: document.querySelector("#poHeadline"),
+  sessionName: document.querySelector("#poSessionName"),
   ticker: document.querySelector("#poTicker"),
   tickerTrack: document.querySelector("#poTickerTrack"),
   tickerText: document.querySelector("#poTickerText"),
+  socialLinks: document.querySelector("#poSocialLinks"),
   poweredBy: document.querySelector("#programPoweredBy")
 };
 
@@ -241,9 +246,18 @@ function render(programState, source = "unknown") {
   const scene = normalizeScene(programState.scene);
   document.body.dataset.scene = scene;
 
-  elements.topic.textContent = programState.topic || "";
+  if (elements.headline) elements.headline.textContent = programState.topic || "";
+  if (elements.sessionName) {
+    elements.sessionName.hidden = !programState.sessionTitle;
+    elements.sessionName.textContent = programState.sessionTitle || "";
+  }
   elements.holdingTopic.textContent = programState.topic || elements.holdingTopic.textContent;
+  if (elements.holdingSession) {
+    elements.holdingSession.hidden = !programState.sessionTitle;
+    elements.holdingSession.textContent = programState.sessionTitle || "";
+  }
   if (elements.brbTopic) elements.brbTopic.textContent = programState.topic || "We'll be right back";
+  renderSocialLinks(programState.endCard);
 
   const isLive = scene === SceneId.LIVE || Boolean(programState.live);
   elements.liveChip.hidden = !isLive;
@@ -300,6 +314,32 @@ function renderEndCard(endCard) {
     elements.endingQr.hidden = !showQr;
     elements.endingQrImage.src = showQr ? endCard.qrImage : "";
   }
+}
+
+// Real, functional <a> links (not decorative) — genuinely clickable if someone opens Program Output
+// directly in a browser, harmless and simply not clicked if this page is being captured for
+// tab-capture/recording/OBS instead. Small and bottom-right so they never compete with the broadcast
+// composition; only populated platforms render, and the whole region collapses to nothing when the
+// resolved end card has no socials at all — no permanent dead space, no placeholder icons.
+let lastSocialLinksKey = "";
+function renderSocialLinks(endCard) {
+  if (!elements.socialLinks) return;
+  const entries = END_CARD_SOCIAL_PLATFORMS.map((platform) => [platform, endCard?.socials?.[platform]]).filter(([, url]) => url);
+  const key = entries.map(([platform, url]) => `${platform}:${url}`).join("|");
+  elements.socialLinks.hidden = entries.length === 0;
+  if (key === lastSocialLinksKey) return;
+  lastSocialLinksKey = key;
+  elements.socialLinks.replaceChildren(...entries.map(([platform, url]) => {
+    const link = document.createElement("a");
+    link.className = "po-social-link";
+    link.dataset.platform = platform;
+    link.href = /^https?:\/\//.test(url) ? url : `https://${url}`;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.title = END_CARD_SOCIAL_LABELS[platform] || platform;
+    link.innerHTML = END_CARD_SOCIAL_ICONS[platform] || "";
+    return link;
+  }));
 }
 
 function programParticipants(programState) {
@@ -471,10 +511,10 @@ function applyBrand(themeId) {
   const programMark = theme.compactMark || (theme.id === "peeps" ? "../shared/brand/toasty-media/ToastyTransparent.png" : theme.logoSrc);
   if (!lastProgramState?.topic) {
     elements.holdingTopic.textContent = theme.textLogo || `${theme.label} Studio`;
-    elements.topic.textContent = theme.textLogo || `${theme.label} Studio`;
+    if (elements.headline) elements.headline.textContent = theme.textLogo || `${theme.label} Studio`;
     if (elements.brbTopic) elements.brbTopic.textContent = "We'll be right back";
   }
-  [elements.brandLogo, elements.holdingLogo, elements.brbLogo, elements.endingLogo].forEach((img) => {
+  [elements.brandLogo, elements.holdingLogo, elements.brbLogo, elements.technicalLogo, elements.endingLogo].forEach((img) => {
     if (!img) return;
     if (programMark) { img.hidden = false; img.src = programMark; img.alt = theme.logoAlt || theme.label; }
     else img.hidden = true;

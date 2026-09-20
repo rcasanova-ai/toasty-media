@@ -17,6 +17,9 @@ export const SceneId = Object.freeze({
   HOLDING: "holding",
   LIVE: "live",
   BRB: "brb",
+  // Producer-triggered "something broke" holding state — distinct from BRB (a planned break). Reversible
+  // immediately back to LIVE: this is a scene flag only, participant/session state is untouched by it.
+  TECHNICAL_DIFFICULTIES: "technical-difficulties",
   ENDING: "ending"
 });
 
@@ -61,6 +64,7 @@ export function buildCanonicalState({
   scene = SceneId.HOLDING,
   live = false,
   topic = "",
+  sessionTitle = "",
   ticker = { enabled: false, text: "" },
   brandTheme = "",
   participants = [],
@@ -86,6 +90,7 @@ export function buildCanonicalState({
     scene: normalizedScene,
     live: live || normalizedScene === SceneId.LIVE,
     topic: topic || "",
+    sessionTitle: sessionTitle || "",
     ticker: {
       enabled: Boolean(ticker?.enabled),
       text: String(ticker?.text || ""),

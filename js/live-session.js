@@ -1133,6 +1133,7 @@ export class LiveSession {
       scene: this.program.scene,
       live: this.program.live,
       topic: this.program.topic,
+      sessionTitle: this.durableSession?.title || "",
       ticker: { enabled: this.program.tickerEnabled, text: this.program.tickerText, speed: this.program.tickerSpeed },
       brandTheme: this.brandTheme,
       participants: this.participants.list().map((participant) => {
@@ -1302,7 +1303,11 @@ export class LiveSession {
   }
 
   setScene(scene) {
-    this.program.scene = scene === "brb" ? SceneId.BRB : scene === "ending" ? SceneId.ENDING : scene === "live" ? SceneId.LIVE : SceneId.HOLDING;
+    this.program.scene = scene === "brb" ? SceneId.BRB
+      : scene === "ending" ? SceneId.ENDING
+      : scene === "live" ? SceneId.LIVE
+      : scene === "technical-difficulties" ? SceneId.TECHNICAL_DIFFICULTIES
+      : SceneId.HOLDING;
     this.program.live = this.program.scene === SceneId.LIVE;
     this._publishControlNow();
     this.emit("program", this.program);

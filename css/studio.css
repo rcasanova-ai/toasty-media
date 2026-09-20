@@ -3304,6 +3304,23 @@
   color: var(--studio-orange-bright);
 }
 
+/* "Break glass" styling — distinguishes Technical Difficulties from routine scene changes so a producer
+   doesn't reach for it by accident, and can find it fast when something actually breaks. */
+.po-swatch--warn {
+  border-color: rgba(255, 82, 82, 0.4);
+  color: #ff8a8a;
+}
+
+.po-swatch--warn:hover {
+  border-color: #ff5252;
+}
+
+.po-swatch--warn[aria-pressed="true"] {
+  background: rgba(255, 82, 82, 0.16);
+  border-color: #ff5252;
+  color: #ff5252;
+}
+
 .lv-agenda-import {
   border-top: 1px solid var(--studio-line);
   padding-top: 0.55rem;
