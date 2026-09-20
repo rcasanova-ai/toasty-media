@@ -22,7 +22,7 @@
 // the render()-equivalent scene-visibility decision logic (see "client-side" section) against every scene
 // in the sequence, using the real SceneId/normalizeScene this codebase ships, not a re-typed copy.
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -88,6 +88,21 @@ async function readProgramOutputState() {
   const res = await fetch(`${BASE}/api/presence/room?roomId=${ROOM_ID}`);
   const data = await res.json();
   return { status: res.status, program: data?.program || null };
+}
+
+function cookieFrom(response) {
+  const raw = response.headers.get("set-cookie") || "";
+  return raw.split(";")[0];
+}
+
+async function jsonFetch(path, { method = "GET", cookie, body } = {}) {
+  const headers = { "x-toasty-csrf": "1" };
+  if (cookie) headers.cookie = cookie;
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const res = await fetch(`${BASE}${path}`, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+  let data = {};
+  try { data = await res.json(); } catch (_) {}
+  return { status: res.status, data, cookie: cookieFrom(res) || cookie };
 }
 
 // Client-side render()-equivalent decision logic — the RENDERING REQUIREMENT's explicit boundaries, using
@@ -197,6 +212,51 @@ async function main() {
     assert(freshFirst.ok && staleSecond.ok, "both requests accepted regardless of order");
     const afterRace2 = await readProgramOutputState();
     assert(afterRace2.program.scene === "ending", `the newer scene still wins even when the STALE request is the one that arrives second (got "${afterRace2.program.scene}")`);
+  }
+
+  console.log("\nAn ended session correctly rejects further scene writes, AND Program Output stays exactly where it was (not a bug, but the un-instrumented, un-surfaced symptom that actually generated this production report)");
+  {
+    // Full real flow: authenticated user, a durable session via /api/sessions, ending it via the real
+    // /api/sessions/:id/end route (not a raw DB write) — proving the exact chain a real Director click
+    // ("End Show") -> LiveSession.endDurableSession() -> this route goes through.
+    const email = `scene-ended-test-${Date.now()}@example.com`;
+    const user = await jsonFetch("/auth/register", { method: "POST", body: { name: "Test", email, password: "password10chars" } });
+    assert(user.status === 201, "diagnostic account registers");
+    const endedRoomId = `${ROOM_ID}ended`;
+    const created = await jsonFetch("/api/sessions", { method: "POST", cookie: user.cookie, body: { roomId: endedRoomId, title: "Ended Session Test", brandId: "peeps" } });
+    assert(created.status === 200, "durable session creates");
+
+    // Publish a real "live" scene while the session is still open — this is the last state Program Output
+    // should ever see for this room.
+    const liveState = buildCanonicalState({ sessionId: created.data.session.id, roomId: endedRoomId, scene: "live", topic: "Ended session test", participants: PARTICIPANTS, endCard, outputs: [], audioActivity: [], recording: { kind: "master", active: false } });
+    await fetch(`${BASE}/api/presence/announce`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ roomId: endedRoomId, participantId: "host", role: "host", displayName: "Test", transportSourceId: `${endedRoomId}h`, program: liveState }) });
+    const beforeEnd = await (await fetch(`${BASE}/api/presence/room?roomId=${endedRoomId}`)).json();
+    assert(beforeEnd?.program?.scene === "live", "scene=live is stored correctly before the session ends");
+
+    // End it via the real route (this is what LiveSession.endDurableSession() calls).
+    const ended = await jsonFetch(`/api/sessions/${created.data.session.id}/end`, { method: "POST", cookie: user.cookie, body: {} });
+    assert(ended.status === 200 && ended.data.session?.status === "ENDED", "session ends via the real /api/sessions/:id/end route");
+
+    // Now try to publish a scene change (technical-difficulties) into the now-ended session — the exact
+    // situation reproduced live against production: this must be REJECTED, not silently accepted.
+    const technicalState = buildCanonicalState({ sessionId: created.data.session.id, roomId: endedRoomId, scene: "technical-difficulties", topic: "Ended session test", participants: PARTICIPANTS, endCard, outputs: [], audioActivity: [], recording: { kind: "master", active: false } });
+    const rejectedAnnounce = await fetch(`${BASE}/api/presence/announce`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ roomId: endedRoomId, participantId: "host", role: "host", displayName: "Test", transportSourceId: `${endedRoomId}h`, program: technicalState }) });
+    assert(rejectedAnnounce.status === 410, `announce into an ended session is rejected with 410 (got ${rejectedAnnounce.status}) — this is what js/room-presence.js's onRejected exists to catch, now actually wired up on the host side in js/live-session.js`);
+
+    // Confirm Program Output's own poll still sees the LAST GOOD scene, not the rejected one and not empty —
+    // proving the rejection didn't corrupt anything, it just correctly refused the write.
+    const afterRejection = await (await fetch(`${BASE}/api/presence/room?roomId=${endedRoomId}`)).json();
+    assert(afterRejection?.program?.scene === "live", `Program Output still sees the last successfully-published scene ("live"), not the rejected "technical-difficulties" and not corrupted (got "${afterRejection?.program?.scene}")`);
+  }
+
+  console.log("\nHost-side rejection is now actually wired (was previously defined in room-presence.js but never subscribed to anywhere)");
+  {
+    const liveSessionSrc = readFileSync(join(ROOT, "js/live-session.js"), "utf8");
+    assert(liveSessionSrc.includes("this.presence.onRejected((status, errorMessage) => this._handleHostPresenceRejected(status, errorMessage));"), "LiveSession.joinAsHost subscribes to presence.onRejected");
+    assert(liveSessionSrc.includes('this.emit("session-control-rejected", this.sessionControlRejected);'), "_handleHostPresenceRejected emits an event the Producer UI can react to");
+    const producerViewSrc = readFileSync(join(ROOT, "js/producer-view.js"), "utf8");
+    assert(producerViewSrc.includes('this.session.on("session-control-rejected"'), "producer-view.js subscribes to the rejection event");
+    assert(producerViewSrc.includes("button.disabled = true"), "producer-view.js disables the scene buttons once the session can no longer accept scene changes, instead of leaving them clickable into a void");
   }
 
   console.log("\nAll scene-transition checks passed across the full sequence, with a realistic End Card+QR attached throughout.");

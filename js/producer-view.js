@@ -23,6 +23,7 @@ export class ProducerView {
       programPreview: root.querySelector("#lvProgramPreviewStage"),
       poTopic: root.querySelector("#lvPoTopic"),
       poSceneGroup: root.querySelector("#lvPoSceneGroup"),
+      poSceneRejected: root.querySelector("#lvPoSceneRejected"),
       poTickerEnabled: root.querySelector("#lvPoTickerEnabled"),
       poTickerText: root.querySelector("#lvPoTickerText"),
       poTickerShow: root.querySelector("#lvPoTickerShow"),
@@ -195,6 +196,8 @@ export class ProducerView {
     this.session.on("guests", () => this.renderGuests());
     this.session.on("av", () => this.renderGuests());
     this.session.on("program", (program) => this.renderProgram(program));
+    this.session.on("session-control-rejected", (rejection) => this.renderSessionControlRejected(rejection));
+    if (this.session.sessionControlRejected) this.renderSessionControlRejected(this.session.sessionControlRejected);
     this.session.on("recording", (recording) => this.renderRecording(recording));
     this.session.on("recording-status", (message) => { this.elements.recordNote.textContent = message; this.elements.recordNote.dataset.error = "false"; });
     this.session.on("policy", () => this.renderRecordingGate());
@@ -432,6 +435,19 @@ export class ProducerView {
       });
       return row;
     }));
+  }
+
+  // The actual production regression: a host publishing scene changes into an ENDED session got zero
+  // feedback — every announce was rejected server-side, Program Output correctly never moved, but the
+  // scene buttons kept responding to clicks as if everything worked (see LiveSession's own comment on
+  // _handleHostPresenceRejected). Disables the scene controls specifically (not the whole Producer view —
+  // recording/ticker/etc are a separate concern) and shows exactly why, using the same .control-note
+  // pattern already used elsewhere in this panel.
+  renderSessionControlRejected(rejection) {
+    if (!this.elements.poSceneRejected) return;
+    this.elements.poSceneRejected.hidden = false;
+    this.elements.poSceneRejected.textContent = rejection.message;
+    this.elements.poSceneGroup.querySelectorAll(".po-swatch").forEach((button) => { button.disabled = true; });
   }
 
   renderProgram(program) {
