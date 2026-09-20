@@ -528,6 +528,7 @@ export class LiveSession {
     this.presence.setMediaState({ micEnabled: !this.av.micMuted, cameraEnabled: !this.av.cameraOff });
     this.presence.setProgramPublisher(() => this.canonicalControlState());
     this.presence.onControlChange((bundle) => this._applyControlBundle(bundle));
+    this.presence.onRejected((status, errorMessage) => this._handleHostPresenceRejected(status, errorMessage));
     this.presence.start(transportSourceId);
     this._startHostActivityMeter();
     this.audioMixer.addParticipant({ participantId: "host", stream: this._hostPreviewStream, label: name });
@@ -1246,6 +1247,28 @@ export class LiveSession {
     this._applyRosterAudioActivity(roster);
     this._applyRosterTranscript(roster);
     this.emit("guests", this.guestCount());
+  }
+
+  // THE actual production regression this pass exists to fix: setScene()/setTicker()/etc. mutate
+  // this.program synchronously and optimistically, so the Producer UI always LOOKS like it worked —
+  // even when every one of the host's own announces is being rejected outright (403 kicked / 409 full /
+  // 410 the durable session has ended). See js/room-presence.js's onRejected — this exact hook already
+  // existed and is already used by js/guest.js, but was never wired up for the host/Producer side at all,
+  // so a host publishing into an ended session got no feedback whatsoever: Program Output correctly never
+  // updates (the writes are all rejected server-side, confirmed live against production), while the
+  // Producer's own scene buttons keep responding to clicks as if nothing is wrong. Unlike guest.js's
+  // onRejected handler, this does NOT tear down camera/mic/transport — a host losing scene-control
+  // authority is not the same situation as a guest being removed from a call, and doing that here would
+  // be a far bigger behavioral change than "fix scene transitions." This only makes the failure visible
+  // and stops the Producer from clicking into a void.
+  _handleHostPresenceRejected(status, errorMessage) {
+    const messages = {
+      403: "You've been removed from this session — scene changes are no longer being applied.",
+      409: "This session is full — scene changes are no longer being applied.",
+      410: "This session has ended — scene changes are no longer being applied. Start a new session to continue producing."
+    };
+    this.sessionControlRejected = { status, message: messages[status] || errorMessage || "Scene changes are no longer being applied to this session." };
+    this.emit("session-control-rejected", this.sessionControlRejected);
   }
 
   _applyRosterScreenShare(roster = []) {
