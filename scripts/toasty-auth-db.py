@@ -583,6 +583,12 @@ def migrate(conn):
             "transcript_event": "TEXT",
         },
     )
+    # End card (Program Output outro CTA): profile default lives on the user, a per-session override lives
+    # on live_sessions — same durable-record precedent as brand_id above. Resolution (session override ->
+    # profile default -> tasteful fallback) happens client-side in js/end-card.js; the server just stores
+    # and returns whatever JSON blob each level was last saved with.
+    ensure_columns(conn, "users", {"end_card_json": "TEXT NOT NULL DEFAULT '{}'"})
+    ensure_columns(conn, "live_sessions", {"end_card_json": "TEXT NOT NULL DEFAULT '{}'"})
     conn.commit()
 
 
@@ -591,6 +597,16 @@ def ensure_columns(conn, table, columns):
     for name, definition in columns.items():
         if name not in existing:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+
+def user_end_card(row):
+    if not row or not _row_has(row, "end_card_json"):
+        return {}
+    try:
+        parsed = json.loads(row["end_card_json"] or "{}")
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError):
+        return {}
 
 
 def public_user(row):
@@ -605,6 +621,7 @@ def public_user(row):
         "last_login_at": row["last_login_at"],
         "status": row["status"],
         "branding": user_branding(row),
+        "endCard": user_end_card(row),
     }
 
 
@@ -884,6 +901,16 @@ def presence_roster(conn, room_id):
     return [public_presence(row) for row in rows]
 
 
+def session_end_card(row):
+    if not row or not _row_has(row, "end_card_json"):
+        return {}
+    try:
+        parsed = json.loads(row["end_card_json"] or "{}")
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
 def public_session(row):
     if not row:
         return None
@@ -899,6 +926,7 @@ def public_session(row):
         "endedAt": row["ended_at"],
         "lastActiveAt": row["last_active_at"],
         "endedBy": row["ended_by"],
+        "endCard": session_end_card(row),
     }
 
 
@@ -1583,6 +1611,36 @@ def main():
             (payload["id"], payload["ownerUserId"]),
         ).fetchone()
         print(json.dumps({"session": public_session(row)}))
+        return
+
+    if action == "session_set_end_card":
+        end_card_json = json.dumps(payload.get("endCard") or {})
+        now = utc_now()
+        conn.execute(
+            "UPDATE live_sessions SET end_card_json = ?, last_active_at = ? WHERE id = ? AND owner_user_id = ?",
+            (end_card_json, now, payload["id"], payload["ownerUserId"]),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM live_sessions WHERE id = ? AND owner_user_id = ?",
+            (payload["id"], payload["ownerUserId"]),
+        ).fetchone()
+        if not row:
+            print(json.dumps({"session": None}))
+            return
+        print(json.dumps({"session": public_session(row)}))
+        return
+
+    if action == "user_set_end_card":
+        end_card_json = json.dumps(payload.get("endCard") or {})
+        now = utc_now()
+        conn.execute(
+            "UPDATE users SET end_card_json = ?, updated_at = ? WHERE id = ?",
+            (end_card_json, now, payload["ownerUserId"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (payload["ownerUserId"],)).fetchone()
+        print(json.dumps({"user": public_user(row)}))
         return
 
     if action == "session_end":

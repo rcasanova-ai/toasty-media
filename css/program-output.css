@@ -40,6 +40,7 @@ html, body {
 .po-canvas {
   background: var(--studio-canvas);
   display: grid;
+  grid-template-columns: 1fr;
   grid-template-rows: auto 1fr auto;
   height: 100vh;
   inset: 0;
@@ -162,27 +163,33 @@ html, body {
 
 .po-ticker {
   align-items: center;
-  background: color-mix(in srgb, var(--studio-surface) 82%, transparent);
+  background: color-mix(in srgb, var(--studio-surface) 92%, transparent);
   border: 1px solid color-mix(in srgb, var(--studio-line) 80%, transparent);
   border-left: 3px solid var(--studio-orange-bright);
   border-radius: 5px;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
   display: flex;
   flex: 1 1 auto;
-  height: clamp(30px, 4vw, 42px);
+  height: clamp(32px, 4vw, 44px);
   min-width: 0;
   overflow: hidden;
-  padding-left: clamp(0.6rem, 1.8vw, 1.2rem);
+  padding: 0 clamp(0.7rem, 1.8vw, 1.3rem);
 }
 
 .po-ticker-track {
+  /* --studio-cream (not --po-video-text): the ticker sits on --studio-surface, a brand-dependent
+     background that can be light OR dark, unlike the chrome bars it shares a color var with, which
+     always sit over a dark video scrim. --studio-cream already flips per brand to stay readable against
+     --studio-surface (e.g. dark text on Peeps' cream surface) — --po-video-text is fixed light-only,
+     which is invisible on a light brand surface. */
   animation: po-ticker-scroll var(--po-ticker-duration, 16s) linear infinite;
-  color: var(--po-video-text);
+  color: var(--studio-cream);
   display: inline-block;
   font-family: var(--po-font-heading);
-  font-size: clamp(0.64rem, 1vw, 0.82rem);
+  font-size: clamp(0.68rem, 1.05vw, 0.86rem);
   font-weight: 700;
   letter-spacing: 0.03em;
+  line-height: 1;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -197,22 +204,29 @@ html, body {
 .po-stage {
   display: grid;
   gap: clamp(0.4rem, 1vw, 0.85rem);
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
   padding: 0 clamp(0.9rem, 2.4vw, 1.6rem) clamp(0.4rem, 1vw, 0.85rem);
   position: relative;
 }
 
+/* minmax(0, 1fr) everywhere, never bare 1fr: an `fr` track's automatic minimum is `auto`, which for a
+   track holding a replaced element (our VDO.Ninja <iframe>) resolves to that element's INTRINSIC size —
+   letting a single wide iframe push its column past the viewport instead of shrinking to fill it. This is
+   the fix for "video extends off the right side of Program Output" on the single-participant layout. */
 .po-stage[data-layout="1"],
-.po-stage[data-layout="fullmedia"] { grid-template-columns: 1fr; }
+.po-stage[data-layout="fullmedia"] { grid-template-columns: minmax(0, 1fr); }
 .po-stage[data-layout="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .po-stage[data-layout="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .po-stage[data-layout="4"] { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
 .po-stage[data-layout="spotlight"],
 .po-stage[data-layout="active-speaker"],
 .po-stage[data-layout="screen-speaker"],
-.po-stage[data-layout="asset-speaker"] { grid-template-columns: 3.2fr 1fr; }
+.po-stage[data-layout="asset-speaker"] { grid-template-columns: minmax(0, 3.2fr) minmax(0, 1fr); }
 .po-stage[data-layout="screen-only"],
 .po-stage[data-layout="screen-dominant"],
-.po-stage[data-layout="asset-full"] { grid-template-columns: 1fr; }
+.po-stage[data-layout="asset-full"] { grid-template-columns: minmax(0, 1fr); }
 .po-stage[data-layout="screen-strip"] {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   grid-template-rows: minmax(0, 1fr) 22%;
@@ -333,6 +347,7 @@ html, body {
 
 .po-tile-video {
   inset: 0;
+  overflow: hidden;
   position: absolute;
 }
 
@@ -341,7 +356,10 @@ html, body {
   border: 0;
   height: 100%;
   left: 0;
+  max-height: 100%;
+  max-width: 100%;
   object-fit: cover;
+  object-position: center;
   position: absolute;
   top: 0;
   width: 100%;
@@ -635,6 +653,64 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
   font-weight: 900;
   margin: 0;
   max-width: 80%;
+}
+
+.po-ending-message {
+  color: var(--studio-cream-dim);
+  font-family: var(--po-font-body);
+  font-size: clamp(0.85rem, 1.6vw, 1.15rem);
+  line-height: 1.5;
+  margin: 0;
+  max-width: 46em;
+}
+
+.po-ending-website {
+  background: color-mix(in srgb, var(--studio-surface) 82%, transparent);
+  border: 1px solid var(--studio-line);
+  border-radius: 999px;
+  color: var(--studio-orange-bright);
+  font-family: var(--po-font-heading);
+  font-size: clamp(0.72rem, 1.2vw, 0.92rem);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  margin: 0;
+  padding: 0.5em 1.1em;
+}
+
+.po-ending-socials {
+  display: flex;
+  gap: clamp(0.5rem, 1.4vw, 0.9rem);
+}
+
+.po-ending-social {
+  align-items: center;
+  background: color-mix(in srgb, var(--studio-surface) 82%, transparent);
+  border: 1px solid var(--studio-line);
+  border-radius: 50%;
+  color: var(--studio-cream);
+  display: flex;
+  height: clamp(32px, 4.2vw, 44px);
+  justify-content: center;
+  width: clamp(32px, 4.2vw, 44px);
+}
+
+.po-ending-social svg {
+  height: 46%;
+  width: 46%;
+}
+
+.po-ending-qr {
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  padding: clamp(0.5rem, 1.4vw, 0.9rem);
+}
+
+.po-ending-qr img {
+  display: block;
+  height: clamp(96px, 12vw, 160px);
+  object-fit: contain;
+  width: clamp(96px, 12vw, 160px);
 }
 
 /* Program Output must fill a 3-person layout gracefully at phone-preview widths too */

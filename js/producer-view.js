@@ -2,6 +2,7 @@ import { Soundboard } from "./soundboard.js";
 import { renderFeedEntry } from "./ai-producer.js";
 import { attachFocusGroupToSession, buildFocusGroupInsightArtifact } from "./focus-group-studio.js";
 import { buildSessionDeliverables, buildWeeklyUpdatePackage, formatDeliverableMarkdown } from "./post-production.js";
+import { sanitizeEndCard, readImageFileAsDataUrl } from "./end-card.js";
 
 // ProducerView: the dense control surface for making the show. Same LiveSession as HostView — this
 // file only adds DOM bindings for producer-only actions (per-guest control, layout, graphics, show
@@ -80,7 +81,25 @@ export class ProducerView {
       focusClientApproval: root.querySelector("#lvFocusClientApproval"),
       focusApply: root.querySelector("#lvApplyFocusBrief"),
       focusSummary: root.querySelector("#lvFocusSummary"),
-      focusRecruitmentStatus: root.querySelector("#lvFocusRecruitmentStatus")
+      focusRecruitmentStatus: root.querySelector("#lvFocusRecruitmentStatus"),
+      endCardHeadline: root.querySelector("#lvEndCardHeadline"),
+      endCardMessage: root.querySelector("#lvEndCardMessage"),
+      endCardWebsite: root.querySelector("#lvEndCardWebsite"),
+      endCardSocialX: root.querySelector("#lvEndCardSocialX"),
+      endCardSocialLinkedin: root.querySelector("#lvEndCardSocialLinkedin"),
+      endCardSocialYoutube: root.querySelector("#lvEndCardSocialYoutube"),
+      endCardSocialInstagram: root.querySelector("#lvEndCardSocialInstagram"),
+      endCardSocialTiktok: root.querySelector("#lvEndCardSocialTiktok"),
+      endCardSocialGithub: root.querySelector("#lvEndCardSocialGithub"),
+      endCardSocialTelegram: root.querySelector("#lvEndCardSocialTelegram"),
+      endCardShowQr: root.querySelector("#lvEndCardShowQr"),
+      endCardQrUpload: root.querySelector("#lvEndCardQrUpload"),
+      endCardQrPreview: root.querySelector("#lvEndCardQrPreview"),
+      endCardQrPreviewImage: root.querySelector("#lvEndCardQrPreviewImage"),
+      endCardUseProfileDefault: root.querySelector("#lvEndCardUseProfileDefault"),
+      endCardSaveProfileDefault: root.querySelector("#lvEndCardSaveProfileDefault"),
+      endCardSaveSession: root.querySelector("#lvEndCardSaveSession"),
+      endCardStatus: root.querySelector("#lvEndCardStatus")
     };
   }
 
@@ -163,6 +182,13 @@ export class ProducerView {
       el?.addEventListener("change", () => this.renderFocusRecruitment());
     });
 
+    this.elements.endCardQrUpload?.addEventListener("change", () => this.uploadEndCardQr());
+    this.elements.endCardUseProfileDefault?.addEventListener("click", () => this.populateEndCardForm(this.session.profileEndCard));
+    this.elements.endCardSaveProfileDefault?.addEventListener("click", () => this.saveEndCard("profile"));
+    this.elements.endCardSaveSession?.addEventListener("click", () => this.saveEndCard("session"));
+    this.session.on("end-card", () => this.populateEndCardForm(this.session.sessionEndCard));
+    this.populateEndCardForm(this.session.sessionEndCard);
+
     this.session.on("guests", () => this.renderGuests());
     this.session.on("av", () => this.renderGuests());
     this.session.on("program", (program) => this.renderProgram(program));
@@ -192,6 +218,80 @@ export class ProducerView {
   renderPostOutput(pack) {
     if (!this.elements.postOutput) return;
     this.elements.postOutput.value = formatDeliverableMarkdown(pack);
+  }
+
+  // ---- End Card (Program Output outro CTA) ----
+
+  populateEndCardForm(endCard) {
+    const card = sanitizeEndCard(endCard || {});
+    if (this.elements.endCardHeadline) this.elements.endCardHeadline.value = card.headline;
+    if (this.elements.endCardMessage) this.elements.endCardMessage.value = card.message;
+    if (this.elements.endCardWebsite) this.elements.endCardWebsite.value = card.website;
+    if (this.elements.endCardSocialX) this.elements.endCardSocialX.value = card.socials.x || "";
+    if (this.elements.endCardSocialLinkedin) this.elements.endCardSocialLinkedin.value = card.socials.linkedin || "";
+    if (this.elements.endCardSocialYoutube) this.elements.endCardSocialYoutube.value = card.socials.youtube || "";
+    if (this.elements.endCardSocialInstagram) this.elements.endCardSocialInstagram.value = card.socials.instagram || "";
+    if (this.elements.endCardSocialTiktok) this.elements.endCardSocialTiktok.value = card.socials.tiktok || "";
+    if (this.elements.endCardSocialGithub) this.elements.endCardSocialGithub.value = card.socials.github || "";
+    if (this.elements.endCardSocialTelegram) this.elements.endCardSocialTelegram.value = card.socials.telegram || "";
+    if (this.elements.endCardShowQr) this.elements.endCardShowQr.checked = card.showQr;
+    this._endCardQrImage = card.qrImage || "";
+    this.renderEndCardQrPreview();
+  }
+
+  renderEndCardQrPreview() {
+    if (!this.elements.endCardQrPreview || !this.elements.endCardQrPreviewImage) return;
+    const hasImage = Boolean(this._endCardQrImage);
+    this.elements.endCardQrPreview.hidden = !hasImage;
+    this.elements.endCardQrPreviewImage.src = hasImage ? this._endCardQrImage : "";
+  }
+
+  async uploadEndCardQr() {
+    const file = this.elements.endCardQrUpload?.files?.[0];
+    if (!file) return;
+    try {
+      this._endCardQrImage = await readImageFileAsDataUrl(file);
+      this.renderEndCardQrPreview();
+      if (this.elements.endCardStatus) this.elements.endCardStatus.textContent = "QR image loaded — click Save to publish it.";
+    } catch (error) {
+      if (this.elements.endCardStatus) this.elements.endCardStatus.textContent = String(error?.message || error);
+    }
+  }
+
+  collectEndCardFromForm() {
+    return sanitizeEndCard({
+      headline: this.elements.endCardHeadline?.value,
+      message: this.elements.endCardMessage?.value,
+      website: this.elements.endCardWebsite?.value,
+      socials: {
+        x: this.elements.endCardSocialX?.value,
+        linkedin: this.elements.endCardSocialLinkedin?.value,
+        youtube: this.elements.endCardSocialYoutube?.value,
+        instagram: this.elements.endCardSocialInstagram?.value,
+        tiktok: this.elements.endCardSocialTiktok?.value,
+        github: this.elements.endCardSocialGithub?.value,
+        telegram: this.elements.endCardSocialTelegram?.value
+      },
+      showQr: Boolean(this.elements.endCardShowQr?.checked),
+      qrImage: this._endCardQrImage || "",
+      qrTarget: this.elements.endCardWebsite?.value || ""
+    });
+  }
+
+  async saveEndCard(target) {
+    const endCard = this.collectEndCardFromForm();
+    if (this.elements.endCardStatus) this.elements.endCardStatus.textContent = "Saving…";
+    try {
+      if (target === "profile") await this.session.setProfileEndCard(endCard);
+      else await this.session.setSessionEndCard(endCard);
+      if (this.elements.endCardStatus) {
+        this.elements.endCardStatus.textContent = target === "profile"
+          ? "Saved as your profile default."
+          : "Saved for this session.";
+      }
+    } catch (error) {
+      if (this.elements.endCardStatus) this.elements.endCardStatus.textContent = String(error?.message || error);
+    }
   }
 
   applyFocusBrief() {

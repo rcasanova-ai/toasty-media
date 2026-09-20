@@ -89,6 +89,7 @@ async function init() {
   applySelectedBrand();
   const durableSession = await resolveSession({ brandId: session.brandTheme });
   session.applyDurableSession(durableSession);
+  void session.loadProfileEndCard();
   initStudio();
 }
 
