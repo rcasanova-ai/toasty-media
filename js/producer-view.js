@@ -75,7 +75,6 @@ export class ProducerView {
     this.elements.poSceneGroup.querySelectorAll(".po-swatch").forEach((button) => {
       button.addEventListener("click", () => {
         this.session.setScene(button.dataset.scene);
-        this.session.setLive(button.dataset.scene === "live");
         this.elements.poSceneGroup.querySelectorAll(".po-swatch").forEach((other) => other.setAttribute("aria-pressed", String(other === button)));
       });
     });
@@ -89,6 +88,7 @@ export class ProducerView {
     this.elements.masterDownload?.addEventListener("click", () => this.downloadMaster());
     this.elements.masterManifest?.addEventListener("click", () => this.downloadManifest());
     this.elements.openProgramOutput.addEventListener("click", () => {
+      this.session.noteProgramOutputOpening?.();
       window.open(this.session.inviteUrls().listener, "toasty-program-output");
     });
     this.elements.endShow.addEventListener("click", () => {
@@ -187,10 +187,15 @@ export class ProducerView {
         return row;
       }
       row.dataset.guestId = seat.id;
+      const name = seat.displayName || seat.label || `Guest ${index + 1}`;
+      const micPending = Boolean(seat.micPending);
+      const cameraPending = Boolean(seat.cameraPending);
+      const micLabel = micPending ? (seat.micPending.wantEnabled ? "Unmute requested" : "Muting…") : "Mic";
+      const cameraLabel = cameraPending ? (seat.cameraPending.wantEnabled ? "Camera requested" : "Camera off…") : "Cam";
       row.innerHTML = `
-        <span class="lv-source-name">${escapeHtml(seat.label || `Guest ${index + 1}`)}</span>
-        <button type="button" class="lv-mini-btn" data-action="mic" aria-pressed="${String(!seat.mic)}">Mic</button>
-        <button type="button" class="lv-mini-btn" data-action="camera" aria-pressed="${String(!seat.camera)}">Cam</button>
+        <span class="lv-source-name">${escapeHtml(name)}</span>
+        <button type="button" class="lv-mini-btn" data-action="mic" data-pending="${String(micPending)}" aria-pressed="${String(!seat.mic)}" aria-busy="${String(micPending)}">${escapeHtml(micLabel)}</button>
+        <button type="button" class="lv-mini-btn" data-action="camera" data-pending="${String(cameraPending)}" aria-pressed="${String(!seat.camera)}" aria-busy="${String(cameraPending)}">${escapeHtml(cameraLabel)}</button>
         <input type="range" class="lv-mini-slider" data-action="volume" min="0" max="1" step="0.05" value="${seat.volume ?? 1}">
         <button type="button" class="lv-mini-btn lv-mini-btn--program" data-action="onProgram" aria-pressed="${String(!seat.onProgram)}">${seat.onProgram ? "On Program" : "Off Program"}</button>
         <button type="button" class="lv-mini-btn lv-mini-btn--danger" data-action="kick">Kick</button>
@@ -225,21 +230,28 @@ export class ProducerView {
 
   renderProgramOutputStatus() {
     const output = this.session.programOutput || {};
-    const feeds = Number(output.boundFeeds) || 0;
+    const connection = output.connection || (output.connected ? "connected" : "disconnected");
     const expected = Number(output.expectedFeeds) || 0;
+    const playing = Number(output.playingFeeds) || 0;
+    const bound = Number(output.boundFeeds) || 0;
     if (this.elements.poConnection) {
-      this.elements.poConnection.textContent = output.connected ? "Connected" : "Not connected";
+      this.elements.poConnection.textContent = connection === "connected"
+        ? "Connected"
+        : connection === "connecting" ? "Connecting" : "Not connected";
     }
     if (this.elements.poFeeds) {
-      this.elements.poFeeds.textContent = output.connected
-        ? `${feeds} participant feed${feeds === 1 ? "" : "s"}${expected ? ` bound (${feeds}/${expected})` : ""}`
-        : "0 participant feeds";
+      if (connection === "disconnected") this.elements.poFeeds.textContent = "0 participant feeds";
+      else if (expected) this.elements.poFeeds.textContent = `${expected} participant feed${expected === 1 ? "" : "s"} (${playing} playing, ${bound} bound)`;
+      else this.elements.poFeeds.textContent = "0 participant feeds";
     }
     if (this.elements.poAudioState) {
-      this.elements.poAudioState.textContent = output.audioReady ? "Audio enabled" : "Audio off";
+      this.elements.poAudioState.textContent = output.audioError
+        ? `Audio failed: ${output.audioError}`
+        : output.audioReady ? "Audio enabled" : "Audio off";
     }
     if (this.elements.poReadyState) {
-      this.elements.poReadyState.textContent = output.readyToRecord ? "Ready to record" : "Not ready to record";
+      const reason = !output.readyToRecord ? (this.session.recordingBlockReason?.() || "Not ready to record") : null;
+      this.elements.poReadyState.textContent = output.readyToRecord ? "Ready to record" : (reason || "Not ready to record");
     }
     if (this.elements.poVideoFlag) {
       this.elements.poVideoFlag.textContent = output.videoReady ? "VIDEO READY" : "VIDEO —";

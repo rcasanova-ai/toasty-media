@@ -81,6 +81,8 @@ console.log("Asset Catalogue loads real files with provenance");
   }
   assert(catalogue.get("drum-roll-01"), "drum roll is in the catalogue");
   assert(catalogue.get("applause-01"), "applause is in the catalogue");
+  assert(catalogue.get("cholo-whistle-01"), "cholo whistle is in the catalogue");
+  assertEqual(catalogue.get("cholo-whistle-01").license, "Public domain", "cholo whistle is a real public-domain recording");
   assert(catalogue.get("intro-sting-01"), "intro sting is in the catalogue");
   assert(catalogue.byCategory(AssetCategory.STINGER).length >= 3, "stinger category is populated");
   assertEqual(catalogue.byCategory(AssetCategory.IMAGE).length, 0, "image category is reserved, not a second system");
@@ -156,6 +158,9 @@ console.log("\nPLAY_AUDIO / STOP_AUDIO are structured production actions on the 
 
   const applause = session.programController.execute({ type: ProductionActionType.PLAY_AUDIO, assetId: "applause-01", initiator: "host" });
   assert(applause.ok, "applause PLAY_AUDIO executes");
+  const whistle = session.programController.execute({ type: ProductionActionType.PLAY_AUDIO, assetId: "cholo-whistle-01", initiator: "producer" });
+  assert(whistle.ok, "cholo whistle PLAY_AUDIO executes");
+  assertEqual(whistle.command.src, "/assets/catalogue/audio/cholo-whistle-01.ogg", "cholo whistle uses the catalogue file, not a generated tone");
   const sting = session.programController.execute({ type: ProductionActionType.PLAY_AUDIO, assetId: "intro-sting-01" });
   assert(sting.ok, "stinger PLAY_AUDIO executes");
 
@@ -179,6 +184,8 @@ console.log("\nSoundboard has no procedural fallback");
   const items = loadCatalogue().soundboardItems();
   const drum = resolveSoundCommand("Hottie give me a drum roll", items);
   assertEqual(drum?.id, "drum-roll-01", "host language still resolves to the real drum roll");
+  const whistleCue = resolveSoundCommand("play the cholo whistle", items);
+  assertEqual(whistleCue?.id, "cholo-whistle-01", "cholo whistle resolves through the same soundboard path");
   const stop = resolveSoundCommand("stop the sound", items);
   assertEqual(stop?.action, ProductionActionType.STOP_AUDIO, "stop is a structured action");
 }

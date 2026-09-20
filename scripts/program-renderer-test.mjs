@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { composeProgram, ProgramLayout } from "../js/program-composition.js";
-import { serializeProgramParticipant, programLayoutCount, programFeedBindings } from "../js/program-renderer.js";
+import { serializeProgramParticipant, programLayoutCount, programFeedBindings, inspectSourceHealth } from "../js/program-renderer.js";
 import { createParticipant, ParticipantRole, ConnectionStatus, SourceKind } from "../js/participant-registry.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -121,6 +121,21 @@ console.log("\nProgram Output binds participant sources; empty frames are not re
   const boundFeeds = programFeedBindings(boundMounted);
   assertEqual(boundFeeds.bound, 2, "host video + guest iframe count as bound feeds");
   assertEqual(boundFeeds.empty, 0, "no empty frames when sources are attached");
+  assertEqual(
+    inspectSourceHealth({ videoContainer: { querySelector: (sel) => sel === "iframe" ? { tagName: "IFRAME" } : null, classList: { contains: () => false } } }),
+    "attached",
+    "iframe existence is ATTACHED, not PLAYING"
+  );
+  assertEqual(
+    inspectSourceHealth({
+      videoContainer: {
+        querySelector: (sel) => sel === "video" ? { readyState: 4, paused: false, ended: false } : null,
+        classList: { contains: () => false }
+      }
+    }),
+    "playing",
+    "HTMLMediaElement playing is PLAYING"
+  );
   const mixed = programFeedBindings(new Map([
     ["host", { videoContainer: { querySelector: () => ({ tagName: "VIDEO" }), classList: { contains: () => false } } }],
     ["g2", { videoContainer: { querySelector: () => null, classList: { contains: (name) => name === "po-tile-video--empty" } } }]
@@ -145,7 +160,9 @@ console.log("\nProgram Output receives serialized participants and always mounts
   assert(listener.includes("resolveOwnedStream: ownedStreamFor"), "Host tile binds Director's native stream via opener");
   assert(listener.includes("__toastyProgramSources"), "Program Output reads window.opener hostStream");
   assert(listener.includes("publishOutputStatus"), "Program Output publishes readiness on ProgramSync");
-  assert(listener.includes("readyToRecord: videoReady && audioReady"), "readyToRecord requires bound feeds and audio");
+  assert(listener.includes('role: "output"'), "Program Output joins the canonical presence session");
+  assert(listener.includes("programFeedHealth"), "VIDEO READY uses source health, not iframe existence");
+  assert(listener.includes("readyToRecord: connection === OutputConnection.CONNECTED && videoReady && audioReady"), "readyToRecord requires connected + playing + audio");
   assert(!/videoEnabled:\s*audioUnlocked/.test(listener), "video is not gated on the audio click");
   const outputCss = readFileSync(join(ROOT, "css/program-output.css"), "utf8");
   assert(outputCss.includes("must NOT cover the"), "audio gate documents that it must not cover tiles");
@@ -153,7 +170,9 @@ console.log("\nProgram Output receives serialized participants and always mounts
   const liveSessionSrc = readFileSync(join(ROOT, "js/live-session.js"), "utf8");
   assert(liveSessionSrc.includes("exposeProgramSources"), "Director exposes hostStream to Program Output");
   assert(liveSessionSrc.includes("output-status"), "Director consumes ProgramSync output-status");
-  assert(liveSessionSrc.includes("empty === 0"), "readyToRecord refuses empty frames");
+  assert(liveSessionSrc.includes("recordingBlockReasonFromOutput"), "Record is gated on acknowledged Program Output truth");
+  const controlSrc = readFileSync(join(ROOT, "js/session-control.js"), "utf8");
+  assert(controlSrc.includes("playing === expected && empty === 0"), "VIDEO READY requires playing feeds and refuses empty frames");
   const syncSrc = readFileSync(join(ROOT, "js/program-sync.js"), "utf8");
   assert(syncSrc.includes('type: "output-status"'), "ProgramSync serializes output-status without breaking state messages");
   assert(syncSrc.includes('type: "state"'), "ProgramSync state messages remain");

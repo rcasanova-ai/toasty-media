@@ -7,6 +7,7 @@ import { studioApiEndpoint } from "./studio-api.js";
 import { syncParticipantStage, clearParticipantStage } from "./participant-stage.js";
 import { BUILD_ID } from "./build-info.js";
 import { PublisherState, derivePublisherState, pickLocalPublisherEntry } from "./publisher-state.js";
+import { MediaCommandType, commandTargetsParticipant } from "./session-control.js";
 
 const MAX_GUESTS_PER_ROOM = 3;
 
@@ -71,7 +72,9 @@ const state = {
   selfLabel: null,
   lifecycle: GuestLifecycle.PREJOIN_LOADING,
   participantId: `guest-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-  publisher: emptyPublisherSignals()
+  publisher: emptyPublisherSignals(),
+  executedCommandIds: new Set(),
+  mediaRequest: null
 };
 
 const engine = new VideoEngine();
@@ -106,7 +109,11 @@ const elements = {
   guestToggleCamera: document.querySelector("#guestToggleCamera"),
   guestFlipCamera: document.querySelector("#guestFlipCamera"),
   guestToggleScreen: document.querySelector("#guestToggleScreen"),
-  guestEndSession: document.querySelector("#guestEndSession")
+  guestEndSession: document.querySelector("#guestEndSession"),
+  guestMediaRequest: document.querySelector("#guestMediaRequest"),
+  guestMediaRequestText: document.querySelector("#guestMediaRequestText"),
+  guestMediaRequestConfirm: document.querySelector("#guestMediaRequestConfirm"),
+  guestMediaRequestDismiss: document.querySelector("#guestMediaRequestDismiss")
 };
 
 init();
@@ -189,6 +196,8 @@ function bindControls() {
   elements.guestFlipCamera.addEventListener("click", flipCamera);
   elements.guestToggleScreen.addEventListener("click", toggleScreen);
   elements.guestEndSession.addEventListener("click", leaveSession);
+  elements.guestMediaRequestConfirm?.addEventListener("click", confirmMediaRequest);
+  elements.guestMediaRequestDismiss?.addEventListener("click", dismissMediaRequest);
 }
 
 async function startPreview() {
@@ -310,14 +319,13 @@ async function joinStudio() {
     title: guestTitle,
     company: guestCompany
   });
+  state.presence.setMediaState({ micEnabled: !state.micMuted, cameraEnabled: !state.cameraOff });
   state.presence.onRosterChange((roster) => {
     renderRemoteParticipants(roster);
-    // Live brand sync — piggybacks on the SAME 5s heartbeat that already refreshes the roster (see
-    // room-presence.js's brandId comment) rather than a second poll. Visual only, no camera/mic/registry
-    // impact — a Host mid-session brand change reaches every connected Guest within one heartbeat.
     const liveBrandId = state.presence?.brandId;
     if (liveBrandId && liveBrandId !== state.brandTheme) applyGuestBrandTheme(liveBrandId);
   });
+  state.presence.onControlChange((bundle) => handleControlBundle(bundle));
   // See js/room-presence.js's onRejected comment — 403/409/410 are terminal for THIS admission specifically
   // (kicked / session full / session ended), not a network hiccup to silently retry past. Each shows a real
   // message and tears the connection down; none of them auto-rejoin.
@@ -576,32 +584,117 @@ async function pollPublisherState() {
 // (send() returns false, e.g. the frame is somehow gone), state.micMuted is forced to true and the guest
 // is shown an explicit "couldn't confirm" warning instead of a confident "Muted" the transport was never
 // told about. This cannot prove the mic is actually silent on the wire — only a real-device retest can.
-function toggleMic() {
-  const wantMuted = !state.micMuted;
-  const dispatched = engine.setGuestMicrophone(!wantMuted);
+function publishLocalMedia() {
+  state.presence?.setMediaState({ micEnabled: !state.micMuted, cameraEnabled: !state.cameraOff });
+  state.presence?.publishNow();
+}
+
+function handleControlBundle(bundle = {}) {
+  for (const command of bundle.commands || []) {
+    if (!commandTargetsParticipant(command, { participantId: state.participantId, transportSourceId: state.streamId || state.presence?.transportSourceId })) continue;
+    if (state.executedCommandIds.has(command.id)) continue;
+    executeMediaCommand(command);
+  }
+}
+
+function executeMediaCommand(command) {
+  if (command.type === MediaCommandType.MUTE_MIC) {
+    applyLocalMic(false);
+    finishCommand(command);
+    return;
+  }
+  if (command.type === MediaCommandType.CAMERA_OFF) {
+    applyLocalCamera(false);
+    finishCommand(command);
+    return;
+  }
+  if (command.type === MediaCommandType.UNMUTE_MIC_REQUEST) {
+    state.executedCommandIds.add(command.id);
+    state.presence?.ackCommands([command.id]);
+    showMediaRequest({ kind: "mic", command });
+    state.presence?.publishNow();
+    return;
+  }
+  if (command.type === MediaCommandType.CAMERA_ON_REQUEST) {
+    state.executedCommandIds.add(command.id);
+    state.presence?.ackCommands([command.id]);
+    showMediaRequest({ kind: "camera", command });
+    state.presence?.publishNow();
+  }
+}
+
+function finishCommand(command) {
+  state.executedCommandIds.add(command.id);
+  state.presence?.ackCommands([command.id]);
+  publishLocalMedia();
+}
+
+function showMediaRequest(request) {
+  state.mediaRequest = request;
+  if (!elements.guestMediaRequest) return;
+  elements.guestMediaRequest.hidden = false;
+  if (elements.guestMediaRequestText) {
+    elements.guestMediaRequestText.textContent = request.kind === "camera"
+      ? "Producer asked you to turn your camera on."
+      : "Producer asked you to unmute.";
+  }
+  if (elements.guestMediaRequestConfirm) {
+    elements.guestMediaRequestConfirm.textContent = request.kind === "camera" ? "Turn camera on" : "Unmute";
+  }
+}
+
+function confirmMediaRequest() {
+  const request = state.mediaRequest;
+  if (!request) return;
+  if (request.kind === "camera") applyLocalCamera(true);
+  else applyLocalMic(true);
+  hideMediaRequest();
+  publishLocalMedia();
+}
+
+function dismissMediaRequest() {
+  hideMediaRequest();
+}
+
+function hideMediaRequest() {
+  state.mediaRequest = null;
+  if (elements.guestMediaRequest) elements.guestMediaRequest.hidden = true;
+}
+
+function applyLocalMic(enabled) {
+  const wantMuted = !enabled;
+  const dispatched = engine.setGuestMicrophone(enabled);
   if (wantMuted && dispatched) engine.setGuestMicrophone(false);
   if (!dispatched) {
-    // Fail closed regardless of which direction was attempted — an unconfirmed command is never treated
-    // as a confirmed unmute.
     state.micMuted = true;
     elements.guestStatus.dataset.error = "true";
     elements.guestStatus.textContent = "Couldn't confirm mute — check your connection, then try again.";
     updatePressed(elements.guestToggleMic, true, "Mute mic", "Unmute mic");
-    return;
+    return false;
   }
   state.micMuted = wantMuted;
-  // Only clears OUR OWN prior warning (never an unrelated error some other flow is showing).
   if (elements.guestStatus.textContent === "Couldn't confirm mute — check your connection, then try again.") {
     elements.guestStatus.dataset.error = "false";
     elements.guestStatus.textContent = "";
   }
   updatePressed(elements.guestToggleMic, state.micMuted, "Mute mic", "Unmute mic");
+  return true;
+}
+
+function applyLocalCamera(enabled) {
+  state.cameraOff = !enabled;
+  engine.setGuestCamera(enabled);
+  updatePressed(elements.guestToggleCamera, state.cameraOff, "Camera off", "Camera on");
+}
+
+function toggleMic() {
+  const ok = applyLocalMic(state.micMuted);
+  if (ok) publishLocalMedia();
 }
 
 function toggleCamera() {
-  state.cameraOff = !state.cameraOff;
-  engine.setGuestCamera(!state.cameraOff);
-  updatePressed(elements.guestToggleCamera, state.cameraOff, "Camera off", "Camera on");
+  applyLocalCamera(state.cameraOff);
+  publishLocalMedia();
 }
 
 function toggleScreen() {
@@ -620,6 +713,7 @@ async function leaveSession() {
   restoreNativePreviewSlot();
   await state.presence?.leave();
   state.presence = null;
+  hideMediaRequest();
   clearParticipantStage({ engine, mounted: state.mountedRemoteTiles });
   state.remoteMediaState = RemoteMediaState.WAITING_FOR_PARTICIPANT;
   elements.guestRemoteStageEmptyText.textContent = REMOTE_MEDIA_STATE_LABEL[RemoteMediaState.WAITING_FOR_PARTICIPANT];
@@ -647,6 +741,7 @@ function handlePresenceRejected(status, errorMessage) {
   stopPreview();
   restoreNativePreviewSlot();
   state.presence = null;
+  hideMediaRequest();
   clearParticipantStage({ engine, mounted: state.mountedRemoteTiles });
   const messages = {
     403: "You have been removed from this session.",

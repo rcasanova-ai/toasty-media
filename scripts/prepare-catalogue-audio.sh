@@ -38,6 +38,7 @@ RAW=/tmp/toasty-sounds/raw
 
 normalize "$RAW/wiki/drum-roll.ogg" "$OUT/drum-roll-01.ogg"
 normalize "$RAW/wiki/applause.wav" "$OUT/applause-01.ogg"
+normalize "$RAW/wiki/cholo-whistle.ogg" "$OUT/cholo-whistle-01.ogg"
 normalize "$RAW/wiki/applause-big.ogg" "$OUT/applause-big-01.ogg" 8.2 7.9
 normalize "$RAW/wiki/crowd-cheer.oga" "$OUT/crowd-cheer-01.ogg"
 normalize "$RAW/wiki/laughter.wav" "$OUT/laughter-01.ogg" 6.5 6.2

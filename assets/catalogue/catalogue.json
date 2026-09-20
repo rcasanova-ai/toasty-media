@@ -55,6 +55,25 @@
       "notes": "Original WAV from Wikimedia Commons File:277021 sandermotions applause-2.wav. Concert-hall applause recorded in De Doelen, Rotterdam."
     },
     {
+      "id": "cholo-whistle-01",
+      "displayName": "Cholo Whistle",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "cholo-whistle-01.ogg",
+      "src": "/assets/catalogue/audio/cholo-whistle-01.ogg",
+      "duration": 3.02,
+      "icon": "😗",
+      "aliases": ["cholo", "whistle", "wolf whistle", "street whistle"],
+      "source": "Wikimedia Commons",
+      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Wolf_whistle.ogg",
+      "creator": "Wikimedia Commons uploader (PD-self)",
+      "license": "Public domain",
+      "licenseUrl": "https://commons.wikimedia.org/wiki/File:Wolf_whistle.ogg",
+      "attributionRequired": false,
+      "addedDate": "2026-09-20",
+      "notes": "Real two-tone fingerless wolf-whistle recording used as the Cholo Whistle pad. Public-domain Commons file, loudnormed to the catalogue standard. Not a synthesized tone."
+    },
+    {
       "id": "applause-big-01",
       "displayName": "Big Applause",
       "category": "sound-effect",

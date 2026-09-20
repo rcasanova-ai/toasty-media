@@ -245,7 +245,7 @@ const server = createServer(async (req, res) => {
   // /api/agent/find-experts above: a Guest has no Toasty account (see studio/guest.html's "No account
   // required"), so this can't require a session the way /media-assets etc. do. Rate-limited per IP instead.
   if (req.method === "POST" && req.url === "/api/presence/announce") {
-    if (!limit(req, res, "presence-announce", 60, 60 * 1000)) return;
+    if (!limit(req, res, "presence-announce", 90, 60 * 1000)) return;
     await handlePresenceAnnounce(req, res);
     return;
   }
@@ -1623,7 +1623,7 @@ async function db(action, values = {}) {
 // js/room-presence.js, the shared client used identically by both js/live-session.js (Host) and
 // js/guest.js (Guest) to announce/poll/leave. Deliberately unauthenticated (see the route registration
 // above) and rate-limited per IP instead of per-session.
-const PRESENCE_ROLES = new Set(["host", "guest"]);
+const PRESENCE_ROLES = new Set(["host", "guest", "output"]);
 
 function presenceText(value, maxLength) {
   return String(value ?? "").trim().slice(0, maxLength);
@@ -1655,7 +1655,13 @@ async function handlePresenceAnnounce(req, res) {
     displayName: presenceText(body.displayName, 120),
     title: presenceText(body.title, 120),
     company: presenceText(body.company, 120),
-    transportSourceId
+    transportSourceId,
+    micEnabled: typeof body.micEnabled === "boolean" ? body.micEnabled : null,
+    cameraEnabled: typeof body.cameraEnabled === "boolean" ? body.cameraEnabled : null,
+    program: role === "host" && body.program && typeof body.program === "object" ? body.program : null,
+    commands: role === "host" && Array.isArray(body.commands) ? body.commands.slice(0, 12) : [],
+    ackCommandIds: Array.isArray(body.ackCommandIds) ? body.ackCommandIds.slice(0, 20) : [],
+    outputStatus: role === "output" && body.outputStatus && typeof body.outputStatus === "object" ? body.outputStatus : null
   });
   // "kicked": this exact participant_id was removed by the Producer and is still within its block window
   // (see scripts/toasty-auth-db.py's presence_upsert) — the client reacts by showing a removed state, not
@@ -1667,7 +1673,13 @@ async function handlePresenceAnnounce(req, res) {
   // brandId rides along on the SAME session_get_by_room call already made above for the ended-session
   // check — every connected participant's own 5s heartbeat (js/room-presence.js) is what picks up a Host
   // brand change live, with no separate poll or reconnect (see js/live-session.js's changeBrandTheme).
-  sendJson(req, res, 200, { roster: result.roster || [], brandId: sessionStatus.brandId ?? null });
+  sendJson(req, res, 200, {
+    roster: result.roster || [],
+    outputs: result.outputs || [],
+    program: result.program || null,
+    commands: result.commands || [],
+    brandId: sessionStatus.brandId ?? null
+  });
 }
 
 async function handlePresenceRoom(req, res) {
@@ -1676,7 +1688,13 @@ async function handlePresenceRoom(req, res) {
   const result = await db("presence_list", { roomId });
   // brandId lets a Guest's prejoin screen (before it ever announces presence) resolve the LIVE session's
   // current brand instead of only the invite link's ?brand= snapshot from whenever it was copied.
-  sendJson(req, res, 200, { roster: result.roster || [], brandId: result.brandId ?? null });
+  sendJson(req, res, 200, {
+    roster: result.roster || [],
+    outputs: result.outputs || [],
+    program: result.program || null,
+    commands: result.commands || [],
+    brandId: result.brandId ?? null
+  });
 }
 
 async function handlePresenceLeave(req, res) {
