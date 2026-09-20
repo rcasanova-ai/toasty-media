@@ -793,7 +793,37 @@ def session_program_put(conn, room_id, state):
     if not isinstance(state, dict):
         return session_program_get(conn, room_id)
     now = utc_now()
-    existing = conn.execute("SELECT revision FROM session_program WHERE room_id = ?", (room_id,)).fetchone()
+    existing = conn.execute("SELECT revision, state_json FROM session_program WHERE room_id = ?", (room_id,)).fetchone()
+    # ROOT CAUSE of "scene buttons permanently stuck" (production regression after the reconciliation fix
+    # in PR #37): this was a plain read-modify-write with no ordering protection. The host's OWN recurring
+    # 2s heartbeat and any click-triggered publish both write a FULL state snapshot, independently, to the
+    # SAME row — whichever HTTP request's write happened to commit last simply overwrote the other's data
+    # entirely, regardless of which one was actually more recent from the user's perspective. Reproduced
+    # directly: two concurrent announces (one holding a stale "holding" scene, one a fresh "live" scene)
+    # raced against this exact table, and the stale one won outright in 8 of 20 trials — a coin flip, not
+    # an edge case. Once PR #37's client-side reconciliation (LiveSession._applyControlBundle) started
+    # trusting whatever the server's response said, that stale win propagated straight back into the
+    # producer's own local state, undoing their own click.
+    #
+    # Fix: compare-and-swap on state["updatedAt"] (already set fresh to Date.now() on every single call to
+    # canonicalControlState() — js/session-control.js's buildCanonicalState defaults it, no client change
+    # needed). A write is only applied if its own updatedAt is newer than what's already stored — "last
+    # GENERATED wins", not "last to arrive at the server wins". A stale in-flight heartbeat carrying an
+    # older snapshot can no longer clobber a newer click's write no matter which HTTP request the server
+    # happens to process last.
+    if existing and existing["state_json"]:
+        try:
+            existing_state = json.loads(existing["state_json"])
+        except (TypeError, ValueError):
+            existing_state = {}
+        existing_updated_at = existing_state.get("updatedAt") if isinstance(existing_state, dict) else None
+        incoming_updated_at = state.get("updatedAt")
+        if (
+            isinstance(existing_updated_at, (int, float))
+            and isinstance(incoming_updated_at, (int, float))
+            and incoming_updated_at < existing_updated_at
+        ):
+            return session_program_get(conn, room_id)
     revision = (existing["revision"] + 1) if existing else 1
     stored = json.dumps(state)
     # ROOT CAUSE of "scene transitions don't reliably propagate" (production regression after the End
