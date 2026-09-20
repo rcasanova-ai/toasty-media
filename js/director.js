@@ -64,6 +64,12 @@ const elements = {
   atmosphereMark: document.querySelector(".atmosphere-mark"),
   switchSession: document.querySelector("#switchSession"),
   endSessionBtn: document.querySelector("#endSessionBtn"),
+  studioAccountName: document.querySelector("#studioAccountName"),
+  studioAvatarButton: document.querySelector("#studioAvatarButton"),
+  studioMenuLogout: document.querySelector("#studioMenuLogout"),
+  studioMenuProfile: document.querySelector("#studioMenuProfile"),
+  studioMenuBrand: document.querySelector("#studioMenuBrand"),
+  sessionNameReadout: document.querySelector("#lvSessionNameReadout"),
   toggleScreenQuick: document.querySelector("#toggleScreenQuick"),
   lvSessionType: document.querySelector("#lvSessionType"),
   lvJamPolicyFields: document.querySelector("#lvJamPolicyFields"),
@@ -87,8 +93,12 @@ init();
 // target the right room from the very first frame mount, not a throwaway one that gets swapped out later.
 async function init() {
   applySelectedBrand();
+  bindAppChrome();
   const durableSession = await resolveSession({ brandId: session.brandTheme });
   session.applyDurableSession(durableSession);
+  if (elements.sessionNameReadout) {
+    elements.sessionNameReadout.textContent = durableSession.title || "Untitled session";
+  }
   void session.loadProfileEndCard();
   initStudio();
 }
@@ -127,7 +137,7 @@ function initStudio() {
     }
   }).init();
 
-  // Mounted before bindViewSwitch()'s initial setView("host") call, so its Producer-only broadcast
+  // Mounted before bindViewSwitch()'s initial setView call, so its Producer-only broadcast
   // panel (data-lv-only="producer") exists in the DOM the first time [data-lv-only] elements are queried.
   new ToastyBroadcastController({
     getProgramUrl: () => elements.listenerInvite.value,
@@ -179,15 +189,80 @@ function bindViewSwitch() {
   elements.viewButtons.forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.lvViewBtn));
   });
-  setView("host");
+  setView("producer");
 }
 
 function setView(view) {
   elements.liveConsole.dataset.lvView = view;
   elements.viewButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.lvViewBtn === view)));
-  // Queried live (not cached at init time) so panels mounted later by other controllers — e.g. the
-  // Producer-only broadcast card injected into .rail-right — are still gated correctly.
   document.querySelectorAll("[data-lv-only]").forEach((panel) => { panel.hidden = panel.dataset.lvOnly !== view; });
+  applyToolsTab(currentToolsTab());
+}
+
+function currentToolsTab() {
+  return document.querySelector("[data-tools-tab][aria-pressed='true']")?.dataset.toolsTab || "graphics";
+}
+
+function applyToolsTab(tab) {
+  const producer = elements.liveConsole?.dataset.lvView === "producer";
+  document.querySelectorAll("[data-tools-tab]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.toolsTab === tab));
+  });
+  document.querySelectorAll("[data-tools-panel]").forEach((panel) => {
+    if (!producer) {
+      if (panel.dataset.lvOnly === "producer") panel.hidden = true;
+      return;
+    }
+    panel.hidden = panel.dataset.toolsPanel !== tab;
+  });
+}
+
+function bindAppChrome() {
+  document.querySelectorAll("[data-studio-nav]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      const nav = button.dataset.studioNav;
+      document.querySelectorAll("[data-studio-nav]").forEach((other) => {
+        if (!other.dataset.studioMode) other.setAttribute("aria-pressed", String(other === button));
+      });
+      if (nav === "sessions") {
+        event.preventDefault();
+        const url = new URL(window.location.href);
+        url.searchParams.delete("session");
+        window.location.href = url.toString();
+        return;
+      }
+      if (nav === "assets") {
+        setView("producer");
+        applyToolsTab("media");
+        return;
+      }
+      if (nav === "studio") {
+        setView("producer");
+      }
+    });
+  });
+  document.querySelectorAll("[data-tools-tab]").forEach((button) => {
+    button.addEventListener("click", () => applyToolsTab(button.dataset.toolsTab));
+  });
+  session.on("account", (user) => {
+    const name = user?.name || user?.email || "Account";
+    if (elements.studioAccountName) elements.studioAccountName.textContent = name;
+    if (elements.studioAvatarButton) elements.studioAvatarButton.textContent = String(name).trim().charAt(0).toUpperCase() || "A";
+  });
+  elements.studioMenuLogout?.addEventListener("click", () => {
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: "toasty:logout" }, window.location.origin);
+    }
+  });
+  elements.studioMenuProfile?.addEventListener("click", () => {
+    setView("producer");
+    applyToolsTab("graphics");
+    document.querySelector("#lvEndCardHeadline")?.scrollIntoView({ block: "nearest" });
+  });
+  elements.studioMenuBrand?.addEventListener("click", () => {
+    elements.brandThemeSelect?.focus();
+    elements.brandThemeSelect?.scrollIntoView({ block: "nearest" });
+  });
 }
 
 function bindRailControls() {

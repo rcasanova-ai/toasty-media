@@ -419,6 +419,10 @@ body.studio-public-shell[data-brand-theme] {
   background: var(--ui-bg);
 }
 
+.studio-public-shell.is-authenticated .studio-logout {
+  display: none;
+}
+
 .studio-public-shell .studio-logout {
   background: color-mix(in srgb, var(--ui-panel) 88%, transparent);
   border-color: var(--ui-line);

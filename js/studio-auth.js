@@ -1,4 +1,4 @@
-import { studioApiEndpoint } from "./studio-api.js";
+import { studioRequest } from "./studio-api.js";
 import { applyBrandTheme, getInitialBrandTheme, normalizeBrandTheme } from "./brand-themes.js";
 
 const state = {
@@ -56,6 +56,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // this page listens for postMessage at all; ignores anything not from this same origin.
   window.addEventListener("message", (event) => {
     if (event.origin !== window.location.origin) return;
+    if (event.data?.type === "toasty:logout") {
+      logout();
+      return;
+    }
     if (event.data?.type !== "toasty:session-selected" || !event.data.sessionId) return;
     const url = new URL(window.location.href);
     url.searchParams.set("session", event.data.sessionId);
@@ -68,7 +72,7 @@ document.addEventListener("DOMContentLoaded", () => {
 async function checkSession() {
   setMessage("Checking Studio access...");
   try {
-    const session = await request("/auth/session", { method: "GET" });
+    const session = await studioRequest("/auth/session", { method: "GET" });
     if (session.authenticated) {
       openStudio(session.user?.branding);
       return;
@@ -83,7 +87,7 @@ async function register() {
   setBusy(els.signupForm, true);
   setMessage("");
   try {
-    const session = await request("/auth/register", {
+    const session = await studioRequest("/auth/register", {
       method: "POST",
       body: JSON.stringify({
         name: els.signupName.value,
@@ -104,7 +108,7 @@ async function login() {
   setBusy(els.loginForm, true);
   setMessage("");
   try {
-    const session = await request("/auth/login", {
+    const session = await studioRequest("/auth/login", {
       method: "POST",
       body: JSON.stringify({
         email: els.loginEmail.value,
@@ -123,7 +127,7 @@ async function login() {
 async function logout() {
   els.studioLogout.disabled = true;
   try {
-    await request("/auth/logout", { method: "POST", body: "{}" });
+    await studioRequest("/auth/logout", { method: "POST", body: "{}" });
   } catch {
     // The local shell still returns to the public page if the backend is briefly unavailable.
   } finally {
@@ -192,25 +196,3 @@ function setMessage(message, isError = false) {
   els.authMessage.dataset.state = isError ? "error" : "neutral";
 }
 
-async function request(path, options = {}) {
-  const response = await fetch(`${authEndpoint()}${path}`, {
-    ...options,
-    credentials: "include",
-    headers: {
-      ...(options.method && options.method !== "GET" ? { "Content-Type": "application/json", "X-Toasty-CSRF": "1" } : {}),
-      ...(options.headers || {})
-    }
-  });
-  let payload = {};
-  try {
-    payload = await response.json();
-  } catch {
-    // Empty response bodies are treated below by status.
-  }
-  if (!response.ok) throw new Error(payload.error || "Studio request failed.");
-  return payload;
-}
-
-function authEndpoint() {
-  return studioApiEndpoint();
-}

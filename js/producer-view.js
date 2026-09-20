@@ -161,7 +161,8 @@ export class ProducerView {
       window.open(this.session.inviteUrls().listener, "toasty-program-output");
     });
     this.elements.endShow.addEventListener("click", () => {
-      if (window.confirm("End the show for everyone? This ends the broadcast and disconnects guests.")) {
+      const title = this.session.durableSession?.title || "this show";
+      if (window.confirm(`End "${title}" for everyone?\n\nThis is irreversible: Program Output goes to End Card and guests are disconnected.`)) {
         this.session.endShow();
       }
     });
@@ -440,6 +441,18 @@ export class ProducerView {
     this.elements.poSceneGroup.querySelectorAll(".po-swatch").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.scene === program.scene));
     });
+    const stateChip = this.root.querySelector("#lvOutputStateChip");
+    if (stateChip) {
+      const labels = {
+        holding: "WAITING",
+        live: "LIVE",
+        "technical-difficulties": "TECHNICAL DIFFICULTIES",
+        ending: "END",
+        brb: "BRB"
+      };
+      stateChip.dataset.scene = program.scene;
+      stateChip.textContent = labels[program.scene] || String(program.scene || "WAITING").toUpperCase();
+    }
     const layout = program.compositionMode || (program.layout === "grid" ? "balanced" : program.layout) || "balanced";
     const layoutLabel = layout === "active-speaker" ? "Active Speaker" : layout === "spotlight" ? "Spotlight" : "Balanced";
     this.elements.layoutModeChip.textContent = layoutLabel;

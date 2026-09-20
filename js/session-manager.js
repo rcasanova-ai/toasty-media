@@ -10,6 +10,7 @@
 //      and (once in Studio) the rail both call, sharing one implementation so a link copied from either
 //      place is byte-identical.
 import { studioRequest } from "./studio-api.js";
+import { brandLabel, groupSessions, isTransientFetchError } from "./session-library.js";
 import { getGuestInviteUrl, getListenerInviteUrl, createDisposableRoomId } from "./video-engine.js";
 
 function log(...args) { console.debug("[SessionManager]", ...args); }
@@ -77,9 +78,11 @@ export async function createSession({ title, brandId }) {
   return result.session;
 }
 
-async function fetchSessions(status) {
-  const query = status ? `?status=${status}` : "";
-  const result = await studioRequest(`/api/sessions${query}`, { method: "GET" });
+async function fetchSessions() {
+  // ONE list call. The previous gate fired GET ?status=active and GET ?status=ended in parallel,
+  // both against nginx's toasty_render zone (6r/m, burst 8, CORS-less 503). Combined with
+  // /auth/session on the same zone, that is exactly "Couldn't load sessions: Failed to fetch".
+  const result = await studioRequest("/api/sessions", { method: "GET" });
   return result.sessions || [];
 }
 
@@ -145,10 +148,15 @@ async function showGate(resolve, brandId) {
   document.body.classList.add("session-gate-open");
 
   const statusEl = el("sessionGateStatus");
-  const activeList = el("sessionGateActiveList");
-  const endedList = el("sessionGateEndedList");
+  const liveList = el("sessionGateLiveList") || el("sessionGateActiveList");
+  const upcomingList = el("sessionGateUpcomingList");
+  const recentList = el("sessionGateRecentList");
+  const pastList = el("sessionGatePastList") || el("sessionGateEndedList");
   const titleInput = el("sessionGateTitle");
   const createBtn = el("sessionGateCreate");
+  const brandSelect = el("sessionGateBrand");
+  const sortSelect = el("sessionGateSort");
+  if (brandSelect && brandId) brandSelect.value = brandId;
 
   function finish(session) {
     gate.hidden = true;
@@ -158,25 +166,41 @@ async function showGate(resolve, brandId) {
   }
 
   async function refresh() {
-    statusEl.textContent = "Loading sessions…";
+    if (statusEl) statusEl.textContent = "Loading sessions…";
     try {
-      const [active, ended] = await Promise.all([fetchSessions("active"), fetchSessions("ended")]);
-      statusEl.textContent = "";
-      renderList(activeList, active, "No active sessions yet.", (session) => renderActiveRow(session, finish, refresh, statusEl));
-      renderList(endedList, ended, "No ended sessions yet.", (session) => renderEndedRow(session, titleInput, refresh, statusEl));
+      const sessions = await fetchSessions();
+      if (statusEl) statusEl.textContent = "";
+      const grouped = groupSessions(sortSessions(sessions, sortSelect?.value));
+      const activeRow = (session) => renderActiveRow(session, finish, refresh, statusEl);
+      if (upcomingList) {
+        if (liveList) renderList(liveList, grouped.live, "No live sessions.", activeRow);
+        renderList(upcomingList, grouped.upcoming, "No upcoming sessions.", activeRow);
+      } else if (liveList) {
+        renderList(liveList, [...grouped.live, ...grouped.upcoming], "No active sessions yet.", activeRow);
+      }
+      if (recentList) renderList(recentList, grouped.recent, "Nothing recent.", (session) => renderEndedRow(session, titleInput, refresh, statusEl));
+      if (pastList) renderList(pastList, grouped.past, "No past sessions.", (session) => renderEndedRow(session, titleInput, refresh, statusEl));
     } catch (error) {
-      statusEl.textContent = `Couldn't load sessions: ${error.message}`;
+      const hint = isTransientFetchError(error)
+        ? "Studio is rate-limited or unreachable. Waiting and retrying usually clears this."
+        : error.message;
+      if (statusEl) statusEl.textContent = `Couldn't load sessions: ${hint}`;
     }
   }
 
-  createBtn.onclick = async () => {
+  if (sortSelect) sortSelect.onchange = () => refresh();
+
+  if (createBtn) createBtn.onclick = async () => {
     createBtn.disabled = true;
-    statusEl.textContent = "Creating session…";
+    if (statusEl) statusEl.textContent = "Creating session…";
     try {
-      const session = await createSession({ title: titleInput.value.trim(), brandId });
+      const session = await createSession({
+        title: titleInput.value.trim(),
+        brandId: brandSelect?.value || brandId
+      });
       finish(session);
     } catch (error) {
-      statusEl.textContent = `Couldn't create session: ${error.message}`;
+      if (statusEl) statusEl.textContent = `Couldn't create session: ${error.message}`;
       createBtn.disabled = false;
     }
   };
@@ -199,8 +223,20 @@ function placeholder(text) {
   return p;
 }
 
+function sortSessions(sessions, sort) {
+  const copy = [...sessions];
+  if (sort === "title") {
+    copy.sort((a, b) => String(a.title || "").localeCompare(String(b.title || "")));
+  } else if (sort === "created") {
+    copy.sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
+  } else {
+    copy.sort((a, b) => Date.parse(b.lastActiveAt || b.createdAt || 0) - Date.parse(a.lastActiveAt || a.createdAt || 0));
+  }
+  return copy;
+}
+
 function statusLabel(session) {
-  return session.status === "LIVE" ? "● LIVE" : session.status === "OPEN" ? "○ Open" : "Ended";
+  return session.status === "LIVE" ? "LIVE" : session.status === "OPEN" ? "Upcoming" : "Completed";
 }
 
 function renderActiveRow(session, finish, refresh, statusEl) {
@@ -209,15 +245,16 @@ function renderActiveRow(session, finish, refresh, statusEl) {
   row.dataset.status = session.status;
   row.innerHTML = `
     <div class="session-row-main">
-      <p class="session-row-title">${escapeHtml(session.title || "Untitled Live Studio")}</p>
-      <p class="session-row-meta">${statusLabel(session)} · ${session.participantCount}/4 participants · Created ${fmtDate(session.createdAt)} · Active ${fmtRelative(session.lastActiveAt)}</p>
+      <p class="session-row-kicker">${escapeHtml(brandLabel(session.brandId))} · ${statusLabel(session)}</p>
+      <p class="session-row-title">${escapeHtml(session.title || "Untitled session")}</p>
+      <p class="session-row-meta">${session.participantCount || 0}/4 connected · ${fmtDate(session.createdAt)} · Active ${fmtRelative(session.lastActiveAt)}</p>
     </div>
     <div class="session-row-actions">
-      <button type="button" class="lv-mini-btn" data-action="open">Open Studio</button>
-      <button type="button" class="lv-mini-btn" data-action="preview">Preview Live Stream</button>
-      <button type="button" class="lv-mini-btn" data-action="copy-guest">Copy Guest Invite</button>
-      <button type="button" class="lv-mini-btn" data-action="copy-listener">Copy Listener Link</button>
-      <button type="button" class="lv-mini-btn lv-mini-btn--danger" data-action="end">End Session</button>
+      <button type="button" class="lv-mini-btn lv-mini-btn--primary" data-action="open">Produce</button>
+      <button type="button" class="lv-mini-btn" data-action="preview">Program Output</button>
+      <button type="button" class="lv-mini-btn" data-action="copy-guest">Guest invite</button>
+      <button type="button" class="lv-mini-btn" data-action="copy-listener">Listener link</button>
+      <button type="button" class="lv-mini-btn lv-mini-btn--danger" data-action="end">End</button>
     </div>
   `;
   row.querySelector('[data-action="open"]').addEventListener("click", () => finish(session));
@@ -225,12 +262,12 @@ function renderActiveRow(session, finish, refresh, statusEl) {
   row.querySelector('[data-action="copy-guest"]').addEventListener("click", async (event) => {
     const ok = await copyGuestInvite(session);
     event.target.textContent = ok ? "Copied!" : "Copy failed";
-    setTimeout(() => { event.target.textContent = "Copy Guest Invite"; }, 1500);
+    setTimeout(() => { event.target.textContent = "Guest invite"; }, 1500);
   });
   row.querySelector('[data-action="copy-listener"]').addEventListener("click", async (event) => {
     const ok = await copyListenerInvite(session);
     event.target.textContent = ok ? "Copied!" : "Copy failed";
-    setTimeout(() => { event.target.textContent = "Copy Listener Link"; }, 1500);
+    setTimeout(() => { event.target.textContent = "Listener link"; }, 1500);
   });
   row.querySelector('[data-action="end"]').addEventListener("click", async () => {
     if (!window.confirm(`End "${session.title || "this session"}" for everyone?`)) return;
@@ -250,13 +287,16 @@ function renderEndedRow(session, titleInput, refresh, statusEl) {
   row.className = "session-row session-row--ended";
   row.innerHTML = `
     <div class="session-row-main">
-      <p class="session-row-title">${escapeHtml(session.title || "Untitled Live Studio")}</p>
+      <p class="session-row-kicker">${escapeHtml(brandLabel(session.brandId))} · Completed</p>
+      <p class="session-row-title">${escapeHtml(session.title || "Untitled session")}</p>
       <p class="session-row-meta">Ended ${fmtRelative(session.endedAt)} · Created ${fmtDate(session.createdAt)}</p>
     </div>
     <div class="session-row-actions">
-      <button type="button" class="lv-mini-btn" data-action="duplicate">Duplicate / New Session</button>
+      <button type="button" class="lv-mini-btn" data-action="preview">Program Output</button>
+      <button type="button" class="lv-mini-btn" data-action="duplicate">Duplicate</button>
     </div>
   `;
+  row.querySelector('[data-action="preview"]')?.addEventListener("click", () => openPreviewTab(session));
   row.querySelector('[data-action="duplicate"]').addEventListener("click", async (event) => {
     event.target.disabled = true;
     statusEl.textContent = "Creating new session…";

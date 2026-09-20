@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="../css/studio.css">
     <link rel="stylesheet" href="../css/studio-white-label.css">
     <link rel="stylesheet" href="../css/studio-shell-v2.css">
+    <link rel="stylesheet" href="../css/studio-app.css">
     <script>
       if (window.top === window.self && /\/director\.html$/i.test(window.location.pathname)) {
         window.location.replace(`./${window.location.search}`);
@@ -32,77 +33,123 @@
          `?session=` in the URL (a fresh Studio open with no session picked yet) or that id turned out to
          be missing/ended; hidden the instant a session is chosen. Replaces the old behavior of silently
          creating a new disposable room on every single page load. -->
-    <section class="session-gate" id="sessionGate" hidden aria-label="Toasty Live Sessions">
+    <section class="session-gate" id="sessionGate" hidden aria-label="Session library">
       <div class="session-gate-inner">
         <header class="session-gate-header">
-          <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="" class="session-gate-logo" data-brand-logo>
-          <h1>Live Studio Sessions</h1>
-          <p class="session-gate-sub">Open an existing session or start a new one.</p>
+          <div>
+            <p class="session-gate-kicker">Session library</p>
+            <h1>Sessions</h1>
+          </div>
+          <label class="session-gate-sort">Sort
+            <select id="sessionGateSort">
+              <option value="active">Last active</option>
+              <option value="created">Date created</option>
+              <option value="title">Name</option>
+            </select>
+          </label>
         </header>
 
-        <div class="session-gate-new">
-          <input type="text" id="sessionGateTitle" placeholder="Session title (optional)">
-          <button type="button" id="sessionGateCreate" class="btn btn-primary">+ New Session</button>
-        </div>
+        <form class="session-setup" id="sessionSetupForm" onsubmit="return false;">
+          <fieldset>
+            <legend>Session</legend>
+            <label>Session name
+              <input type="text" id="sessionGateTitle" placeholder="Internal identity · muted on Program Output" maxlength="160">
+            </label>
+            <p class="session-setup-hint">Session name is the producer label. Show/topic is set on Program after you open the session.</p>
+          </fieldset>
+          <fieldset>
+            <legend>Branding</legend>
+            <label>Skin
+              <select id="sessionGateBrand">
+                <option value="toasty">Toasty Studio</option>
+                <option value="peeps">Toasty Peeps</option>
+                <option value="superteam">Superteam Thailand</option>
+                <option value="8alta">8ALTA</option>
+                <option value="santati">Santati</option>
+                <option value="optimai">OptimAI Network</option>
+                <option value="tangem">Tangem</option>
+              </select>
+            </label>
+          </fieldset>
+          <button type="button" id="sessionGateCreate" class="btn btn-primary">Create session</button>
+        </form>
 
         <p class="session-gate-status" id="sessionGateStatus"></p>
 
-        <div class="session-gate-section">
-          <p class="session-gate-label">Active</p>
-          <div id="sessionGateActiveList" class="session-gate-list"></div>
-        </div>
-
-        <div class="session-gate-section">
-          <p class="session-gate-label">Ended</p>
-          <div id="sessionGateEndedList" class="session-gate-list"></div>
+        <div class="session-library-grid">
+          <div class="session-gate-section">
+            <p class="session-gate-label">Live</p>
+            <div id="sessionGateLiveList" class="session-gate-list"></div>
+          </div>
+          <div class="session-gate-section">
+            <p class="session-gate-label">Upcoming</p>
+            <div id="sessionGateUpcomingList" class="session-gate-list"></div>
+          </div>
+          <div class="session-gate-section">
+            <p class="session-gate-label">Recent</p>
+            <div id="sessionGateRecentList" class="session-gate-list"></div>
+          </div>
+          <div class="session-gate-section">
+            <p class="session-gate-label">Past</p>
+            <div id="sessionGatePastList" class="session-gate-list"></div>
+          </div>
         </div>
       </div>
     </section>
 
-    <header class="studio-global-nav" aria-label="Studio navigation">
+    <header class="studio-global-nav studio-app-header" aria-label="Studio navigation">
+      <a class="studio-app-brand" id="studioBrandLink" href="../site/" aria-label="Studio brand home">
+        <img id="studioBrandLogo" src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Media Studio">
+        <span class="brand-text-lockup" id="studioBrandText">Toasty Studio</span>
+      </a>
+
       <div class="ai-studio-masthead" id="aiStudioMasthead" hidden>
-        <img
-          src="../shared/brand/toasty-media/ToastyMediaStudio.png"
-          alt="Studio"
-          data-brand-logo
-        >
+        <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Studio" data-brand-logo>
       </div>
 
-      <section class="studio-mode-switcher" aria-label="Studio mode">
-        <button class="mode-card" type="button" data-studio-mode="live" aria-pressed="true">
-          <span class="mode-icon mode-icon--live" aria-hidden="true"></span>
-          <strong>Live Studio</strong>
+      <nav class="studio-mode-switcher" aria-label="Studio">
+        <button class="mode-card" type="button" data-studio-mode="live" data-studio-nav="studio" aria-pressed="true">
+          <strong>Studio</strong>
         </button>
-        <button class="mode-card" type="button" data-studio-mode="ai" aria-pressed="false">
-          <span class="mode-icon mode-icon--ai" aria-hidden="true"></span>
-          <strong>AI Production</strong>
+        <button class="mode-card" type="button" data-studio-nav="sessions" aria-pressed="false">
+          <strong>Sessions</strong>
         </button>
-      </section>
+        <button class="mode-card" type="button" data-studio-nav="assets" aria-pressed="false">
+          <strong>Assets</strong>
+        </button>
+        <button class="mode-card" type="button" data-studio-mode="ai" data-studio-nav="production" aria-pressed="false">
+          <strong>Production</strong>
+        </button>
+      </nav>
 
-      <div class="on-air-sign on-air-sign--compact" id="connectionChip" data-state="offline">
-        <span class="on-air-bulb" aria-hidden="true"></span>
-        <span class="on-air-text" aria-hidden="true">OFFLINE</span>
-        <span id="connectionState" class="sr-only">Ready</span>
+      <div class="studio-app-meta">
+        <div class="on-air-sign on-air-sign--compact" id="connectionChip" data-state="offline">
+          <span class="on-air-bulb" aria-hidden="true"></span>
+          <span class="on-air-text" aria-hidden="true">OFFLINE</span>
+          <span id="connectionState" class="sr-only">Ready</span>
+        </div>
+        <details class="studio-avatar-menu" id="studioAvatarMenu">
+          <summary class="studio-avatar-btn" id="studioAvatarButton" aria-label="Account menu">R</summary>
+          <div class="studio-avatar-panel">
+            <p class="studio-avatar-name" id="studioAccountName">Account</p>
+            <button type="button" id="studioMenuProfile" data-studio-menu="profile">Profile / End Card defaults</button>
+            <button type="button" id="studioMenuBrand" data-studio-menu="brand">Brand / Workspace</button>
+            <button type="button" id="switchSession">Switch session</button>
+            <button type="button" id="studioMenuLogout" data-studio-menu="logout">Log out</button>
+          </div>
+        </details>
       </div>
     </header>
 
     <div class="studio-grid">
       <aside class="rail rail-left" aria-label="Studio session rail">
         <div class="brand-block">
-          <a class="brand-lockup" id="studioBrandLink" href="../site/" aria-label="Studio brand home">
-            <img
-              id="studioBrandLogo"
-              src="../shared/brand/toasty-media/ToastyMediaStudio.png"
-              alt="Toasty Media Studio"
-            >
-            <span class="brand-text-lockup" id="studioBrandText" hidden>Toasty Studio</span>
-          </a>
           <span class="powered-by" id="poweredBy">
             <span>Powered by</span>
             <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Media Studio">
           </span>
 
-          <label class="brand-switcher" for="brandThemeSelect">
+          <label class="brand-switcher" for="brandThemeSelect" id="brandSwitcherWrap">
             <span>Workspace</span>
             <select id="brandThemeSelect">
               <option value="toasty">Toasty Media</option>
@@ -404,8 +451,9 @@
             <section class="lv-panel lv-program" aria-label="Studio stage">
               <div class="lv-panel-head">
                 <span data-lv-only="host">Participant View</span>
-                <span data-lv-only="producer" hidden>Program Preview</span>
+                <span data-lv-only="producer" hidden>Program</span>
                 <span class="lv-chip" id="lvHostPanelStatus">Loading</span>
+                <span class="lv-output-state" id="lvOutputStateChip" data-lv-only="producer" hidden data-scene="holding">WAITING</span>
               </div>
               <!-- Participant View (who the Host is talking to), not Program Output (what the Producer
                    broadcasts — a separate concept, see studio/listener.html). Remote guest is the main
@@ -461,6 +509,16 @@
                    Muted here. Parked off-screen in Host view (never display:none) so switching to
                    Producer does not remount. -->
               <div class="lv-program-preview po-stage" id="lvProgramPreviewStage"></div>
+              <div class="lv-transport" data-lv-only="producer" hidden>
+                <div class="po-button-group" id="lvPoSceneGroup" role="radiogroup" aria-label="Program scene">
+                  <button type="button" class="po-swatch" data-scene="holding" aria-pressed="true">Waiting</button>
+                  <button type="button" class="po-swatch po-swatch--live" data-scene="live" aria-pressed="false">Live</button>
+                  <button type="button" class="po-swatch po-swatch--warn" data-scene="technical-difficulties" aria-pressed="false">Technical Difficulties</button>
+                  <button type="button" class="po-swatch po-swatch--end" data-scene="ending" aria-pressed="false">End</button>
+                  <button type="button" class="po-swatch po-swatch--quiet" data-scene="brb" aria-pressed="false">BRB</button>
+                </div>
+                <button id="lvOpenProgramOutput" class="btn btn-ghost btn-small" type="button">Open Program Output</button>
+              </div>
               <div class="lv-host-controls" data-lv-only="host">
                 <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
                 <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>
@@ -536,8 +594,8 @@
             </aside>
 
             <!-- PRODUCER-only panels -->
-            <section class="lv-panel lv-sources" data-lv-only="producer" hidden aria-label="Sources">
-              <div class="lv-panel-head"><span>Sources</span></div>
+            <section class="lv-panel lv-sources" data-lv-only="producer" hidden aria-label="Participants">
+              <div class="lv-panel-head"><span>Participants</span><span class="lv-chip" id="lvSourceCount">Available</span></div>
               <div class="lv-source-row">
                 <span class="lv-source-name">Host (you)</span>
                 <span class="lv-source-status" id="lvSourceHostStatus">—</span>
@@ -545,7 +603,7 @@
               <div class="lv-guest-rows" id="lvGuestRows"></div>
             </section>
 
-            <section class="lv-panel lv-scenes" data-lv-only="producer" hidden aria-label="Layout">
+            <section class="lv-panel lv-scenes" data-lv-only="producer" data-tools-panel="media" hidden aria-label="Layout">
               <div class="lv-panel-head"><span>Layout</span><span class="lv-chip" id="lvLayoutModeChip">Balanced</span></div>
               <div class="lv-button-row" id="lvLayoutGroup">
                 <button type="button" class="lv-mini-btn" data-layout="balanced" aria-pressed="true">Balanced</button>
@@ -561,7 +619,7 @@
               </div>
             </section>
 
-            <aside class="lv-panel lv-ai-producer-pane" data-lv-only="producer" hidden aria-label="AI Producer">
+            <aside class="lv-panel lv-ai-producer-pane" data-lv-only="producer" data-tools-panel="hottie" hidden aria-label="Hottie">
               <div class="lv-panel-head"><span>AI Producer</span></div>
               <div class="lv-hottie-rail" id="lvHottieRail" aria-label="Hottie status">
                 <span class="lv-hottie-status" id="lvHottieStatus" data-state="listening">LISTENING</span>
@@ -578,18 +636,26 @@
               </div>
             </aside>
 
-            <section class="lv-panel lv-graphics" data-lv-only="producer" hidden aria-label="Program Output">
-              <div class="lv-panel-head"><span>Program Output</span></div>
-              <label class="po-field">Show / topic
-                <input id="lvPoTopic" type="text" placeholder="e.g. Podcast Episode #47" maxlength="120">
-              </label>
-              <div class="po-button-group" id="lvPoSceneGroup" role="radiogroup" aria-label="Program scene">
-                <button type="button" class="po-swatch" data-scene="holding" aria-pressed="true">Starting Soon</button>
-                <button type="button" class="po-swatch" data-scene="live" aria-pressed="false">Live</button>
-                <button type="button" class="po-swatch" data-scene="brb" aria-pressed="false">BRB</button>
-                <button type="button" class="po-swatch po-swatch--warn" data-scene="technical-difficulties" aria-pressed="false">Technical Difficulties</button>
-                <button type="button" class="po-swatch" data-scene="ending" aria-pressed="false">Ending</button>
+            <section class="lv-panel lv-tools" data-lv-only="producer" hidden aria-label="Broadcast tools">
+              <div class="lv-tools-tabs" id="lvToolsTabs">
+                <button type="button" data-tools-tab="graphics" aria-pressed="true">Graphics</button>
+                <button type="button" data-tools-tab="media" aria-pressed="false">Media</button>
+                <button type="button" data-tools-tab="audio" aria-pressed="false">Audio</button>
+                <button type="button" data-tools-tab="brand" aria-pressed="false">Brand</button>
+                <button type="button" data-tools-tab="hottie" aria-pressed="false">Hottie</button>
               </div>
+            </section>
+            <section class="lv-panel lv-brand-tools" data-lv-only="producer" data-tools-panel="brand" hidden aria-label="Brand">
+              <div class="lv-panel-head"><span>Brand</span></div>
+              <p class="control-note">The active skin is the Workspace selector in the session rail. Program Output skins stay separate from this application chrome.</p>
+            </section>
+            <section class="lv-panel lv-graphics" data-tools-panel="graphics" aria-label="Graphics">
+              <div class="lv-panel-head"><span>Graphics</span></div>
+              <label class="po-field">Show / topic
+                <input id="lvPoTopic" type="text" placeholder="Audience-facing headline" maxlength="120">
+              </label>
+              <p class="control-note">Show/topic is the large Program Output headline. Session name stays the muted secondary label.</p>
+              <p class="session-name-readout">Session <strong id="lvSessionNameReadout">—</strong></p>
               <label class="po-field po-ticker-toggle">
                 <input id="lvPoTickerEnabled" type="checkbox">
                 Show ticker
@@ -605,7 +671,6 @@
               <label class="po-field">Ticker speed
                 <input id="lvPoTickerSpeed" type="range" min="8" max="32" step="1" value="16">
               </label>
-              <button id="lvOpenProgramOutput" class="btn btn-ghost btn-small" type="button">Open Program Output</button>
               <div class="lv-po-readiness" id="lvProgramOutputStatus">
                 <p class="lv-po-readiness-title">Program Output</p>
                 <p class="lv-po-readiness-line" id="lvPoConnection">Not connected</p>
@@ -648,7 +713,7 @@
               </div>
             </section>
 
-            <section class="lv-panel lv-audio" aria-label="Soundboard">
+            <section class="lv-panel lv-audio" data-tools-panel="audio" aria-label="Soundboard">
               <div class="soundboard-head">
                 <div><p class="rail-card-title">Sound Board</p><p class="control-note">Real catalogue files into Program Audio. Press a pad. Audience hears Program Output, not this monitor.</p></div>
                 <div class="soundboard-head-controls">
@@ -724,7 +789,7 @@
               <p class="control-note" id="lvFocusSummary">Target 5 · matched 0 · confirmed 0 · remaining 5</p>
             </section>
 
-            <section class="lv-panel lv-end-card" data-lv-only="producer" hidden aria-label="End card">
+            <section class="lv-panel lv-end-card" data-lv-only="producer" data-tools-panel="graphics" hidden aria-label="End card">
               <div class="lv-panel-head"><span>End Card</span></div>
               <input id="lvEndCardHeadline" type="text" placeholder="Headline (e.g. Follow Ricardo / Toasty Peeps)" maxlength="120">
               <textarea id="lvEndCardMessage" rows="2" placeholder="Message (e.g. Building the human layer for the agent economy.)" maxlength="400"></textarea>

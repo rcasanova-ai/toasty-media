@@ -1,0 +1,363 @@
+/* Producer application chrome — compact, broadcast-oriented, brand-token driven.
+   Program Output skins stay in css/program-output.css; this file is Studio chrome only. */
+
+.director-shell .studio-atmosphere {
+  opacity: 0.28;
+}
+
+.studio-app-header.studio-global-nav {
+  align-items: center;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin: 0;
+  padding: 0.45rem 0.8rem;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: color-mix(in srgb, var(--studio-surface) 92%, transparent);
+  border-bottom: 1px solid var(--studio-line);
+}
+
+.studio-app-brand {
+  align-items: center;
+  display: flex;
+  gap: 0.55rem;
+  min-width: 0;
+  text-decoration: none;
+}
+
+.studio-app-brand img {
+  display: block;
+  height: 28px;
+  width: auto;
+}
+
+.studio-app-brand .brand-text-lockup {
+  color: var(--studio-cream);
+  font-family: var(--font-heading);
+  font-size: 0.82rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.studio-app-header .studio-mode-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  margin: 0;
+  max-width: none;
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.studio-app-header .mode-card {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  gap: 0;
+  min-height: 0;
+  padding: 0.35rem 0.7rem;
+}
+
+.studio-app-header .mode-card strong {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.studio-app-header .mode-icon {
+  display: none;
+}
+
+.studio-app-header .mode-card[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--studio-orange, #ff7a29) 16%, transparent);
+  border-color: color-mix(in srgb, var(--studio-orange, #ff7a29) 45%, transparent);
+}
+
+.studio-app-meta {
+  align-items: center;
+  display: flex;
+  gap: 0.55rem;
+  justify-content: flex-end;
+}
+
+.studio-avatar-menu {
+  position: relative;
+}
+
+.studio-avatar-btn {
+  align-items: center;
+  background: var(--studio-surface-2, #2a211c);
+  border: 1px solid var(--studio-line);
+  border-radius: 50%;
+  color: var(--studio-cream);
+  cursor: pointer;
+  display: flex;
+  font-weight: 800;
+  height: 32px;
+  justify-content: center;
+  list-style: none;
+  width: 32px;
+}
+
+.studio-avatar-btn::-webkit-details-marker { display: none; }
+
+.studio-avatar-panel {
+  background: var(--studio-surface);
+  border: 1px solid var(--studio-line);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 220px;
+  padding: 0.45rem;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+}
+
+.studio-avatar-name {
+  color: var(--studio-muted);
+  font-size: 0.72rem;
+  margin: 0 0 0.25rem;
+  padding: 0 0.35rem;
+}
+
+.studio-avatar-panel button {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--studio-cream);
+  cursor: pointer;
+  padding: 0.4rem 0.5rem;
+  text-align: left;
+}
+
+.studio-avatar-panel button:hover {
+  background: color-mix(in srgb, var(--studio-orange, #ff7a29) 12%, transparent);
+}
+
+.studio-app-shell .studio-logout {
+  display: none;
+}
+
+.quick-action-row[disabled],
+.soon-badge {
+  display: none !important;
+}
+
+/* Session library */
+.session-gate {
+  background: color-mix(in srgb, var(--studio-surface) 96%, transparent);
+}
+
+.session-gate-inner {
+  max-width: 1120px;
+}
+
+.session-gate-header {
+  align-items: end;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.session-gate-kicker,
+.session-gate-label {
+  color: var(--studio-muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.session-gate-header h1 {
+  font-size: 1.35rem;
+  margin: 0.15rem 0 0;
+}
+
+.session-setup {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 1.4fr 0.8fr auto;
+  align-items: end;
+  margin: 1rem 0;
+}
+
+.session-setup fieldset {
+  border: 1px solid var(--studio-line);
+  border-radius: 10px;
+  margin: 0;
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+}
+
+.session-setup legend {
+  color: var(--studio-muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  padding: 0 0.3rem;
+  text-transform: uppercase;
+}
+
+.session-setup label,
+.session-gate-sort {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+}
+
+.session-setup input,
+.session-setup select,
+.session-gate-sort select {
+  background: var(--studio-surface-2, #1c1613);
+  border: 1px solid var(--studio-line);
+  border-radius: 8px;
+  color: inherit;
+  padding: 0.45rem 0.55rem;
+}
+
+.session-setup-hint {
+  color: var(--studio-muted);
+  font-size: 0.72rem;
+  margin: 0.35rem 0 0;
+}
+
+.session-library-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.session-row {
+  align-items: start;
+}
+
+.session-row-kicker {
+  color: var(--studio-muted);
+  font-size: 0.68rem;
+  margin: 0 0 0.15rem;
+}
+
+.session-row[data-status="LIVE"] .session-row-kicker {
+  color: #ff5252;
+  font-weight: 800;
+}
+
+.lv-mini-btn--primary {
+  background: color-mix(in srgb, var(--studio-orange, #ff7a29) 22%, transparent);
+  border-color: color-mix(in srgb, var(--studio-orange, #ff7a29) 55%, transparent);
+}
+
+/* Producer hierarchy */
+.live-console[data-lv-view="producer"] .lv-body {
+  grid-template-columns: minmax(0, 1.7fr) minmax(260px, 0.85fr);
+}
+
+.live-console[data-lv-view="producer"] .lv-program {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+}
+
+.live-console[data-lv-view="producer"] .lv-sources {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.live-console[data-lv-view="producer"] .lv-tools {
+  grid-column: 1 / -1;
+}
+
+.live-console[data-lv-view="producer"] .lv-program-preview {
+  min-height: min(58vh, 560px);
+}
+
+.lv-transport {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: space-between;
+}
+
+.lv-transport .po-button-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.po-swatch--live[aria-pressed="true"] {
+  background: rgba(255, 82, 82, 0.18);
+  border-color: #ff5252;
+}
+
+.po-swatch--end {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.po-swatch--quiet {
+  opacity: 0.72;
+}
+
+.lv-output-state {
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 0.2rem 0.55rem;
+}
+
+.lv-output-state[data-scene="holding"] { background: rgba(255, 255, 255, 0.08); }
+.lv-output-state[data-scene="live"] { background: rgba(255, 82, 82, 0.2); color: #ff8a8a; }
+.lv-output-state[data-scene="technical-difficulties"] { background: rgba(255, 196, 0, 0.16); color: #ffd36a; }
+.lv-output-state[data-scene="ending"] { background: rgba(255, 255, 255, 0.12); }
+
+.lv-tools-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.lv-tools-tabs button {
+  background: transparent;
+  border: 1px solid var(--studio-line);
+  border-radius: 999px;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.28rem 0.7rem;
+}
+
+.lv-tools-tabs button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--studio-orange, #ff7a29) 16%, transparent);
+  border-color: color-mix(in srgb, var(--studio-orange, #ff7a29) 50%, transparent);
+}
+
+.session-name-readout {
+  color: var(--studio-muted);
+  font-size: 0.78rem;
+  margin: 0;
+}
+
+.live-console[data-lv-view="producer"] .lv-show-actions .btn-danger {
+  border-width: 2px;
+}
+
+@media (max-width: 1100px) {
+  .studio-app-header.studio-global-nav,
+  .session-setup,
+  .session-library-grid,
+  .live-console[data-lv-view="producer"] .lv-body {
+    grid-template-columns: 1fr;
+  }
+
+  .live-console[data-lv-view="producer"] .lv-program,
+  .live-console[data-lv-view="producer"] .lv-sources {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}

@@ -1817,7 +1817,7 @@ async function handleSessionList(req, res, authSession) {
 }
 
 async function handleSessionGet(req, res, authSession) {
-  const id = decodeURIComponent(req.url.slice("/api/sessions/".length));
+  const id = decodeURIComponent(String(req.url.split("?")[0].slice("/api/sessions/".length).split("/")[0] || ""));
   if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
   const result = await db("session_get", { id, ownerUserId: authSession.id });
   if (result.error === "brand_forbidden") throw httpError(403, "This session is outside your account's permitted brand.");

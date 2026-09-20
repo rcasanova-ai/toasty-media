@@ -226,6 +226,7 @@ export class LiveSession {
     // start empty, which resolveEndCard() treats as "not set" and falls through to the next tier.
     this.sessionEndCard = {};
     this.profileEndCard = {};
+    this.account = null;
 
     this._programSync = null;
     this._guestListTimerId = null;
@@ -651,6 +652,7 @@ export class LiveSession {
   // existed) or one this poll already reacted to (avoid double-teardown).
   async _checkDurableSessionStatus() {
     if (!this.durableSession || this.durableSession.status === "ENDED" || this.hostState !== HostState.IN_STUDIO) return;
+    if (typeof document !== "undefined" && document.hidden) return;
     try {
       const result = await studioRequest(`/api/sessions/${this.durableSession.id}`, { method: "GET" });
       if (result.session?.status === "ENDED") {
@@ -999,6 +1001,8 @@ export class LiveSession {
     try {
       const result = await studioRequest("/auth/session", { method: "GET" });
       this.profileEndCard = result?.user?.endCard || {};
+      this.account = result?.user || this.account;
+      this.emit("account", this.account);
       this.emit("end-card", { sessionEndCard: this.sessionEndCard, profileEndCard: this.profileEndCard });
     } catch (error) {
       console.error("[LiveSession] loadProfileEndCard failed", error);
