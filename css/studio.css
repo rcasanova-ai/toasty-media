@@ -3256,6 +3256,14 @@
   gap: 0.5rem;
 }
 
+.po-ticker-actions,
+.lv-agenda-controls,
+.lv-teleprompter-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
 .po-subhead {
   color: var(--studio-muted);
   font-family: var(--font-heading);
@@ -3294,6 +3302,76 @@
   background: rgba(255, 122, 41, 0.14);
   border-color: var(--studio-orange);
   color: var(--studio-orange-bright);
+}
+
+.lv-agenda-import {
+  border-top: 1px solid var(--studio-line);
+  padding-top: 0.55rem;
+}
+
+.lv-agenda-import summary {
+  color: var(--studio-cream);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.lv-agenda-import textarea,
+.lv-teleprompter textarea,
+.lv-post-production textarea,
+.lv-focus-brief textarea,
+.lv-focus-brief input,
+.lv-focus-brief select {
+  background: var(--studio-surface-2);
+  border: 1px solid var(--studio-line);
+  border-radius: 8px;
+  color: var(--studio-cream);
+  font: inherit;
+  padding: 0.6rem 0.7rem;
+  width: 100%;
+}
+
+.lv-agenda-notes {
+  color: var(--studio-muted);
+  font-size: 0.72rem;
+  grid-column: 2 / -1;
+  line-height: 1.35;
+  margin: -0.15rem 0 0;
+  white-space: pre-wrap;
+}
+
+.lv-teleprompter textarea {
+  font-family: var(--font-heading);
+  line-height: 1.45;
+  min-height: 220px;
+  resize: vertical;
+}
+
+.lv-teleprompter .lv-mini-btn[aria-pressed="true"] {
+  background: rgba(255, 122, 41, 0.14);
+  border-color: var(--studio-orange);
+  color: var(--studio-orange-bright);
+}
+
+.lv-record-steps {
+  color: var(--studio-cream-dim);
+  display: grid;
+  font-size: 0.74rem;
+  gap: 0.25rem;
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.lv-post-production,
+.lv-focus-brief {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.lv-focus-grid {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .po-lower-thirds {

@@ -74,7 +74,8 @@ export function analyzeFocusGroupTranscript(lines=[], context={}) {
     evidenceQuotes,
     gaps:buildResearchGaps(clean,context),
     moderatorPrompts:buildModeratorPrompts({clean,context,observations,quiet}),
-    summary:buildSummary({clean,speakers,counts,context})
+    summary:buildSummary({clean,speakers,counts,context}),
+    transcriptAvailable:clean.length>0
   };
 }
 
@@ -100,26 +101,46 @@ function buildModeratorPrompts({observations,quiet,context}){
   return prompts.slice(0,6);
 }
 
-function buildSummary({speakers,counts,context}){
+function buildSummary({clean,speakers,counts,context}){
   const top=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,v])=>`${k} (${v})`);
+  const hasTranscript=(clean||[]).length>0;
   return {
-    headline: context.objective ? `Focus group evidence for: ${context.objective}` : "Focus group evidence summary",
+    headline: hasTranscript
+      ? (context.objective ? `Focus group evidence for: ${context.objective}` : "Focus group evidence summary")
+      : "No transcript available yet — evidence, quotes, and findings below are unavailable, not absent.",
     participantCount:speakers.length,
     strongestSignals:top,
-    note:"This summary is deterministic signal extraction. Model-generated interpretation should remain separately labeled and evidence-linked."
+    note: hasTranscript
+      ? "This summary is deterministic signal extraction. Model-generated interpretation should remain separately labeled and evidence-linked."
+      : "No session transcript has been captured yet. This pack will remain empty until real transcript lines exist — nothing here is inferred or invented."
   };
 }
 
 export function buildFocusGroupDeliveryPack(lines=[],context={}){
   const analysis=analyzeFocusGroupTranscript(lines,context);
+  const agreements=analysis.observations.filter(o=>o.kind==="positive").slice(0,6);
+  const disagreements=analysis.observations.filter(o=>o.kind==="negative"||o.kind==="confusion").slice(0,6);
+  const opportunities=analysis.observations.filter(o=>o.kind==="positive"||o.kind==="intent").slice(0,6);
+  const risks=analysis.observations.filter(o=>o.kind==="negative"||o.kind==="trust"||o.kind==="price").slice(0,6);
   return {
     schema:"toasty.focus-group-delivery.v1",
     generatedAt:new Date().toISOString(),
     clientBoundary:"Client-private session output. Reusable participant profiles are handled separately by consent.",
+    transcriptAvailable:analysis.transcriptAvailable,
     executiveSummary:analysis.summary,
+    researchObjective:context.objective||"",
+    participantOverview:analysis.participation,
+    majorThemes:Object.entries(analysis.stats.signalCounts).sort((a,b)=>b[1]-a[1]).map(([signal,count])=>({theme:signal,count,evidence:analysis.observations.filter(o=>o.kind===signal).slice(0,3)})),
+    pointsOfAgreement:agreements,
+    pointsOfDisagreement:disagreements,
+    keyFindings:Object.entries(analysis.stats.signalCounts).sort((a,b)=>b[1]-a[1]).map(([signal,count])=>({finding:`${signal} signal appeared ${count} time${count===1?"":"s"}`, evidence:analysis.observations.filter(o=>o.kind===signal).slice(0,3)})),
+    evidence:analysis.evidenceQuotes,
+    unansweredQuestions:analysis.gaps,
+    productOpportunities:opportunities,
+    risksConcerns:risks,
+    recommendedFollowUpResearch:analysis.gaps.length?analysis.gaps.map(g=>g.question):analysis.moderatorPrompts.map(p=>p.text),
     topFindings:Object.entries(analysis.stats.signalCounts).sort((a,b)=>b[1]-a[1]).map(([signal,count])=>({signal,count,evidence:analysis.observations.filter(o=>o.kind===signal).slice(0,3)})),
     participantObservations:analysis.participation,
-    unansweredQuestions:analysis.gaps,
     moderatorPrompts:analysis.moderatorPrompts,
     notableQuotes:analysis.evidenceQuotes,
     assets:{

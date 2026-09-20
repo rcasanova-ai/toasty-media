@@ -1,5 +1,7 @@
 import { Soundboard } from "./soundboard.js";
 import { renderFeedEntry } from "./ai-producer.js";
+import { attachFocusGroupToSession, buildFocusGroupInsightArtifact } from "./focus-group-studio.js";
+import { buildSessionDeliverables, buildWeeklyUpdatePackage, formatDeliverableMarkdown } from "./post-production.js";
 
 // ProducerView: the dense control surface for making the show. Same LiveSession as HostView — this
 // file only adds DOM bindings for producer-only actions (per-guest control, layout, graphics, show
@@ -22,6 +24,10 @@ export class ProducerView {
       poSceneGroup: root.querySelector("#lvPoSceneGroup"),
       poTickerEnabled: root.querySelector("#lvPoTickerEnabled"),
       poTickerText: root.querySelector("#lvPoTickerText"),
+      poTickerShow: root.querySelector("#lvPoTickerShow"),
+      poTickerHide: root.querySelector("#lvPoTickerHide"),
+      poTickerClear: root.querySelector("#lvPoTickerClear"),
+      poTickerSpeed: root.querySelector("#lvPoTickerSpeed"),
       poConnection: root.querySelector("#lvPoConnection"),
       poFeeds: root.querySelector("#lvPoFeeds"),
       poAudioState: root.querySelector("#lvPoAudioState"),
@@ -53,7 +59,28 @@ export class ProducerView {
       aiDiagRequests: root.querySelector("#lvAiDiagRequests"),
       aiDiagTokens: root.querySelector("#lvAiDiagTokens"),
       aiDiagCost: root.querySelector("#lvAiDiagCost"),
-      aiDiagProvider: root.querySelector("#lvAiDiagProvider")
+      aiDiagProvider: root.querySelector("#lvAiDiagProvider"),
+      postWeekly: root.querySelector("#lvGenerateWeeklyPackage"),
+      postSession: root.querySelector("#lvGeneratePostPack"),
+      postFocus: root.querySelector("#lvGenerateFocusInsights"),
+      postOutput: root.querySelector("#lvPostProductionOutput"),
+      focusProject: root.querySelector("#lvFocusProject"),
+      focusObjective: root.querySelector("#lvFocusObjective"),
+      focusProfile: root.querySelector("#lvFocusProfile"),
+      focusDesired: root.querySelector("#lvFocusDesired"),
+      focusMinimum: root.querySelector("#lvFocusMinimum"),
+      focusDuration: root.querySelector("#lvFocusDuration"),
+      focusTopics: root.querySelector("#lvFocusTopics"),
+      focusQuestions: root.querySelector("#lvFocusQuestions"),
+      focusStatus: root.querySelector("#lvFocusStatus"),
+      focusTarget: root.querySelector("#lvFocusTarget"),
+      focusMatched: root.querySelector("#lvFocusMatched"),
+      focusConfirmed: root.querySelector("#lvFocusConfirmed"),
+      focusFallback: root.querySelector("#lvFocusFallback"),
+      focusClientApproval: root.querySelector("#lvFocusClientApproval"),
+      focusApply: root.querySelector("#lvApplyFocusBrief"),
+      focusSummary: root.querySelector("#lvFocusSummary"),
+      focusRecruitmentStatus: root.querySelector("#lvFocusRecruitmentStatus")
     };
   }
 
@@ -88,6 +115,13 @@ export class ProducerView {
       this.session.setTicker({ enabled: this.elements.poTickerEnabled.checked });
     });
     this.elements.poTickerText.addEventListener("input", () => this.session.setTicker({ text: this.elements.poTickerText.value }));
+    this.elements.poTickerShow?.addEventListener("click", () => this.session.setTicker({ enabled: true, text: this.elements.poTickerText.value || this.session.program.tickerText }));
+    this.elements.poTickerHide?.addEventListener("click", () => this.session.setTicker({ enabled: false }));
+    this.elements.poTickerClear?.addEventListener("click", () => {
+      this.elements.poTickerText.value = "";
+      this.session.setTicker({ enabled: false, text: "" });
+    });
+    this.elements.poTickerSpeed?.addEventListener("input", () => this.session.setTicker({ speed: Number(this.elements.poTickerSpeed.value) }));
     this.elements.poSceneGroup.querySelectorAll(".po-swatch").forEach((button) => {
       button.addEventListener("click", () => {
         this.session.setScene(button.dataset.scene);
@@ -120,6 +154,14 @@ export class ProducerView {
       this.session.resetDemo();
       this.elements.demoModeToggle.checked = false;
     });
+    this.elements.postWeekly?.addEventListener("click", () => this.renderPostOutput(buildWeeklyUpdatePackage(this.session)));
+    this.elements.postSession?.addEventListener("click", () => this.renderPostOutput(buildSessionDeliverables(this.session)));
+    this.elements.postFocus?.addEventListener("click", () => this.renderPostOutput(buildFocusGroupInsightArtifact(this.session)?.payload || { note: "No focus group transcript available yet." }));
+    this.elements.focusApply?.addEventListener("click", () => this.applyFocusBrief());
+    [this.elements.focusStatus, this.elements.focusTarget, this.elements.focusMatched, this.elements.focusConfirmed].forEach((el) => {
+      el?.addEventListener("input", () => this.renderFocusRecruitment());
+      el?.addEventListener("change", () => this.renderFocusRecruitment());
+    });
 
     this.session.on("guests", () => this.renderGuests());
     this.session.on("av", () => this.renderGuests());
@@ -144,6 +186,62 @@ export class ProducerView {
     this.renderRecordingGate();
     this.renderFeedMirror();
     this.renderAiDiagnostics(this.session.aiProducerService.sessionTotals());
+    this.renderFocusRecruitment();
+  }
+
+  renderPostOutput(pack) {
+    if (!this.elements.postOutput) return;
+    this.elements.postOutput.value = formatDeliverableMarkdown(pack);
+  }
+
+  applyFocusBrief() {
+    const questions = splitLines(this.elements.focusQuestions?.value);
+    const topics = splitLines(this.elements.focusTopics?.value);
+    const context = attachFocusGroupToSession(this.session, {
+      title: this.elements.focusProject?.value || "Focus Group",
+      objective: this.elements.focusObjective?.value || "",
+      researchQuestions: questions,
+      cohort: {
+        targetProfile: this.elements.focusProfile?.value || "",
+        desiredCount: Number(this.elements.focusDesired?.value || 0),
+        minimumCount: Number(this.elements.focusMinimum?.value || 0),
+        recruitment: this.focusRecruitmentState(),
+        fallback: {
+          option: this.elements.focusFallback?.value || "",
+          clientApproved: Boolean(this.elements.focusClientApproval?.checked)
+        }
+      },
+      concepts: topics,
+      clientNotes: `Duration: ${this.elements.focusDuration?.value || 45} minutes`
+    });
+    this.session.runOfShow.load((context.agenda || []).map((item) => ({
+      title: item.title,
+      notes: item.preparedQuestions?.join("\n") || "",
+      preparedQuestions: item.preparedQuestions || [],
+      estimatedMinutes: item.estimatedMinutes
+    })));
+    this.renderFocusRecruitment();
+  }
+
+  focusRecruitmentState() {
+    const target = Number(this.elements.focusTarget?.value || this.elements.focusDesired?.value || 0);
+    const matched = Number(this.elements.focusMatched?.value || 0);
+    const confirmed = Number(this.elements.focusConfirmed?.value || 0);
+    return {
+      status: this.elements.focusStatus?.value || "NEEDS PARTICIPANTS",
+      target,
+      matched,
+      confirmed,
+      remaining: Math.max(0, target - confirmed)
+    };
+  }
+
+  renderFocusRecruitment() {
+    const state = this.focusRecruitmentState();
+    if (this.elements.focusRecruitmentStatus) this.elements.focusRecruitmentStatus.textContent = state.status;
+    if (this.elements.focusSummary) {
+      this.elements.focusSummary.textContent = `Target ${state.target} · matched ${state.matched} · confirmed ${state.confirmed} · remaining ${state.remaining}`;
+    }
   }
 
   // Producer-only, deliberately: cost/token telemetry is exactly the "debug information" that must
@@ -238,6 +336,7 @@ export class ProducerView {
     this.elements.poTickerEnabled.checked = program.tickerEnabled;
     this.elements.poTickerText.value = program.tickerText;
     this.elements.poTickerText.disabled = !program.tickerEnabled;
+    if (this.elements.poTickerSpeed) this.elements.poTickerSpeed.value = String(program.tickerSpeed || 16);
     this.elements.poSceneGroup.querySelectorAll(".po-swatch").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.scene === program.scene));
     });
@@ -308,7 +407,7 @@ export class ProducerView {
     const active = Boolean(recording.active);
     const saving = recording.status === "saving";
     this.elements.recordToggle.setAttribute("aria-pressed", String(active && !saving));
-    this.elements.recordToggle.textContent = saving ? "SAVING RECORDING…" : active ? "STOP RECORDING" : "START RECORDING";
+    this.elements.recordToggle.textContent = saving ? "SAVING RECORDING…" : active ? "STOP RECORDING" : "RECORD PROGRAM";
     this.elements.recordTimer.hidden = !active && !saving;
     if (this.elements.recordStatus) {
       if (saving) this.elements.recordStatus.textContent = "SAVING RECORDING…";
@@ -376,7 +475,7 @@ export class ProducerView {
       this.elements.recordNote.textContent = blocked;
       return;
     }
-    this.elements.recordNote.textContent = "Program Output is ready. Click START RECORDING, then select that tab and turn Share tab audio ON.";
+    this.elements.recordNote.textContent = "Program Output is ready. Click RECORD PROGRAM, select the Program Output tab, and turn Share tab audio ON.";
   }
 
   async toggleRecording() {
@@ -437,6 +536,10 @@ function downloadFile(blob, name) {
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function splitLines(value = "") {
+  return String(value || "").split(/\n/g).map((line) => line.trim()).filter(Boolean);
 }
 
 function escapeHtml(value) {

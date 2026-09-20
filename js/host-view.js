@@ -8,6 +8,7 @@ import { triggerSoundFromInstruction } from "./soundboard.js";
 import { DEMO_AUDIENCE_PLATFORM_BREAKDOWN, DEMO_AUDIENCE_TOTAL } from "./audience.js";
 import { HostState } from "./host-state.js";
 import { RemoteMediaState, REMOTE_MEDIA_STATE_LABEL } from "./remote-media-state.js";
+import { parseRunOfShowText } from "./run-of-show.js";
 
 // HostView: a thin control surface over LiveSession for running the conversation. It owns no state of
 // its own beyond DOM bindings — everything it shows comes from session.* and its events. Keep this file
@@ -31,9 +32,19 @@ export class HostView {
       guestStageEmpty: root.querySelector("#lvGuestStageEmpty"),
       guestStageEmptyText: root.querySelector("#lvGuestStageEmptyText"),
       agendaList: root.querySelector("#lvAgendaList"),
+      agendaNowNext: root.querySelector("#lvAgendaNowNext"),
+      agendaBack: root.querySelector("#lvAgendaBack"),
       agendaNext: root.querySelector("#lvAgendaNext"),
+      agendaPaste: root.querySelector("#lvAgendaPaste"),
+      agendaLoad: root.querySelector("#lvAgendaLoad"),
       agendaAddForm: root.querySelector("#lvAgendaAddForm"),
       agendaAddInput: root.querySelector("#lvAgendaAddInput"),
+      teleText: root.querySelector("#lvTeleprompterText"),
+      teleFontDown: root.querySelector("#lvTeleFontDown"),
+      teleFontUp: root.querySelector("#lvTeleFontUp"),
+      teleScrollUp: root.querySelector("#lvTeleScrollUp"),
+      teleScrollDown: root.querySelector("#lvTeleScrollDown"),
+      teleAuto: root.querySelector("#lvTeleAuto"),
       audienceList: root.querySelector("#lvAudienceList"),
       audienceCount: root.querySelector("#lvAudienceCount"),
       audienceDemoBreakdown: root.querySelector("#lvAudienceDemoBreakdown"),
@@ -47,6 +58,8 @@ export class HostView {
       talkTextInput: root.querySelector("#lvTalkTextInput")
     };
     this._agendaTimerId = null;
+    this._teleFontSize = 24;
+    this._teleAutoTimer = null;
   }
 
   init() {
@@ -70,6 +83,7 @@ export class HostView {
     this.renderRemoteMediaState(this.session.remoteMediaState);
 
     this.initRunOfShow();
+    this.initTeleprompter();
     this.initAudience();
     this.initAiProducer();
   }
@@ -160,8 +174,18 @@ export class HostView {
   // ---- Run of Show ----
 
   initRunOfShow() {
-    this.session.runOfShow.on(() => this.renderAgenda());
+    const saved = loadJson("toasty.run-of-show.items");
+    if (Array.isArray(saved) && saved.length) this.session.runOfShow.load(saved);
+    this.session.runOfShow.on(() => {
+      saveJson("toasty.run-of-show.items", this.session.runOfShow.items);
+      this.renderAgenda();
+    });
+    this.elements.agendaBack?.addEventListener("click", () => this.session.runOfShow.moveBack());
     this.elements.agendaNext.addEventListener("click", () => this.session.runOfShow.moveNext());
+    this.elements.agendaLoad?.addEventListener("click", () => {
+      const items = parseRunOfShowText(this.elements.agendaPaste.value);
+      if (items.length) this.session.runOfShow.load(items);
+    });
     this.elements.agendaAddForm.addEventListener("submit", (event) => {
       event.preventDefault();
       const title = this.elements.agendaAddInput.value.trim();
@@ -176,6 +200,11 @@ export class HostView {
 
   renderAgenda() {
     const items = this.session.runOfShow.items;
+    const current = this.session.runOfShow.current();
+    const next = this.session.runOfShow.next();
+    if (this.elements.agendaNowNext) {
+      this.elements.agendaNowNext.textContent = `CURRENT ${current?.title || "—"} · NEXT ${next?.title || "—"}`;
+    }
     this.elements.agendaList.replaceChildren(...items.map((item, index) => {
       const li = document.createElement("li");
       li.className = "lv-agenda-item";
@@ -197,6 +226,13 @@ export class HostView {
       title.textContent = item.title;
       li.appendChild(title);
 
+      if (item.notes) {
+        const notes = document.createElement("p");
+        notes.className = "lv-agenda-notes";
+        notes.textContent = item.notes;
+        li.appendChild(notes);
+      }
+
       if (item.status === "current") {
         const timer = document.createElement("span");
         timer.className = "lv-agenda-timer";
@@ -210,13 +246,49 @@ export class HostView {
       actions.appendChild(rowActionButton("↓", "Move down", () => this.session.runOfShow.reorder(item.id, index + 1)));
       actions.appendChild(rowActionButton("✎", "Edit", () => {
         const nextTitle = window.prompt("Topic title", item.title);
-        if (nextTitle?.trim()) this.session.runOfShow.editTopic(item.id, { title: nextTitle.trim() });
+        if (!nextTitle?.trim()) return;
+        const nextNotes = window.prompt("Notes/script", item.notes || "");
+        this.session.runOfShow.editTopic(item.id, { title: nextTitle.trim(), notes: nextNotes == null ? item.notes : nextNotes });
       }));
+      actions.appendChild(rowActionButton("LIVE", "Go to segment", () => this.session.runOfShow.goTo(item.id)));
       actions.appendChild(rowActionButton("×", "Remove", () => this.session.runOfShow.removeTopic(item.id)));
       li.appendChild(actions);
 
       return li;
     }));
+  }
+
+  initTeleprompter() {
+    const text = this.elements.teleText;
+    if (!text) return;
+    const saved = localStorage.getItem("toasty.teleprompter.script") || "";
+    text.value = saved;
+    text.style.fontSize = `${this._teleFontSize}px`;
+    text.addEventListener("input", () => localStorage.setItem("toasty.teleprompter.script", text.value));
+    this.elements.teleFontDown?.addEventListener("click", () => this.setTeleFont(this._teleFontSize - 2));
+    this.elements.teleFontUp?.addEventListener("click", () => this.setTeleFont(this._teleFontSize + 2));
+    this.elements.teleScrollUp?.addEventListener("click", () => { text.scrollTop -= 120; });
+    this.elements.teleScrollDown?.addEventListener("click", () => { text.scrollTop += 120; });
+    this.elements.teleAuto?.addEventListener("click", () => this.toggleTeleAuto());
+  }
+
+  setTeleFont(size) {
+    this._teleFontSize = Math.max(18, Math.min(44, Number(size) || 24));
+    if (this.elements.teleText) this.elements.teleText.style.fontSize = `${this._teleFontSize}px`;
+  }
+
+  toggleTeleAuto() {
+    const button = this.elements.teleAuto;
+    const text = this.elements.teleText;
+    if (!button || !text) return;
+    if (this._teleAutoTimer) {
+      window.clearInterval(this._teleAutoTimer);
+      this._teleAutoTimer = null;
+      button.setAttribute("aria-pressed", "false");
+      return;
+    }
+    button.setAttribute("aria-pressed", "true");
+    this._teleAutoTimer = window.setInterval(() => { text.scrollTop += 1; }, 90);
   }
 
   // ---- Audience ----
@@ -413,6 +485,14 @@ export class HostView {
     }
     this._lastRenderedSignature = signature;
   }
+}
+
+function loadJson(key) {
+  try { return JSON.parse(localStorage.getItem(key) || "null"); } catch (_) { return null; }
+}
+
+function saveJson(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
 }
 
 function updatePressed(button, pressed, offLabel, onLabel) {

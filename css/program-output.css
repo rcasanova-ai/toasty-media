@@ -161,19 +161,29 @@ html, body {
 }
 
 .po-ticker {
-  border-left: 1px solid var(--studio-line);
+  align-items: center;
+  background: color-mix(in srgb, var(--studio-surface) 82%, transparent);
+  border: 1px solid color-mix(in srgb, var(--studio-line) 80%, transparent);
+  border-left: 3px solid var(--studio-orange-bright);
+  border-radius: 5px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+  display: flex;
   flex: 1 1 auto;
+  height: clamp(30px, 4vw, 42px);
   min-width: 0;
   overflow: hidden;
-  padding-left: clamp(0.6rem, 2vw, 1.4rem);
+  padding-left: clamp(0.6rem, 1.8vw, 1.2rem);
 }
 
 .po-ticker-track {
-  animation: po-ticker-scroll 16s linear infinite;
-  color: var(--po-video-text-dim);
+  animation: po-ticker-scroll var(--po-ticker-duration, 16s) linear infinite;
+  color: var(--po-video-text);
   display: inline-block;
-  font-size: clamp(0.68rem, 1.1vw, 0.88rem);
-  font-weight: 600;
+  font-family: var(--po-font-heading);
+  font-size: clamp(0.64rem, 1vw, 0.82rem);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
