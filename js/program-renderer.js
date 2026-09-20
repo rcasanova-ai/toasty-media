@@ -53,6 +53,74 @@ export function programFeedBindings(mounted) {
   return { bound, empty, tiles: mounted.size };
 }
 
+export function inspectSourceHealth(entry) {
+  const container = entry?.videoContainer;
+  if (!container) return "empty";
+  const video = typeof container.querySelector === "function" ? container.querySelector("video") : null;
+  if (video) {
+    if (video.error) return "failed";
+    if (typeof video.readyState === "number") {
+      if (video.readyState >= 2 && !video.paused && !video.ended) return "playing";
+      if (video.readyState >= 1) return video.ended ? "stalled" : "attached";
+      return "stalled";
+    }
+    return entry.health === "playing" ? "playing" : "attached";
+  }
+  const iframe = typeof container.querySelector === "function" ? container.querySelector("iframe") : null;
+  if (iframe) {
+    if (entry?.health === "playing" || entry?.health === "stalled" || entry?.health === "failed") return entry.health;
+    return "attached";
+  }
+  if (container.classList?.contains("po-tile-video--empty")) return "empty";
+  return "empty";
+}
+
+export function programFeedHealth(mounted) {
+  const items = [];
+  if (!mounted) return { items, playing: 0, attached: 0, stalled: 0, failed: 0, empty: 0, bound: 0, tiles: 0 };
+  for (const [participantId, entry] of mounted.entries()) {
+    const health = inspectSourceHealth(entry);
+    if (entry) entry.health = health;
+    items.push({
+      participantId,
+      health,
+      transportSourceId: entry?.transportSourceId || null
+    });
+  }
+  const counts = { playing: 0, attached: 0, stalled: 0, failed: 0, empty: 0 };
+  for (const item of items) {
+    if (counts[item.health] != null) counts[item.health] += 1;
+    else counts.empty += 1;
+  }
+  const bindings = programFeedBindings(mounted);
+  return { items, ...counts, bound: bindings.bound, tiles: bindings.tiles };
+}
+
+export function bindProgramSourceHealth(entry) {
+  if (!entry?.videoContainer || entry._healthBound) return;
+  const video = entry.videoContainer.querySelector?.("video");
+  const iframe = entry.videoContainer.querySelector?.("iframe");
+  const setHealth = (health) => { entry.health = health; };
+  if (video) {
+    video.addEventListener("playing", () => setHealth("playing"));
+    video.addEventListener("waiting", () => setHealth("stalled"));
+    video.addEventListener("stalled", () => setHealth("stalled"));
+    video.addEventListener("error", () => setHealth("failed"));
+    video.addEventListener("emptied", () => setHealth("empty"));
+    entry._healthBound = true;
+    entry.health = inspectSourceHealth(entry);
+    return;
+  }
+  if (iframe) {
+    iframe.addEventListener("load", () => {
+      if (entry.health !== "playing") setHealth("attached");
+    });
+    iframe.addEventListener("error", () => setHealth("failed"));
+    entry._healthBound = true;
+    if (entry.health !== "playing") entry.health = "attached";
+  }
+}
+
 export function syncProgramRenderer({
   stage,
   engine,
@@ -91,8 +159,12 @@ export function syncProgramRenderer({
         mountProgramSlotVideo(engine, existing.videoContainer, participant, roomId, existing.frameId, muted, videoEnabled, resolveOwnedStream);
         existing.sourceKey = nextSource;
         existing.transportSourceId = participant.transportSourceId || null;
+        existing._healthBound = false;
+        existing.health = inspectSourceHealth(existing);
+        bindProgramSourceHealth(existing);
       } else {
         syncOwnedVideoMute(existing.videoContainer, muted);
+        existing.health = inspectSourceHealth(existing);
       }
       return;
     }
@@ -114,8 +186,10 @@ export function syncProgramRenderer({
       frameId,
       lowerThird,
       transportSourceId: participant.transportSourceId || null,
-      sourceKey: nextSource
+      sourceKey: nextSource,
+      health: inspectSourceHealth({ videoContainer })
     });
+    bindProgramSourceHealth(mounted.get(participant.participantId));
   });
 
   return composition;

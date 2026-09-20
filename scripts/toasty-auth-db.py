@@ -544,6 +544,42 @@ def migrate(conn):
         )
         """
     )
+    # Canonical live-session control plane — program scene/assets plus media commands. Presence is who
+    # is here; this is what they are looking at / being asked to do. BroadcastChannel is same-browser
+    # only and cannot reach a phone Guest or a Program Output that failed to share that channel.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS session_program (
+          room_id TEXT PRIMARY KEY,
+          state_json TEXT NOT NULL DEFAULT '{}',
+          revision INTEGER NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS session_commands (
+          id TEXT PRIMARY KEY,
+          room_id TEXT NOT NULL,
+          target_participant_id TEXT NOT NULL,
+          type TEXT NOT NULL,
+          payload_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          acked_at TEXT
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_session_commands_room_target ON session_commands(room_id, target_participant_id, acked_at)")
+    ensure_columns(
+        conn,
+        "room_presence",
+        {
+            "mic_enabled": "INTEGER",
+            "camera_enabled": "INTEGER",
+            "output_status": "TEXT",
+        },
+    )
     conn.commit()
 
 
@@ -644,7 +680,20 @@ def public_media_asset(row):
     }
 
 
+def _presence_bool(value):
+    if value is None:
+        return None
+    return bool(int(value))
+
+
 def public_presence(row):
+    output_status = None
+    raw_status = row["output_status"] if "output_status" in row.keys() else None
+    if raw_status:
+        try:
+            output_status = json.loads(raw_status)
+        except (TypeError, ValueError):
+            output_status = None
     return {
         "participantId": row["participant_id"],
         "role": row["role"],
@@ -654,6 +703,141 @@ def public_presence(row):
         "transportSourceId": row["transport_source_id"],
         "joinedAt": row["joined_at"],
         "lastSeenAt": row["last_seen_at"],
+        "micEnabled": _presence_bool(row["mic_enabled"]) if "mic_enabled" in row.keys() else None,
+        "cameraEnabled": _presence_bool(row["camera_enabled"]) if "camera_enabled" in row.keys() else None,
+        "outputStatus": output_status,
+    }
+
+
+def public_command(row):
+    payload = {}
+    try:
+        payload = json.loads(row["payload_json"] or "{}")
+    except (TypeError, ValueError):
+        payload = {}
+    return {
+        "id": row["id"],
+        "targetParticipantId": row["target_participant_id"],
+        "type": row["type"],
+        "payload": payload,
+        "createdAt": row["created_at"],
+        "ackedAt": row["acked_at"],
+    }
+
+
+def session_program_get(conn, room_id):
+    row = conn.execute("SELECT state_json, revision, updated_at FROM session_program WHERE room_id = ?", (room_id,)).fetchone()
+    if not row:
+        return None
+    try:
+        state = json.loads(row["state_json"] or "{}")
+    except (TypeError, ValueError):
+        state = {}
+    if not isinstance(state, dict):
+        state = {}
+    state["revision"] = row["revision"]
+    state["updatedAt"] = row["updated_at"]
+    return state
+
+
+def session_program_put(conn, room_id, state):
+    if not isinstance(state, dict):
+        return session_program_get(conn, room_id)
+    now = utc_now()
+    existing = conn.execute("SELECT revision FROM session_program WHERE room_id = ?", (room_id,)).fetchone()
+    revision = (existing["revision"] + 1) if existing else 1
+    stored = json.dumps(state)[:48000]
+    conn.execute(
+        """
+        INSERT INTO session_program (room_id, state_json, revision, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT (room_id) DO UPDATE SET
+          state_json = excluded.state_json,
+          revision = excluded.revision,
+          updated_at = excluded.updated_at
+        """,
+        (room_id, stored, revision, now),
+    )
+    return session_program_get(conn, room_id)
+
+
+def pending_commands_for(conn, room_id, participant_id):
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=120)).isoformat(timespec="seconds")
+    conn.execute("DELETE FROM session_commands WHERE room_id = ? AND created_at < ?", (room_id, cutoff))
+    if not participant_id:
+        return []
+    transport = None
+    row = conn.execute(
+        "SELECT transport_source_id FROM room_presence WHERE room_id = ? AND participant_id = ?",
+        (room_id, participant_id),
+    ).fetchone()
+    if row:
+        transport = row["transport_source_id"]
+    rows = conn.execute(
+        """
+        SELECT * FROM session_commands
+        WHERE room_id = ? AND acked_at IS NULL
+          AND (target_participant_id = ? OR (? IS NOT NULL AND target_participant_id = ?))
+        ORDER BY created_at ASC
+        LIMIT 20
+        """,
+        (room_id, participant_id, transport, transport),
+    ).fetchall()
+    return [public_command(row) for row in rows]
+
+
+def enqueue_commands(conn, room_id, commands, requested_by="host"):
+    if not isinstance(commands, list):
+        return
+    now = utc_now()
+    allowed = {"mute-mic", "unmute-mic-request", "camera-off", "camera-on-request"}
+    for item in commands[:12]:
+        if not isinstance(item, dict):
+            continue
+        command_type = str(item.get("type") or "")
+        target = str(item.get("targetParticipantId") or "")
+        if command_type not in allowed or not target:
+            continue
+        command_id = str(item.get("id") or f"cmd-{now}")[:80]
+        payload = {"requestedBy": item.get("requestedBy") or requested_by}
+        conn.execute(
+            """
+            INSERT INTO session_commands (id, room_id, target_participant_id, type, payload_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (command_id, room_id, target[:80], command_type, json.dumps(payload), now),
+        )
+
+
+def ack_commands(conn, room_id, command_ids):
+    if not isinstance(command_ids, list):
+        return
+    now = utc_now()
+    for command_id in command_ids[:20]:
+        conn.execute(
+            "UPDATE session_commands SET acked_at = ? WHERE id = ? AND room_id = ? AND acked_at IS NULL",
+            (now, str(command_id)[:80], room_id),
+        )
+
+
+def control_bundle(conn, room_id, participant_id):
+    everyone = presence_roster(conn, room_id)
+    roster = [entry for entry in everyone if entry["role"] in ("host", "guest")]
+    outputs = []
+    for entry in everyone:
+        if entry["role"] != "output":
+            continue
+        status = entry.get("outputStatus") or {}
+        status.setdefault("outputId", entry["participantId"])
+        status.setdefault("lastSeenAt", entry.get("lastSeenAt"))
+        status["updatedAt"] = status.get("updatedAt") or entry.get("lastSeenAt")
+        outputs.append(status)
+    return {
+        "roster": roster,
+        "outputs": outputs,
+        "program": session_program_get(conn, room_id),
+        "commands": pending_commands_for(conn, room_id, participant_id) if participant_id else [],
     }
 
 
@@ -1197,20 +1381,30 @@ def main():
                     print(json.dumps({"error": "full"}))
                     return
 
+        mic = payload.get("micEnabled")
+        camera = payload.get("cameraEnabled")
+        mic_int = None if mic is None else (1 if mic else 0)
+        camera_int = None if camera is None else (1 if camera else 0)
+        output_status = payload.get("outputStatus")
+        output_json = json.dumps(output_status)[:8000] if isinstance(output_status, dict) else None
+
         conn.execute(
             """
             INSERT INTO room_presence (
               room_id, participant_id, role, display_name, title, company,
-              transport_source_id, joined_at, last_seen_at
+              transport_source_id, joined_at, last_seen_at, mic_enabled, camera_enabled, output_status
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (room_id, participant_id) DO UPDATE SET
               role = excluded.role,
               display_name = excluded.display_name,
               title = excluded.title,
               company = excluded.company,
               transport_source_id = excluded.transport_source_id,
-              last_seen_at = excluded.last_seen_at
+              last_seen_at = excluded.last_seen_at,
+              mic_enabled = COALESCE(excluded.mic_enabled, room_presence.mic_enabled),
+              camera_enabled = COALESCE(excluded.camera_enabled, room_presence.camera_enabled),
+              output_status = COALESCE(excluded.output_status, room_presence.output_status)
             """,
             (
                 room_id,
@@ -1222,17 +1416,25 @@ def main():
                 payload.get("transportSourceId"),
                 now,
                 now,
+                mic_int,
+                camera_int,
+                output_json,
             ),
         )
+        if role == "host":
+            if isinstance(payload.get("program"), dict):
+                session_program_put(conn, room_id, payload["program"])
+            enqueue_commands(conn, room_id, payload.get("commands") or [], "host")
+        ack_commands(conn, room_id, payload.get("ackCommandIds") or [])
         conn.commit()
-        print(json.dumps({"roster": presence_roster(conn, room_id)}))
+        bundle = control_bundle(conn, room_id, participant_id)
+        print(json.dumps(bundle))
         return
 
     if action == "presence_list":
-        print(json.dumps({
-            "roster": presence_roster(conn, payload["roomId"]),
-            "brandId": session_brand_for_room(conn, payload["roomId"]),
-        }))
+        bundle = control_bundle(conn, payload["roomId"], payload.get("participantId"))
+        bundle["brandId"] = session_brand_for_room(conn, payload["roomId"])
+        print(json.dumps(bundle))
         return
 
     if action == "presence_leave":

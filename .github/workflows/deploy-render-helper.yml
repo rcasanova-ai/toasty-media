@@ -1,6 +1,8 @@
-name: Deploy render auth helper
+name: Deploy render helper and Node server
 
-# Copies ONLY scripts/toasty-auth-db.py onto the Ubuntu render host.
+# Copies scripts/toasty-auth-db.py AND scripts/render-production-server.mjs onto the
+# Ubuntu render host, then restarts toasty-render if either hash changed.
+# Presence/control-plane routes live in the Node server; Python alone cannot ship them.
 # Does not touch the SQLite DB, environment file, nginx, or broadcast.
 on:
   workflow_dispatch:
@@ -8,6 +10,7 @@ on:
     branches: [main]
     paths:
       - "scripts/toasty-auth-db.py"
+      - "scripts/render-production-server.mjs"
       - ".github/workflows/deploy-render-helper.yml"
 
 concurrency:
@@ -59,17 +62,20 @@ jobs:
           systemctl show toasty-render.service -p WorkingDirectory -p ExecStart -p EnvironmentFiles -p FragmentPath --no-pager
           REMOTE
 
-      - name: Sync canonical helper if hash differs
+      - name: Sync helper and Node server if hashes differ
         run: |
           set -euo pipefail
-          LOCAL_HASH="$(sha256sum scripts/toasty-auth-db.py | awk '{print $1}')"
-          echo "Git canonical sha256=$LOCAL_HASH"
+          LOCAL_HELPER_HASH="$(sha256sum scripts/toasty-auth-db.py | awk '{print $1}')"
+          LOCAL_NODE_HASH="$(sha256sum scripts/render-production-server.mjs | awk '{print $1}')"
+          echo "Git helper sha256=$LOCAL_HELPER_HASH"
+          echo "Git node   sha256=$LOCAL_NODE_HASH"
           INSPECT="$(ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 'bash -s' <<'REMOTE'
           set -euo pipefail
           WD="$(systemctl show -p WorkingDirectory --value toasty-render.service)"
           EXEC="$(systemctl show -p ExecStart --value toasty-render.service)"
           ENVFILES="$(systemctl show -p EnvironmentFiles --value toasty-render.service)"
           HELPER=""
+          NODE=""
           if [[ -f /etc/toasty-render.env ]]; then
             HELPER="$(grep -E '^TOASTY_AUTH_DB_HELPER=' /etc/toasty-render.env | tail -n1 | cut -d= -f2- | tr -d "\"'" || true)"
           fi
@@ -79,20 +85,37 @@ jobs:
           if [[ -z "$HELPER" && -f /opt/toasty-render/scripts/toasty-auth-db.py ]]; then
             HELPER=/opt/toasty-render/scripts/toasty-auth-db.py
           fi
+          if [[ "$EXEC" == *render-production-server.mjs* ]]; then
+            NODE="$(printf '%s\n' "$EXEC" | grep -oE '/[^ ]*render-production-server\.mjs' | head -n1 || true)"
+          fi
+          if [[ -z "$NODE" && -n "$HELPER" && -f "$(dirname "$HELPER")/render-production-server.mjs" ]]; then
+            NODE="$(dirname "$HELPER")/render-production-server.mjs"
+          fi
+          if [[ -z "$NODE" && -n "$WD" && -f "$WD/scripts/render-production-server.mjs" ]]; then
+            NODE="$WD/scripts/render-production-server.mjs"
+          fi
           echo "WD=$WD"
           echo "EXEC=$EXEC"
           echo "ENVFILES=$ENVFILES"
           echo "HELPER=$HELPER"
+          echo "NODE=$NODE"
           if [[ -n "$HELPER" && -f "$HELPER" ]]; then
-            echo "HASH=$(sha256sum "$HELPER" | awk '{print $1}')"
+            echo "HELPER_HASH=$(sha256sum "$HELPER" | awk '{print $1}')"
           else
-            echo "HASH=MISSING"
+            echo "HELPER_HASH=MISSING"
+          fi
+          if [[ -n "$NODE" && -f "$NODE" ]]; then
+            echo "NODE_HASH=$(sha256sum "$NODE" | awk '{print $1}')"
+          else
+            echo "NODE_HASH=MISSING"
           fi
           REMOTE
           )"
           echo "$INSPECT"
           REMOTE_HELPER="$(printf '%s\n' "$INSPECT" | awk -F= '/^HELPER=/{print substr($0,8)}')"
-          REMOTE_HASH="$(printf '%s\n' "$INSPECT" | awk -F= '/^HASH=/{print $2}')"
+          REMOTE_NODE="$(printf '%s\n' "$INSPECT" | awk -F= '/^NODE=/{print substr($0,6)}')"
+          REMOTE_HELPER_HASH="$(printf '%s\n' "$INSPECT" | awk -F= '/^HELPER_HASH=/{print $2}')"
+          REMOTE_NODE_HASH="$(printf '%s\n' "$INSPECT" | awk -F= '/^NODE_HASH=/{print $2}')"
           if [[ -z "$REMOTE_HELPER" || "$REMOTE_HELPER" == *..* || "${REMOTE_HELPER:0:1}" != "/" ]]; then
             echo "Refusing to copy: could not resolve an absolute helper path" >&2
             exit 1
@@ -101,27 +124,55 @@ jobs:
             echo "Refusing to overwrite $REMOTE_HELPER" >&2
             exit 1
           fi
-          echo "remote_helper=$REMOTE_HELPER" >> "$GITHUB_ENV"
-          echo "local_hash=$LOCAL_HASH" >> "$GITHUB_ENV"
-          if [[ "$REMOTE_HASH" == "$LOCAL_HASH" ]]; then
+          if [[ -z "$REMOTE_NODE" || "$REMOTE_NODE" == *..* || "${REMOTE_NODE:0:1}" != "/" ]]; then
+            echo "Refusing to copy: could not resolve an absolute Node server path" >&2
+            exit 1
+          fi
+          if [[ "$(basename "$REMOTE_NODE")" != "render-production-server.mjs" ]]; then
+            echo "Refusing to overwrite $REMOTE_NODE" >&2
+            exit 1
+          fi
+          echo "REMOTE_HELPER=$REMOTE_HELPER" >> "$GITHUB_ENV"
+          echo "REMOTE_NODE=$REMOTE_NODE" >> "$GITHUB_ENV"
+          echo "LOCAL_HELPER_HASH=$LOCAL_HELPER_HASH" >> "$GITHUB_ENV"
+          echo "LOCAL_NODE_HASH=$LOCAL_NODE_HASH" >> "$GITHUB_ENV"
+          NEED_RESTART=false
+          STAMP="$(date -u +%Y%m%d-%H%M%S)"
+          if [[ "$REMOTE_HELPER_HASH" != "$LOCAL_HELPER_HASH" ]]; then
+            echo "Helper hash mismatch (remote=$REMOTE_HELPER_HASH local=$LOCAL_HELPER_HASH). Copying helper."
+            ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "set -euo pipefail; if [[ -f '$REMOTE_HELPER' ]]; then cp -a '$REMOTE_HELPER' '$REMOTE_HELPER.bak-$STAMP'; fi"
+            scp -P 22 -i ~/.ssh/toasty_render_deploy -o BatchMode=yes scripts/toasty-auth-db.py "root@165.22.57.61:$REMOTE_HELPER"
+            NEED_RESTART=true
+          else
+            echo "Helper hashes already match."
+          fi
+          if [[ "$REMOTE_NODE_HASH" != "$LOCAL_NODE_HASH" ]]; then
+            echo "Node hash mismatch (remote=$REMOTE_NODE_HASH local=$LOCAL_NODE_HASH). Copying Node server."
+            ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "set -euo pipefail; if [[ -f '$REMOTE_NODE' ]]; then cp -a '$REMOTE_NODE' '$REMOTE_NODE.bak-$STAMP'; fi"
+            scp -P 22 -i ~/.ssh/toasty_render_deploy -o BatchMode=yes scripts/render-production-server.mjs "root@165.22.57.61:$REMOTE_NODE"
+            NEED_RESTART=true
+          else
+            echo "Node hashes already match."
+          fi
+          if [[ "$NEED_RESTART" == "true" ]]; then
+            ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "set -euo pipefail; systemctl restart toasty-render.service; systemctl is-active toasty-render.service"
+            echo "copied=true" >> "$GITHUB_ENV"
+          else
             echo "Hashes already match. No copy, no restart."
             echo "copied=false" >> "$GITHUB_ENV"
-            exit 0
           fi
-          echo "Hash mismatch (remote=$REMOTE_HASH local=$LOCAL_HASH). Backing up and copying helper only."
-          STAMP="$(date -u +%Y%m%d-%H%M%S)"
-          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "set -euo pipefail; if [[ -f '$REMOTE_HELPER' ]]; then cp -a '$REMOTE_HELPER' '$REMOTE_HELPER.bak-$STAMP'; fi"
-          scp -P 22 -i ~/.ssh/toasty_render_deploy -o BatchMode=yes scripts/toasty-auth-db.py "root@165.22.57.61:$REMOTE_HELPER"
-          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "set -euo pipefail; systemctl restart toasty-render.service; systemctl is-active toasty-render.service"
-          echo "copied=true" >> "$GITHUB_ENV"
 
       - name: Hash-verify and health
         run: |
           set -euo pipefail
-          REMOTE_HASH="$(ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "sha256sum '$REMOTE_HELPER' | awk '{print \$1}'")"
-          echo "remote sha256=$REMOTE_HASH"
-          echo "local  sha256=$LOCAL_HASH"
-          test "$REMOTE_HASH" = "$LOCAL_HASH"
+          REMOTE_HELPER_HASH="$(ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "sha256sum '$REMOTE_HELPER' | awk '{print \$1}'")"
+          REMOTE_NODE_HASH="$(ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "sha256sum '$REMOTE_NODE' | awk '{print \$1}'")"
+          echo "remote helper sha256=$REMOTE_HELPER_HASH"
+          echo "local  helper sha256=$LOCAL_HELPER_HASH"
+          echo "remote node   sha256=$REMOTE_NODE_HASH"
+          echo "local  node   sha256=$LOCAL_NODE_HASH"
+          test "$REMOTE_HELPER_HASH" = "$LOCAL_HELPER_HASH"
+          test "$REMOTE_NODE_HASH" = "$LOCAL_NODE_HASH"
           curl --fail --silent --show-error https://render.toasty.media/health
           echo
           curl --fail --silent --show-error 'https://render.toasty.media/api/presence/room?roomId=tmu8te8yv1s7n0f'

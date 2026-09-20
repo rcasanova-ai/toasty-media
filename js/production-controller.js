@@ -119,7 +119,7 @@ export class ProgramController {
     });
     this.session.noteProductionMarker?.("play-audio", item.displayName || item.id, initiator);
     this.session.emit?.("program-audio", command);
-    this.session.publishProgramState?.();
+    this.session._publishControlNow?.() ?? this.session.publishProgramState?.();
     // Producer monitor is a parallel play of the same command. Program Audio is Program Output.
     if (this.session.programAudio) {
       this.session.programAudio.applyCommand(command).then((played) => {
@@ -143,7 +143,7 @@ export class ProgramController {
     });
     this.session.noteProductionMarker?.("stop-audio", command.displayName || command.assetId || "audio", initiator);
     this.session.emit?.("program-audio", command);
-    this.session.publishProgramState?.();
+    this.session._publishControlNow?.() ?? this.session.publishProgramState?.();
     this.session.programAudio?.stop();
     return { ok: true, command: serializeProgramAudio(command) };
   }
@@ -169,7 +169,7 @@ export class ProgramController {
     this.session.noteProductionMarker?.("take-live", asset.title || asset.id, "producer");
     this.session.emit?.("program-asset", this.liveAsset());
     this.session._syncProgramPreview?.();
-    this.session.publishProgramState?.();
+    this.session._publishControlNow?.() ?? this.session.publishProgramState?.();
     return { ok: true, asset: serializeProgramAsset(this.liveAsset()), layout: nextLayout };
   }
 
@@ -183,7 +183,7 @@ export class ProgramController {
     this.session.noteProductionMarker?.("remove-asset", live.title || targetId, "producer");
     this.session.emit?.("program-asset", null);
     this.session._syncProgramPreview?.();
-    this.session.publishProgramState?.();
+    this.session._publishControlNow?.() ?? this.session.publishProgramState?.();
     return { ok: true };
   }
 }

@@ -1362,6 +1362,7 @@ body.studio-public-shell[data-brand-theme] {
 }
 
 .program-output[data-scene="holding"] .po-holding::after,
+.program-output[data-scene="brb"] .po-brb::after,
 .program-output[data-scene="ending"] .po-ending::after {
   background: var(--studio-identity-stripe, transparent);
   bottom: 12%;
@@ -1376,6 +1377,7 @@ body.studio-public-shell[data-brand-theme] {
 }
 
 .program-output[data-scene="holding"] .po-holding::before,
+.program-output[data-scene="brb"] .po-brb::before,
 .program-output[data-scene="ending"] .po-ending::before {
   background: var(--studio-silhouette-image, none) center bottom / min(70vw, 920px) auto no-repeat;
   bottom: 0;

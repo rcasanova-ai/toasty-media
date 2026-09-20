@@ -42,6 +42,17 @@ import { createResearchProvider } from "./hottie-research.js";
 import { ParticipantRegistry, createParticipant, ParticipantRole, ConnectionStatus, SourceKind } from "./participant-registry.js";
 import { HostState } from "./host-state.js";
 import { RoomPresence } from "./room-presence.js";
+import {
+  buildCanonicalState,
+  serializeControlParticipant,
+  createMediaCommand,
+  MediaCommandType,
+  SceneId,
+  OutputConnection,
+  summarizeOutputForProducer,
+  recordingBlockReasonFromOutput,
+  applyMediaAckToSeat
+} from "./session-control.js";
 import { RemoteMediaState } from "./remote-media-state.js";
 import { ProducerFeed, AIProducerService, createAIProducerProvider } from "./ai-producer.js";
 import { studioRequest } from "./studio-api.js";
@@ -92,15 +103,18 @@ const PROGRAM_OUTPUT_STALE_MS = 6000;
 
 function idleProgramOutputState() {
   return {
+    connection: OutputConnection.DISCONNECTED,
     connected: false,
     scene: null,
     live: false,
     expectedFeeds: 0,
     boundFeeds: 0,
+    playingFeeds: 0,
     emptyFeeds: 0,
     audioUnlocked: false,
     videoReady: false,
     audioReady: false,
+    audioError: null,
     readyToRecord: false,
     updatedAt: null
   };
@@ -474,6 +488,9 @@ export class LiveSession {
     // _refreshGuestSeats below for the other half: cross-referencing a guest's VDO-confirmed connection
     // against this same roster to source identity from Presence instead of VDO's &label.
     this.presence = new RoomPresence({ roomId: this.roomId, participantId: "host", role: "host", displayName: name, title: this.hostProfile.title, company: this.hostProfile.company });
+    this.presence.setMediaState({ micEnabled: !this.av.micMuted, cameraEnabled: !this.av.cameraOff });
+    this.presence.setProgramPublisher(() => this.canonicalControlState());
+    this.presence.onControlChange((bundle) => this._applyControlBundle(bundle));
     this.presence.start(transportSourceId);
     this.setHostState(HostState.IN_STUDIO);
     this.exposeProgramSources();
@@ -654,11 +671,17 @@ export class LiveSession {
     // VDO-label-derived fallback from above rather than showing nothing.
     const presenceRoster = this.presence?.roster || [];
     this.guestSeats.filter(Boolean).forEach((seat) => {
-      const match = presenceRoster.find((entry) => entry.transportSourceId === seat.id);
+      const match = presenceRoster.find((entry) => entry.transportSourceId === seat.id || entry.participantId === seat.id);
       if (!match) return;
       seat.displayName = match.displayName || seat.displayName;
       seat.title = match.title || "";
       seat.company = match.company || "";
+      const acked = applyMediaAckToSeat(seat, match);
+      seat.mic = acked.mic;
+      seat.camera = acked.camera;
+      seat.micPending = acked.micPending;
+      seat.cameraPending = acked.cameraPending;
+      seat.presenceParticipantId = acked.presenceParticipantId || match.participantId;
     });
 
     // Canonical participant model (see js/participant-registry.js) — this was previously seeded ONLY for
@@ -683,6 +706,8 @@ export class LiveSession {
         videoSource: { kind: SourceKind.VDO_PARTICIPANT_VIEW, streamId: seat.id },
         audioSource: { kind: SourceKind.VDO_PARTICIPANT_VIEW, streamId: seat.id },
         transportSourceId: seat.id,
+        micEnabled: seat.mic,
+        cameraEnabled: seat.camera,
         joinedAt: seat.joinedAt,
         onProgram: seat.onProgram
       }));
@@ -919,21 +944,15 @@ export class LiveSession {
   }
 
   _setProgramOutput(payload = {}) {
-    const bound = Number(payload.boundFeeds) || 0;
-    const expected = Number(payload.expectedFeeds) || 0;
-    const empty = Number(payload.emptyFeeds) || 0;
-    const videoReady = Boolean(payload.videoReady) && expected > 0 && bound === expected && empty === 0;
+    const list = Array.isArray(payload) ? payload : payload?.outputs ? payload.outputs : [payload];
+    this.programOutput = { ...idleProgramOutputState(), ...summarizeOutputForProducer(list) };
+    this.emit("program-output", this.programOutput);
+  }
+
+  noteProgramOutputOpening() {
     this.programOutput = {
-      connected: true,
-      scene: payload.scene || null,
-      live: Boolean(payload.live),
-      expectedFeeds: expected,
-      boundFeeds: bound,
-      emptyFeeds: empty,
-      audioUnlocked: Boolean(payload.audioUnlocked),
-      videoReady,
-      audioReady: Boolean(payload.audioReady),
-      readyToRecord: Boolean(payload.readyToRecord) && videoReady && Boolean(payload.audioReady) && empty === 0,
+      ...idleProgramOutputState(),
+      connection: OutputConnection.CONNECTING,
       updatedAt: Date.now()
     };
     this.emit("program-output", this.programOutput);
@@ -950,34 +969,66 @@ export class LiveSession {
   }
 
   publishProgramState() {
-    this._programSync?.publishState({
+    const snapshot = this.canonicalControlState();
+    this._programSync?.publishState(snapshot);
+  }
+
+  canonicalControlState() {
+    return buildCanonicalState({
+      sessionId: this.durableSession?.id || this.roomId,
       roomId: this.roomId,
-      brandTheme: this.brandTheme,
       scene: this.program.scene,
+      live: this.program.live,
       topic: this.program.topic,
       ticker: { enabled: this.program.tickerEnabled, text: this.program.tickerText },
-      live: this.program.live,
-      layout: this.program.layout,
-      hostStarted: this.engine.frames.has("host"),
-      guestCount: this.guestCount(),
-      participants: this.participants.list().map(serializeProgramParticipant),
+      brandTheme: this.brandTheme,
+      participants: this.participants.list().map((participant) => {
+        const seat = this.guestSeats.find((item) => item?.id === participant.participantId);
+        const isHost = participant.participantId === "host" || participant.role === ParticipantRole.HOST;
+        return serializeControlParticipant({
+          ...participant,
+          micEnabled: isHost ? !this.av.micMuted : (seat?.micPending ? null : seat?.mic ?? participant.micEnabled),
+          cameraEnabled: isHost ? !this.av.cameraOff : (seat?.cameraPending ? null : seat?.camera ?? participant.cameraEnabled)
+        });
+      }),
       asset: serializeProgramAsset(this.programController.liveAsset()),
       assetLayout: this.program.assetLayout,
       audio: serializeProgramAudio(this.program.audio),
-      // Snapshot only. Program Output must never render REC chrome — it would bake into the master.
       recording: {
         kind: this.recording.kind || RecordingKind.MASTER,
         active: Boolean(this.recording.active),
         recordingId: this.recording.recordingId || null,
         startedAt: this.recording.startedAt || null
-      }
+      },
+      outputs: this.presence?.outputs || []
     });
   }
 
-  setLive(live) {
-    this.program.live = live;
+  _publishControlNow() {
     this.publishProgramState();
-    this.emit("program", this.program);
+    this.presence?.publishNow();
+  }
+
+  _applyControlBundle(bundle = {}) {
+    const outputs = bundle.outputs || this.presence?.outputs || [];
+    if (outputs.length) this._setProgramOutput(outputs);
+    else if (this.programOutput.connection === OutputConnection.CONNECTED) this._setProgramOutput([]);
+    const roster = bundle.roster || this.presence?.roster || [];
+    this.guestSeats.filter(Boolean).forEach((seat) => {
+      const match = roster.find((entry) => entry.transportSourceId === seat.id || entry.participantId === seat.id);
+      if (!match) return;
+      const acked = applyMediaAckToSeat(seat, match);
+      seat.mic = acked.mic;
+      seat.camera = acked.camera;
+      seat.micPending = acked.micPending;
+      seat.cameraPending = acked.cameraPending;
+      if (acked.presenceParticipantId) seat.presenceParticipantId = acked.presenceParticipantId;
+    });
+    this.emit("guests", this.guestCount());
+  }
+
+  setLive(live) {
+    this.setScene(live ? SceneId.LIVE : (this.program.scene === SceneId.LIVE ? SceneId.HOLDING : this.program.scene));
   }
 
   setTopic(topic) {
@@ -987,9 +1038,11 @@ export class LiveSession {
   }
 
   setScene(scene) {
-    this.program.scene = scene;
-    this.publishProgramState();
+    this.program.scene = scene === "brb" ? SceneId.BRB : scene === "ending" ? SceneId.ENDING : scene === "live" ? SceneId.LIVE : SceneId.HOLDING;
+    this.program.live = this.program.scene === SceneId.LIVE;
+    this._publishControlNow();
     this.emit("program", this.program);
+    this._syncProgramPreview();
   }
 
   setTicker({ enabled, text }) {
@@ -1017,13 +1070,19 @@ export class LiveSession {
   toggleMic() {
     this.av.micMuted = !this.av.micMuted;
     this.engine.setMicrophone(!this.av.micMuted);
+    this._hostPreviewStream?.getAudioTracks().forEach((track) => { track.enabled = !this.av.micMuted; });
+    this.presence?.setMediaState({ micEnabled: !this.av.micMuted });
     this.emit("av", this.av);
+    this._publishControlNow();
   }
 
   toggleCamera() {
     this.av.cameraOff = !this.av.cameraOff;
     this.engine.setCamera(!this.av.cameraOff);
+    this._hostPreviewStream?.getVideoTracks().forEach((track) => { track.enabled = !this.av.cameraOff; });
+    this.presence?.setMediaState({ cameraEnabled: !this.av.cameraOff });
     this.emit("av", this.av);
+    this._publishControlNow();
   }
 
   // Screen share start: remembers the layout in effect right now, then switches Program to
@@ -1053,17 +1112,27 @@ export class LiveSession {
   setGuestMic(guestId, enabled) {
     const seat = this.guestSeats.find((s) => s?.id === guestId);
     if (!seat) return;
-    seat.mic = enabled;
-    this.engine.setGuestRemoteMicrophone(guestId, enabled);
+    const targetParticipantId = seat.presenceParticipantId || guestId;
+    const type = enabled ? MediaCommandType.UNMUTE_MIC_REQUEST : MediaCommandType.MUTE_MIC;
+    const command = createMediaCommand({ targetParticipantId, type, requestedBy: "producer" });
+    seat.micPending = { wantEnabled: Boolean(enabled), commandId: command?.id || null };
+    if (command) this.presence?.enqueueCommands([command]);
+    if (!enabled) this.engine.setGuestRemoteMicrophone(guestId, false);
     this.emit("guests", this.guestCount());
+    this._publishControlNow();
   }
 
   setGuestCamera(guestId, enabled) {
     const seat = this.guestSeats.find((s) => s?.id === guestId);
     if (!seat) return;
-    seat.camera = enabled;
-    this.engine.setGuestRemoteCamera(guestId, enabled);
+    const targetParticipantId = seat.presenceParticipantId || guestId;
+    const type = enabled ? MediaCommandType.CAMERA_ON_REQUEST : MediaCommandType.CAMERA_OFF;
+    const command = createMediaCommand({ targetParticipantId, type, requestedBy: "producer" });
+    seat.cameraPending = { wantEnabled: Boolean(enabled), commandId: command?.id || null };
+    if (command) this.presence?.enqueueCommands([command]);
+    if (!enabled) this.engine.setGuestRemoteCamera(guestId, false);
     this.emit("guests", this.guestCount());
+    this._publishControlNow();
   }
 
   setGuestVolume(guestId, volume0to1) {
@@ -1127,19 +1196,15 @@ export class LiveSession {
   }
 
   recordingBlockReason() {
-    if (!this.policy.canRecord()) return "Recording is disabled by this session's capture policy.";
-    if (!MasterProgramRecorder.isSupported()) return "This browser cannot capture Program Output. Use current Chrome.";
-    if (!this.programOutput?.connected) return "Open Program Output first. Wait until it shows participant video.";
-    if (!this.programOutput.videoReady) {
-      if (!this.programOutput.expectedFeeds) return "Program Output has no participant feeds yet. Join Host and Guest, then set the scene Live.";
-      return `Program Output video is not ready (${this.programOutput.boundFeeds}/${this.programOutput.expectedFeeds} feeds bound).`;
-    }
-    if (!this.programOutput.audioReady) return "Enable program audio on the Program Output tab, then start recording.";
-    return null;
+    return recordingBlockReasonFromOutput(this.programOutput, {
+      policyAllows: this.policy.canRecord(),
+      captureSupported: MasterProgramRecorder.isSupported()
+    });
   }
 
   ensureProgramOutputWindow() {
     if (typeof window === "undefined") return null;
+    this.noteProgramOutputOpening();
     return window.open(this.inviteUrls().listener, "toasty-program-output");
   }
 

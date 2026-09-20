@@ -3355,6 +3355,7 @@
    showlabels overlay (baked into the video pixels), so this stays legible/on-brand regardless of what VDO
    renders inside the frame. */
 .guest-live-identity {
+
   display: grid;
   gap: 0.1rem;
 }
@@ -3373,6 +3374,32 @@
 
 .guest-live-identity:empty {
   display: none;
+}
+
+.guest-media-request {
+  background: rgba(12, 10, 16, 0.92);
+  border: 1px solid var(--studio-line);
+  border-radius: 12px;
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.4rem 0 0.15rem;
+  padding: 0.75rem 0.85rem;
+}
+
+.guest-media-request[hidden] {
+  display: none;
+}
+
+.guest-media-request-text {
+  color: var(--studio-cream);
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+.guest-media-request-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
 }
 
 .guest-recording {

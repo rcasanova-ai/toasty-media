@@ -491,16 +491,19 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
 }
 
 .program-output[data-scene="holding"] .po-holding,
+.program-output[data-scene="brb"] .po-brb,
 .program-output[data-scene="ending"] .po-ending {
   display: flex;
 }
 
 .program-output[data-scene="holding"] .po-stage,
+.program-output[data-scene="brb"] .po-stage,
 .program-output[data-scene="ending"] .po-stage {
   visibility: hidden;
 }
 
 .program-output[data-scene="holding"] .po-chrome,
+.program-output[data-scene="brb"] .po-chrome,
 .program-output[data-scene="ending"] .po-chrome {
   visibility: hidden;
 }
