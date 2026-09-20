@@ -118,7 +118,7 @@ async function main() {
   await waitForHealth();
 
   console.log(`Full scene sequence, WITH a realistic End Card+QR attached throughout (room ${ROOM_ID})`);
-  const sequence = ["holding", "live", "technical-difficulties", "live", "ending", "holding", "live"];
+  const sequence = ["holding", "live", "brb", "live", "technical-difficulties", "live", "ending", "holding", "live"];
   let previousParticipantCount = null;
 
   for (const requestedScene of sequence) {
@@ -170,6 +170,33 @@ async function main() {
     }
 
     console.log(`  [${requestedScene}] end-to-end OK`);
+  }
+
+  console.log("\nStale control reconciliation cannot overwrite a newer locally-selected scene (the second production regression, found after the first fix shipped)");
+  {
+    // A real heartbeat snapshot captured BEFORE a click, held in flight, completing its request AFTER the
+    // click's own request — racing on arrival/processing order, not on when each was actually generated.
+    // This is exactly LiveSession's own real pattern: RoomPresence's 2s heartbeat timer and a click-
+    // triggered publishNow() both call the SAME _programPublisher() -> canonicalControlState(), which sets
+    // updatedAt fresh via Date.now() every time — the stale snapshot's updatedAt is real and earlier.
+    await announce(canonicalStateFor("live")); // known baseline
+    const staleSnapshot = { ...canonicalStateFor("holding"), updatedAt: Date.now() - 2000 };
+    const freshSnapshot = { ...canonicalStateFor("brb"), updatedAt: Date.now() };
+    const [staleResult, freshResult] = await Promise.all([announce(staleSnapshot), announce(freshSnapshot)]);
+    assert(staleResult.ok && freshResult.ok, "both concurrent announces are accepted at the HTTP layer (no error swallows the race)");
+    const afterRace = await readProgramOutputState();
+    assert(afterRace.program.scene === "brb", `the NEWER (fresh click) scene wins regardless of HTTP arrival order (got "${afterRace.program.scene}")`);
+
+    // Reverse the arrival order (stale request resolves AFTER the fresh one at the network layer) to prove
+    // this isn't just "first request wins" or "second request wins" by coincidence of Promise.all ordering.
+    await announce(canonicalStateFor("live"));
+    const staleSnapshot2 = { ...canonicalStateFor("holding"), updatedAt: Date.now() - 2000 };
+    const freshSnapshot2 = { ...canonicalStateFor("ending"), updatedAt: Date.now() };
+    const freshFirst = await announce(freshSnapshot2);
+    const staleSecond = await announce(staleSnapshot2);
+    assert(freshFirst.ok && staleSecond.ok, "both requests accepted regardless of order");
+    const afterRace2 = await readProgramOutputState();
+    assert(afterRace2.program.scene === "ending", `the newer scene still wins even when the STALE request is the one that arrives second (got "${afterRace2.program.scene}")`);
   }
 
   console.log("\nAll scene-transition checks passed across the full sequence, with a realistic End Card+QR attached throughout.");
