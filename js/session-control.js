@@ -315,7 +315,7 @@ export function recordingBlockReasonFromOutput(output, { policyAllows = true, ca
   if (output.scene !== SceneId.LIVE) return "Set the scene to Live before recording.";
   if (!output.expectedFeeds) return "Program Output has no participant feeds yet. Join Host and Guest, then go Live.";
   if (!output.videoReady) {
-    return `Program Output video is not playing (${output.playingFeeds || 0}/${output.expectedFeeds} playing).`;
+    return `Program Output video is not ready (${output.readyFeeds ?? output.playingFeeds ?? 0}/${output.expectedFeeds} ready).`;
   }
   if (output.audioError) return `Program Output audio failed: ${output.audioError}`;
   if (!output.audioReady) return "Enable program audio on the Program Output tab, then start recording.";

@@ -424,7 +424,8 @@ console.log("\nLiveSession Producer record is master tab capture, not isolated g
   const startFn = liveSession.slice(liveSession.indexOf("async startRecording"), liveSession.indexOf("async stopRecording"));
   assert(startFn.includes("MasterProgramRecorder"), "startRecording constructs the master recorder");
   assert(!startFn.includes("LocalIsolatedRecorder"), "startRecording does not start isolated Host getUserMedia");
-  assert(startFn.includes("ensureProgramOutputWindow") || startFn.includes("toasty-program-output"), "start opens Program Output");
+  assert(!startFn.includes("ensureProgramOutputWindow") && !startFn.includes("window.open"), "startRecording does not spawn Program Output");
+  assert(liveSession.includes("ensureProgramOutputWindow"), "explicit Program Output opener remains available");
   assert(startFn.includes("recordingBlockReason"), "start refuses until Program Output is ready");
   assert(liveSession.includes("PROGRAM_OUTPUT_PICKER_INSTRUCTION"), "picker instruction is shown before getDisplayMedia");
   assert(liveSession.includes("readyToRecord") && liveSession.includes("canRecord()"), "Record is gated on Program Output readiness");

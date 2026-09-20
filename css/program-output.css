@@ -433,7 +433,7 @@ body {
   display: flex;
   gap: 0;
   left: 10px;
-  max-width: min(68%, calc(100% - 20px));
+  max-width: min(88%, calc(100% - 20px));
   overflow: hidden;
   padding: 0;
   pointer-events: none;
@@ -465,10 +465,10 @@ body {
   background-repeat: no-repeat;
   background-size: contain;
   flex: 0 0 auto;
-  height: clamp(0.85rem, 1.8vw, 1.2rem);
-  margin: 0 0.45rem 0 0.55rem;
+  height: 2.2rem;
+  margin: 0 0.6rem 0 0.75rem;
   opacity: 0.95;
-  width: clamp(0.85rem, 1.8vw, 1.2rem);
+  width: 2.2rem;
 }
 
 body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
@@ -483,30 +483,30 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
 }
 
 .lv-lower-third-name {
-  background: color-mix(in srgb, var(--studio-surface) 92%, #000 8%);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--studio-surface) 94%, #000 6%), color-mix(in srgb, var(--studio-surface) 84%, transparent));
   box-shadow: var(--lower-third-shadow);
   color: var(--lower-third-fg);
-  font-size: clamp(0.62rem, 1.8vw, 0.95rem);
+  font-size: clamp(0.82rem, 1.25vw, 1.08rem);
   font-weight: 800;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   line-height: 1.15;
   overflow: hidden;
-  padding: 0.32rem 0.7rem 0.28rem 0.2rem;
+  padding: 0.42rem 1.35rem 0.34rem 0.2rem;
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
 }
 
 .lv-lower-third-role {
-  background: color-mix(in srgb, var(--studio-canvas, var(--po-video-bg)) 78%, transparent);
+  background: color-mix(in srgb, var(--studio-canvas, var(--po-video-bg)) 84%, transparent);
   color: var(--lower-third-secondary);
-  font-size: clamp(0.5rem, 1.3vw, 0.7rem);
+  font-size: clamp(0.64rem, 0.95vw, 0.78rem);
   font-weight: 500;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   line-height: 1.25;
   margin-left: 8px;
   overflow: hidden;
-  padding: 0.16rem 0.7rem 0.2rem 0.2rem;
+  padding: 0.22rem 1.1rem 0.28rem 0.2rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

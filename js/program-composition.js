@@ -89,6 +89,34 @@ export function stableOrder(participants) {
   });
 }
 
+export function dedupeProgramParticipants(participants = []) {
+  const byIdentity = new Map();
+  for (const participant of participants || []) {
+    if (!participant?.participantId) continue;
+    const isHost = participant.participantId === "host" || participant.role === "host";
+    const key = isHost ? "host" : `participant:${participant.participantId}`;
+    const existing = byIdentity.get(key);
+    if (!existing) {
+      byIdentity.set(key, participant);
+      continue;
+    }
+    byIdentity.set(key, {
+      ...existing,
+      ...participant,
+      participantId: isHost ? "host" : existing.participantId,
+      role: isHost ? "host" : (existing.role || participant.role),
+      displayName: existing.displayName || participant.displayName,
+      title: existing.title || participant.title,
+      company: existing.company || participant.company,
+      transportSourceId: existing.transportSourceId || participant.transportSourceId,
+      videoSource: existing.videoSource?.kind !== "none" ? existing.videoSource : participant.videoSource,
+      audioSource: existing.audioSource?.kind !== "none" ? existing.audioSource : participant.audioSource,
+      joinedAt: Math.min(toTimestamp(existing.joinedAt), toTimestamp(participant.joinedAt)) || existing.joinedAt || participant.joinedAt
+    });
+  }
+  return [...byIdentity.values()];
+}
+
 const PROGRAM_LAYOUT_BY_COUNT = { 1: ProgramLayout.SINGLE, 2: ProgramLayout.DUO, 3: ProgramLayout.TRIO, 4: ProgramLayout.QUAD };
 const REMOTE_LAYOUT_BY_COUNT = { 0: RemoteLayout.WAITING, 1: RemoteLayout.ONE, 2: RemoteLayout.TWO, 3: RemoteLayout.THREE };
 
@@ -105,6 +133,7 @@ function isLiveProgramAsset(asset) {
 }
 
 export function compositionOptionsFromState(state = {}) {
+  state = state || {};
   const screenShare = state.screenShare || null;
   return {
     screenShareActive: Boolean(screenShare?.active || state.screenShareActive),
@@ -167,7 +196,7 @@ export function composeProgram(participants, options = {}) {
     shareLayout: null,
     ...options
   };
-  const ordered = stableOrder(participants.filter((p) => isConnected(p) && p.onProgram !== false));
+  const ordered = stableOrder(dedupeProgramParticipants(participants).filter((p) => isConnected(p) && p.onProgram !== false));
   const screen = screenSourceFrom(opts);
   const screenShareActive = Boolean(screen);
   const mode = Object.values(CompositionMode).includes(opts.mode) ? opts.mode : CompositionMode.BALANCED;

@@ -3,7 +3,7 @@
 // browser or backend — pure functions in, plain assertions out. Covers exactly the roster-change sequence
 // and participant-facing filtering this pass's report specified. Run: node scripts/program-composition-test.mjs
 
-import { composeProgram, composeParticipantView, ProgramLayout, RemoteLayout } from "../js/program-composition.js";
+import { composeProgram, composeParticipantView, compositionOptionsFromState, dedupeProgramParticipants, ProgramLayout, RemoteLayout } from "../js/program-composition.js";
 
 function assert(condition, message) {
   if (!condition) throw new Error(`FAILED: ${message}`);
@@ -157,6 +157,23 @@ console.log("\nMixed joinedAt representations — a real bug this pass found and
   const guestB = { participantId: "B", role: "guest", connectionStatus: "connected", onProgram: true, joinedAt: "2026-09-18T21:05:00+00:00" };
   const { slots } = composeProgram([host, guestB, guestA]); // deliberately passed out of order
   assertOrder(slots, ["host", "A", "B"], "ISO-string joinedAt sorts correctly (and against numeric Host)");
+}
+
+console.log("\nProgram identity dedupe");
+{
+  const hostNative = p("host", "host", 0, { displayName: "Ricardo Casanova", transportSourceId: "roomh" });
+  const duplicateHost = p("roomh", "host", 10, { displayName: "Host", transportSourceId: "roomh" });
+  const guest = p("guest-1", "guest", 20, { displayName: "Guest" });
+  const deduped = dedupeProgramParticipants([hostNative, duplicateHost, guest]);
+  assertEqual(deduped.length, 2, "duplicate Host source collapses to one logical Host");
+  const { slots } = composeProgram([hostNative, duplicateHost, guest]);
+  assertOrder(slots, ["host", "guest-1"], "Program renders one Host plus one Guest");
+}
+
+console.log("\nNull startup state");
+{
+  const options = compositionOptionsFromState(null);
+  assertEqual(options.screenShareActive, false, "null Program Output startup state is safe");
 }
 
 console.log("\nAll program-composition tests passed.");
