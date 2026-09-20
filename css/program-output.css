@@ -78,6 +78,15 @@ html, body {
   align-items: center;
   display: flex;
   justify-content: space-between;
+  /* min-width:0: .po-chrome is itself a grid item of .po-canvas (header / stage / footer rows,
+     one shared column). Without it, .po-topic's un-guarded flex min-content (see .po-topic's own
+     min-width:0 below) could force .po-chrome-bottom's row wider than the viewport — and because
+     .po-canvas has ONE shared column track, that overflow drags every row onto the same too-wide
+     track, including .po-stage, clipping whatever sits at the right edge of ANY row (confirmed via
+     measurement: a long topic + long ticker + visible LIVE badge together pushed .po-chrome-top,
+     .po-stage, and .po-chrome-bottom all 24px past the viewport edge simultaneously, even with zero
+     participants — this was never about participant tiles or VDO.Ninja at all). */
+  min-width: 0;
   /* Extra inset (beyond just enough to clear the edge) so our logo/LIVE badge sit clear of the corner
      zones where X/YouTube/LinkedIn typically place their own live indicator or watermark once this feed
      is re-broadcast on their platform. */
@@ -156,6 +165,7 @@ html, body {
   font-family: var(--po-font-heading);
   font-size: clamp(0.7rem, 1.3vw, 0.98rem);
   font-weight: 700;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -234,7 +244,7 @@ html, body {
 .po-stage[data-layout="screen-strip"] .po-tile[data-role="screen"] {
   grid-column: 1 / -1;
 }
-.po-stage[data-layout="asset-speaker-pip"] { grid-template-columns: 1fr; }
+.po-stage[data-layout="asset-speaker-pip"] { grid-template-columns: minmax(0, 1fr); }
 .po-stage { transition: grid-template-columns 280ms ease, grid-template-rows 280ms ease; }
 .po-tile { transition: opacity 220ms ease, transform 280ms ease; }
 
@@ -725,17 +735,18 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
   gap: clamp(0.4rem, 1vw, 0.85rem);
   grid-column: 1 / -1;
   grid-row: 1 / -1;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 @media (max-width: 700px) {
-  .po-waitingroom { grid-template-columns: 1fr 1fr; }
+  .po-waitingroom { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
 
 .po-waitingroom-slot {
   align-items: center;
   background: var(--studio-surface);
   border: 1px dashed var(--studio-line);
+  min-width: 0;
   border-radius: 12px;
   color: var(--po-video-text-dim);
   display: flex;
