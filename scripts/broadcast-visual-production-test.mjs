@@ -381,8 +381,10 @@ console.log("\nDo-not-regress: camera share must not use VDO screenshare replace
 {
   const live = readFileSync(join(ROOT, "js/live-session.js"), "utf8");
   const guest = readFileSync(join(ROOT, "js/guest.js"), "utf8");
-  assert(live.includes("getDisplayMedia"), "Host share uses getDisplayMedia");
-  assert(!/async toggleScreenShare\(\)[\s\S]*setScreenShare/.test(live), "Host toggle does not call engine.setScreenShare");
+  assert(live.includes("mountScreenPublisher"), "Host share uses a separate screen publisher");
+  assert(live.includes("createScreenStreamId"), "Host share receives a separate transport source ID");
+  assert(!live.includes("this.engine.setScreenShare"), "Host share never calls engine.setScreenShare");
+  assert(!/engine\.setScreenShare\(/.test(live), "Host never posts {screenshare} on the camera iframe");
   assert(!guest.includes("setGuestScreenShare("), "Guest share does not replace the camera publisher");
   assert(guest.includes("mountScreenPublisher"), "Guest screen is a separate publisher");
   const renderer = readFileSync(join(ROOT, "js/program-renderer.js"), "utf8");

@@ -579,6 +579,8 @@ def migrate(conn):
             "camera_enabled": "INTEGER",
             "output_status": "TEXT",
             "screen_share": "TEXT",
+            "audio_activity": "TEXT",
+            "transcript_event": "TEXT",
         },
     )
     conn.commit()
@@ -702,6 +704,20 @@ def public_presence(row):
             screen_share = json.loads(raw_share)
         except (TypeError, ValueError):
             screen_share = None
+    audio_activity = None
+    raw_activity = row["audio_activity"] if "audio_activity" in row.keys() else None
+    if raw_activity:
+        try:
+            audio_activity = json.loads(raw_activity)
+        except (TypeError, ValueError):
+            audio_activity = None
+    transcript_event = None
+    raw_transcript = row["transcript_event"] if "transcript_event" in row.keys() else None
+    if raw_transcript:
+        try:
+            transcript_event = json.loads(raw_transcript)
+        except (TypeError, ValueError):
+            transcript_event = None
     return {
         "participantId": row["participant_id"],
         "role": row["role"],
@@ -715,6 +731,8 @@ def public_presence(row):
         "cameraEnabled": _presence_bool(row["camera_enabled"]) if "camera_enabled" in row.keys() else None,
         "outputStatus": output_status,
         "screenShare": screen_share,
+        "audioActivity": audio_activity,
+        "transcriptEvent": transcript_event,
     }
 
 
@@ -1398,14 +1416,27 @@ def main():
         output_json = json.dumps(output_status)[:8000] if isinstance(output_status, dict) else None
         screen_share = payload.get("screenShare")
         screen_json = json.dumps(screen_share)[:2000] if isinstance(screen_share, dict) else None
+        audio_activity = payload.get("audioActivity")
+        if isinstance(audio_activity, dict) and ("pcm" in audio_activity or "samples" in audio_activity or "audio" in audio_activity):
+            audio_activity = {
+                "participantId": audio_activity.get("participantId"),
+                "transportSourceId": audio_activity.get("transportSourceId"),
+                "audioLevel": audio_activity.get("audioLevel"),
+                "speaking": audio_activity.get("speaking"),
+                "measuredAt": audio_activity.get("measuredAt"),
+            }
+        activity_json = json.dumps(audio_activity)[:500] if isinstance(audio_activity, dict) else None
+        transcript_event = payload.get("transcriptEvent")
+        transcript_json = json.dumps(transcript_event)[:800] if isinstance(transcript_event, dict) else None
 
         conn.execute(
             """
             INSERT INTO room_presence (
               room_id, participant_id, role, display_name, title, company,
-              transport_source_id, joined_at, last_seen_at, mic_enabled, camera_enabled, output_status, screen_share
+              transport_source_id, joined_at, last_seen_at, mic_enabled, camera_enabled, output_status, screen_share,
+              audio_activity, transcript_event
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (room_id, participant_id) DO UPDATE SET
               role = excluded.role,
               display_name = excluded.display_name,
@@ -1416,7 +1447,9 @@ def main():
               mic_enabled = COALESCE(excluded.mic_enabled, room_presence.mic_enabled),
               camera_enabled = COALESCE(excluded.camera_enabled, room_presence.camera_enabled),
               output_status = COALESCE(excluded.output_status, room_presence.output_status),
-              screen_share = excluded.screen_share
+              screen_share = excluded.screen_share,
+              audio_activity = excluded.audio_activity,
+              transcript_event = excluded.transcript_event
             """,
             (
                 room_id,
@@ -1432,6 +1465,8 @@ def main():
                 camera_int,
                 output_json,
                 screen_json,
+                activity_json,
+                transcript_json,
             ),
         )
         if role == "host":

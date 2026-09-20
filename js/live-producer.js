@@ -133,6 +133,7 @@ export class LiveProducerController {
     this._emit({ type: ProducerEventType.CONTEXT_CHECKPOINT });
     this._noticeQuietParticipants();
     this._noticeUncoveredQuestions();
+    this.session.proposeHottieLoop?.();
   }
 
   async runFindDirective(directive, { feedEntryId = null } = {}) {

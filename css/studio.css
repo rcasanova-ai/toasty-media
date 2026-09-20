@@ -1089,7 +1089,8 @@
    throttle WebRTC encoding in zero-rendered iframes, and this still paints, just far outside the
    viewport. */
 .lv-hidden-transport,
-.guest-screen-transport {
+.guest-screen-transport,
+.host-screen-transport {
   height: 2px;
   left: -9999px;
   overflow: hidden;

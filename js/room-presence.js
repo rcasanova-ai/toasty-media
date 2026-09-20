@@ -36,6 +36,8 @@ export class RoomPresence {
     this.cameraEnabled = null;
     this.outputStatus = null;
     this.screenShare = { active: false, participantId: this.participantId, transportSourceId: null };
+    this.audioActivity = null;
+    this.transcriptEvent = null;
     this._pendingCommands = [];
     this._ackCommandIds = [];
     this._programPublisher = null;
@@ -86,7 +88,39 @@ export class RoomPresence {
     this.screenShare = {
       active: Boolean(share.active),
       participantId: share.participantId || this.participantId,
-      transportSourceId: share.transportSourceId || null
+      transportSourceId: share.transportSourceId || null,
+      state: share.state || (share.active ? "expected" : "inactive")
+    };
+  }
+
+  setAudioActivity(sample = null) {
+    if (!sample || typeof sample !== "object") {
+      this.audioActivity = null;
+      return;
+    }
+    this.audioActivity = {
+      participantId: sample.participantId || this.participantId,
+      transportSourceId: sample.transportSourceId || this.transportSourceId,
+      audioLevel: Math.min(1, Math.max(0, Number(sample.audioLevel) || 0)),
+      speaking: Boolean(sample.speaking),
+      measuredAt: Number(sample.measuredAt) || Date.now()
+    };
+  }
+
+  setTranscriptEvent(event = null) {
+    if (!event || typeof event !== "object" || !event.text) {
+      this.transcriptEvent = null;
+      return;
+    }
+    this.transcriptEvent = {
+      id: event.id || null,
+      participantId: event.participantId || this.participantId,
+      speaker: String(event.speaker || this.displayName || "").slice(0, 80),
+      role: event.role || this.role,
+      text: String(event.text).slice(0, 400),
+      timestamp: Number(event.timestamp) || Date.now(),
+      final: event.final !== false,
+      source: event.source || "participant-local"
     };
   }
 
@@ -154,7 +188,9 @@ export class RoomPresence {
           sessionId: this.program?.sessionId || this.roomId,
           roomId: entry.roomId || this.roomId,
           micEnabled: entry.micEnabled ?? null,
-          cameraEnabled: entry.cameraEnabled ?? null
+          cameraEnabled: entry.cameraEnabled ?? null,
+          screenShare: entry.screenShare || null,
+          audioActivity: entry.audioActivity || null
         };
       }),
       outputs: (this.outputs || []).map((entry) => {
@@ -243,6 +279,8 @@ export class RoomPresence {
           micEnabled: this.micEnabled,
           cameraEnabled: this.cameraEnabled,
           screenShare: this.role === "output" ? undefined : this.screenShare,
+          audioActivity: this.role === "output" ? undefined : this.audioActivity,
+          transcriptEvent: this.role === "output" ? undefined : this.transcriptEvent,
           program: this.role === "host" && this._programPublisher ? this._programPublisher() : undefined,
           commands: this.role === "host" && this._pendingCommands.length ? this._pendingCommands.slice(0, 12) : undefined,
           ackCommandIds: this._ackCommandIds.length ? this._ackCommandIds.slice(0, 20) : undefined,

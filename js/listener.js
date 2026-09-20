@@ -5,6 +5,7 @@ import { ProgramSync } from "./program-sync.js";
 import { composeProgram, compositionOptionsFromState } from "./program-composition.js";
 import { syncProgramRenderer, clearProgramRenderer, programFeedBindings, programFeedHealth } from "./program-renderer.js";
 import { ProgramAudioBus, serializeProgramAudio } from "./program-audio.js";
+import { ProgramAudioMixer } from "./program-audio-mixer.js";
 import { RoomPresence } from "./room-presence.js";
 import { studioApiEndpoint } from "./studio-api.js";
 import {
@@ -36,6 +37,7 @@ const mountedProgramTiles = new Map();
 let audioUnlocked = false;
 let audioError = null;
 const programAudio = new ProgramAudioBus({ role: "program" });
+const programMixer = new ProgramAudioMixer({ bus: programAudio, role: "program" });
 let lastAudioPlayId = null;
 let statusTimerId = null;
 let connection = OutputConnection.CONNECTING;
@@ -362,17 +364,29 @@ function reportOutputStatus(immediate = false) {
 }
 
 function syncProgramAudio(programState) {
+  const hostOwned = ownedStreamFor({ role: "host", participantId: "host" });
+  if (hostOwned) programMixer.addParticipant({ participantId: "host", stream: hostOwned, label: "Host" });
+  programParticipants(programState).forEach((participant) => {
+    if (participant.participantId === "host") return;
+    const owned = ownedStreamFor(participant);
+    programMixer.addParticipant({
+      participantId: participant.participantId,
+      stream: owned,
+      label: participant.displayName,
+      transportLimited: !owned
+    });
+  });
   const command = serializeProgramAudio(programState?.audio);
   if (!command) return;
   if (!audioUnlocked) return;
   if (command.action === "STOP_AUDIO") {
-    if (lastAudioPlayId) programAudio.stop();
+    if (lastAudioPlayId) programMixer.stopBus();
     lastAudioPlayId = null;
     return;
   }
   if (command.playId && command.playId === lastAudioPlayId) return;
   lastAudioPlayId = command.playId;
-  programAudio.applyCommand(command).then((result) => {
+  programMixer.applyBusCommand(command).then((result) => {
     if (!result?.ok && result?.reason !== "elapsed" && result?.reason !== "already") {
       lastAudioPlayId = null;
       audioError = result?.reason || "ProgramAudioBus play failed";
@@ -441,8 +455,13 @@ function outputDiagnosticsSnapshot(buildId) {
       requestedSourceId: entry.transportSourceId,
       mounted: mountedProgramTiles.has(entry.participantId),
       mediaState: mountedProgramTiles.get(entry.participantId)?.health || "presence",
-      lastSeenAt: entry.lastSeenAt || null
-    }))
+      lastSeenAt: entry.lastSeenAt || null,
+      audioLevel: entry.audioActivity?.audioLevel ?? 0,
+      speaking: Boolean(entry.audioActivity?.speaking)
+    })),
+    screenShare: lastProgramState?.screenShare || null,
+    screenHealth: mountedProgramTiles.get("__screen__")?.health || lastProgramState?.screenShare?.state || "inactive",
+    activity: lastProgramState?.audioActivity || []
   };
 }
 

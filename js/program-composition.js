@@ -144,7 +144,7 @@ function screenSourceFrom(options) {
     return {
       participantId: share.participantId ? `screen-${share.participantId}` : "screen",
       role: "screen",
-      ownerParticipantId: share.participantId || "host",
+      ownerParticipantId: share.ownerParticipantId || share.participantId || "host",
       transportSourceId: share.transportSourceId || null,
       displayName: share.displayName || "Screen"
     };

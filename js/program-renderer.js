@@ -73,7 +73,8 @@ export function inspectSourceHealth(entry) {
   }
   const iframe = typeof container.querySelector === "function" ? container.querySelector("iframe") : null;
   if (iframe) {
-    if (entry?.health === "playing" || entry?.health === "stalled" || entry?.health === "failed") return entry.health;
+    if (entry?.health === "playing" || entry?.health === "stalled" || entry?.health === "failed" || entry?.health === "ended") return entry.health;
+    if (entry?.transportSourceId) return entry.health === "bound" ? "bound" : "binding";
     return "attached";
   }
   if (container.classList?.contains("po-tile-video--empty")) return "empty";

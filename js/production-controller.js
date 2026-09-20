@@ -35,7 +35,11 @@ export const ProductionActionType = Object.freeze({
   CLEAR_SPOTLIGHT: "CLEAR_SPOTLIGHT",
   SET_ACTIVE_SPEAKER_MODE: "SET_ACTIVE_SPEAKER_MODE",
   SET_SHARE_LAYOUT: "SET_SHARE_LAYOUT",
-  STOP_SHARE: "STOP_SHARE"
+  STOP_SHARE: "STOP_SHARE",
+  SHOW_RESEARCH: "SHOW_RESEARCH",
+  RETURN_TO_PARTICIPANTS: "RETURN_TO_PARTICIPANTS",
+  SURFACE_CHAT: "SURFACE_CHAT",
+  POST_CHAT: "POST_CHAT"
 });
 
 const EXECUTABLE = new Set([
@@ -49,7 +53,11 @@ const EXECUTABLE = new Set([
   ProductionActionType.CLEAR_SPOTLIGHT,
   ProductionActionType.SET_ACTIVE_SPEAKER_MODE,
   ProductionActionType.SET_SHARE_LAYOUT,
-  ProductionActionType.STOP_SHARE
+  ProductionActionType.STOP_SHARE,
+  ProductionActionType.SHOW_RESEARCH,
+  ProductionActionType.RETURN_TO_PARTICIPANTS,
+  ProductionActionType.SURFACE_CHAT,
+  ProductionActionType.POST_CHAT
 ]);
 
 const ASSET_LAYOUTS = new Set([
@@ -108,6 +116,10 @@ export class ProgramController {
     if (type === ProductionActionType.SET_ACTIVE_SPEAKER_MODE) return this.setActiveSpeakerMode(action);
     if (type === ProductionActionType.SET_SHARE_LAYOUT) return this.setShareLayout(action);
     if (type === ProductionActionType.STOP_SHARE) return this.stopShare(action);
+    if (type === ProductionActionType.SHOW_RESEARCH) return this.showResearch(action);
+    if (type === ProductionActionType.RETURN_TO_PARTICIPANTS) return this.removeAsset(action);
+    if (type === ProductionActionType.SURFACE_CHAT) return this.surfaceChat(action);
+    if (type === ProductionActionType.POST_CHAT) return this.postChat(action);
     return { ok: false, reason: "unsupported" };
   }
 
@@ -254,5 +266,30 @@ export class ProgramController {
     this.session.stopScreenShare?.();
     this.session.productionLog?.record(ProductionActionType.STOP_SHARE, { initiator });
     return { ok: true };
+  }
+
+  showResearch({ initiator = "hottie" } = {}) {
+    this.session.productionLog?.record(ProductionActionType.SHOW_RESEARCH, { initiator });
+    this.session.proposeHottieLoop?.();
+    return { ok: true };
+  }
+
+  surfaceChat({ messageIds = [], initiator = "hottie" } = {}) {
+    this.session.audience?.markSurfaced?.(messageIds);
+    this.session.timeline?.record?.("chat-surfaced", { messageIds });
+    this.session.productionLog?.record(ProductionActionType.SURFACE_CHAT, { messageIds, initiator });
+    this.session.emit?.("audience", this.session.audience?.recent?.() || []);
+    return { ok: true, messageIds };
+  }
+
+  postChat({ text, initiator = "hottie" } = {}) {
+    if (!text) return { ok: false, reason: "missing-text" };
+    const message = this.session.audienceAdapter?.ingest?.({
+      author: "Hottie · Toasty Producer",
+      text,
+      metadata: { impersonatesHost: false }
+    });
+    this.session.productionLog?.record(ProductionActionType.POST_CHAT, { initiator, text });
+    return { ok: true, message };
   }
 }

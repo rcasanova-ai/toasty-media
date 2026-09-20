@@ -4,6 +4,7 @@ import {
   getOrCreateRoomId,
   getGuestInviteUrl,
   getListenerInviteUrl,
+  createScreenStreamId,
 } from "./video-engine.js";
 import {
   applyBrandTheme,
@@ -38,6 +39,18 @@ import { ProgramAssetCatalog, serializeProgramAsset } from "./program-asset.js";
 import { ProgramController, ProductionActionLog, ProductionActionType } from "./production-controller.js";
 import { AssetCatalogue } from "./asset-catalogue.js";
 import { ProgramAudioBus, serializeProgramAudio } from "./program-audio.js";
+import { ProgramAudioMixer } from "./program-audio-mixer.js";
+import { MasterRecorder } from "./master-recorder.js";
+import { ProductionTimeline, ProductionEventType } from "./production-timeline.js";
+import { SessionArtifactStore } from "./session-artifact.js";
+import { ProgramDestinationRouter } from "./program-destination.js";
+import { AudienceAdapter, AudienceSource, normalizeAudienceMessage } from "./audience-message.js";
+import { createScreenShareSource, serializeScreenShareSource, screenShareFromPresence, ScreenShareState, screenPublisherEndedMessage } from "./screen-share-source.js";
+import { createAudioActivityMeter, serializeAudioActivity, activityFromVdoDetailedState } from "./audio-activity.js";
+import { ActiveSpeakerController } from "./active-speaker.js";
+import { ParticipantTranscriptionUplink, createTranscriptEvent } from "./transcript-event.js";
+import { collectHottieContext, proposeHottieActions, formatHottieProposalFeed } from "./hottie-show-runner.js";
+import { attachFocusGroupToSession } from "./focus-group-studio.js";
 import { createResearchProvider } from "./hottie-research.js";
 import { ParticipantRegistry, createParticipant, ParticipantRole, ConnectionStatus, SourceKind } from "./participant-registry.js";
 import { HostState } from "./host-state.js";
@@ -59,7 +72,6 @@ import { studioRequest } from "./studio-api.js";
 import { syncParticipantStage, clearParticipantStage } from "./participant-stage.js";
 import { syncProgramRenderer, clearProgramRenderer, serializeProgramParticipant } from "./program-renderer.js";
 import { CompositionMode, ShareLayout } from "./program-composition.js";
-import { nominateActiveSpeaker } from "./active-speaker.js";
 import {
   DEFAULT_HOST_RELATIONSHIP_MODE,
   DEFAULT_SHOW_TONE,
@@ -247,6 +259,16 @@ export class LiveSession {
     this.assets = new ProgramAssetCatalog();
     this.catalogue = new AssetCatalogue();
     this.programAudio = new ProgramAudioBus({ role: "producer-monitor" });
+    this.audioMixer = new ProgramAudioMixer({ bus: this.programAudio, role: "producer-monitor" });
+    this.timeline = new ProductionTimeline();
+    this.artifacts = new SessionArtifactStore();
+    this.destinations = new ProgramDestinationRouter();
+    this.audienceAdapter = new AudienceAdapter({ source: AudienceSource.TOASTY, store: this.audience });
+    this._activityMeter = null;
+    this._audioActivity = new Map();
+    this._activeSpeaker = new ActiveSpeakerController();
+    this._preSpotlightMode = null;
+    this._hostActivitySamples = 0;
     this.productionLog = new ProductionActionLog();
     this.markers = new MarkerLog();
     this.programController = new ProgramController(this);
@@ -254,7 +276,8 @@ export class LiveSession {
     this.liveProducer = new LiveProducerController(this);
     this.runOfShow.on(() => this.liveProducer.onShowAgendaChanged());
     this.hottieStatus = { state: "listening", proposal: null };
-    this.screenShare = { active: false, participantId: "host", stream: null, transportSourceId: null };
+    this.screenShare = createScreenShareSource({ ownerParticipantId: "host" });
+    this.focusGroupContext = null;
 
     // See js/remote-media-state.js and _setRemoteMediaState below.
     this.remoteMediaState = RemoteMediaState.WAITING_FOR_PARTICIPANT;
@@ -263,7 +286,7 @@ export class LiveSession {
     this._mountedGuestTiles = new Map();
     this._mountedProgramTiles = new Map();
 
-    this.engine.onMessage((message) => this._handleVdoMessage(message));
+    this.engine.onMessage((message, source) => this._handleVdoMessage(message, source));
     window.setInterval(() => this.engine.requestDetailedState(), 5000);
   }
 
@@ -426,7 +449,7 @@ export class LiveSession {
   // mounted after their own native prejoin. Room preview and the hidden control frame don't need a
   // person's identity to exist, so they still mount immediately.
   start(containers) {
-    this._containers = containers; // {host, hostTransport, roomPreview, control, programPreview}
+    this._containers = containers; // {host, hostTransport, hostScreenTransport, roomPreview, control, programPreview}
     // roomPreview (the guest stage) is deliberately NOT mounted here — see _syncGuestVideoTile, which
     // mounts a clean per-participant &view=<id> tile per connected Guest only once actually detected, and
     // tears each down again on disconnect. No VDO frame here at all beats mounting one that shows nobody.
@@ -496,6 +519,9 @@ export class LiveSession {
     this.presence.setProgramPublisher(() => this.canonicalControlState());
     this.presence.onControlChange((bundle) => this._applyControlBundle(bundle));
     this.presence.start(transportSourceId);
+    this._startHostActivityMeter();
+    this.audioMixer.addParticipant({ participantId: "host", stream: this._hostPreviewStream, label: name });
+    this.timeline.record(ProductionEventType.PARTICIPANT_JOINED, { role: "host" }, { participantId: "host", sessionId: this.durableSession?.id || this.roomId });
     this.setHostState(HostState.IN_STUDIO);
     this.exposeProgramSources();
     this.emit("host-profile", this.hostProfile);
@@ -838,6 +864,7 @@ export class LiveSession {
     const remotes = presenceGuests.map((entry) => {
       const inVdo = vdoIds.includes(entry.transportSourceId);
       const seated = this.guestSeats.some((seat) => seat?.id === entry.transportSourceId);
+      const activity = this._audioActivity.get(entry.participantId) || this._audioActivity.get(entry.transportSourceId);
       return {
         participantId: entry.participantId,
         role: entry.role,
@@ -845,7 +872,9 @@ export class LiveSession {
         mounted: Boolean(this._mountedGuestTiles?.get(entry.transportSourceId) || seated),
         mediaState: inVdo ? "in-vdo-guest-list" : "presence-only",
         error: inVdo ? "" : "not-in-vdo-guest-list",
-        lastSeenAt: entry.lastSeenAt || null
+        lastSeenAt: entry.lastSeenAt || null,
+        audioLevel: activity?.audioLevel ?? entry.audioActivity?.audioLevel ?? 0,
+        speaking: Boolean(activity?.speaking || entry.audioActivity?.speaking)
       };
     });
     (this._lastVdoGuestList || []).forEach((entry) => {
@@ -890,6 +919,8 @@ export class LiveSession {
         publisherSourceId: `${this.roomId}h`,
         videoTrack: this._hostTrackSnapshot(this._hostPreviewStream, "video"),
         audioTrack: this._hostTrackSnapshot(this._hostPreviewStream, "audio"),
+        audioLevel: this._audioActivity.get("host")?.audioLevel ?? 0,
+        speaking: Boolean(this._audioActivity.get("host")?.speaking),
         transportState: this.engine.frames.has("host") ? "publisher-iframe-mounted" : "none",
         nativePreview: null
       },
@@ -902,7 +933,10 @@ export class LiveSession {
         vdoGuestIds: vdoIds,
         presenceIds,
         presenceNotInVdo: presenceSources.filter((id) => !vdoIds.includes(id))
-      }
+      },
+      activity: this._activeSpeaker.snapshot(),
+      screenShare: serializeScreenShareSource(this.screenShare),
+      screenHealth: this._mountedProgramTiles?.get("__screen__")?.health || (this.screenShare?.active ? this.screenShare.state : "inactive")
     };
   }
 
@@ -1028,11 +1062,8 @@ export class LiveSession {
       spotlightParticipantId: this.program.spotlightParticipantId || null,
       activeParticipantId: this.program.activeParticipantId || null,
       shareLayout: this.program.shareLayout || null,
-      screenShare: {
-        active: Boolean(this.screenShare?.active),
-        participantId: this.screenShare?.participantId || "host",
-        transportSourceId: this.screenShare?.transportSourceId || null
-      },
+      screenShare: serializeScreenShareSource(this.screenShare),
+      audioActivity: [...this._audioActivity.values()].map(serializeAudioActivity).filter(Boolean),
       audio: serializeProgramAudio(this.program.audio),
       recording: {
         kind: this.recording.kind || RecordingKind.MASTER,
@@ -1066,19 +1097,24 @@ export class LiveSession {
     });
 
     this._applyRosterScreenShare(roster);
+    this._applyRosterAudioActivity(roster);
+    this._applyRosterTranscript(roster);
     this.emit("guests", this.guestCount());
   }
 
   _applyRosterScreenShare(roster = []) {
-    if (this.screenShare?.stream) return;
-    const shared = (roster || []).find((entry) => entry?.screenShare?.active && entry.screenShare.transportSourceId);
-    if (!shared) {
-      if (this.screenShare?.active && this.screenShare.participantId !== "host" && !this.screenShare.stream) {
+    if (this.screenShare?.stream || (this.screenShare?.active && this.screenShare.ownerParticipantId === "host" && this.engine.frames.has("screen-push"))) {
+      return;
+    }
+    const sharedEntry = (roster || []).find((entry) => entry?.screenShare?.active && entry.screenShare.transportSourceId);
+    if (!sharedEntry) {
+      if (this.screenShare?.active && this.screenShare.ownerParticipantId !== "host" && !this.screenShare.stream) {
         this.stopScreenShare();
       }
       return;
     }
-    const already = this.screenShare?.active && this.screenShare.transportSourceId === shared.screenShare.transportSourceId;
+    const incoming = screenShareFromPresence(sharedEntry);
+    const already = this.screenShare?.active && this.screenShare.transportSourceId === incoming.transportSourceId;
     if (already) return;
     if (!this._preShareComposition) {
       this._preShareComposition = {
@@ -1088,18 +1124,45 @@ export class LiveSession {
         shareLayout: this.program.shareLayout
       };
     }
-    this.screenShare = {
-      active: true,
-      participantId: shared.participantId,
-      stream: null,
-      transportSourceId: shared.screenShare.transportSourceId
-    };
+    this.screenShare = incoming;
     this.program.shareLayout = this.program.shareLayout || ShareLayout.SCREEN_SPEAKER;
     this.program.layout = this.program.shareLayout;
+    this.timeline.record(ProductionEventType.SHARE_STARTED, { transportSourceId: incoming.transportSourceId }, { participantId: incoming.ownerParticipantId });
     this.publishProgramState();
     this.emit("screenshare", this.screenShare);
     this.emit("program", this.program);
     this._syncProgramPreview();
+  }
+
+  _applyRosterAudioActivity(roster = []) {
+    for (const entry of roster || []) {
+      const sample = serializeAudioActivity(entry.audioActivity);
+      if (!sample) continue;
+      const id = entry.role === "host" || sample.participantId === "host"
+        ? "host"
+        : (this.guestSeats.find((seat) => seat?.id === sample.transportSourceId || seat?.presenceParticipantId === sample.participantId)?.id || sample.transportSourceId || sample.participantId);
+      if (!id) continue;
+      this.noteAudioLevel(id, sample.audioLevel, sample.measuredAt);
+    }
+  }
+
+  _applyRosterTranscript(roster = []) {
+    for (const entry of roster || []) {
+      const event = entry.transcriptEvent;
+      if (!event?.text || !event.final) continue;
+      if (event.participantId === "host" || entry.role === "host") continue;
+      const key = event.id || `${event.participantId}:${event.timestamp}:${event.text}`;
+      this._seenTranscriptIds = this._seenTranscriptIds || new Set();
+      if (this._seenTranscriptIds.has(key)) continue;
+      this._seenTranscriptIds.add(key);
+      this.ingestTranscriptLine(createTranscriptEvent({
+        ...event,
+        sessionId: this.durableSession?.id || this.roomId,
+        participantId: event.participantId || entry.participantId,
+        role: event.role || entry.role,
+        speaker: event.speaker || entry.displayName
+      }));
+    }
   }
 
   setLive(live) {
@@ -1158,19 +1221,26 @@ export class LiveSession {
 
   setSpotlight(participantId) {
     if (!participantId) return this.clearSpotlight();
+    if (this.program.compositionMode !== CompositionMode.SPOTLIGHT) {
+      this._preSpotlightMode = this.program.compositionMode || CompositionMode.BALANCED;
+    }
     this.program.compositionMode = CompositionMode.SPOTLIGHT;
     this.program.spotlightParticipantId = participantId;
     this.program.layout = CompositionMode.SPOTLIGHT;
     this.program.layoutManualOverride = true;
+    this.timeline.record(ProductionEventType.SPOTLIGHT_CHANGED, { participantId }, { participantId });
     this.publishProgramState();
     this.emit("program", this.program);
     this._syncProgramPreview();
   }
 
   clearSpotlight() {
+    const restore = this._preSpotlightMode || CompositionMode.BALANCED;
+    this._preSpotlightMode = null;
     this.program.spotlightParticipantId = null;
-    this.program.compositionMode = CompositionMode.BALANCED;
-    this.program.layout = "grid";
+    this.program.compositionMode = restore;
+    this.program.layout = restore === CompositionMode.BALANCED ? "grid" : restore;
+    this.timeline.record(ProductionEventType.SPOTLIGHT_CHANGED, { participantId: null, restored: restore });
     this.publishProgramState();
     this.emit("program", this.program);
     this._syncProgramPreview();
@@ -1185,21 +1255,23 @@ export class LiveSession {
   }
 
   noteAudioLevel(participantId, level, now = Date.now()) {
-    if (this.program.compositionMode !== CompositionMode.ACTIVE_SPEAKER) return;
+    if (!participantId) return;
     this._audioLevels = this._audioLevels || new Map();
     this._audioLevels.set(participantId, Number(level) || 0);
-    const nomination = nominateActiveSpeaker({
-      levels: [...this._audioLevels.entries()].map(([id, value]) => ({ participantId: id, level: value })),
-      currentId: this.program.activeParticipantId,
-      now,
-      lastSwitchAt: this._activeSpeakerSwitchAt || 0
-    });
-    if (nomination.switched) this._activeSpeakerSwitchAt = nomination.lastSwitchAt;
-    if (nomination.participantId !== this.program.activeParticipantId) {
-      this.program.activeParticipantId = nomination.participantId;
-      this.publishProgramState();
-      this.emit("program", this.program);
-      this._syncProgramPreview();
+    this._audioActivity.set(participantId, serializeAudioActivity({
+      participantId,
+      audioLevel: level,
+      measuredAt: now
+    }));
+    const nomination = this._activeSpeaker.note(participantId, level, now);
+    const nextId = nomination.participantId || this.program.activeParticipantId;
+    if (nextId !== this.program.activeParticipantId) {
+      this.program.activeParticipantId = nextId;
+      if (this.program.compositionMode === CompositionMode.ACTIVE_SPEAKER) {
+        this.publishProgramState();
+        this.emit("program", this.program);
+        this._syncProgramPreview();
+      }
     }
   }
 
@@ -1212,30 +1284,42 @@ export class LiveSession {
   }
 
   async startScreenShare() {
-    if (this.screenShare?.active) return this.screenShare;
+    if (this.screenShare?.active && this.screenShare.transportSourceId) return this.screenShare;
     const camera = this._hostPreviewStream;
-    let stream = null;
-    if (typeof navigator !== "undefined" && navigator.mediaDevices?.getDisplayMedia) {
-      try {
-        stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-      } catch (error) {
-        this.emit("screenshare-error", error);
-        return null;
-      }
-    }
+    const cameraFrame = this.engine.frames.get("host");
+    const screenId = createScreenStreamId(this.roomId);
+    const container = this._ensureHostScreenTransport();
     this._preShareComposition = {
       mode: this.program.compositionMode,
       spotlightParticipantId: this.program.spotlightParticipantId,
       layout: this.program.layout,
       shareLayout: this.program.shareLayout
     };
-    this.screenShare = { active: true, participantId: "host", stream, transportSourceId: null };
-    stream?.getVideoTracks?.()[0]?.addEventListener("ended", () => { this.stopScreenShare(); });
+    this.engine.mountScreenPublisher(container, {
+      roomId: this.roomId,
+      streamId: screenId,
+      label: `${this.hostProfile?.displayName || "Host"} screen`
+    });
+    this.screenShare = createScreenShareSource({
+      ownerParticipantId: "host",
+      transportSourceId: screenId,
+      state: ScreenShareState.BINDING,
+      active: true,
+      displayName: `${this.hostProfile?.displayName || "Host"} screen`
+    });
+    this.presence?.setScreenShare({
+      active: true,
+      participantId: "host",
+      transportSourceId: screenId
+    });
+    this.presence?.publishNow?.();
     this.program.shareLayout = this.program.shareLayout || ShareLayout.SCREEN_SPEAKER;
     this.program.layout = this.program.shareLayout;
     this.exposeProgramSources();
     if (this._hostPreviewStream !== camera) this._hostPreviewStream = camera;
-    this.publishProgramState();
+    if (cameraFrame && this.engine.frames.get("host") !== cameraFrame) this.engine.frames.set("host", cameraFrame);
+    this.timeline.record(ProductionEventType.SHARE_STARTED, { transportSourceId: screenId }, { participantId: "host" });
+    this._publishControlNow();
     this.emit("screenshare", this.screenShare);
     this.emit("program", this.program);
     this._syncProgramPreview();
@@ -1244,8 +1328,13 @@ export class LiveSession {
 
   async stopScreenShare() {
     const camera = this._hostPreviewStream;
+    const cameraFrame = this.engine.frames.get("host");
     this.screenShare?.stream?.getTracks?.().forEach((track) => track.stop());
-    this.screenShare = { active: false, participantId: "host", stream: null };
+    this.engine.send("screen-push", { hangup: true });
+    if (this._containers?.hostScreenTransport) this.engine.unmountFrame(this._containers.hostScreenTransport, "screen-push", "");
+    this.screenShare = createScreenShareSource({ ownerParticipantId: "host", state: ScreenShareState.ENDED });
+    this.presence?.setScreenShare({ active: false, participantId: "host", transportSourceId: null });
+    this.presence?.publishNow?.();
     const restore = this._preShareComposition || {};
     this.program.shareLayout = null;
     this.program.compositionMode = restore.mode || CompositionMode.BALANCED;
@@ -1255,10 +1344,37 @@ export class LiveSession {
     this._preShareComposition = null;
     this.exposeProgramSources();
     if (camera) this._hostPreviewStream = camera;
-    this.publishProgramState();
+    if (cameraFrame && this.engine.frames.get("host") !== cameraFrame) this.engine.frames.set("host", cameraFrame);
+    this.timeline.record(ProductionEventType.SHARE_STOPPED, {}, { participantId: "host" });
+    this._publishControlNow();
     this.emit("screenshare", this.screenShare);
     this.emit("program", this.program);
     this._syncProgramPreview();
+  }
+
+  _ensureHostScreenTransport() {
+    if (this._containers?.hostScreenTransport) return this._containers.hostScreenTransport;
+    if (typeof document === "undefined") return null;
+    const slot = document.createElement("div");
+    slot.id = "lvHostScreenTransport";
+    slot.className = "host-screen-transport lv-hidden-transport";
+    slot.setAttribute("aria-hidden", "true");
+    document.body.appendChild(slot);
+    this._containers = { ...(this._containers || {}), hostScreenTransport: slot };
+    return slot;
+  }
+
+  _startHostActivityMeter() {
+    this._activityMeter?.stop?.();
+    this._activityMeter = createAudioActivityMeter(this._hostPreviewStream, {
+      participantId: "host",
+      transportSourceId: `${this.roomId}h`,
+      onSample: (sample) => {
+        this._hostActivitySamples += 1;
+        this.presence?.setAudioActivity(sample);
+        this.noteAudioLevel("host", sample.audioLevel, sample.measuredAt);
+      }
+    });
   }
 
   // ---- Host's own AV ----
@@ -1396,11 +1512,16 @@ export class LiveSession {
     this.ensureProgramOutputWindow();
     this.emit("recording-status", PROGRAM_OUTPUT_PICKER_INSTRUCTION);
     const recordingId = nextRecordingId();
-    this._masterRecorder = new MasterProgramRecorder({
+    this._masterRecorder = new MasterRecorder({
       status: (message) => this.emit("recording-status", message)
     });
     try {
-      const started = await this._masterRecorder.start({ recordingId });
+      const started = await this._masterRecorder.start({
+        recordingId,
+        video: { kind: "unavailable", stream: null, reason: "cross-origin-vdo-iframes" },
+        audio: { stream: this.audioMixer.masterStream(), mixer: this.audioMixer }
+      });
+      this.timeline.record(ProductionEventType.RECORDING_STARTED, { recordingId, mode: started.mode });
       this._setRecording(activeRecordingState({
         recordingId: started.recordingId,
         startedAt: started.startedAt,
@@ -1566,8 +1687,12 @@ export class LiveSession {
   // getUserMedia call, not a leftover one, since the previous stream's tracks are genuinely stopped here.
   leaveStudio() {
     this.setHostState(HostState.LEAVING);
+    this._activityMeter?.stop?.();
+    this._activityMeter = null;
+    if (this.screenShare?.active) this.stopScreenShare();
     this.engine.disconnectLocalFrames();
     if (this._containers?.hostTransport) this.engine.unmountFrame(this._containers.hostTransport, "host", "");
+    if (this._containers?.hostScreenTransport) this.engine.unmountFrame(this._containers.hostScreenTransport, "screen-push", "");
     // Neither timer was ever being cleared here before this fix — a Host who left Studio (or a tab that
     // just sat open past a session ending elsewhere) kept polling both the 4s guest-list check AND
     // /api/sessions/:id forever, which is exactly what chronically exhausted the toasty_render rate-limit
@@ -1614,15 +1739,50 @@ export class LiveSession {
     this.publishProgramState();
   }
 
-  _handleVdoMessage(message) {
+  _handleVdoMessage(message, source) {
     if (!message) return;
-    // push-connection/view-connection fire for ANY of our frames, not just real guests — only used here
-    // as a hint to re-poll the authoritative guest-list API. Guest count/seats never come from this.
+    const fromScreen = Boolean(source && source === this.engine.getFrameWindow("screen-push"));
+    if (fromScreen && this.screenShare?.active && screenPublisherEndedMessage(message)) {
+      this.stopScreenShare();
+      return;
+    }
+    if (fromScreen && message.action === "push-connection" && message.value === true && this.screenShare?.active) {
+      this.screenShare = { ...this.screenShare, state: ScreenShareState.BOUND };
+    }
+    const fromHost = Boolean(source && source === this.engine.getFrameWindow("host"));
+    if (fromHost && (message.detailedState || message.getDetailedState)) {
+      const sample = activityFromVdoDetailedState(message.detailedState || message.getDetailedState, {
+        participantId: "host",
+        transportSourceId: `${this.roomId}h`
+      });
+      if (sample) this.noteAudioLevel("host", sample.audioLevel, sample.measuredAt);
+    }
     if (message.action === "push-connection" || message.action === "view-connection") {
       this._refreshGuestSeats();
     } else if (message.action || message.getDetailedState) {
       this.connection = { status: "connected", label: "Live" };
       this.emit("connection", this.connection);
     }
+  }
+
+  attachFocusGroup(overrides) {
+    return attachFocusGroupToSession(this, overrides);
+  }
+
+  surfaceAudienceMessage(message) {
+    const normalized = normalizeAudienceMessage(message, { sessionId: this.durableSession?.id || this.roomId });
+    if (normalized?.id) this.audience.markSurfaced([normalized.id]);
+    this.timeline.record(ProductionEventType.CHAT_SURFACED, { id: normalized?.id, text: normalized?.text });
+    this.proposeHottieLoop();
+    return normalized;
+  }
+
+  proposeHottieLoop() {
+    const proposals = proposeHottieActions(collectHottieContext(this));
+    proposals.slice(0, 2).forEach((proposal) => {
+      this.timeline.record(ProductionEventType.HOTTIE_PROPOSAL, { type: proposal.type });
+      this.aiProducerFeed?.push({ action: "private", ...formatHottieProposalFeed(proposal) });
+    });
+    return proposals;
   }
 }

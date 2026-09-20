@@ -28,9 +28,13 @@ export const OutputConnection = Object.freeze({
 
 export const SourceHealth = Object.freeze({
   EMPTY: "empty",
+  EXPECTED: "expected",
+  BINDING: "binding",
+  BOUND: "bound",
   ATTACHED: "attached",
   PLAYING: "playing",
   STALLED: "stalled",
+  ENDED: "ended",
   FAILED: "failed"
 });
 
@@ -68,6 +72,7 @@ export function buildCanonicalState({
   activeParticipantId = null,
   shareLayout = null,
   screenShare = null,
+  audioActivity = [],
   recording = null,
   outputs = [],
   revision = 0,
@@ -94,9 +99,12 @@ export function buildCanonicalState({
     shareLayout: shareLayout || null,
     screenShare: screenShare && typeof screenShare === "object" ? {
       active: Boolean(screenShare.active),
-      participantId: screenShare.participantId || "host",
-      transportSourceId: screenShare.transportSourceId || null
-    } : { active: false, participantId: null, transportSourceId: null },
+      participantId: screenShare.ownerParticipantId || screenShare.participantId || "host",
+      ownerParticipantId: screenShare.ownerParticipantId || screenShare.participantId || "host",
+      transportSourceId: screenShare.transportSourceId || null,
+      state: screenShare.state || (screenShare.active ? "expected" : "inactive")
+    } : { active: false, participantId: null, ownerParticipantId: null, transportSourceId: null, state: "inactive" },
+    audioActivity: Array.isArray(audioActivity) ? audioActivity : [],
     audio: audio || null,
     recording: recording || null,
     outputs: (outputs || []).map(normalizeOutputStatus).filter(Boolean),

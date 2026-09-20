@@ -214,7 +214,7 @@ console.log("\nAudience path and recording hook are explicit");
 {
   const listener = readFileSync(join(ROOT, "js/listener.js"), "utf8");
   assert(listener.includes("syncProgramAudio"), "Program Output consumes Program Audio commands");
-  assert(listener.includes("programAudio.applyCommand"), "audience plays through ProgramAudioBus");
+  assert(listener.includes("programMixer.applyBusCommand") || listener.includes("programAudio.applyCommand"), "audience plays through ProgramAudioBus/mixer");
   assert(!listener.includes("new Audio("), "audience path is not a raw Audio() one-off");
   const recording = readFileSync(join(ROOT, "js/recording.js"), "utf8");
   assert(recording.includes("getUserMedia"), "isolated recorder is still host-mic-only");
