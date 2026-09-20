@@ -474,7 +474,7 @@ export class MasterProgramRecorder {
     this.chunks = [];
     this.stoppedAt = null;
     this._stopping = false;
-    this.status?.("Select the Program Output tab and enable tab audio.");
+    this.status?.("Select the Program Output tab (already audio-enabled) and enable tab audio.");
     const capture = await getDisplayMedia(programOutputDisplayConstraints());
     this.captureStream = capture;
     const videoTracks = capture.getVideoTracks();

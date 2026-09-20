@@ -265,7 +265,7 @@ export class ProducerView {
         ? "Master recording needs a current Chromium browser with tab capture. Isolated Host camera recording is not the master."
         : "Recording is disabled by this session's capture policy.";
     } else if (!this.session.recording.active) {
-      this.elements.recordNote.textContent = "Opens Program Output. In the share dialog, select that tab and enable tab audio so Host, Guest, and soundboard are in the master.";
+      this.elements.recordNote.textContent = "Open Program Output, click Enable audio, then Start recording. Share that tab with tab audio so Host, Guest, and soundboard are in the master.";
     }
   }
 
