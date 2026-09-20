@@ -22,6 +22,7 @@ export class ProducerView {
       hottieProposal: root.querySelector("#lvHottieProposal"),
       programPreview: root.querySelector("#lvProgramPreviewStage"),
       poTopic: root.querySelector("#lvPoTopic"),
+      outputStateChip: root.querySelector("#lvOutputStateChip"),
       poSceneGroup: root.querySelector("#lvPoSceneGroup"),
       poSceneRejected: root.querySelector("#lvPoSceneRejected"),
       poTickerEnabled: root.querySelector("#lvPoTickerEnabled"),
@@ -459,6 +460,30 @@ export class ProducerView {
     this.elements.poSceneGroup.querySelectorAll(".po-swatch").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.scene === program.scene));
     });
+    if (this.elements.outputStateChip) {
+      const sceneLabels = {
+        holding: "WAITING",
+        live: "LIVE",
+        brb: "BRB",
+        "technical-difficulties": "TECHNICAL",
+        ending: "ENDING"
+      };
+      this.elements.outputStateChip.textContent = sceneLabels[program.scene] || String(program.scene || "waiting").toUpperCase();
+      this.elements.outputStateChip.dataset.scene = program.scene || "holding";
+      const truthScene = document.querySelector("#studioTruthScene");
+      if (truthScene) {
+        const labels = {
+          holding: "Starting Soon",
+          live: "Live",
+          brb: "BRB",
+          "technical-difficulties": "Technical",
+          ending: "Ending"
+        };
+        truthScene.dataset.state = program.scene === "live" ? "live" : "idle";
+        const value = truthScene.querySelector("strong");
+        if (value) value.textContent = labels[program.scene] || program.scene;
+      }
+    }
     const layout = program.compositionMode || (program.layout === "grid" ? "balanced" : program.layout) || "balanced";
     const layoutLabel = layout === "active-speaker" ? "Active Speaker" : layout === "spotlight" ? "Spotlight" : "Balanced";
     this.elements.layoutModeChip.textContent = layoutLabel;

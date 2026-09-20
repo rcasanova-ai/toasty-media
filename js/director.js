@@ -43,6 +43,19 @@ const elements = {
   directorControlFrame: document.querySelector("#directorControlFrame"),
   recChip: document.querySelector("#lvRecChip"),
   recChipTime: document.querySelector("#lvRecChipTime"),
+  studioSessionStatus: document.querySelector("#studioSessionStatus"),
+  studioProgramOutputPill: document.querySelector("#studioProgramOutputPill"),
+  studioRailAudioState: document.querySelector("#studioRailAudioState"),
+  studioRailRecordingState: document.querySelector("#studioRailRecordingState"),
+  studioRecordingPill: document.querySelector("#studioRecordingPill"),
+  studioStreamingPill: document.querySelector("#studioStreamingPill"),
+  studioAudioPill: document.querySelector("#studioAudioPill"),
+  studioTruthOutput: document.querySelector("#studioTruthOutput"),
+  studioTruthScene: document.querySelector("#studioTruthScene"),
+  studioTruthAudio: document.querySelector("#studioTruthAudio"),
+  studioTruthRec: document.querySelector("#studioTruthRec"),
+  studioTruthStream: document.querySelector("#studioTruthStream"),
+  studioInspectorSubject: document.querySelector("#studioInspectorSubject"),
   policyChip: document.querySelector("#lvPolicyChip"),
   sessionDate: document.querySelector("#sessionDate"),
   sessionTime: document.querySelector("#sessionTime"),
@@ -74,8 +87,50 @@ const elements = {
   lvForceHeuristicMode: document.querySelector("#lvForceHeuristicMode"),
   lvHostRelationship: document.querySelector("#lvHostRelationship"),
   lvShowTone: document.querySelector("#lvShowTone"),
-  lvProducerAutonomy: document.querySelector("#lvProducerAutonomy")
+  lvProducerAutonomy: document.querySelector("#lvProducerAutonomy"),
+  toolButtons: [...document.querySelectorAll("[data-studio-tool]")],
+  domainButtons: [...document.querySelectorAll("[data-studio-domain]:not([data-studio-tool])")],
+  toolPanels: [...document.querySelectorAll("[data-studio-tool-panel]")]
 };
+
+const PRODUCER_TOOL_DOMAIN = Object.freeze({
+  participants: "show",
+  layout: "show",
+  runshow: "show",
+  graphics: "content",
+  ticker: "content",
+  media: "content",
+  soundboard: "content",
+  hottie: "intelligence",
+  transcription: "intelligence",
+  audience: "intelligence",
+  audio: "broadcast",
+  recording: "broadcast",
+  streaming: "broadcast"
+});
+
+const DOMAIN_DEFAULT_TOOL = Object.freeze({
+  show: "participants",
+  content: "graphics",
+  intelligence: "hottie",
+  broadcast: "recording"
+});
+
+const TOOL_INSPECTOR_LABEL = Object.freeze({
+  participants: "Participant",
+  layout: "Layout",
+  runshow: "Run of Show",
+  graphics: "Graphic",
+  ticker: "Ticker",
+  media: "Asset",
+  soundboard: "Sound",
+  hottie: "Hottie",
+  transcription: "Transcript",
+  audience: "Audience",
+  audio: "Audio",
+  recording: "Recording",
+  streaming: "Stream"
+});
 
 init();
 
@@ -89,6 +144,7 @@ async function init() {
   applySelectedBrand();
   const durableSession = await resolveSession({ brandId: session.brandTheme });
   session.applyDurableSession(durableSession);
+  if (elements.studioSessionStatus) elements.studioSessionStatus.textContent = durableSession.title || "Untitled";
   void session.loadProfileEndCard();
   initStudio();
 }
@@ -146,6 +202,7 @@ function initStudio() {
   session.on("policy", renderPolicyChip);
   session.on("connection", renderBroadcastChip);
   session.on("program", renderBroadcastChip);
+  session.on("program-output", renderBroadcastChip);
   session.on("brand", () => { applySelectedBrand(); updateInviteFields(); });
   session.on("room", updateInviteFields);
 
@@ -179,7 +236,13 @@ function bindViewSwitch() {
   elements.viewButtons.forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.lvViewBtn));
   });
-  setView("host");
+  elements.domainButtons.forEach((button) => {
+    button.addEventListener("click", () => setProducerDomain(button.dataset.studioDomain));
+  });
+  elements.toolButtons.forEach((button) => {
+    button.addEventListener("click", () => setProducerTool(button.dataset.studioTool));
+  });
+  setView("producer");
 }
 
 function setView(view) {
@@ -188,6 +251,39 @@ function setView(view) {
   // Queried live (not cached at init time) so panels mounted later by other controllers — e.g. the
   // Producer-only broadcast card injected into .rail-right — are still gated correctly.
   document.querySelectorAll("[data-lv-only]").forEach((panel) => { panel.hidden = panel.dataset.lvOnly !== view; });
+  setProducerTool(currentProducerTool());
+}
+
+function currentProducerTool() {
+  return elements.toolButtons.find((button) => button.getAttribute("aria-pressed") === "true")?.dataset.studioTool || "participants";
+}
+
+function setProducerDomain(domain = "show") {
+  setProducerTool(DOMAIN_DEFAULT_TOOL[domain] || "participants");
+}
+
+function setProducerTool(tool = "participants") {
+  const activeTool = tool || "participants";
+  const producerActive = elements.liveConsole?.dataset.lvView === "producer";
+  const domain = PRODUCER_TOOL_DOMAIN[activeTool] || "show";
+  elements.domainButtons.forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.studioDomain === domain));
+  });
+  elements.toolButtons.forEach((button) => {
+    const inDomain = button.dataset.studioDomain === domain;
+    button.hidden = !inDomain;
+    button.setAttribute("aria-pressed", String(button.dataset.studioTool === activeTool));
+  });
+  elements.toolPanels.forEach((panel) => {
+    if (panel.dataset.studioCockpit) {
+      panel.hidden = !producerActive;
+      return;
+    }
+    panel.hidden = !producerActive || panel.dataset.studioToolPanel !== activeTool;
+  });
+  if (elements.studioInspectorSubject) {
+    elements.studioInspectorSubject.textContent = TOOL_INSPECTOR_LABEL[activeTool] || "Program";
+  }
 }
 
 function bindRailControls() {
@@ -235,6 +331,8 @@ function bindRailControls() {
   elements.toggleScreenQuick?.addEventListener("click", () => session.toggleScreenShare());
   session.on("screenshare", (s) => {
     if (elements.toggleScreenQuick) elements.toggleScreenQuick.setAttribute("aria-pressed", String(Boolean(s?.active)));
+    const shareHealth = document.querySelector("#lvHostShareHealth");
+    if (shareHealth) shareHealth.textContent = s?.active ? "Sharing" : "Off";
   });
 }
 
@@ -288,12 +386,22 @@ function syncJamFieldsFromPolicy() {
 
 function renderRecChip(recording) {
   elements.recChip.hidden = !recording.active;
+  const recLabel = recording.status === "saving" ? "Saving" : recording.active ? "Recording" : "Idle";
+  const recState = recording.active ? "recording" : recording.status === "saving" ? "ready" : "idle";
+  if (elements.studioRailRecordingState) elements.studioRailRecordingState.textContent = recLabel;
+  if (elements.studioRecordingPill) {
+    elements.studioRecordingPill.dataset.state = recState;
+    elements.studioRecordingPill.textContent = recording.active ? `Recording ${elements.recChipTime?.textContent || ""}`.trim() : "Recording idle";
+  }
+  setTruthItem(elements.studioTruthRec, recState, recording.active && recording.startedAt ? elements.recChipTime.textContent : recLabel);
   if (recording.active && recording.startedAt) {
     const elapsed = Math.floor((Date.now() - recording.startedAt) / 1000);
     const hours = String(Math.floor(elapsed / 3600)).padStart(2, "0");
     const minutes = String(Math.floor((elapsed % 3600) / 60)).padStart(2, "0");
     const seconds = String(elapsed % 60).padStart(2, "0");
     elements.recChipTime.textContent = `${hours}:${minutes}:${seconds}`;
+    setTruthItem(elements.studioTruthRec, "recording", elements.recChipTime.textContent);
+    if (elements.studioRecordingPill) elements.studioRecordingPill.textContent = `REC ${elements.recChipTime.textContent}`;
   }
 }
 
@@ -323,6 +431,42 @@ function setBroadcastChip(state, label) {
   elements.connectionState.textContent = label;
   const textEl = elements.connectionChip.querySelector(".on-air-text");
   if (textEl) textEl.textContent = state === "live" ? "ON AIR" : state === "ready" ? "READY" : state === "error" ? "ERROR" : "OFFLINE";
+  const output = session.programOutput || {};
+  const outputConnected = output.connection === "connected" || output.connected;
+  const audioState = output.audioError ? "error" : output.audioReady ? "ready" : "offline";
+  const audioLabel = output.audioError ? "Error" : output.audioReady ? "Ready" : "Pending";
+  if (elements.studioProgramOutputPill) {
+    elements.studioProgramOutputPill.dataset.state = outputConnected ? "ready" : "offline";
+    elements.studioProgramOutputPill.textContent = outputConnected ? "Program Output connected" : "Program Output offline";
+  }
+  if (elements.studioRailAudioState) elements.studioRailAudioState.textContent = audioLabel;
+  if (elements.studioAudioPill) {
+    elements.studioAudioPill.dataset.state = audioState === "ready" ? "ready" : audioState;
+    elements.studioAudioPill.textContent = `Audio ${audioLabel}`;
+  }
+  if (elements.studioStreamingPill) {
+    elements.studioStreamingPill.dataset.state = state === "live" ? "live" : state === "ready" ? "ready" : "offline";
+    elements.studioStreamingPill.textContent = state === "live" ? "Streaming live" : "Streaming idle";
+  }
+  setTruthItem(elements.studioTruthOutput, outputConnected ? "ready" : "offline", outputConnected ? "Connected" : "Offline");
+  setTruthItem(elements.studioTruthAudio, audioState, audioLabel);
+  setTruthItem(elements.studioTruthStream, state === "live" ? "live" : "idle", state === "live" ? "Live" : "Idle");
+  const scene = session.program?.scene || "holding";
+  const sceneLabels = {
+    holding: "Starting Soon",
+    live: "Live",
+    brb: "BRB",
+    "technical-difficulties": "Technical",
+    ending: "Ending"
+  };
+  setTruthItem(elements.studioTruthScene, scene === "live" ? "live" : "idle", sceneLabels[scene] || scene);
+}
+
+function setTruthItem(node, state, label) {
+  if (!node) return;
+  node.dataset.state = state;
+  const value = node.querySelector("strong");
+  if (value) value.textContent = label;
 }
 
 async function inviteGuest() {
