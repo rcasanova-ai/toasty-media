@@ -214,8 +214,9 @@
 
 /* ---------- Producer control room ---------- */
 
-.studio-chassis[data-lv-view="producer"] .studio-chassis-body {
-  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(250px, 320px);
+.studio-chassis.live-console[data-lv-view="producer"] .studio-chassis-body {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1.7fr) minmax(240px, 320px);
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   grid-template-areas:
     "ros program context"
@@ -224,44 +225,43 @@
     "scenes sources inspector";
 }
 
-.studio-chassis[data-lv-view="producer"] .lv-run-of-show {
-  grid-area: ros;
-  grid-column: auto;
-  grid-row: auto;
+.studio-chassis.live-console[data-lv-view="producer"] .lv-run-of-show {
+  grid-area: ros !important;
+  grid-column: auto !important;
+  grid-row: auto !important;
 }
 
-.studio-chassis[data-lv-view="producer"] .lv-program {
-  grid-area: program;
-  grid-column: auto;
+.studio-chassis.live-console[data-lv-view="producer"] .lv-program {
+  grid-area: program !important;
+  grid-column: auto !important;
 }
 
-.studio-chassis[data-lv-view="producer"] .producer-context-nav {
-  grid-area: context;
+.studio-chassis.live-console[data-lv-view="producer"] .producer-context-nav {
+  grid-area: context !important;
 }
 
-.studio-chassis[data-lv-view="producer"] .producer-live-rail {
-  grid-area: scenes;
+.studio-chassis.live-console[data-lv-view="producer"] .producer-live-rail {
+  grid-area: scenes !important;
 }
 
-.studio-chassis[data-lv-view="producer"] .lv-output-inspector {
-  grid-area: inspector;
-  min-height: 0;
+.studio-chassis.live-console[data-lv-view="producer"] .lv-output-inspector {
+  grid-area: inspector !important;
 }
 
-.studio-chassis[data-lv-view="producer"] [data-studio-tool-panel] {
-  grid-area: workspace;
-  grid-column: auto;
-  min-height: 0;
-  overflow: auto;
+.studio-chassis.live-console[data-lv-view="producer"] [data-studio-tool-panel] {
+  grid-area: workspace !important;
+  grid-column: auto !important;
 }
 
-.studio-chassis[data-lv-view="producer"] .lv-sources {
-  grid-area: sources;
-  grid-column: auto;
+.studio-chassis.live-console[data-lv-view="producer"] .lv-sources {
+  grid-area: sources !important;
+  grid-column: auto !important;
 }
 
-.studio-chassis[data-lv-view="producer"] .lv-program-preview {
+.studio-chassis.live-console[data-lv-view="producer"] .lv-program-preview {
   aspect-ratio: 16 / 9;
+  height: auto;
+  max-height: min(58vh, 720px);
   min-height: 0;
   width: 100%;
 }
@@ -310,6 +310,7 @@
 }
 
 .producer-context-nav {
+  align-self: start;
   display: grid;
   gap: 0.4rem;
   padding: 0.45rem 0.55rem;

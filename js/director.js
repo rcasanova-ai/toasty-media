@@ -315,7 +315,10 @@ function bindRailControls() {
     // given.
     hideElement(document.querySelector("#aiBrandProfile")?.closest(".ai-brand-control"));
   } else {
-    elements.brandThemeSelect.addEventListener("change", () => session.changeBrandTheme(elements.brandThemeSelect.value));
+    elements.brandThemeSelect.addEventListener("change", () => {
+      session.changeBrandTheme(elements.brandThemeSelect.value);
+      applySelectedBrand();
+    });
   }
   // Full page reload, deliberately — the simplest reliable teardown of camera/VDO state before showing
   // the Session gate again, rather than trying to hand-roll an equivalent in-JS teardown. Drops the
