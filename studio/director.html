@@ -522,16 +522,27 @@
             </section>
 
             <section class="lv-panel lv-scenes" data-lv-only="producer" hidden aria-label="Layout">
-              <div class="lv-panel-head"><span>Layout</span><span class="lv-chip" id="lvLayoutModeChip">Grid</span></div>
+              <div class="lv-panel-head"><span>Layout</span><span class="lv-chip" id="lvLayoutModeChip">Balanced</span></div>
               <div class="lv-button-row" id="lvLayoutGroup">
-                <button type="button" class="lv-mini-btn" data-layout="grid" aria-pressed="true">Grid</button>
-                <button type="button" class="lv-mini-btn" data-layout="screen-dominant" aria-pressed="false">Screen Dominant</button>
+                <button type="button" class="lv-mini-btn" data-layout="balanced" aria-pressed="true">Balanced</button>
+                <button type="button" class="lv-mini-btn" data-layout="active-speaker" aria-pressed="false">Active Speaker</button>
+                <button type="button" class="lv-mini-btn" data-layout="spotlight" aria-pressed="false">Spotlight</button>
               </div>
-              <p class="control-note">Screen share auto-switches this. A manual choice here sticks until screen share ends.</p>
+              <p class="control-note">Click a Program Preview tile to spotlight that person. Spotlight stays until you clear it or pick someone else.</p>
+              <div class="lv-panel-head lv-panel-head--sub"><span>Share</span><span class="lv-chip" id="lvShareModeChip">Speaker</span></div>
+              <div class="lv-button-row" id="lvShareGroup">
+                <button type="button" class="lv-mini-btn" data-share="screen-only" aria-pressed="false">Full</button>
+                <button type="button" class="lv-mini-btn" data-share="screen-speaker" aria-pressed="true">Speaker</button>
+                <button type="button" class="lv-mini-btn" data-share="screen-strip" aria-pressed="false">Strip</button>
+              </div>
             </section>
 
             <aside class="lv-panel lv-ai-producer-pane" data-lv-only="producer" hidden aria-label="AI Producer">
               <div class="lv-panel-head"><span>AI Producer</span></div>
+              <div class="lv-hottie-rail" id="lvHottieRail" aria-label="Hottie status">
+                <span class="lv-hottie-status" id="lvHottieStatus" data-state="listening">LISTENING</span>
+                <p class="lv-hottie-proposal" id="lvHottieProposal">Waiting for a Host production cue.</p>
+              </div>
               <div class="lv-ai-diagnostics" id="lvAiDiagnostics" aria-label="AI cost diagnostics">
                 <span id="lvAiDiagRequests">0 requests</span>
                 <span id="lvAiDiagTokens">0 tokens</span>

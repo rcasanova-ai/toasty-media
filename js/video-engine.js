@@ -28,6 +28,10 @@ export function createGuestStreamId(roomId) {
   const salt = Math.random().toString(36).slice(2, 6).padEnd(4, "x");
   return `${roomId}g${Date.now().toString(36).slice(-4)}${salt}`.slice(0, 24);
 }
+export function createScreenStreamId(roomId) {
+  const salt = Math.random().toString(36).slice(2, 6).padEnd(4, "x");
+  return `${roomId}s${Date.now().toString(36).slice(-4)}${salt}`.slice(0, 24);
+}
 
 export class VideoEngine {
   constructor(options={}) { this.baseUrl=options.baseUrl||VDO_ORIGIN; this.frames=new Map(); this.listeners=new Set(); window.addEventListener("message",event=>this.handleMessage(event)); }
@@ -198,6 +202,22 @@ export class VideoEngine {
   setGuestMicrophone(enabled){return this.send("guest",{mic:enabled});}
   setGuestCamera(enabled){return this.send("guest",{camera:enabled});}
   setGuestScreenShare(enabled){return this.send("guest",{screenshare:enabled});}
+
+  // Separate screen publisher. Never call this against the Host/Guest camera iframe — VDO's
+  // {screenshare:true} on that frame replaces the camera. This mounts a second push id so Program
+  // Composition can treat ScreenShareSource as its own source without destroying the camera publisher.
+  mountScreenPublisher(container, { roomId, streamId, label = "Screen" }) {
+    return this.mountFrame(container, "screen-push", {
+      room: roomId,
+      push: streamId,
+      screenshare: "1",
+      webcam: "0",
+      cleanoutput: "1",
+      autostart: "1",
+      cover: "1",
+      label
+    });
+  }
 
   // Targets ONE remote participant by id, over the director-control frame's signaling channel — not a
   // per-guest iframe (Director never mounts one; scene=0 is a single merged view). Sent under UUID,

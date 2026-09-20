@@ -112,7 +112,11 @@ export class AssetCatalogue {
   }
 
   soundboardItems() {
-    return this.items.filter((item) => item.category === AssetCategory.SOUND_EFFECT || item.category === AssetCategory.STINGER || item.category === AssetCategory.MUSIC);
+    return this.items.filter((item) => {
+      if (item.missing) return false;
+      if (!catalogueItemMediaSrc(item)) return false;
+      return item.category === AssetCategory.SOUND_EFFECT || item.category === AssetCategory.STINGER || item.category === AssetCategory.MUSIC;
+    });
   }
 
   toProgramAsset(id, extra = {}) {

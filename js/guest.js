@@ -1,4 +1,4 @@
-import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId, createGuestStreamId } from "./video-engine.js";
+import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId, createGuestStreamId, createScreenStreamId } from "./video-engine.js";
 import { applyBrandTheme, getInitialBrandTheme, normalizeBrandTheme } from "./brand-themes.js";
 import { startDevicePreview, selectedDeviceLabel, classifyCameraFacing } from "./device-picker.js";
 import { RoomPresence } from "./room-presence.js";
@@ -98,6 +98,7 @@ const elements = {
   joinStudio: document.querySelector("#joinStudio"),
   guestStatus: document.querySelector("#guestStatus"),
   guestTransportFrame: document.querySelector("#guestTransportFrame"),
+  guestScreenTransport: document.querySelector("#guestScreenTransport"),
   joinedRoom: document.querySelector("#joinedRoom"),
   guestParticipantStage: document.querySelector("#guestParticipantStage"),
   guestRemoteFrame: document.querySelector("#guestRemoteFrame"),
@@ -698,9 +699,51 @@ function toggleCamera() {
 }
 
 function toggleScreen() {
-  state.screenSharing = !state.screenSharing;
-  engine.setGuestScreenShare(state.screenSharing);
-  updatePressed(elements.guestToggleScreen, state.screenSharing, "Share screen", "Stop sharing");
+  if (state.screenSharing) {
+    stopGuestScreenShare();
+    return;
+  }
+  startGuestScreenShare();
+}
+
+function startGuestScreenShare() {
+  const cameraStreamId = state.streamId;
+  const screenId = createScreenStreamId(state.roomId);
+  state.screenStreamId = screenId;
+  if (!elements.guestScreenTransport) {
+    const slot = document.createElement("div");
+    slot.id = "guestScreenTransport";
+    slot.className = "guest-screen-transport";
+    slot.hidden = true;
+    document.body.appendChild(slot);
+    elements.guestScreenTransport = slot;
+  }
+  engine.mountScreenPublisher(elements.guestScreenTransport, {
+    roomId: state.roomId,
+    streamId: screenId,
+    label: `${state.selfLabel || "Guest"} screen`
+  });
+  state.screenSharing = true;
+  state.presence?.setScreenShare({
+    active: true,
+    participantId: state.participantId,
+    transportSourceId: screenId
+  });
+  state.presence?.publishNow?.();
+  if (state.streamId !== cameraStreamId) state.streamId = cameraStreamId;
+  updatePressed(elements.guestToggleScreen, true, "Share screen", "Stop sharing");
+}
+
+function stopGuestScreenShare() {
+  const cameraStreamId = state.streamId;
+  engine.unmountFrame(elements.guestScreenTransport, "screen-push", "");
+  engine.send("screen-push", { hangup: true });
+  state.screenSharing = false;
+  state.screenStreamId = null;
+  state.presence?.setScreenShare({ active: false, participantId: state.participantId, transportSourceId: null });
+  state.presence?.publishNow?.();
+  if (cameraStreamId) state.streamId = cameraStreamId;
+  updatePressed(elements.guestToggleScreen, false, "Share screen", "Stop sharing");
 }
 
 // Mirrors the Host's Leave Studio: stop local tracks, destroy the transport, return cleanly to PREJOIN
@@ -708,6 +751,7 @@ function toggleScreen() {
 async function leaveSession() {
   setLifecycle(GuestLifecycle.LEAVING);
   stopPublisherWatch({ reset: true });
+  if (state.screenSharing) stopGuestScreenShare();
   engine.disconnectAll();
   stopPreview();
   restoreNativePreviewSlot();

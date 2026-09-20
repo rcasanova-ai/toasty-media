@@ -1658,6 +1658,11 @@ async function handlePresenceAnnounce(req, res) {
     transportSourceId,
     micEnabled: typeof body.micEnabled === "boolean" ? body.micEnabled : null,
     cameraEnabled: typeof body.cameraEnabled === "boolean" ? body.cameraEnabled : null,
+    screenShare: body.screenShare && typeof body.screenShare === "object" ? {
+      active: Boolean(body.screenShare.active),
+      participantId: presenceText(body.screenShare.participantId || participantId, 80),
+      transportSourceId: body.screenShare.transportSourceId ? requirePresenceId(body.screenShare.transportSourceId, "screenShare.transportSourceId") : null
+    } : null,
     program: role === "host" && body.program && typeof body.program === "object" ? body.program : null,
     commands: role === "host" && Array.isArray(body.commands) ? body.commands.slice(0, 12) : [],
     ackCommandIds: Array.isArray(body.ackCommandIds) ? body.ackCommandIds.slice(0, 20) : [],

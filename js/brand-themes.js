@@ -315,13 +315,10 @@ export function applyBrandTheme(themeId, elements = {}) {
   // watermark inside an immersive client workspace, which is exactly the stale-branding failure mode
   // this theme system exists to prevent.
   const markImage = studioMarkImage(theme);
+  const compactMark = compactMarkImage(theme);
   root.style.setProperty("--studio-mark-image", markImage);
-  // A blank div with only a CSS background-image still has zero DOM children, so a plain :empty selector
-  // can't tell "no mark for this theme" apart from "has a mark" — this explicit flag (css/studio.css's
-  // .lv-lower-third-mark) is what actually lets the participant lower third hide its mark square instead
-  // of always showing an empty box for the several themes (8alta/santati/optimai/tangem) with no artwork
-  // watermark to show.
-  root.dataset.lowerThirdMark = markImage === "none" ? "hidden" : "shown";
+  root.style.setProperty("--studio-compact-mark-image", compactMark);
+  root.dataset.lowerThirdMark = compactMark === "none" ? "hidden" : "shown";
   root.style.setProperty("--po-font-heading", theme.vars["--brand-heading-font"]);
   root.style.setProperty("--po-font-body", theme.vars["--brand-body-font"]);
   if (elements.logoImg) {
@@ -410,6 +407,11 @@ function studioMarkImage(theme) {
   if (theme.logoSrc && theme.id === "toasty") return `url("${theme.logoSrc}")`;
   if (theme.id === "toasty") return `url("../shared/brand/toasty-media/ToastyTransparent.png")`;
   return "none";
+}
+
+function compactMarkImage(theme) {
+  const src = theme.compactMark || theme.faviconSrc || "";
+  return src ? `url("${src}")` : "none";
 }
 
 function bindOptionalBrandImage(img, theme, { textFallback } = {}) {

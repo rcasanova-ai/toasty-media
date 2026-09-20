@@ -58,6 +58,8 @@ import { ProducerFeed, AIProducerService, createAIProducerProvider } from "./ai-
 import { studioRequest } from "./studio-api.js";
 import { syncParticipantStage, clearParticipantStage } from "./participant-stage.js";
 import { syncProgramRenderer, clearProgramRenderer, serializeProgramParticipant } from "./program-renderer.js";
+import { CompositionMode, ShareLayout } from "./program-composition.js";
+import { nominateActiveSpeaker } from "./active-speaker.js";
 import {
   DEFAULT_HOST_RELATIONSHIP_MODE,
   DEFAULT_SHOW_TONE,
@@ -161,13 +163,12 @@ export class LiveSession {
       tickerEnabled: false,
       tickerText: "",
       live: false,
-      // "grid" = today's always-on uniform 4-slot cropped grid. "screen-dominant" is applied
-      // automatically while the host is sharing their screen (see toggleScreenShare) and lets
-      // VDO.Ninja's own speaker+thumbnails auto-layout take over instead. layoutManualOverride, once
-      // set by the producer, stops the automatic screen-share behavior from fighting their choice until
-      // the next time screen share toggles off (see toggleScreenShare).
       layout: "grid",
       layoutManualOverride: false,
+      compositionMode: CompositionMode.BALANCED,
+      spotlightParticipantId: null,
+      activeParticipantId: null,
+      shareLayout: null,
       assetLayout: null,
       audio: null
     };
@@ -252,6 +253,8 @@ export class LiveSession {
     this.researchProvider = createResearchProvider({ preferSeeded: false });
     this.liveProducer = new LiveProducerController(this);
     this.runOfShow.on(() => this.liveProducer.onShowAgendaChanged());
+    this.hottieStatus = { state: "listening", proposal: null };
+    this.screenShare = { active: false, participantId: "host", stream: null, transportSourceId: null };
 
     // See js/remote-media-state.js and _setRemoteMediaState below.
     this.remoteMediaState = RemoteMediaState.WAITING_FOR_PARTICIPANT;
@@ -444,7 +447,8 @@ export class LiveSession {
     if (typeof window === "undefined") return;
     window.__toastyProgramSources = {
       roomId: () => this.roomId,
-      hostStream: () => this._hostPreviewStream
+      hostStream: () => this._hostPreviewStream,
+      screenStream: () => this.screenShare?.stream || null
     };
   }
 
@@ -628,8 +632,9 @@ export class LiveSession {
 
   async _refreshGuestSeats() {
     const hostStreamId = `${this.roomId}h`;
+    const screenPrefix = `${this.roomId}s`;
     const guestsAll = await this.engine.requestGuestList();
-    const guests = guestsAll.filter((entry) => entry.id !== hostStreamId);
+    const guests = guestsAll.filter((entry) => entry.id !== hostStreamId && !String(entry.id || "").startsWith(screenPrefix));
     this._lastVdoGuestList = guests;
     const stillPresent = new Set(guests.map((guest) => guest.id));
 
@@ -715,6 +720,7 @@ export class LiveSession {
 
     this._syncGuestVideoTile();
     this._syncProgramPreview();
+    this._applyRosterScreenShare(presenceRoster);
     this.emit("guests", this.guestCount());
     this.publishProgramState();
   }
@@ -755,7 +761,13 @@ export class LiveSession {
       frameIdPrefix: "program-preview",
       muted: true,
       asset: this.programController.liveAsset(),
-      assetLayout: this.program.assetLayout
+      assetLayout: this.program.assetLayout,
+      resolveOwnedStream: (participant) => {
+        if (participant?.role === "screen") return this.screenShare?.stream || null;
+        if (participant?.participantId === "host" || participant?.role === ParticipantRole.HOST) return this._hostPreviewStream;
+        return null;
+      },
+      compositionState: this.canonicalControlState()
     });
   }
 
@@ -1012,6 +1024,15 @@ export class LiveSession {
       }),
       asset: serializeProgramAsset(this.programController.liveAsset()),
       assetLayout: this.program.assetLayout,
+      compositionMode: this.program.compositionMode || CompositionMode.BALANCED,
+      spotlightParticipantId: this.program.spotlightParticipantId || null,
+      activeParticipantId: this.program.activeParticipantId || null,
+      shareLayout: this.program.shareLayout || null,
+      screenShare: {
+        active: Boolean(this.screenShare?.active),
+        participantId: this.screenShare?.participantId || "host",
+        transportSourceId: this.screenShare?.transportSourceId || null
+      },
       audio: serializeProgramAudio(this.program.audio),
       recording: {
         kind: this.recording.kind || RecordingKind.MASTER,
@@ -1043,7 +1064,42 @@ export class LiveSession {
       seat.cameraPending = acked.cameraPending;
       if (acked.presenceParticipantId) seat.presenceParticipantId = acked.presenceParticipantId;
     });
+
+    this._applyRosterScreenShare(roster);
     this.emit("guests", this.guestCount());
+  }
+
+  _applyRosterScreenShare(roster = []) {
+    if (this.screenShare?.stream) return;
+    const shared = (roster || []).find((entry) => entry?.screenShare?.active && entry.screenShare.transportSourceId);
+    if (!shared) {
+      if (this.screenShare?.active && this.screenShare.participantId !== "host" && !this.screenShare.stream) {
+        this.stopScreenShare();
+      }
+      return;
+    }
+    const already = this.screenShare?.active && this.screenShare.transportSourceId === shared.screenShare.transportSourceId;
+    if (already) return;
+    if (!this._preShareComposition) {
+      this._preShareComposition = {
+        mode: this.program.compositionMode,
+        spotlightParticipantId: this.program.spotlightParticipantId,
+        layout: this.program.layout,
+        shareLayout: this.program.shareLayout
+      };
+    }
+    this.screenShare = {
+      active: true,
+      participantId: shared.participantId,
+      stream: null,
+      transportSourceId: shared.screenShare.transportSourceId
+    };
+    this.program.shareLayout = this.program.shareLayout || ShareLayout.SCREEN_SPEAKER;
+    this.program.layout = this.program.shareLayout;
+    this.publishProgramState();
+    this.emit("screenshare", this.screenShare);
+    this.emit("program", this.program);
+    this._syncProgramPreview();
   }
 
   setLive(live) {
@@ -1074,12 +1130,133 @@ export class LiveSession {
   // manual=true marks this as the producer's own choice, which stops toggleScreenShare's automatic
   // layout switching from overriding it again until screen share next toggles off.
   setLayout(layout, { manual = true } = {}) {
-    this.program.layout = layout;
+    if (layout === CompositionMode.BALANCED || layout === "grid" || layout === "balanced") {
+      this.program.compositionMode = CompositionMode.BALANCED;
+      this.program.spotlightParticipantId = null;
+      this.program.layout = "grid";
+    } else if (layout === CompositionMode.ACTIVE_SPEAKER || layout === "active-speaker") {
+      this.program.compositionMode = CompositionMode.ACTIVE_SPEAKER;
+      this.program.layout = CompositionMode.ACTIVE_SPEAKER;
+    } else if (layout === CompositionMode.SPOTLIGHT || layout === "spotlight") {
+      this.program.compositionMode = CompositionMode.SPOTLIGHT;
+      this.program.layout = CompositionMode.SPOTLIGHT;
+    } else if (Object.values(ShareLayout).includes(layout) || layout === "screen-dominant") {
+      this.program.shareLayout = layout === "screen-dominant" ? ShareLayout.SCREEN_ONLY : layout;
+      this.program.layout = this.program.shareLayout;
+    } else {
+      this.program.layout = layout;
+    }
     if (manual) this.program.layoutManualOverride = true;
-    // Do not remount VDO scene=0 onto #lvGuestFrame — that container is the Host participant
-    // stage (per-person &view= tiles). Program layout now comes from composeProgram via the
-    // Program Renderer, not a mixer iframe.
     this.publishProgramState();
+    this.emit("program", this.program);
+    this._syncProgramPreview();
+  }
+
+  setCompositionMode(mode) {
+    this.setLayout(mode, { manual: true });
+  }
+
+  setSpotlight(participantId) {
+    if (!participantId) return this.clearSpotlight();
+    this.program.compositionMode = CompositionMode.SPOTLIGHT;
+    this.program.spotlightParticipantId = participantId;
+    this.program.layout = CompositionMode.SPOTLIGHT;
+    this.program.layoutManualOverride = true;
+    this.publishProgramState();
+    this.emit("program", this.program);
+    this._syncProgramPreview();
+  }
+
+  clearSpotlight() {
+    this.program.spotlightParticipantId = null;
+    this.program.compositionMode = CompositionMode.BALANCED;
+    this.program.layout = "grid";
+    this.publishProgramState();
+    this.emit("program", this.program);
+    this._syncProgramPreview();
+  }
+
+  setShareLayout(shareLayout) {
+    this.program.shareLayout = Object.values(ShareLayout).includes(shareLayout) ? shareLayout : ShareLayout.SCREEN_SPEAKER;
+    this.program.layout = this.program.shareLayout;
+    this.publishProgramState();
+    this.emit("program", this.program);
+    this._syncProgramPreview();
+  }
+
+  noteAudioLevel(participantId, level, now = Date.now()) {
+    if (this.program.compositionMode !== CompositionMode.ACTIVE_SPEAKER) return;
+    this._audioLevels = this._audioLevels || new Map();
+    this._audioLevels.set(participantId, Number(level) || 0);
+    const nomination = nominateActiveSpeaker({
+      levels: [...this._audioLevels.entries()].map(([id, value]) => ({ participantId: id, level: value })),
+      currentId: this.program.activeParticipantId,
+      now,
+      lastSwitchAt: this._activeSpeakerSwitchAt || 0
+    });
+    if (nomination.switched) this._activeSpeakerSwitchAt = nomination.lastSwitchAt;
+    if (nomination.participantId !== this.program.activeParticipantId) {
+      this.program.activeParticipantId = nomination.participantId;
+      this.publishProgramState();
+      this.emit("program", this.program);
+      this._syncProgramPreview();
+    }
+  }
+
+  async toggleScreenShare() {
+    if (this.screenShare?.active) {
+      await this.stopScreenShare();
+      return;
+    }
+    await this.startScreenShare();
+  }
+
+  async startScreenShare() {
+    if (this.screenShare?.active) return this.screenShare;
+    const camera = this._hostPreviewStream;
+    let stream = null;
+    if (typeof navigator !== "undefined" && navigator.mediaDevices?.getDisplayMedia) {
+      try {
+        stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      } catch (error) {
+        this.emit("screenshare-error", error);
+        return null;
+      }
+    }
+    this._preShareComposition = {
+      mode: this.program.compositionMode,
+      spotlightParticipantId: this.program.spotlightParticipantId,
+      layout: this.program.layout,
+      shareLayout: this.program.shareLayout
+    };
+    this.screenShare = { active: true, participantId: "host", stream, transportSourceId: null };
+    stream?.getVideoTracks?.()[0]?.addEventListener("ended", () => { this.stopScreenShare(); });
+    this.program.shareLayout = this.program.shareLayout || ShareLayout.SCREEN_SPEAKER;
+    this.program.layout = this.program.shareLayout;
+    this.exposeProgramSources();
+    if (this._hostPreviewStream !== camera) this._hostPreviewStream = camera;
+    this.publishProgramState();
+    this.emit("screenshare", this.screenShare);
+    this.emit("program", this.program);
+    this._syncProgramPreview();
+    return this.screenShare;
+  }
+
+  async stopScreenShare() {
+    const camera = this._hostPreviewStream;
+    this.screenShare?.stream?.getTracks?.().forEach((track) => track.stop());
+    this.screenShare = { active: false, participantId: "host", stream: null };
+    const restore = this._preShareComposition || {};
+    this.program.shareLayout = null;
+    this.program.compositionMode = restore.mode || CompositionMode.BALANCED;
+    this.program.spotlightParticipantId = restore.spotlightParticipantId || null;
+    this.program.layout = restore.layout || "grid";
+    this.program.layoutManualOverride = false;
+    this._preShareComposition = null;
+    this.exposeProgramSources();
+    if (camera) this._hostPreviewStream = camera;
+    this.publishProgramState();
+    this.emit("screenshare", this.screenShare);
     this.emit("program", this.program);
     this._syncProgramPreview();
   }
@@ -1102,25 +1279,6 @@ export class LiveSession {
     this.presence?.setMediaState({ cameraEnabled: !this.av.cameraOff });
     this.emit("av", this.av);
     this._publishControlNow();
-  }
-
-  // Screen share start: remembers the layout in effect right now, then switches Program to
-  // screen-dominant so the shared content is readable instead of squeezed among camera tiles. Screen
-  // share end: restores whatever layout was in effect before, unless the producer manually picked a
-  // layout while sharing (layoutManualOverride) — in that case their choice sticks.
-  toggleScreenShare() {
-    const next = !this.screenShare?.active;
-    this.screenShare = { active: next };
-    this.engine.setScreenShare(next);
-    if (next) {
-      this._preScreenShareLayout = this.program.layout;
-      this.setLayout("screen-dominant", { manual: false });
-    } else {
-      const restoreTo = this.program.layoutManualOverride ? this.program.layout : (this._preScreenShareLayout || "grid");
-      this.program.layoutManualOverride = false;
-      this.setLayout(restoreTo, { manual: false });
-    }
-    this.emit("screenshare", this.screenShare);
   }
 
   // ---- Guests (producer actions) ----

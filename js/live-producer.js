@@ -9,12 +9,13 @@
 // is NOT executed here — ProgramController is the only path onto Program Output.
 
 import { ProducerEntryType } from "./ai-producer.js";
-import { detectHostDirective, DirectiveIntent, DirectiveStatus } from "./host-directive.js";
+import { detectHostDirective, DirectiveIntent, DirectiveStatus, HottieStatus, productionActionFromDirective } from "./host-directive.js";
 import { attributeTranscriptLine } from "./show-context.js";
 import { programAssetFromCandidate, ProgramAssetStatus, serializeProgramAsset } from "./program-asset.js";
 import { ProductionActionType } from "./production-controller.js";
 import { ProgramLayout } from "./program-composition.js";
 import { createResearchProvider } from "./hottie-research.js";
+import { resolveSoundCommand } from "./soundboard.js";
 
 export const ProducerEventType = Object.freeze({
   HOST_DIRECTIVE: "host_directive",
@@ -51,6 +52,7 @@ export class LiveProducerController {
     this._lastTopicId = session?.runOfShow?.current()?.id || null;
     this._researchJobs = new Map();
     this._inflight = Promise.resolve();
+    this.status = HottieStatus.LISTENING;
   }
 
   onEvent(callback) {
@@ -72,16 +74,19 @@ export class LiveProducerController {
     if (!line?.text) return;
     if (!this.session.policy.canAiProcess()) return;
 
-    const directive = detectHostDirective(line);
+    const directive = detectHostDirective(line, {
+      participants: this.session.participants?.list?.() || []
+    });
     if (directive) {
       this.session.hostDirectives?.push(directive);
       this.session.showMemory?.rememberDirective(directive);
       this._emit({ type: ProducerEventType.HOST_DIRECTIVE, directive, line });
       if (directive.intent === DirectiveIntent.FIND) {
+        this.setStatus(HottieStatus.RESEARCHING, { label: "FIND", query: directive.payload?.query });
         this._inflight = this.runFindDirective(directive);
         void this._inflight;
       } else {
-        this._pushDirective(directive);
+        this._handleProductionDirective(directive);
       }
       this._sinceCheckpoint += 1;
       if (this._sinceCheckpoint >= CHECKPOINT_EVERY) this.checkpoint();
@@ -137,6 +142,7 @@ export class LiveProducerController {
       directiveId: directive.id,
       query
     });
+    this.setStatus(HottieStatus.RESEARCHING, { label: "FIND", query });
     const working = feedEntryId
       ? this.session.aiProducerFeed.replace(feedEntryId, {
         type: ProducerEntryType.WORKING,
@@ -212,6 +218,7 @@ export class LiveProducerController {
       layout: job.suggestedLayout
     });
     if (result?.ok) {
+      this.setStatus(HottieStatus.ON_AIR, { label: "TAKE LIVE", title: serializeProgramAsset(this.session.assets.get(job.assetId))?.title });
       this.session.aiProducerFeed.replace(feedEntryId, {
         type: ProducerEntryType.ASSET_PROPOSAL,
         title: "On Program",
@@ -290,6 +297,7 @@ export class LiveProducerController {
       items: [{ text: `${asset.sourceName} · ${asset.provenance.domain}` }]
     });
     this._emit({ type: ProducerEventType.ASSET_PROPOSED, proposal, directive });
+    this.setStatus(HottieStatus.FOUND, { label: "FOUND", title: asset.title });
     return proposal;
   }
 
@@ -371,6 +379,60 @@ export class LiveProducerController {
     });
   }
 
+  setStatus(state, proposal = null) {
+    this.status = Object.values(HottieStatus).includes(state) ? state : HottieStatus.LISTENING;
+    this.proposal = proposal;
+    this.session.hottieStatus = { state: this.status, proposal };
+    this.session.emit?.("hottie", this.session.hottieStatus);
+  }
+
+  _handleProductionDirective(directive) {
+    this.setStatus(HottieStatus.THINKING, { label: intentFeedLabel(directive.intent), query: directive.payload?.query });
+    const action = productionActionFromDirective(directive);
+    if (!action) {
+      this._pushDirective(directive);
+      this.setStatus(HottieStatus.LISTENING);
+      return;
+    }
+    if (action.type === ProductionActionType.PLAY_AUDIO) {
+      const items = this.session.catalogue?.soundboardItems?.() || [];
+      const cue = resolveSoundCommand(action.query || directive.rawText, items);
+      if (!cue || cue.missing) {
+        this._pushFeed({
+          type: ProducerEntryType.DIRECTIVE,
+          title: "Sound not available",
+          instruction: directive.rawText,
+          summary: cue?.missing
+            ? `${cue.displayName} is catalogued but has no licensed recording yet.`
+            : "I don’t have a catalogue cue that matches that.",
+          items: [{ text: action.query || directive.rawText }]
+        });
+        this.setStatus(HottieStatus.READY, { label: "SOUND", query: action.query });
+        return;
+      }
+      action.assetId = cue.id;
+    }
+    if (action.type === ProductionActionType.TAKE_ASSET && !action.assetId) {
+      const liveJob = [...this._researchJobs.values()].find((item) => item.assetId);
+      action.assetId = liveJob?.assetId;
+    }
+    const result = this.session.programController?.execute({ ...action, initiator: "host" });
+    const summary = productionSummary(action, result);
+    this._pushFeed({
+      type: ProducerEntryType.PRODUCTION_SUGGESTION,
+      title: summary.title,
+      instruction: directive.rawText,
+      summary: summary.line,
+      proposal: { type: action.type, ...action, result },
+      items: [{ text: `${action.type} executed by ProgramController.` }]
+    });
+    this.setStatus(result?.ok === false ? HottieStatus.READY : HottieStatus.ON_AIR, {
+      label: action.type,
+      query: directive.payload?.query
+    });
+    if (directive.status) directive.status = result?.ok === false ? DirectiveStatus.RECOGNIZED : DirectiveStatus.COMPLETED;
+  }
+
   _pushFeed(entry) {
     return this.session.aiProducerFeed?.push({
       action: "private",
@@ -385,7 +447,29 @@ function intentFeedLabel(intent) {
   if (intent === DirectiveIntent.UNCOVERED) return "Coverage";
   if (intent === DirectiveIntent.QUIET) return "Participation";
   if (intent === DirectiveIntent.AUDIENCE) return "Audience";
+  if (intent === DirectiveIntent.SET_SPOTLIGHT) return "SPOTLIGHT";
+  if (intent === DirectiveIntent.CLEAR_SPOTLIGHT || intent === DirectiveIntent.SET_LAYOUT) return "BALANCED";
+  if (intent === DirectiveIntent.SET_ACTIVE_SPEAKER_MODE) return "ACTIVE SPEAKER";
+  if (intent === DirectiveIntent.SET_SHARE_LAYOUT) return "SHOW SCREEN";
+  if (intent === DirectiveIntent.STOP_SHARE) return "RETURN TO GUESTS";
+  if (intent === DirectiveIntent.TAKE_ASSET) return "TAKE LIVE";
+  if (intent === DirectiveIntent.REMOVE_ASSET) return "REMOVE ASSET";
+  if (intent === DirectiveIntent.PLAY_AUDIO) return "PLAY STING";
   return "Directive";
+}
+
+function productionSummary(action, result) {
+  if (action.type === ProductionActionType.SET_SPOTLIGHT) {
+    return { title: "SPOTLIGHT", line: result?.ok ? `Spotlight ${action.participantId}` : "Could not resolve that participant." };
+  }
+  if (action.type === ProductionActionType.SET_LAYOUT) return { title: "SWITCH TO BALANCED", line: "Balanced participant layout." };
+  if (action.type === ProductionActionType.SET_ACTIVE_SPEAKER_MODE) return { title: "FOLLOW SPEAKER", line: "Active speaker mode." };
+  if (action.type === ProductionActionType.SET_SHARE_LAYOUT) return { title: "SHOW SCREEN", line: `Share layout ${action.shareLayout}.` };
+  if (action.type === ProductionActionType.STOP_SHARE) return { title: "RETURN TO GUESTS", line: "Restored the prior participant composition." };
+  if (action.type === ProductionActionType.PLAY_AUDIO) return { title: "PLAY STING", line: result?.ok ? `Playing ${action.assetId}` : "Catalogue cue is not playable." };
+  if (action.type === ProductionActionType.TAKE_ASSET) return { title: "TAKE LIVE", line: result?.ok ? "Asset is on Program." : "No approved asset to take live." };
+  if (action.type === ProductionActionType.REMOVE_ASSET) return { title: "REMOVE ASSET", line: result?.ok ? "Asset removed from Program." : "Nothing live to remove." };
+  return { title: action.type, line: result?.ok ? "Executed." : result?.reason || "Not executed." };
 }
 
 function tokenize(text) {

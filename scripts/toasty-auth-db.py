@@ -578,6 +578,7 @@ def migrate(conn):
             "mic_enabled": "INTEGER",
             "camera_enabled": "INTEGER",
             "output_status": "TEXT",
+            "screen_share": "TEXT",
         },
     )
     conn.commit()
@@ -694,6 +695,13 @@ def public_presence(row):
             output_status = json.loads(raw_status)
         except (TypeError, ValueError):
             output_status = None
+    screen_share = None
+    raw_share = row["screen_share"] if "screen_share" in row.keys() else None
+    if raw_share:
+        try:
+            screen_share = json.loads(raw_share)
+        except (TypeError, ValueError):
+            screen_share = None
     return {
         "participantId": row["participant_id"],
         "role": row["role"],
@@ -706,6 +714,7 @@ def public_presence(row):
         "micEnabled": _presence_bool(row["mic_enabled"]) if "mic_enabled" in row.keys() else None,
         "cameraEnabled": _presence_bool(row["camera_enabled"]) if "camera_enabled" in row.keys() else None,
         "outputStatus": output_status,
+        "screenShare": screen_share,
     }
 
 
@@ -1387,14 +1396,16 @@ def main():
         camera_int = None if camera is None else (1 if camera else 0)
         output_status = payload.get("outputStatus")
         output_json = json.dumps(output_status)[:8000] if isinstance(output_status, dict) else None
+        screen_share = payload.get("screenShare")
+        screen_json = json.dumps(screen_share)[:2000] if isinstance(screen_share, dict) else None
 
         conn.execute(
             """
             INSERT INTO room_presence (
               room_id, participant_id, role, display_name, title, company,
-              transport_source_id, joined_at, last_seen_at, mic_enabled, camera_enabled, output_status
+              transport_source_id, joined_at, last_seen_at, mic_enabled, camera_enabled, output_status, screen_share
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (room_id, participant_id) DO UPDATE SET
               role = excluded.role,
               display_name = excluded.display_name,
@@ -1404,7 +1415,8 @@ def main():
               last_seen_at = excluded.last_seen_at,
               mic_enabled = COALESCE(excluded.mic_enabled, room_presence.mic_enabled),
               camera_enabled = COALESCE(excluded.camera_enabled, room_presence.camera_enabled),
-              output_status = COALESCE(excluded.output_status, room_presence.output_status)
+              output_status = COALESCE(excluded.output_status, room_presence.output_status),
+              screen_share = excluded.screen_share
             """,
             (
                 room_id,
@@ -1419,6 +1431,7 @@ def main():
                 mic_int,
                 camera_int,
                 output_json,
+                screen_json,
             ),
         )
         if role == "host":

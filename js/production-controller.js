@@ -8,7 +8,7 @@
 // future Hottie [ PLAY ] button can fire a structured action without touching the audio DOM.
 
 import { ProgramAssetStatus, serializeProgramAsset } from "./program-asset.js";
-import { ProgramLayout } from "./program-composition.js";
+import { CompositionMode, ProgramLayout, ShareLayout } from "./program-composition.js";
 import { programAssetFromCatalogueItem } from "./asset-catalogue.js";
 import { buildPlayAudioCommand, buildStopAudioCommand, serializeProgramAudio } from "./program-audio.js";
 
@@ -29,7 +29,13 @@ export const ProductionActionType = Object.freeze({
   PLAY_ASSET: "PLAY_ASSET",
   STOP_AUDIO: "STOP_AUDIO",
   PLAY_VIDEO: "PLAY_VIDEO",
-  MARKER: "MARKER"
+  MARKER: "MARKER",
+  SET_LAYOUT: "SET_LAYOUT",
+  SET_SPOTLIGHT: "SET_SPOTLIGHT",
+  CLEAR_SPOTLIGHT: "CLEAR_SPOTLIGHT",
+  SET_ACTIVE_SPEAKER_MODE: "SET_ACTIVE_SPEAKER_MODE",
+  SET_SHARE_LAYOUT: "SET_SHARE_LAYOUT",
+  STOP_SHARE: "STOP_SHARE"
 });
 
 const EXECUTABLE = new Set([
@@ -37,7 +43,13 @@ const EXECUTABLE = new Set([
   ProductionActionType.REMOVE_ASSET,
   ProductionActionType.PLAY_AUDIO,
   ProductionActionType.PLAY_ASSET,
-  ProductionActionType.STOP_AUDIO
+  ProductionActionType.STOP_AUDIO,
+  ProductionActionType.SET_LAYOUT,
+  ProductionActionType.SET_SPOTLIGHT,
+  ProductionActionType.CLEAR_SPOTLIGHT,
+  ProductionActionType.SET_ACTIVE_SPEAKER_MODE,
+  ProductionActionType.SET_SHARE_LAYOUT,
+  ProductionActionType.STOP_SHARE
 ]);
 
 const ASSET_LAYOUTS = new Set([
@@ -90,6 +102,12 @@ export class ProgramController {
     if (type === ProductionActionType.REMOVE_ASSET) return this.removeAsset(action);
     if (type === ProductionActionType.PLAY_AUDIO || type === ProductionActionType.PLAY_ASSET) return this.playAudio(action);
     if (type === ProductionActionType.STOP_AUDIO) return this.stopAudio(action);
+    if (type === ProductionActionType.SET_LAYOUT) return this.setLayout(action);
+    if (type === ProductionActionType.SET_SPOTLIGHT) return this.setSpotlight(action);
+    if (type === ProductionActionType.CLEAR_SPOTLIGHT) return this.clearSpotlight(action);
+    if (type === ProductionActionType.SET_ACTIVE_SPEAKER_MODE) return this.setActiveSpeakerMode(action);
+    if (type === ProductionActionType.SET_SHARE_LAYOUT) return this.setShareLayout(action);
+    if (type === ProductionActionType.STOP_SHARE) return this.stopShare(action);
     return { ok: false, reason: "unsupported" };
   }
 
@@ -102,7 +120,7 @@ export class ProgramController {
 
   playAudio({ assetId, initiator = "producer", volume } = {}) {
     const item = this.session.catalogue?.get(assetId);
-    if (!item) return { ok: false, reason: "missing-asset" };
+    if (!item || item.missing) return { ok: false, reason: "missing-asset" };
     const command = buildPlayAudioCommand(item, {
       initiator,
       volume: volume ?? this.session.programAudio?.volume ?? 0.65
@@ -184,6 +202,57 @@ export class ProgramController {
     this.session.emit?.("program-asset", null);
     this.session._syncProgramPreview?.();
     this.session._publishControlNow?.() ?? this.session.publishProgramState?.();
+    return { ok: true };
+  }
+
+  setLayout({ mode, layout, initiator = "producer" } = {}) {
+    const next = mode || layout || CompositionMode.BALANCED;
+    this.session.setCompositionMode?.(next);
+    this.session.productionLog?.record(ProductionActionType.SET_LAYOUT, { mode: next, initiator });
+    return { ok: true, mode: next };
+  }
+
+  setSpotlight({ participantId, initiator = "producer" } = {}) {
+    if (!participantId) return this.clearSpotlight({ initiator });
+    this.session.setSpotlight?.(participantId);
+    this.session.productionLog?.record(ProductionActionType.SET_SPOTLIGHT, { participantId, initiator });
+    return { ok: true, participantId };
+  }
+
+  clearSpotlight({ initiator = "producer" } = {}) {
+    this.session.clearSpotlight?.();
+    this.session.productionLog?.record(ProductionActionType.CLEAR_SPOTLIGHT, { initiator });
+    return { ok: true };
+  }
+
+  setActiveSpeakerMode({ initiator = "producer" } = {}) {
+    this.session.setCompositionMode?.(CompositionMode.ACTIVE_SPEAKER);
+    this.session.productionLog?.record(ProductionActionType.SET_ACTIVE_SPEAKER_MODE, { initiator });
+    return { ok: true, mode: CompositionMode.ACTIVE_SPEAKER };
+  }
+
+  setShareLayout({ shareLayout, initiator = "producer" } = {}) {
+    const next = Object.values(ShareLayout).includes(shareLayout) ? shareLayout : ShareLayout.SCREEN_SPEAKER;
+    if (!this.session.screenShare?.active) {
+      const started = this.session.startScreenShare?.();
+      if (started && typeof started.then === "function") {
+        return started.then((share) => {
+          if (!share) return { ok: false, reason: "share-unavailable" };
+          this.session.setShareLayout?.(next);
+          this.session.productionLog?.record(ProductionActionType.SET_SHARE_LAYOUT, { shareLayout: next, initiator });
+          return { ok: true, shareLayout: next };
+        });
+      }
+      if (!started) return { ok: false, reason: "share-unavailable" };
+    }
+    this.session.setShareLayout?.(next);
+    this.session.productionLog?.record(ProductionActionType.SET_SHARE_LAYOUT, { shareLayout: next, initiator });
+    return { ok: true, shareLayout: next };
+  }
+
+  stopShare({ initiator = "producer" } = {}) {
+    this.session.stopScreenShare?.();
+    this.session.productionLog?.record(ProductionActionType.STOP_SHARE, { initiator });
     return { ok: true };
   }
 }

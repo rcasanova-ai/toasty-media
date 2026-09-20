@@ -267,7 +267,8 @@ console.log("\nExisting participant layouts and publisher/renderer freeze");
   const listener = readFileSync(join(ROOT, "js/listener.js"), "utf8");
   assert(listener.includes("syncProgramRenderer"), "listener still uses Program Renderer");
   assert(!listener.includes("mountProgramFrame"), "listener still has no scene=0 mixer");
-  assert(listener.includes("asset: programState.asset"), "listener consumes published live assets");
+  assert(listener.includes("compositionState: programState"), "listener consumes canonical compositionState");
+assert(listener.includes("asset: programState.asset"), "listener still consumes published live assets");
 }
 
 console.log("\nALL PASSED — Host FIND researches, proposes privately, and TAKE LIVE is the only Program path.");
