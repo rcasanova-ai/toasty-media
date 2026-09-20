@@ -13,7 +13,7 @@ import { createScreenShareSource, serializeScreenShareSource, screenShareFromPre
 import { createAudioActivity, serializeAudioActivity, AUDIO_ACTIVITY_THRESHOLD } from "../js/audio-activity.js";
 import { ActiveSpeakerController, nominateActiveSpeaker, ACTIVE_SPEAKER_HOLD_MS, ACTIVE_SPEAKER_ATTACK_MS } from "../js/active-speaker.js";
 import { buildCanonicalState } from "../js/session-control.js";
-import { ProgramAudioMixer, createProgramAudioSource, ProgramAudioSourceKind } from "../js/program-audio-mixer.js";
+import { ProgramAudioMixer, createProgramAudioSource, ProgramAudioSourceKind, ProgramAudioCompleteness } from "../js/program-audio-mixer.js";
 import { createTranscriptEvent, transcriptEventFromLegacyLine } from "../js/transcript-event.js";
 import { normalizeAudienceMessage, AudienceSource, HOTTIE_PUBLIC_IDENTITY, hottiePublicReply, clusterAudienceQuestions } from "../js/audience-message.js";
 import { createSessionRecord, createSessionArtifact, ArtifactType, planDefaultArtifacts } from "../js/session-artifact.js";
@@ -109,6 +109,8 @@ controller.note("g-tukta", 0.8, t0 + ACTIVE_SPEAKER_ATTACK_MS + 40);
 assertEqual(controller.currentId, "host", "hold/hysteresis prevents thrashing on first interruption");
 controller.note("g-tukta", 0.85, t0 + ACTIVE_SPEAKER_ATTACK_MS + ACTIVE_SPEAKER_HOLD_MS + 80);
 assertEqual(controller.currentId, "g-tukta", "sustained Guest speech selects Guest");
+controller.remove("g-tukta");
+assertEqual(controller.currentId, null, "guest reconnect/removal clears old active-speaker transport id");
 const hostSample = createAudioActivity({ participantId: "host", audioLevel: 0.42, speaking: true });
 const guestSample = createAudioActivity({ participantId: "g-tukta", audioLevel: 0.07, speaking: false });
 assertEqual(serializeAudioActivity(hostSample).participantId, "host", "activity metadata is participant-specific");
@@ -139,12 +141,24 @@ const diag = formatDiagnostics({
   remotes: [{ role: "guest", participantId: "g-tukta", requestedSourceId: "tmroomgtukta", mounted: true, mediaState: "PLAYING", audioLevel: 0.07, speaking: false }],
   screenShare: share,
   screenHealth: "playing",
-  activity: [{ participantId: "host", audioLevel: 0.42, speaking: true }]
+  activity: [{ participantId: "host", audioLevel: 0.42, speaking: true }],
+  programAudio: {
+    completeness: ProgramAudioCompleteness.TRANSPORT_LIMITED,
+    masterReady: true,
+    captureAvailable: true,
+    sources: [
+      { id: "voice-host", participantId: "host", connected: true, transportLimited: false },
+      { id: "voice-g-tukta", participantId: "g-tukta", connected: false, transportLimited: true, reason: "vdo-cross-origin" }
+    ]
+  }
 });
 assert(diag.includes("audioLevel 0.42"), "debugMedia exposes host activity");
 assert(diag.includes("speaking YES") || diag.includes("speaking true") || diag.includes("speaking YES"), "debugMedia exposes speaking");
 assert(diag.includes("share host"), "debugMedia exposes screen-share source");
+assert(diag.includes("completeness TRANSPORT_LIMITED"), "debugMedia exposes Program Audio completeness");
+assert(diag.includes("g-tukta voice: transport-limited"), "debugMedia names transport-limited Guest voice honestly");
 assert(src("js/guest.js").includes("debugMedia") && src("js/listener.js").includes("debugMedia"), "debugMedia remains opt-in on Guest/PO");
+assert(listener.includes("programAudio: programMixer.state()"), "Program Output status reports Program Audio state");
 assert(src("scripts/presence-3way-test.mjs").includes("announce"), "presence three-way test still present");
 assert(src("scripts/broadcast-visual-production-test.mjs").includes("composeProgram"), "broadcast visual production test still present");
 
@@ -155,6 +169,7 @@ mixer.addParticipant({ participantId: "g-tukta", transportLimited: true });
 const mixerState = mixer.state();
 assert(mixerState.sources.length >= 2, "mixer tracks host + guest sources");
 assert(mixerState.sources.some((item) => item.transportLimited), "guest VDO audio is marked transport-limited, not faked");
+assertEqual(mixerState.completeness, ProgramAudioCompleteness.TRANSPORT_LIMITED, "mixer state is explicit about transport-limited completeness");
 assertEqual(createProgramAudioSource({ id: "bus", kind: ProgramAudioSourceKind.BUS }).kind, "bus", "soundboard/bus is a mixer source kind");
 const inspection = inspectComposedMaster({
   video: { kind: ProgramVideoSourceKind.ELEMENT, stream: null },
@@ -162,6 +177,8 @@ const inspection = inspectComposedMaster({
 });
 assertEqual(inspection.ok, false, "composed master does not fake iframe pixels");
 assertEqual(inspection.mode, "fallback-display", "tab-capture remains the honest fallback");
+assert(live.includes("ProductionEventType.RECORDING_STOPPED"), "real stopRecording path emits RECORDING_STOPPED");
+assert(live.includes("video: { kind: \"unavailable\"") && live.includes("cross-origin-vdo-iframes"), "composed recorder path is explicitly unavailable when video stream is null");
 
 console.log("\nTranscript attribution / Host directive authority");
 const event = createTranscriptEvent({ participantId: "g-tukta", role: "guest", speaker: "Tukta", text: "Toasty, find me something" });
@@ -196,6 +213,7 @@ assert(sessionStub.researchContext.objective.includes("pricing"), "ResearchConte
 const timeline = new ProductionTimeline();
 timeline.record(ProductionEventType.SHARE_STARTED, { transportSourceId: "tmroomsabcd1234" }, { participantId: "host" });
 assertEqual(timeline.items[0].type, "share-started", "production breadcrumbs are timestampable");
+assert(src("js/production-controller.js").includes("ProductionEventType.ASSET_TAKEN_LIVE"), "asset/audio actions write ProductionTimeline events");
 const destinations = new ProgramDestinationRouter();
 assert(destinations.list().some((item) => item.kind === ProgramDestinationKind.TOASTY_AUDIENCE), "Toasty Audience destination exists");
 assertEqual(destinations.goLive("youtube").ok, false, "unimplemented destinations are not faked live");

@@ -188,6 +188,15 @@ export function formatDiagnostics(snapshot) {
       lines.push(`${name} audioLevel ${Number(entry.audioLevel || 0).toFixed(2)} speaking ${entry.speaking ? "YES" : "NO"}`);
     });
   }
+  if (safe.programAudio) {
+    lines.push("— PROGRAM AUDIO —");
+    lines.push(`completeness ${safe.programAudio.completeness || "?"} master ${safe.programAudio.masterReady ? "available" : "missing"} bus ${safe.programAudio.captureAvailable ? "available" : "missing"}`);
+    (safe.programAudio.sources || []).forEach((source) => {
+      const label = source.participantId ? `${source.participantId} voice` : source.id;
+      const state = source.connected ? "available" : (source.transportLimited ? "transport-limited" : "missing");
+      lines.push(`${label}: ${state}${source.reason ? ` (${source.reason})` : ""}`);
+    });
+  }
   return lines.join("\n");
 }
 

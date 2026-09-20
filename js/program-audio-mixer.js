@@ -23,6 +23,12 @@ export const ProgramAudioSourceKind = Object.freeze({
   MEDIA: "media"
 });
 
+export const ProgramAudioCompleteness = Object.freeze({
+  COMPLETE: "COMPLETE",
+  PARTIAL: "PARTIAL",
+  TRANSPORT_LIMITED: "TRANSPORT_LIMITED"
+});
+
 export function createProgramAudioSource({
   id,
   kind = ProgramAudioSourceKind.PARTICIPANT,
@@ -53,13 +59,20 @@ export function serializeProgramAudioState(mixer) {
     transportLimited: Boolean(source.transportLimited),
     reason: source.reason || ""
   })) : [];
+  const connectedCount = sources.filter((source) => source.connected).length;
+  const transportLimitedCount = sources.filter((source) => source.transportLimited).length;
+  const participantSources = sources.filter((source) => source.kind === ProgramAudioSourceKind.PARTICIPANT);
+  const completeness = transportLimitedCount > 0
+    ? ProgramAudioCompleteness.TRANSPORT_LIMITED
+    : (participantSources.length > 0 && connectedCount < sources.length ? ProgramAudioCompleteness.PARTIAL : ProgramAudioCompleteness.COMPLETE);
   return {
+    completeness,
     masterReady: Boolean(mixer?.masterReady),
     captureAvailable: Boolean(mixer?.captureAvailable),
     busPlayId: mixer?.bus?.current?.playId || null,
     sourceCount: sources.length,
-    connectedCount: sources.filter((source) => source.connected).length,
-    transportLimitedCount: sources.filter((source) => source.transportLimited).length,
+    connectedCount,
+    transportLimitedCount,
     sources,
     audio: serializeProgramAudio(mixer?.command || null)
   };
@@ -113,7 +126,7 @@ export class ProgramAudioMixer {
         kind: ProgramAudioSourceKind.PARTICIPANT,
         participantId,
         label,
-        transportLimited: true,
+        transportLimited: Boolean(transportLimited),
         reason: transportLimited ? "vdo-cross-origin" : "missing-stream"
       });
     }

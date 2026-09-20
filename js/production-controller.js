@@ -11,6 +11,7 @@ import { ProgramAssetStatus, serializeProgramAsset } from "./program-asset.js";
 import { CompositionMode, ProgramLayout, ShareLayout } from "./program-composition.js";
 import { programAssetFromCatalogueItem } from "./asset-catalogue.js";
 import { buildPlayAudioCommand, buildStopAudioCommand, serializeProgramAudio } from "./program-audio.js";
+import { ProductionEventType } from "./production-timeline.js";
 
 export const ProductionActionType = Object.freeze({
   RESEARCH_REQUEST: "RESEARCH_REQUEST",
@@ -147,6 +148,11 @@ export class ProgramController {
       duration: command.duration,
       src: command.src
     });
+    this.session.timeline?.record?.(ProductionEventType.AUDIO_PLAYED, {
+      assetId: item.id,
+      playId: command.playId,
+      duration: command.duration
+    });
     this.session.noteProductionMarker?.("play-audio", item.displayName || item.id, initiator);
     this.session.emit?.("program-audio", command);
     this.session._publishControlNow?.() ?? this.session.publishProgramState?.();
@@ -170,6 +176,10 @@ export class ProgramController {
       initiator,
       duration: command.duration,
       src: command.src
+    });
+    this.session.timeline?.record?.(ProductionEventType.AUDIO_STOPPED, {
+      assetId: command.assetId,
+      playId: command.playId
     });
     this.session.noteProductionMarker?.("stop-audio", command.displayName || command.assetId || "audio", initiator);
     this.session.emit?.("program-audio", command);
@@ -196,6 +206,11 @@ export class ProgramController {
       layout: nextLayout,
       sourceUrl: asset.sourceUrl
     });
+    this.session.timeline?.record?.(ProductionEventType.ASSET_TAKEN_LIVE, {
+      assetId: asset.id,
+      layout: nextLayout,
+      sourceUrl: asset.sourceUrl
+    });
     this.session.noteProductionMarker?.("take-live", asset.title || asset.id, "producer");
     this.session.emit?.("program-asset", this.liveAsset());
     this.session._syncProgramPreview?.();
@@ -210,6 +225,7 @@ export class ProgramController {
     this.session.assets.update(targetId, { status: ProgramAssetStatus.REMOVED });
     this.session.program.assetLayout = null;
     this.session.productionLog?.record(ProductionActionType.REMOVE_ASSET, { assetId: targetId });
+    this.session.timeline?.record?.(ProductionEventType.ASSET_REMOVED, { assetId: targetId });
     this.session.noteProductionMarker?.("remove-asset", live.title || targetId, "producer");
     this.session.emit?.("program-asset", null);
     this.session._syncProgramPreview?.();
@@ -276,8 +292,8 @@ export class ProgramController {
 
   surfaceChat({ messageIds = [], initiator = "hottie" } = {}) {
     this.session.audience?.markSurfaced?.(messageIds);
-    this.session.timeline?.record?.("chat-surfaced", { messageIds });
     this.session.productionLog?.record(ProductionActionType.SURFACE_CHAT, { messageIds, initiator });
+    this.session.timeline?.record?.(ProductionEventType.CHAT_SURFACED, { messageIds, initiator });
     this.session.emit?.("audience", this.session.audience?.recent?.() || []);
     return { ok: true, messageIds };
   }

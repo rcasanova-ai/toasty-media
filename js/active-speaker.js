@@ -104,6 +104,14 @@ export class ActiveSpeakerController {
     };
   }
 
+  remove(participantId) {
+    if (!participantId) return;
+    this.levels.delete(participantId);
+    this.risingSince.delete(participantId);
+    this.lastHeardAt.delete(participantId);
+    if (this.currentId === participantId) this.currentId = null;
+  }
+
   snapshot() {
     return [...this.levels.entries()].map(([participantId, level]) => ({
       participantId,

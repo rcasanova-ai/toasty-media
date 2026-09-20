@@ -352,6 +352,7 @@ function outputStatusPayload() {
     audioError,
     videoReady,
     audioReady,
+    programAudio: programMixer.state(),
     readyToRecord: connection === OutputConnection.CONNECTED && videoReady && audioReady && scene === SceneId.LIVE
   };
 }
@@ -461,7 +462,8 @@ function outputDiagnosticsSnapshot(buildId) {
     })),
     screenShare: lastProgramState?.screenShare || null,
     screenHealth: mountedProgramTiles.get("__screen__")?.health || lastProgramState?.screenShare?.state || "inactive",
-    activity: lastProgramState?.audioActivity || []
+    activity: lastProgramState?.audioActivity || [],
+    programAudio: programMixer.state()
   };
 }
 
@@ -484,4 +486,3 @@ async function startOutputDebugMedia() {
     console.error("[Program Output] debugMedia failed open; output continues", error);
   }
 }
-

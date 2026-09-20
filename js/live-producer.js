@@ -16,6 +16,7 @@ import { ProductionActionType } from "./production-controller.js";
 import { ProgramLayout } from "./program-composition.js";
 import { createResearchProvider } from "./hottie-research.js";
 import { resolveSoundCommand } from "./soundboard.js";
+import { ProductionEventType } from "./production-timeline.js";
 
 export const ProducerEventType = Object.freeze({
   HOST_DIRECTIVE: "host_directive",
@@ -260,6 +261,11 @@ export class LiveProducerController {
     const result = this.session.programController?.execute(action);
     if (result?.ok) {
       this.session.productionLog?.record(action.type, { feedEntryId, approved: true });
+      this.session.timeline?.record?.(ProductionEventType.HOTTIE_ACTION, {
+        feedEntryId,
+        type: action.type,
+        approved: true
+      });
       this.session.aiProducerFeed.replace(feedEntryId, {
         proposal: { ...entry.proposal, doing: false, requiresApproval: false, executed: true }
       });
@@ -323,6 +329,11 @@ export class LiveProducerController {
     });
     if (directive.status) directive.status = DirectiveStatus.QUEUED;
     this.session.productionLog?.record(ProductionActionType.ASSET_PROPOSAL, {
+      directiveId: directive.id,
+      assetId: asset.id,
+      sourceUrl: asset.sourceUrl
+    });
+    this.session.timeline?.record?.(ProductionEventType.ASSET_PROPOSED, {
       directiveId: directive.id,
       assetId: asset.id,
       sourceUrl: asset.sourceUrl

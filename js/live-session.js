@@ -669,9 +669,20 @@ export class LiveSession {
     // Timeline record here (not just in kickGuest) is what covers the more common case — a guest whose
     // connection simply dropped, never explicitly kicked. A kicked seat is already null by the time this
     // runs (kickGuest nulls it directly), so this never double-records a kick.
+    const departedSeats = [];
     this.guestSeats.forEach((seat) => {
       if (seat && !stillPresent.has(seat.id)) {
+        departedSeats.push(seat);
         this.timeline.record(ProductionEventType.PARTICIPANT_LEFT, { role: "guest" }, { participantId: seat.id, sessionId: this.durableSession?.id || this.roomId });
+      }
+    });
+    departedSeats.forEach((seat) => {
+      this._audioActivity.delete(seat.id);
+      if (seat.presenceParticipantId) this._audioActivity.delete(seat.presenceParticipantId);
+      this._activeSpeaker.remove?.(seat.id);
+      if (seat.presenceParticipantId) this._activeSpeaker.remove?.(seat.presenceParticipantId);
+      if (this.program.activeParticipantId === seat.id || this.program.activeParticipantId === seat.presenceParticipantId) {
+        this.program.activeParticipantId = null;
       }
     });
     this.guestSeats = this.guestSeats.map((seat) => (seat && stillPresent.has(seat.id) ? seat : null));
@@ -1222,6 +1233,12 @@ export class LiveSession {
       this.program.layout = layout;
     }
     if (manual) this.program.layoutManualOverride = true;
+    this.timeline.record(ProductionEventType.LAYOUT_CHANGED, {
+      layout: this.program.layout,
+      compositionMode: this.program.compositionMode,
+      shareLayout: this.program.shareLayout || null,
+      manual
+    });
     this.publishProgramState();
     this.emit("program", this.program);
     this._syncProgramPreview();
@@ -1261,6 +1278,12 @@ export class LiveSession {
   setShareLayout(shareLayout) {
     this.program.shareLayout = Object.values(ShareLayout).includes(shareLayout) ? shareLayout : ShareLayout.SCREEN_SPEAKER;
     this.program.layout = this.program.shareLayout;
+    this.timeline.record(ProductionEventType.LAYOUT_CHANGED, {
+      layout: this.program.layout,
+      compositionMode: this.program.compositionMode,
+      shareLayout: this.program.shareLayout,
+      manual: true
+    });
     this.publishProgramState();
     this.emit("program", this.program);
     this._syncProgramPreview();
@@ -1339,14 +1362,19 @@ export class LiveSession {
   }
 
   async stopScreenShare() {
+    const previousShare = this.screenShare;
+    const ownerParticipantId = previousShare?.ownerParticipantId || previousShare?.participantId || "host";
+    const isHostShare = ownerParticipantId === "host";
     const camera = this._hostPreviewStream;
     const cameraFrame = this.engine.frames.get("host");
-    this.screenShare?.stream?.getTracks?.().forEach((track) => track.stop());
-    this.engine.send("screen-push", { hangup: true });
-    if (this._containers?.hostScreenTransport) this.engine.unmountFrame(this._containers.hostScreenTransport, "screen-push", "");
-    this.screenShare = createScreenShareSource({ ownerParticipantId: "host", state: ScreenShareState.ENDED });
-    this.presence?.setScreenShare({ active: false, participantId: "host", transportSourceId: null });
-    this.presence?.publishNow?.();
+    previousShare?.stream?.getTracks?.().forEach((track) => track.stop());
+    if (isHostShare) {
+      this.engine.send("screen-push", { hangup: true });
+      if (this._containers?.hostScreenTransport) this.engine.unmountFrame(this._containers.hostScreenTransport, "screen-push", "");
+      this.presence?.setScreenShare({ active: false, participantId: "host", transportSourceId: null });
+      this.presence?.publishNow?.();
+    }
+    this.screenShare = createScreenShareSource({ ownerParticipantId, state: ScreenShareState.ENDED });
     const restore = this._preShareComposition || {};
     this.program.shareLayout = null;
     this.program.compositionMode = restore.mode || CompositionMode.BALANCED;
@@ -1357,7 +1385,7 @@ export class LiveSession {
     this.exposeProgramSources();
     if (camera) this._hostPreviewStream = camera;
     if (cameraFrame && this.engine.frames.get("host") !== cameraFrame) this.engine.frames.set("host", cameraFrame);
-    this.timeline.record(ProductionEventType.SHARE_STOPPED, {}, { participantId: "host" });
+    this.timeline.record(ProductionEventType.SHARE_STOPPED, {}, { participantId: ownerParticipantId });
     this._publishControlNow();
     this.emit("screenshare", this.screenShare);
     this.emit("program", this.program);
@@ -1617,6 +1645,12 @@ export class LiveSession {
       persisted
     };
     this._setRecording(idleRecordingState(last));
+    this.timeline.record(ProductionEventType.RECORDING_STOPPED, {
+      recordingId: captureResult.recordingId,
+      mode: captureResult.mode || this._masterRecorder?.mode || null,
+      durationSeconds: manifest.durationSeconds,
+      persisted
+    });
     this.publishProgramState();
     this.emit("recording-status", persisted ? "RECORDING SAVED" : "Recording saved in this tab. Download it now.");
     return last;
@@ -1628,6 +1662,12 @@ export class LiveSession {
       label,
       source,
       timestamp: Date.now()
+    });
+    this.timeline.record(ProductionEventType.MARKER_ADDED, {
+      markerId: marker.id,
+      markerType: marker.type,
+      label: marker.label,
+      source: marker.source
     });
     this.productionLog.record(ProductionActionType.MARKER, {
       markerId: marker.id,
