@@ -212,7 +212,7 @@ export class RoomPresence {
     };
   }
 
-  // Admission-only announce — does NOT start the 5s heartbeat and does NOT mount any VDO transport.
+  // Admission-only announce — does NOT start the HEARTBEAT_MS-interval heartbeat and does NOT mount any VDO transport.
   // js/guest.js calls this BEFORE mountGuestFrame so a rejected/failed presence announce cannot leave
   // the guest as a receive-only VDO participant. Returns true only when this participant is actually
   // on the returned roster.

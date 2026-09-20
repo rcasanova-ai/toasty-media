@@ -164,9 +164,6 @@ console.log("\nProgram Output receives serialized participants and always mounts
   assert(listener.includes("programFeedHealth"), "VIDEO READY uses source health, not iframe existence");
   assert(listener.includes("readyToRecord: connection === OutputConnection.CONNECTED && videoReady && audioReady"), "readyToRecord requires connected + playing + audio");
   assert(!/videoEnabled:\s*audioUnlocked/.test(listener), "video is not gated on the audio click");
-  const outputCss = readFileSync(join(ROOT, "css/program-output.css"), "utf8");
-  assert(outputCss.includes("must NOT cover the"), "audio gate documents that it must not cover tiles");
-  assert(!/^\s*inset:\s*0;/m.test(outputCss.slice(outputCss.indexOf(".po-audio-gate {"), outputCss.indexOf(".po-audio-gate[hidden]"))), "audio gate is not a full-canvas overlay");
   const liveSessionSrc = readFileSync(join(ROOT, "js/live-session.js"), "utf8");
   assert(liveSessionSrc.includes("exposeProgramSources"), "Director exposes hostStream to Program Output");
   assert(liveSessionSrc.includes("output-status"), "Director consumes ProgramSync output-status");
@@ -181,7 +178,7 @@ console.log("\nProgram Output receives serialized participants and always mounts
 const listenerHtml = readFileSync(join(ROOT, "studio/listener.html"), "utf8");
 assert(!listenerHtml.includes("poLiveBadge"), "top-right LIVE markup removed");
 assert(listenerHtml.includes("poLiveChip"), "bottom-left LIVE chip remains");
-assert(listenerHtml.includes("Enable program audio"), "Program Output still has the audio gate");
+assert(!listenerHtml.includes("Enable program audio"), "Program Output has no blocking startup audio modal");
 assert(!listener.includes("getUserMedia"), "Program Output does not reacquire cameras");
 
 console.log("\nProgramSync output-status does not break state messages");

@@ -483,8 +483,9 @@ async function main() {
     assert(listener.includes('role: "output"'), "Program Output joins presence as output");
     assert(listener.includes("startOutputDebugMedia"), "Program Output mounts the presence debug overlay");
     assert(listener.includes("syncProgramRenderer"), "listener still uses Program Renderer");
-    assert(listener.includes("Program audio failed"), "failed audio handshake stays visible");
+    assert(listener.includes('audioError = failures.join(" · ")'), "failed audio handshake is still tracked in reported status, not silently dropped");
     assert(listener.includes("await programAudio.resume()"), "audio handshake resumes AudioContext");
+    assert(!listener.includes("audioGate"), "no blocking startup audio modal");
     const engineDebug = readFileSync(join(ROOT, "js/video-engine.js"), "utf8");
     assert(engineDebug.includes("copyDebugMediaFlag"), "Guest and Program Output invites inherit debugMedia");
     const diagnostics = readFileSync(join(ROOT, "js/media-diagnostics.js"), "utf8");

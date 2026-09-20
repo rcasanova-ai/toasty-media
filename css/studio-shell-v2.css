@@ -1143,90 +1143,6 @@ body.studio-public-shell[data-brand-theme] {
   text-wrap: balance;
 }
 
-.program-output[data-brand-theme] .po-audio-gate {
-  align-items: center;
-  background: linear-gradient(0deg, color-mix(in srgb, var(--ui-bg) 94%, #000), transparent);
-  color: var(--ui-text);
-  inset: auto 0 0 0;
-  justify-content: flex-end;
-  padding: 1rem 1.1rem 1.1rem;
-  top: auto;
-}
-
-.po-audio-gate-panel {
-  align-items: center;
-  background:
-    linear-gradient(145deg, color-mix(in srgb, var(--ui-primary) 8%, transparent), transparent 42%),
-    var(--ui-panel);
-  border: 1px solid var(--ui-line);
-  border-radius: var(--ui-radius-lg);
-  box-shadow: var(--ui-shadow);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-width: 420px;
-  padding: 14px 18px 16px;
-  position: relative;
-  width: min(100%, 420px);
-}
-
-.po-audio-gate-brand {
-  height: 52px;
-  margin-bottom: 16px;
-  max-width: 210px;
-  object-fit: contain;
-}
-
-.po-audio-gate-kicker {
-  color: var(--ui-primary);
-  font-family: var(--brand-heading-font);
-  font-size: .68rem;
-  font-weight: 800;
-  letter-spacing: .16em;
-  text-transform: uppercase;
-}
-
-.program-output[data-brand-theme] .po-audio-gate-label {
-  color: var(--ui-text);
-  font-family: var(--brand-heading-font);
-  font-size: clamp(1.65rem, 3vw, 2.5rem);
-  letter-spacing: -.035em;
-  line-height: 1.05;
-}
-
-.program-output[data-brand-theme] .po-audio-gate-note {
-  color: var(--ui-muted);
-  line-height: 1.55;
-  max-width: 330px;
-}
-
-.po-audio-gate-action {
-  align-items: center;
-  background: var(--ui-gradient);
-  border-radius: 11px;
-  color: var(--ui-button-text);
-  display: inline-flex;
-  font-family: var(--brand-heading-font);
-  font-size: .8rem;
-  font-weight: 800;
-  gap: 10px;
-  margin-top: 16px;
-  min-height: 48px;
-  padding: 0 20px;
-}
-
-.program-output[data-brand-theme] .po-audio-gate-icon {
-  background: transparent;
-  border-radius: 0;
-  height: 14px;
-  width: 12px;
-}
-
-.program-output[data-brand-theme] .po-audio-gate-icon::before {
-  border-color: transparent transparent transparent var(--ui-button-text);
-  border-width: 7px 0 7px 11px;
-}
-
 .program-output[data-brand-theme="8alta"] .po-canvas::before {
   background-image: linear-gradient(120deg, transparent 48%, var(--ui-line) 49%, transparent 50%);
   background-size: 90px 90px;
@@ -1350,10 +1266,6 @@ body.studio-public-shell[data-brand-theme] {
      this exact real-phone width, undoing the base 16/10 "one screen, no scroll" fix (see studio.css's own
      comment on .preview-stage) right where it mattered most. This is likely why the giant preview region
      was still reported from a real device despite the base fix already being in place. */
-
-  .po-audio-gate-panel {
-    padding: 12px 16px;
-  }
 }
 
 .studio-shell[data-brand-theme] .brand-block,

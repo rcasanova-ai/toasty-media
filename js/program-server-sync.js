@@ -1,6 +1,13 @@
 import { studioApiEndpoint } from "./studio-api.js";
 
-const DEFAULT_POLL_MS = 1500;
+// nginx's toasty_presence zone (render.toasty.media, /etc/nginx/conf.d/toasty-render-rate-limit.conf)
+// allows 60r/m + burst 20 per client IP across /api/presence/(announce|room|leave) combined — sized for
+// js/room-presence.js's 5s heartbeat (~12r/m per participant). A 1500ms poll adds ~40r/m per open Program
+// Output on top of that, and Producer + Output usually share one IP (same operator, same network), so the
+// shared budget saturates and nginx starts returning 503 to both the poll and the Producer's own publish
+// (confirmed live via nginx's error.log: "limiting requests... by zone toasty_presence" on both request
+// types). 5000ms matches the heartbeat cadence the zone was actually sized for.
+const DEFAULT_POLL_MS = 5000;
 
 export class ProgramServerSubscriber {
   constructor({

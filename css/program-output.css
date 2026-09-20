@@ -692,65 +692,8 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
   text-transform: uppercase;
 }
 
-/* Audio enable control. Video mounts immediately while live; this banner must NOT cover the
-   participant tiles — Producer has to see Host/Guest video before recording. */
-.po-audio-gate {
-  align-items: stretch;
-  background: linear-gradient(0deg, rgba(6, 5, 4, 0.94), rgba(6, 5, 4, 0.72) 70%, transparent);
-  border: 0;
-  bottom: 0;
-  color: var(--po-video-text);
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  font-family: var(--po-font-body);
-  gap: 0.5rem;
-  justify-content: flex-end;
-  left: 0;
-  padding: 2.4rem 1.4rem 1.2rem;
-  position: absolute;
-  right: 0;
-  text-align: center;
-  z-index: 20;
-}
-
-.po-audio-gate[hidden] {
-  display: none;
-}
-
-.po-audio-gate-icon {
-  align-items: center;
-  background: var(--studio-orange);
-  border-radius: 50%;
-  display: flex;
-  height: clamp(48px, 7vw, 72px);
-  justify-content: center;
-  width: clamp(48px, 7vw, 72px);
-}
-
-.po-audio-gate-icon::before {
-  border-color: transparent transparent transparent var(--po-video-text);
-  border-style: solid;
-  border-width: 0.6em 0 0.6em 1em;
-  content: "";
-  margin-left: 0.15em;
-}
-
-.po-audio-gate-label {
-  font-family: var(--po-font-heading);
-  font-size: clamp(0.95rem, 2vw, 1.3rem);
-  font-weight: 800;
-}
-
-.po-audio-gate-note {
-  color: var(--po-video-text-dim);
-  font-size: clamp(0.7rem, 1.2vw, 0.85rem);
-  max-width: 30em;
-}
-
 /* Default-off. Created only by js/media-diagnostics.js when ?debugMedia=1 is on the Program Output
-   URL. Must sit above .po-audio-gate (z-index 20) so Host+Guest+Output heartbeats stay readable
-   during the audio handshake. */
+   URL. */
 #toastyMediaDiagnostics {
   background: rgba(8, 6, 5, 0.88);
   border: 1px solid rgba(255, 171, 92, 0.45);
