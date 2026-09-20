@@ -43,6 +43,10 @@ const elements = {
   directorControlFrame: document.querySelector("#directorControlFrame"),
   recChip: document.querySelector("#lvRecChip"),
   recChipTime: document.querySelector("#lvRecChipTime"),
+  studioSessionStatus: document.querySelector("#studioSessionStatus"),
+  studioProgramOutputPill: document.querySelector("#studioProgramOutputPill"),
+  studioRailAudioState: document.querySelector("#studioRailAudioState"),
+  studioRailRecordingState: document.querySelector("#studioRailRecordingState"),
   policyChip: document.querySelector("#lvPolicyChip"),
   sessionDate: document.querySelector("#sessionDate"),
   sessionTime: document.querySelector("#sessionTime"),
@@ -74,7 +78,9 @@ const elements = {
   lvForceHeuristicMode: document.querySelector("#lvForceHeuristicMode"),
   lvHostRelationship: document.querySelector("#lvHostRelationship"),
   lvShowTone: document.querySelector("#lvShowTone"),
-  lvProducerAutonomy: document.querySelector("#lvProducerAutonomy")
+  lvProducerAutonomy: document.querySelector("#lvProducerAutonomy"),
+  toolButtons: [...document.querySelectorAll("[data-studio-tool]")],
+  toolPanels: [...document.querySelectorAll("[data-studio-tool-panel]")]
 };
 
 init();
@@ -89,6 +95,7 @@ async function init() {
   applySelectedBrand();
   const durableSession = await resolveSession({ brandId: session.brandTheme });
   session.applyDurableSession(durableSession);
+  if (elements.studioSessionStatus) elements.studioSessionStatus.textContent = durableSession.title || "Untitled";
   void session.loadProfileEndCard();
   initStudio();
 }
@@ -146,6 +153,7 @@ function initStudio() {
   session.on("policy", renderPolicyChip);
   session.on("connection", renderBroadcastChip);
   session.on("program", renderBroadcastChip);
+  session.on("program-output", renderBroadcastChip);
   session.on("brand", () => { applySelectedBrand(); updateInviteFields(); });
   session.on("room", updateInviteFields);
 
@@ -179,7 +187,10 @@ function bindViewSwitch() {
   elements.viewButtons.forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.lvViewBtn));
   });
-  setView("host");
+  elements.toolButtons.forEach((button) => {
+    button.addEventListener("click", () => setProducerTool(button.dataset.studioTool));
+  });
+  setView("producer");
 }
 
 function setView(view) {
@@ -188,6 +199,22 @@ function setView(view) {
   // Queried live (not cached at init time) so panels mounted later by other controllers — e.g. the
   // Producer-only broadcast card injected into .rail-right — are still gated correctly.
   document.querySelectorAll("[data-lv-only]").forEach((panel) => { panel.hidden = panel.dataset.lvOnly !== view; });
+  setProducerTool(currentProducerTool());
+}
+
+function currentProducerTool() {
+  return elements.toolButtons.find((button) => button.getAttribute("aria-pressed") === "true")?.dataset.studioTool || "runshow";
+}
+
+function setProducerTool(tool = "runshow") {
+  const activeTool = tool || "runshow";
+  const producerActive = elements.liveConsole?.dataset.lvView === "producer";
+  elements.toolButtons.forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.studioTool === activeTool));
+  });
+  elements.toolPanels.forEach((panel) => {
+    panel.hidden = !producerActive || panel.dataset.studioToolPanel !== activeTool;
+  });
 }
 
 function bindRailControls() {
@@ -288,6 +315,9 @@ function syncJamFieldsFromPolicy() {
 
 function renderRecChip(recording) {
   elements.recChip.hidden = !recording.active;
+  if (elements.studioRailRecordingState) {
+    elements.studioRailRecordingState.textContent = recording.status === "saving" ? "Saving" : recording.active ? "Recording" : "Idle";
+  }
   if (recording.active && recording.startedAt) {
     const elapsed = Math.floor((Date.now() - recording.startedAt) / 1000);
     const hours = String(Math.floor(elapsed / 3600)).padStart(2, "0");
@@ -323,6 +353,15 @@ function setBroadcastChip(state, label) {
   elements.connectionState.textContent = label;
   const textEl = elements.connectionChip.querySelector(".on-air-text");
   if (textEl) textEl.textContent = state === "live" ? "ON AIR" : state === "ready" ? "READY" : state === "error" ? "ERROR" : "OFFLINE";
+  const output = session.programOutput || {};
+  const outputConnected = output.connection === "connected" || output.connected;
+  if (elements.studioProgramOutputPill) {
+    elements.studioProgramOutputPill.dataset.state = outputConnected ? "ready" : "offline";
+    elements.studioProgramOutputPill.textContent = outputConnected ? "Program Output connected" : "Program Output offline";
+  }
+  if (elements.studioRailAudioState) {
+    elements.studioRailAudioState.textContent = output.audioError ? "Error" : output.audioReady ? "Ready" : "Pending";
+  }
 }
 
 async function inviteGuest() {
