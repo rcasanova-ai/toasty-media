@@ -112,7 +112,11 @@ html, body {
    would make that text illegible on a light brand — color-mix against --po-surface keeps the same
    fade-to-transparent shape while matching whatever surface tone the active brand actually uses. */
 .po-chrome-top {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--po-surface) 70%, transparent), transparent);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--studio-orange-bright) 14%, transparent), transparent 32%),
+    linear-gradient(180deg, color-mix(in srgb, var(--po-surface) 82%, transparent), color-mix(in srgb, var(--po-surface) 36%, transparent) 58%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--studio-line) 56%, transparent);
+  box-shadow: 0 16px 42px color-mix(in srgb, #000 18%, transparent);
 }
 
 /* Logo left, headline/session immediately beside it (not pushed to the far right by the flex parent's
@@ -131,6 +135,7 @@ html, body {
 .po-brand img {
   display: block;
   height: clamp(22px, 3.4vw, 38px);
+  filter: drop-shadow(0 8px 20px color-mix(in srgb, #000 26%, transparent));
   width: auto;
 }
 
@@ -244,7 +249,9 @@ html, body {
 
 .po-ticker {
   align-items: center;
-  background: color-mix(in srgb, var(--studio-surface) 92%, transparent);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--studio-orange-bright) 10%, transparent), transparent 24%),
+    color-mix(in srgb, var(--studio-surface) 92%, transparent);
   border: 1px solid color-mix(in srgb, var(--studio-line) 80%, transparent);
   border-left: 3px solid var(--studio-orange-bright);
   border-radius: 5px;
@@ -263,7 +270,7 @@ html, body {
      always sit over a dark video scrim. --studio-cream already flips per brand to stay readable against
      --studio-surface (e.g. dark text on Peeps' cream surface) — --po-video-text is fixed light-only,
      which is invisible on a light brand surface. */
-  animation: po-ticker-scroll var(--po-ticker-duration, 16s) linear infinite;
+  animation: po-ticker-scroll var(--po-ticker-duration, 34s) linear infinite;
   color: var(--studio-cream);
   display: inline-block;
   font-family: var(--po-font-heading);
@@ -276,8 +283,8 @@ html, body {
 }
 
 @keyframes po-ticker-scroll {
-  from { transform: translateX(100%); }
-  to { transform: translateX(-100%); }
+  from { transform: translateX(var(--po-ticker-start, 100%)); }
+  to { transform: translateX(var(--po-ticker-end, -100%)); }
 }
 
 /* Live stage: speaker/screen tile grid */
@@ -725,6 +732,105 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
   z-index: 4;
 }
 
+body.program-output[data-brand-theme] .po-scene-screen {
+  background:
+    radial-gradient(900px 520px at 50% 22%, color-mix(in srgb, var(--studio-orange-bright) 14%, transparent), transparent 66%),
+    radial-gradient(720px 420px at 18% 88%, color-mix(in srgb, var(--studio-client-glow) 72%, transparent), transparent 70%),
+    var(--studio-surface-gradient, linear-gradient(transparent, transparent)),
+    linear-gradient(180deg, color-mix(in srgb, var(--studio-canvas) 94%, transparent), var(--studio-canvas));
+  isolation: isolate;
+  overflow: hidden;
+}
+
+body.program-output[data-brand-theme] .po-scene-screen > * {
+  position: relative;
+  z-index: 3;
+}
+
+body.program-output[data-brand-theme] .po-scene-screen::before {
+  background:
+    var(--studio-watermark-image, none) 9% 88% / min(30vw, 360px) auto no-repeat,
+    var(--studio-silhouette-image, none) center bottom / min(76vw, 980px) auto no-repeat,
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--studio-orange-bright) 20%, transparent), transparent);
+  border: 0;
+  border-radius: 0;
+  bottom: 0;
+  content: "";
+  height: 52%;
+  left: 0;
+  opacity: 0.5;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  transform: none;
+  width: auto;
+  z-index: 1;
+}
+
+body.program-output[data-brand-theme] .po-scene-screen::after {
+  background:
+    repeating-linear-gradient(90deg, color-mix(in srgb, var(--studio-cream) 5%, transparent) 0 1px, transparent 1px 84px),
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--studio-cream) 4%, transparent) 0 1px, transparent 1px 72px);
+  border: 1px solid color-mix(in srgb, var(--studio-line) 70%, transparent);
+  border-radius: 0;
+  content: "";
+  inset: clamp(1rem, 3vw, 2.6rem);
+  height: auto;
+  mask-image: linear-gradient(180deg, transparent, #000 22%, #000 74%, transparent);
+  opacity: 0.42;
+  pointer-events: none;
+  position: absolute;
+  width: auto;
+  z-index: 2;
+}
+
+body.program-output[data-brand-theme="toasty"] .po-scene-screen::before,
+body.program-output[data-brand-theme="santati"] .po-scene-screen::before,
+body.program-output[data-brand-theme="optimai"] .po-scene-screen::before,
+body.program-output[data-brand-theme="tangem"] .po-scene-screen::before {
+  background:
+    var(--studio-watermark-image, none) 8% 88% / min(28vw, 320px) auto no-repeat,
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--studio-orange-bright) 18%, transparent), transparent);
+}
+
+body.program-output[data-brand-theme="superteam"] .po-scene-screen::before {
+  opacity: 0.68;
+}
+
+body.program-output[data-brand-theme="8alta"] .po-scene-screen::before {
+  filter: sepia(0.28) saturate(0.82);
+  opacity: 0.4;
+}
+
+body.program-output[data-brand-theme="peeps"] .po-scene-screen::before {
+  opacity: 0.52;
+}
+
+body.program-output[data-scene="brb"] .po-scene-screen {
+  background:
+    radial-gradient(760px 440px at 50% 28%, color-mix(in srgb, var(--studio-client-glow) 44%, transparent), transparent 70%),
+    var(--studio-surface-gradient, linear-gradient(transparent, transparent)),
+    var(--studio-canvas);
+}
+
+body.program-output[data-scene="technical-difficulties"] .po-scene-screen {
+  background:
+    radial-gradient(720px 420px at 50% 28%, color-mix(in srgb, var(--studio-amber) 16%, transparent), transparent 66%),
+    linear-gradient(180deg, color-mix(in srgb, var(--studio-burnt) 12%, var(--studio-canvas)), var(--studio-canvas));
+}
+
+body.program-output[data-scene="technical-difficulties"] .po-scene-screen::after {
+  border-color: color-mix(in srgb, var(--studio-amber) 34%, transparent);
+  opacity: 0.5;
+}
+
+body.program-output[data-scene="ending"] .po-scene-screen {
+  background:
+    radial-gradient(760px 460px at 50% 24%, color-mix(in srgb, var(--studio-orange-bright) 18%, transparent), transparent 68%),
+    var(--studio-surface-gradient, linear-gradient(transparent, transparent)),
+    var(--studio-canvas);
+}
+
 .program-output[data-scene="holding"] .po-holding,
 .program-output[data-scene="brb"] .po-brb,
 .program-output[data-scene="technical-difficulties"] .po-technical,
@@ -748,6 +854,8 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
 
 .po-scene-mark img {
   height: clamp(52px, 9vw, 96px);
+  max-width: min(42vw, 320px);
+  object-fit: contain;
   width: auto;
 }
 
@@ -766,8 +874,10 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
   font-family: var(--po-font-heading);
   font-size: clamp(1.4rem, 4vw, 3rem);
   font-weight: 900;
+  line-height: 1.04;
   margin: 0;
   max-width: 80%;
+  text-wrap: balance;
 }
 
 .po-scene-session {
