@@ -1088,7 +1088,8 @@
    off-screen via position rather than display:none/visibility:hidden — some browsers deprioritize or
    throttle WebRTC encoding in zero-rendered iframes, and this still paints, just far outside the
    viewport. */
-.lv-hidden-transport {
+.lv-hidden-transport,
+.guest-screen-transport {
   height: 2px;
   left: -9999px;
   overflow: hidden;
@@ -3735,6 +3736,22 @@
 }
 .lv-program-preview[data-layout="asset-full"] { grid-template-columns: 1fr; }
 .lv-program-preview[data-layout="asset-speaker"] { grid-template-columns: 3fr 1fr; }
+.lv-program-preview[data-layout="spotlight"],
+.lv-program-preview[data-layout="active-speaker"],
+.lv-program-preview[data-layout="screen-speaker"] { grid-template-columns: 3.2fr 1fr; }
+.lv-program-preview[data-layout="screen-only"],
+.lv-program-preview[data-layout="screen-dominant"] { grid-template-columns: 1fr; }
+.lv-program-preview[data-layout="screen-strip"] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr) 22%;
+}
+.lv-program-preview[data-layout="screen-strip"] .po-tile[data-role="screen"] {
+  grid-column: 1 / -1;
+}
+.lv-program-preview { transition: grid-template-columns 280ms ease, grid-template-rows 280ms ease; }
+.lv-program-preview .po-tile { cursor: pointer; transition: opacity 220ms ease, transform 280ms ease; }
+.lv-program-preview .po-tile[data-role="screen"],
+.lv-program-preview .po-tile[data-role="asset"] { cursor: default; }
 .lv-program-preview[data-layout="asset-speaker-pip"] { grid-template-columns: 1fr; }
 .lv-program-preview[data-layout="asset-speaker-pip"] .po-tile[data-role="speaker"] {
   bottom: 0.55rem;
@@ -3817,6 +3834,49 @@
   letter-spacing: 0.08em;
   margin: 0;
   text-transform: uppercase;
+}
+
+.po-asset-hottie {
+  color: var(--studio-cream-dim, #d3c2ac);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  margin: 0;
+  opacity: 0.82;
+  text-transform: uppercase;
+}
+
+.lv-hottie-rail {
+  border: 1px solid var(--studio-line);
+  border-radius: 8px;
+  display: grid;
+  gap: 0.4rem;
+  margin: 0 0 0.7rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.lv-hottie-status {
+  color: var(--studio-orange-bright, #ffab5c);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.lv-hottie-status[data-state="thinking"],
+.lv-hottie-status[data-state="researching"] { color: var(--studio-amber, #ffc670); }
+.lv-hottie-status[data-state="found"],
+.lv-hottie-status[data-state="ready"] { color: var(--studio-green, #34c77b); }
+.lv-hottie-status[data-state="on-air"] { color: #ff8d86; }
+
+.lv-hottie-proposal {
+  color: var(--studio-cream-dim, #d3c2ac);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.lv-panel-head--sub {
+  margin-top: 0.85rem;
 }
 
 .po-asset-title {
@@ -4892,153 +4952,129 @@
    color-mix() (broadly supported in current Chrome/Safari) is what makes --lower-third-bg semi-transparent
    without needing a second, separately-maintained alpha color per theme. */
 body {
-  --lower-third-bg: color-mix(in srgb, var(--studio-surface) 82%, transparent);
+  --lower-third-bg: color-mix(in srgb, var(--studio-surface) 88%, transparent);
   --lower-third-accent: var(--brand-primary);
   --lower-third-fg: var(--brand-text);
   --lower-third-secondary: var(--brand-text-muted);
   --lower-third-border: var(--brand-border);
-  --lower-third-radius: var(--studio-card-radius, 10px);
-  --lower-third-shadow: 0 6px 18px color-mix(in srgb, var(--studio-button-shadow, #000) 55%, transparent);
+  --lower-third-radius: 0;
+  --lower-third-shadow: 0 10px 24px color-mix(in srgb, #000 42%, transparent);
 }
 
-.lv-lower-third {
-  align-items: center;
-  backdrop-filter: blur(7px);
-  -webkit-backdrop-filter: blur(7px);
-  background: var(--lower-third-bg);
-  border: 1px solid var(--lower-third-border);
-  border-radius: var(--lower-third-radius);
-  bottom: 8px;
-  box-shadow: var(--lower-third-shadow);
+.lv-lower-third,
+.lv-lower-third--broadcast {
+  align-items: stretch;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  bottom: 10px;
+  box-shadow: none;
+  clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%, 0 12px);
   display: flex;
-  gap: 0.5rem;
-  left: 8px;
-  max-width: calc(100% - 16px);
+  gap: 0;
+  left: 10px;
+  max-width: min(72%, calc(100% - 20px));
   overflow: hidden;
-  padding: 0.4rem 0.7rem 0.4rem 0.6rem;
+  padding: 0;
   pointer-events: none;
   position: absolute;
-  right: 8px;
   width: fit-content;
   z-index: 3;
+  animation: lowerThirdIn 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* Accent bar — the "connected to the broadcast identity" cue every treatment keeps, only the color/width
-   changes per theme (solid-accent-bar's plain --lower-third-accent vs. e.g. navy-flag-bar's own
-   multi-stripe --studio-identity-stripe, already computed per theme by applyArtworkTokens). */
-.lv-lower-third::before {
+@keyframes lowerThirdIn {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.lv-lower-third-rail {
   background: var(--lower-third-accent);
-  bottom: 0;
-  content: "";
-  left: 0;
-  position: absolute;
-  top: 0;
-  width: 4px;
+  flex: 0 0 3px;
+  width: 3px;
+}
+
+.lv-lower-third::before {
+  display: none;
 }
 
 .lv-lower-third-mark {
-  background-image: var(--studio-mark-image, none);
+  align-self: center;
+  background-image: var(--studio-compact-mark-image, var(--studio-mark-image, none));
   background-position: center;
   background-repeat: no-repeat;
   background-size: contain;
   flex: 0 0 auto;
-  height: 1.35rem;
-  margin-left: 0.2rem;
-  opacity: 0.92;
-  width: 1.35rem;
+  height: 1.15rem;
+  margin: 0 0.45rem 0 0.55rem;
+  opacity: 0.95;
+  width: 1.15rem;
 }
 
-/* body[data-lower-third-mark] — js/brand-themes.js's applyBrandTheme sets this explicitly per theme
-   (whether a real watermark/logo asset exists), since a background-image-only div always has zero DOM
-   children and so can never be distinguished by a plain :empty selector. */
 body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
   display: none;
 }
 
+.lv-lower-third-plates,
 .lv-lower-third-text {
   display: flex;
   flex-direction: column;
-  gap: 1px;
   min-width: 0;
 }
 
 .lv-lower-third-name {
+  background: color-mix(in srgb, var(--studio-surface) 92%, #000 8%);
+  box-shadow: var(--lower-third-shadow);
   color: var(--lower-third-fg);
-  font-size: 0.85rem;
-  font-weight: 700;
-  line-height: 1.2;
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.15;
   overflow: hidden;
+  padding: 0.32rem 0.7rem 0.28rem 0.2rem;
   text-overflow: ellipsis;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 
 .lv-lower-third-role {
+  background: color-mix(in srgb, var(--studio-canvas) 78%, transparent);
   color: var(--lower-third-secondary);
   font-size: 0.68rem;
   font-weight: 500;
+  letter-spacing: 0.02em;
   line-height: 1.25;
+  margin-left: 8px;
   overflow: hidden;
+  padding: 0.18rem 0.7rem 0.22rem 0.2rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* navy-flag-bar (Superteam Thailand) — reuses the SAME --studio-identity-stripe/-width tokens the theme
-   already defines for its title cards, instead of a separate lower-third-only stripe value. */
-[data-lower-third-treatment="navy-flag-bar"] .lv-lower-third {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--studio-canvas-2) 94%, transparent), color-mix(in srgb, var(--studio-surface) 88%, transparent));
-}
-[data-lower-third-treatment="navy-flag-bar"] .lv-lower-third::before {
+[data-lower-third-treatment="navy-flag-bar"] .lv-lower-third-rail {
   background: var(--studio-identity-stripe, var(--lower-third-accent));
-  width: var(--studio-identity-stripe-width, 4px);
 }
 
-/* cream-orange-bar (Toasty Peeps) — light theme, so the lower third needs light-surface text colors
-   rather than the default's dark-theme assumption baked into most brands' --brand-text. */
-[data-lower-third-treatment="cream-orange-bar"] .lv-lower-third {
-  background: color-mix(in srgb, var(--studio-surface) 92%, transparent);
-}
 [data-lower-third-treatment="cream-orange-bar"] .lv-lower-third-name {
-  color: var(--studio-brown, var(--lower-third-fg));
+  color: var(--brand-text);
 }
-[data-lower-third-treatment="cream-orange-bar"] .lv-lower-third-role {
-  color: var(--studio-muted, var(--lower-third-secondary));
-}
-
-/* Responsive: smaller tiles (more participants, or a phone in portrait) get a proportionally smaller
-   nameplate via clamp() rather than a hard cutover, so it scales continuously with the tile instead of
-   jumping at a breakpoint — never lets the lower third consume a meaningful fraction of the video. Layout-
-   count rules (data-remote-layout, already set by js/participant-stage.js) tighten this further since more
-   tiles means less room per tile regardless of viewport width. */
-.lv-lower-third-name { font-size: clamp(0.62rem, 2.6vw, 0.85rem); }
-.lv-lower-third-role { font-size: clamp(0.52rem, 2vw, 0.68rem); }
 
 .lv-participant-tiles[data-remote-layout="two-remote"] .lv-lower-third,
 .lv-participant-tiles[data-remote-layout="three-remote"] .lv-lower-third {
-  border-radius: calc(var(--lower-third-radius) * 0.75);
-  bottom: 5px;
-  gap: 0.35rem;
-  left: 5px;
-  padding: 0.28rem 0.5rem 0.28rem 0.4rem;
-  right: 5px;
+  max-width: calc(100% - 16px);
 }
 
 .lv-participant-tiles[data-remote-layout="three-remote"] .lv-lower-third-mark {
-  height: 1rem;
-  margin-left: 0.1rem;
-  width: 1rem;
+  height: 0.95rem;
+  width: 0.95rem;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 720px) {
   .lv-lower-third {
-    bottom: 6px;
-    left: 6px;
-    padding: 0.3rem 0.55rem 0.3rem 0.45rem;
-    right: 6px;
+    max-width: calc(100% - 16px);
   }
-  .lv-lower-third-mark {
-    height: 1.1rem;
-    width: 1.1rem;
-  }
+  .lv-lower-third-name { font-size: clamp(0.58rem, 2.4vw, 0.78rem); }
+  .lv-lower-third-role { font-size: clamp(0.5rem, 1.8vw, 0.62rem); }
 }
 
 /* Default-off. Only created by js/media-diagnostics.js when ?debugMedia=1 is on the URL — never

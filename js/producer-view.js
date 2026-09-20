@@ -13,6 +13,11 @@ export class ProducerView {
       hostSourceStatus: root.querySelector("#lvSourceHostStatus"),
       layoutGroup: root.querySelector("#lvLayoutGroup"),
       layoutModeChip: root.querySelector("#lvLayoutModeChip"),
+      shareGroup: root.querySelector("#lvShareGroup"),
+      shareModeChip: root.querySelector("#lvShareModeChip"),
+      hottieStatus: root.querySelector("#lvHottieStatus"),
+      hottieProposal: root.querySelector("#lvHottieProposal"),
+      programPreview: root.querySelector("#lvProgramPreviewStage"),
       poTopic: root.querySelector("#lvPoTopic"),
       poSceneGroup: root.querySelector("#lvPoSceneGroup"),
       poTickerEnabled: root.querySelector("#lvPoTickerEnabled"),
@@ -65,6 +70,17 @@ export class ProducerView {
     this.elements.layoutGroup.querySelectorAll("[data-layout]").forEach((button) => {
       button.addEventListener("click", () => this.session.setLayout(button.dataset.layout, { manual: true }));
     });
+    this.elements.shareGroup?.querySelectorAll("[data-share]").forEach((button) => {
+      button.addEventListener("click", () => this.session.setShareLayout(button.dataset.share));
+    });
+    this.elements.programPreview?.addEventListener("click", (event) => {
+      const tile = event.target.closest(".po-tile[data-participant-id]");
+      if (!tile) return;
+      const role = tile.dataset.role;
+      if (role === "screen" || role === "asset") return;
+      this.session.setSpotlight(tile.dataset.participantId);
+    });
+    this.session.on("hottie", (status) => this.renderHottie(status));
 
     this.elements.poTopic.addEventListener("input", () => this.session.setTopic(this.elements.poTopic.value));
     this.elements.poTickerEnabled.addEventListener("change", () => {
@@ -122,6 +138,7 @@ export class ProducerView {
 
     this.renderGuests();
     this.renderProgram(this.session.program);
+    this.renderHottie(this.session.hottieStatus);
     this.renderRecording(this.session.recording);
     this.renderProgramOutputStatus();
     this.renderRecordingGate();
@@ -222,10 +239,32 @@ export class ProducerView {
     this.elements.poSceneGroup.querySelectorAll(".po-swatch").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.scene === program.scene));
     });
-    this.elements.layoutModeChip.textContent = program.layout === "screen-dominant" ? "Screen Dominant" : "Grid";
+    const layout = program.compositionMode || (program.layout === "grid" ? "balanced" : program.layout) || "balanced";
+    const layoutLabel = layout === "active-speaker" ? "Active Speaker" : layout === "spotlight" ? "Spotlight" : "Balanced";
+    this.elements.layoutModeChip.textContent = layoutLabel;
     this.elements.layoutGroup.querySelectorAll("[data-layout]").forEach((button) => {
-      button.setAttribute("aria-pressed", String(button.dataset.layout === program.layout));
+      button.setAttribute("aria-pressed", String(button.dataset.layout === layout || (layout === "balanced" && button.dataset.layout === "grid")));
     });
+    const share = program.shareLayout || "screen-speaker";
+    const shareLabel = share === "screen-only" ? "Full" : share === "screen-strip" ? "Strip" : "Speaker";
+    if (this.elements.shareModeChip) this.elements.shareModeChip.textContent = shareLabel;
+    this.elements.shareGroup?.querySelectorAll("[data-share]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.share === share));
+    });
+  }
+
+  renderHottie(status = this.session.hottieStatus || {}) {
+    const state = status.state || "listening";
+    if (this.elements.hottieStatus) {
+      this.elements.hottieStatus.dataset.state = state;
+      this.elements.hottieStatus.textContent = String(state).replace("-", " ").toUpperCase();
+    }
+    if (this.elements.hottieProposal) {
+      const proposal = status.proposal;
+      this.elements.hottieProposal.textContent = proposal?.label
+        ? [proposal.label, proposal.query || proposal.title].filter(Boolean).join(" · ")
+        : "Waiting for a Host production cue.";
+    }
   }
 
   renderProgramOutputStatus() {

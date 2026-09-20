@@ -2,7 +2,7 @@ import { applyBrandTheme, normalizeBrandTheme } from "./brand-themes.js";
 import { getBrandProfile } from "./brand-profile.js";
 import { VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js";
 import { ProgramSync } from "./program-sync.js";
-import { composeProgram } from "./program-composition.js";
+import { composeProgram, compositionOptionsFromState } from "./program-composition.js";
 import { syncProgramRenderer, clearProgramRenderer, programFeedBindings, programFeedHealth } from "./program-renderer.js";
 import { ProgramAudioBus, serializeProgramAudio } from "./program-audio.js";
 import { RoomPresence } from "./room-presence.js";
@@ -121,11 +121,16 @@ async function init() {
 }
 
 function ownedStreamFor(participant) {
-  if (!participant || (participant.role !== "host" && participant.participantId !== "host")) return null;
   try {
     const api = window.opener?.__toastyProgramSources;
     if (!api) return null;
     if (typeof api.roomId === "function" && api.roomId() !== roomId) return null;
+    if (participant?.role === "screen") {
+      const screen = typeof api.screenStream === "function" ? api.screenStream() : null;
+      const screenLive = screen?.getVideoTracks?.().some((track) => track.readyState === "live");
+      return screenLive ? screen : null;
+    }
+    if (!participant || (participant.role !== "host" && participant.participantId !== "host")) return null;
     const stream = typeof api.hostStream === "function" ? api.hostStream() : null;
     const videoLive = stream?.getVideoTracks?.().some((track) => track.readyState === "live");
     return videoLive ? stream : null;
@@ -226,15 +231,14 @@ function programParticipants(programState) {
 }
 
 function isRoomEmpty(programState) {
+  const options = compositionOptionsFromState(programState);
   if (programState?.asset?.status === "live" || programState?.asset?.id) {
-    const composed = composeProgram(programParticipants(programState), {
-      asset: programState.asset,
-      assetLayout: programState.assetLayout
-    });
+    const composed = composeProgram(programParticipants(programState), options);
     if (composed.asset) return false;
   }
+  if (options.screenShareActive) return false;
   const participants = programParticipants(programState);
-  if (participants.length) return composeProgram(participants).slots.length === 0;
+  if (participants.length) return composeProgram(participants, options).slots.length === 0;
   return !programState.hostStarted && !programState.guestCount;
 }
 
@@ -267,7 +271,8 @@ function renderLiveStage(programState) {
     videoEnabled: true,
     asset: programState.asset || null,
     assetLayout: programState.assetLayout || null,
-    resolveOwnedStream: ownedStreamFor
+    resolveOwnedStream: ownedStreamFor,
+    compositionState: programState
   });
 }
 
@@ -313,10 +318,7 @@ function handleTransportMessage(message) {
 
 function outputStatusPayload() {
   const participants = programParticipants(lastProgramState);
-  const composition = composeProgram(participants, {
-    asset: lastProgramState?.asset,
-    assetLayout: lastProgramState?.assetLayout
-  });
+  const composition = composeProgram(participants, compositionOptionsFromState(lastProgramState));
   const feeds = programFeedBindings(mountedProgramTiles);
   const health = programFeedHealth(mountedProgramTiles);
   const counts = countFeedHealth(health.items);

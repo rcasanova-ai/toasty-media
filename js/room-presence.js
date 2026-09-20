@@ -35,6 +35,7 @@ export class RoomPresence {
     this.micEnabled = null;
     this.cameraEnabled = null;
     this.outputStatus = null;
+    this.screenShare = { active: false, participantId: this.participantId, transportSourceId: null };
     this._pendingCommands = [];
     this._ackCommandIds = [];
     this._programPublisher = null;
@@ -79,6 +80,14 @@ export class RoomPresence {
 
   setOutputStatus(status) {
     this.outputStatus = status || null;
+  }
+
+  setScreenShare(share = {}) {
+    this.screenShare = {
+      active: Boolean(share.active),
+      participantId: share.participantId || this.participantId,
+      transportSourceId: share.transportSourceId || null
+    };
   }
 
   enqueueCommands(commands = []) {
@@ -233,6 +242,7 @@ export class RoomPresence {
           transportSourceId: this.transportSourceId,
           micEnabled: this.micEnabled,
           cameraEnabled: this.cameraEnabled,
+          screenShare: this.role === "output" ? undefined : this.screenShare,
           program: this.role === "host" && this._programPublisher ? this._programPublisher() : undefined,
           commands: this.role === "host" && this._pendingCommands.length ? this._pendingCommands.slice(0, 12) : undefined,
           ackCommandIds: this._ackCommandIds.length ? this._ackCommandIds.slice(0, 20) : undefined,

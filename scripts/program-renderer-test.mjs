@@ -83,7 +83,7 @@ assertEqual(composeProgram([host, guest, g3, g4]).layout, ProgramLayout.QUAD, "4
 console.log("\nsource inspection — first slice does not use visible scene=0");
 const listener = readFileSync(join(ROOT, "js/listener.js"), "utf8");
 assert(!listener.includes("mountProgramFrame"), "listener no longer mounts scene=0 program frame");
-assert(listener.includes("syncProgramRenderer"), "listener uses the Program Renderer");
+assert(listener.includes("compositionState: programState"), "listener uses canonical compositionState");
 assert(!listener.includes("poLiveBadge"), "top-right LIVE badge is gone from listener JS");
 
 const liveSession = readFileSync(join(ROOT, "js/live-session.js"), "utf8");

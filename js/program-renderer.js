@@ -4,7 +4,7 @@
 // 1/2/3/4 layouts. VDO is transport only: each slot is a clean &view=<id> (or a native
 // MediaStream when this page already owns it). Never scene=0.
 
-import { composeProgram, ProgramLayout } from "./program-composition.js";
+import { composeProgram, ProgramLayout, compositionOptionsFromState } from "./program-composition.js";
 import { buildParticipantLowerThird, updateParticipantLowerThird } from "./participant-lower-third.js";
 import { SourceKind } from "./participant-registry.js";
 import { allowlistedImageUrl, sanitizeBroadcastText } from "./program-asset.js";
@@ -14,6 +14,11 @@ const LAYOUT_COUNT = Object.freeze({
   duo: "2",
   trio: "3",
   quad: "4",
+  [ProgramLayout.SPOTLIGHT]: ProgramLayout.SPOTLIGHT,
+  [ProgramLayout.ACTIVE_SPEAKER]: ProgramLayout.ACTIVE_SPEAKER,
+  [ProgramLayout.SCREEN_ONLY]: ProgramLayout.SCREEN_ONLY,
+  [ProgramLayout.SCREEN_SPEAKER]: ProgramLayout.SCREEN_SPEAKER,
+  [ProgramLayout.SCREEN_STRIP]: ProgramLayout.SCREEN_STRIP,
   [ProgramLayout.ASSET_FULL]: ProgramLayout.ASSET_FULL,
   [ProgramLayout.ASSET_SPEAKER]: ProgramLayout.ASSET_SPEAKER,
   [ProgramLayout.ASSET_SPEAKER_PIP]: ProgramLayout.ASSET_SPEAKER_PIP
@@ -132,27 +137,45 @@ export function syncProgramRenderer({
   videoEnabled = true,
   asset = null,
   assetLayout = null,
-  resolveOwnedStream = null
+  resolveOwnedStream = null,
+  compositionState = null
 }) {
-  if (!stage || !mounted) return composeProgram(participants, { asset, assetLayout });
-  const composition = composeProgram(participants, { asset, assetLayout });
+  const options = compositionState
+    ? compositionOptionsFromState(compositionState)
+    : { asset, assetLayout };
+  if (!stage || !mounted) return composeProgram(participants, options);
+  const composition = composeProgram(participants, options);
   stage.dataset.programLayout = composition.layout || "";
   stage.dataset.layout = programLayoutCount(composition.layout);
+  stage.dataset.compositionMode = composition.mode || "";
+  stage.dataset.featuredId = composition.featuredId || "";
 
   syncProgramAssetTile(stage, composition.asset);
+  syncProgramScreenTile(stage, composition.screen, {
+    engine,
+    roomId,
+    frameIdPrefix,
+    muted,
+    videoEnabled,
+    resolveOwnedStream,
+    mounted
+  });
 
   const stillPresent = new Set(composition.slots.map((slot) => slot.participantId));
   for (const [participantId, entry] of [...mounted.entries()]) {
+    if (participantId === "__screen__") continue;
     if (stillPresent.has(participantId)) continue;
     unmountProgramSlot(engine, entry);
     entry.tile.remove();
     mounted.delete(participantId);
   }
 
-  composition.slots.forEach((participant) => {
+  composition.slots.forEach((participant, index) => {
     const existing = mounted.get(participant.participantId);
     const nextSource = slotSourceKey(participant, videoEnabled, resolveOwnedStream, muted);
+    const featured = composition.featuredId === participant.participantId || (index === 0 && (composition.layout === ProgramLayout.SPOTLIGHT || composition.layout === ProgramLayout.ACTIVE_SPEAKER));
     if (existing) {
+      existing.tile.dataset.role = featured ? "featured" : "speaker";
       updateParticipantLowerThird(existing.lowerThird, participant);
       if (existing.sourceKey !== nextSource) {
         unmountProgramSlot(engine, existing);
@@ -170,7 +193,7 @@ export function syncProgramRenderer({
     }
     const tile = document.createElement("article");
     tile.className = "po-tile";
-    tile.dataset.role = "speaker";
+    tile.dataset.role = featured ? "featured" : "speaker";
     tile.dataset.participantId = participant.participantId;
     const videoContainer = document.createElement("div");
     videoContainer.className = "po-tile-video";
@@ -268,6 +291,73 @@ function unmountProgramSlot(engine, entry) {
   else entry.videoContainer?.replaceChildren();
 }
 
+function syncProgramScreenTile(stage, screen, { engine, roomId, frameIdPrefix, muted, videoEnabled, resolveOwnedStream, mounted }) {
+  const existing = mounted.get("__screen__");
+  if (!screen) {
+    if (existing) {
+      unmountProgramSlot(engine, existing);
+      existing.tile.remove();
+      mounted.delete("__screen__");
+    }
+    return;
+  }
+  const fakeParticipant = {
+    participantId: screen.participantId,
+    role: "screen",
+    transportSourceId: screen.transportSourceId,
+    videoSource: screen.stream ? { kind: SourceKind.NATIVE_MEDIA_STREAM, stream: screen.stream } : undefined
+  };
+  const nextSource = slotSourceKey(fakeParticipant, videoEnabled, (participant) => {
+    if (resolveOwnedStream) {
+      const owned = resolveOwnedStream({ ...participant, role: "screen", participantId: screen.ownerParticipantId || "host" });
+      if (owned) return owned;
+    }
+    return screen.stream || null;
+  }, muted);
+  if (existing) {
+    if (existing.sourceKey !== nextSource) {
+      unmountProgramSlot(engine, existing);
+      mountProgramSlotVideo(engine, existing.videoContainer, fakeParticipant, roomId, existing.frameId, muted, videoEnabled, () => screen.stream || resolveOwnedStream?.({ role: "screen", participantId: screen.ownerParticipantId || "host" }));
+      existing.sourceKey = nextSource;
+      existing._healthBound = false;
+      existing.health = inspectSourceHealth(existing);
+      bindProgramSourceHealth(existing);
+    } else {
+      syncOwnedVideoMute(existing.videoContainer, muted);
+    }
+    return;
+  }
+  const tile = document.createElement("article");
+  tile.className = "po-tile po-tile--screen";
+  tile.dataset.role = "screen";
+  tile.dataset.participantId = screen.participantId;
+  const videoContainer = document.createElement("div");
+  videoContainer.className = "po-tile-video";
+  tile.appendChild(videoContainer);
+  stage.insertBefore(tile, stage.querySelector(".po-tile[data-role='featured'], .po-tile[data-role='speaker'], .po-tile[data-role='asset']") || stage.firstChild);
+  const frameId = `${frameIdPrefix}-screen`;
+  mountProgramSlotVideo(
+    engine,
+    videoContainer,
+    fakeParticipant,
+    roomId,
+    frameId,
+    muted,
+    videoEnabled,
+    () => screen.stream || resolveOwnedStream?.({ role: "screen", participantId: screen.ownerParticipantId || "host" })
+  );
+  mounted.set("__screen__", {
+    tile,
+    videoContainer,
+    frameId,
+    lowerThird: null,
+    transportSourceId: screen.transportSourceId || null,
+    sourceKey: nextSource,
+    health: inspectSourceHealth({ videoContainer })
+  });
+  bindProgramSourceHealth(mounted.get("__screen__"));
+}
+
 function syncProgramAssetTile(stage, asset) {
   const existing = stage.querySelector(".po-tile[data-role='asset']");
   if (!asset) {
@@ -302,6 +392,11 @@ export function buildProgramAssetCard(asset) {
   attribution.className = "po-asset-attribution";
   const domain = asset.provenance?.domain || "";
   attribution.textContent = [asset.attribution || asset.sourceName, domain].filter(Boolean).join(" · ");
+  const hottie = asset.createdBy === "hottie" ? document.createElement("p") : null;
+  if (hottie) {
+    hottie.className = "po-asset-hottie";
+    hottie.textContent = "Hottie · AI Producer";
+  }
   const imageUrl = allowlistedImageUrl(asset.preview?.imageUrl || asset.media?.src);
   if (imageUrl) {
     const figure = document.createElement("div");
@@ -312,8 +407,10 @@ export function buildProgramAssetCard(asset) {
     img.src = imageUrl;
     figure.appendChild(img);
     card.append(figure, kicker, title, excerpt, attribution);
+    if (hottie) card.appendChild(hottie);
   } else {
     card.append(kicker, title, excerpt, attribution);
+    if (hottie) card.appendChild(hottie);
   }
   return card;
 }

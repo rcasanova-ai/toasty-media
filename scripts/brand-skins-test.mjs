@@ -65,6 +65,10 @@ function createStyleMap() {
       props.set(name, value);
       if (name === "background-image") this.backgroundImage = value;
     },
+    removeProperty(name) {
+      props.delete(name);
+      if (name === "background-image") this.backgroundImage = "";
+    },
     getPropertyValue(name) {
       if (name === "background-image") return this.backgroundImage || props.get(name) || "";
       return props.get(name) || "";
@@ -222,6 +226,11 @@ const chrome = themeChrome();
 applyBrandTheme("toasty", chrome);
 assert(chrome.root.dataset.brandTheme === "toasty", "applying Toasty sets data-brand-theme");
 assert(chrome.root.style.getPropertyValue("--brand-primary") === "#ff7a29", "Toasty primary lands on the root");
+assert(chrome.root.style.getPropertyValue("--studio-compact-mark-image").includes("ToastyTransparent.png"), "Toasty compact mark uses the transparent mark");
+
+applyBrandTheme("8alta", chrome);
+assert(chrome.root.dataset.lowerThirdMark === "shown", "8ALTA compact mark is shown from favicon");
+assert(chrome.root.style.getPropertyValue("--studio-compact-mark-image").includes("favicon.ico"), "8ALTA compact mark is the favicon");
 
 applyBrandTheme("superteam", chrome);
 assert(chrome.root.dataset.brandTheme === "superteam", "switching to Superteam updates immediately");

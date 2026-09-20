@@ -17,12 +17,29 @@
 
 export const ProgramLayout = Object.freeze({
   SINGLE: "single", // 1 total on-Program participant, full frame
-  DUO: "duo",       // 2, two equal frames
+  DUO: "duo",       // 2, two equal frames — the accepted 2-person Program Output
   TRIO: "trio",     // 3, three equal vertical-ish panels (Toasty's signature 3-person default)
   QUAD: "quad",     // 4, balanced 2x2
+  SPOTLIGHT: "spotlight",
+  ACTIVE_SPEAKER: "active-speaker",
+  SCREEN_ONLY: "screen-only",
+  SCREEN_SPEAKER: "screen-speaker",
+  SCREEN_STRIP: "screen-strip",
   ASSET_FULL: "asset-full",               // ProgramAsset fills the stage
   ASSET_SPEAKER: "asset-speaker",         // ProgramAsset + one featured speaker
   ASSET_SPEAKER_PIP: "asset-speaker-pip"  // ProgramAsset full-frame, speaker as PiP
+});
+
+export const CompositionMode = Object.freeze({
+  BALANCED: "balanced",
+  ACTIVE_SPEAKER: "active-speaker",
+  SPOTLIGHT: "spotlight"
+});
+
+export const ShareLayout = Object.freeze({
+  SCREEN_ONLY: "screen-only",
+  SCREEN_SPEAKER: "screen-speaker",
+  SCREEN_STRIP: "screen-strip"
 });
 
 // Participant View only ever needs to know how many OTHER people are on the caller's main stage — self is
@@ -87,24 +104,147 @@ function isLiveProgramAsset(asset) {
   return Boolean(asset) && (asset.status === "live" || asset.status === undefined);
 }
 
-export function composeProgram(participants, { screenShareActive = false, asset = null, assetLayout = null } = {}) {
-  const ordered = stableOrder(participants.filter((p) => isConnected(p) && p.onProgram !== false));
-  if (isLiveProgramAsset(asset)) {
-    const requested = assetLayout || ProgramLayout.ASSET_SPEAKER;
-    const speaker = ordered[0] || null;
-    if (requested === ProgramLayout.ASSET_FULL || !speaker) {
-      return { layout: ProgramLayout.ASSET_FULL, slots: [], asset, screenShareActive };
-    }
+export function compositionOptionsFromState(state = {}) {
+  const screenShare = state.screenShare || null;
+  return {
+    screenShareActive: Boolean(screenShare?.active || state.screenShareActive),
+    screenShare,
+    asset: state.asset || null,
+    assetLayout: state.assetLayout || null,
+    mode: state.compositionMode || CompositionMode.BALANCED,
+    activeParticipantId: state.activeParticipantId || null,
+    spotlightParticipantId: state.spotlightParticipantId || null,
+    shareLayout: state.shareLayout || null
+  };
+}
+
+function resultShape({ layout, slots, asset = null, screen = null, featuredId = null, mode, shareLayout, screenShareActive }) {
+  return {
+    layout,
+    slots,
+    asset,
+    screen,
+    featuredId,
+    mode: mode || CompositionMode.BALANCED,
+    shareLayout: shareLayout || null,
+    screenShareActive: Boolean(screenShareActive)
+  };
+}
+
+function featuredFirst(ordered, featuredId) {
+  if (!featuredId) return ordered;
+  const featured = ordered.find((entry) => entry.participantId === featuredId);
+  if (!featured) return ordered;
+  return [featured, ...ordered.filter((entry) => entry.participantId !== featuredId)];
+}
+
+function screenSourceFrom(options) {
+  const share = options.screenShare;
+  if (share && (share.active || share.stream || share.transportSourceId)) {
     return {
-      layout: requested === ProgramLayout.ASSET_SPEAKER_PIP ? ProgramLayout.ASSET_SPEAKER_PIP : ProgramLayout.ASSET_SPEAKER,
-      slots: [speaker],
-      asset,
-      screenShareActive
+      participantId: share.participantId ? `screen-${share.participantId}` : "screen",
+      role: "screen",
+      ownerParticipantId: share.participantId || "host",
+      transportSourceId: share.transportSourceId || null,
+      displayName: share.displayName || "Screen"
     };
   }
+  if (options.screenShareActive) {
+    return { participantId: "screen", role: "screen", ownerParticipantId: "host", transportSourceId: null, displayName: "Screen" };
+  }
+  return null;
+}
+
+export function composeProgram(participants, options = {}) {
+  const opts = {
+    screenShareActive: false,
+    screenShare: null,
+    asset: null,
+    assetLayout: null,
+    mode: CompositionMode.BALANCED,
+    activeParticipantId: null,
+    spotlightParticipantId: null,
+    shareLayout: null,
+    ...options
+  };
+  const ordered = stableOrder(participants.filter((p) => isConnected(p) && p.onProgram !== false));
+  const screen = screenSourceFrom(opts);
+  const screenShareActive = Boolean(screen);
+  const mode = Object.values(CompositionMode).includes(opts.mode) ? opts.mode : CompositionMode.BALANCED;
+
+  if (isLiveProgramAsset(opts.asset)) {
+    const requested = opts.assetLayout || ProgramLayout.ASSET_SPEAKER;
+    const speaker = ordered[0] || null;
+    if (requested === ProgramLayout.ASSET_FULL || !speaker) {
+      return resultShape({ layout: ProgramLayout.ASSET_FULL, slots: [], asset: opts.asset, screen: null, mode, screenShareActive });
+    }
+    return resultShape({
+      layout: requested === ProgramLayout.ASSET_SPEAKER_PIP ? ProgramLayout.ASSET_SPEAKER_PIP : ProgramLayout.ASSET_SPEAKER,
+      slots: [speaker],
+      asset: opts.asset,
+      featuredId: speaker.participantId,
+      mode,
+      screenShareActive
+    });
+  }
+
+  if (screen) {
+    const shareLayout = Object.values(ShareLayout).includes(opts.shareLayout) ? opts.shareLayout : ShareLayout.SCREEN_SPEAKER;
+    if (shareLayout === ShareLayout.SCREEN_ONLY || ordered.length === 0) {
+      return resultShape({ layout: ProgramLayout.SCREEN_ONLY, slots: [], screen, mode, shareLayout, screenShareActive });
+    }
+    if (shareLayout === ShareLayout.SCREEN_STRIP) {
+      return resultShape({
+        layout: ProgramLayout.SCREEN_STRIP,
+        slots: ordered.slice(0, MAX_ON_PROGRAM),
+        screen,
+        mode,
+        shareLayout,
+        screenShareActive
+      });
+    }
+    const speakerId = opts.spotlightParticipantId || opts.activeParticipantId || ordered[0]?.participantId;
+    const speakerSlots = featuredFirst(ordered, speakerId).slice(0, 1);
+    return resultShape({
+      layout: ProgramLayout.SCREEN_SPEAKER,
+      slots: speakerSlots,
+      screen,
+      featuredId: speakerSlots[0]?.participantId || null,
+      mode,
+      shareLayout: ShareLayout.SCREEN_SPEAKER,
+      screenShareActive
+    });
+  }
+
+  if (mode === CompositionMode.SPOTLIGHT && opts.spotlightParticipantId) {
+    const slots = featuredFirst(ordered, opts.spotlightParticipantId).slice(0, MAX_ON_PROGRAM);
+    if (slots.length >= 2 && slots[0].participantId === opts.spotlightParticipantId) {
+      return resultShape({
+        layout: ProgramLayout.SPOTLIGHT,
+        slots,
+        featuredId: slots[0].participantId,
+        mode,
+        screenShareActive
+      });
+    }
+  }
+
+  if (mode === CompositionMode.ACTIVE_SPEAKER && opts.activeParticipantId) {
+    const slots = featuredFirst(ordered, opts.activeParticipantId).slice(0, MAX_ON_PROGRAM);
+    if (slots.length >= 2 && slots[0].participantId === opts.activeParticipantId) {
+      return resultShape({
+        layout: ProgramLayout.ACTIVE_SPEAKER,
+        slots,
+        featuredId: slots[0].participantId,
+        mode,
+        screenShareActive
+      });
+    }
+  }
+
   const slots = ordered.slice(0, MAX_ON_PROGRAM);
   const layout = PROGRAM_LAYOUT_BY_COUNT[slots.length] || (slots.length === 0 ? null : ProgramLayout.QUAD);
-  return { layout, slots, asset: null, screenShareActive };
+  return resultShape({ layout, slots, asset: null, mode: CompositionMode.BALANCED, screenShareActive });
 }
 
 // Participant-View composition for ONE specific viewer. "others" is stably ordered the SAME way
