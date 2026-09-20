@@ -35,6 +35,18 @@ html, body {
 .program-output {
   color: var(--studio-cream);
   font-family: var(--po-font-body);
+  /* Semantic text/surface tokens — aliases onto the --studio-* tokens, which already flip correctly per
+     brand. Declared HERE (not on :root/html) deliberately: applyBrandTheme() sets --studio-cream etc. via
+     inline style on THIS element (body.program-output), and a var() alias only re-resolves against an
+     override at the SAME cascade level it's declared at — aliasing on :root would freeze these to the
+     :root fallback forever, never seeing any brand's actual color (this was caught live: Peeps' masthead
+     text rendered as the dark-theme default, not Peeps' own dark-on-cream). Defining new colors instead
+     of aliasing would break white-label skins; this way every brand gets correct contrast automatically. */
+  --po-text-primary: var(--studio-cream);
+  --po-text-secondary: var(--studio-muted);
+  --po-text-on-media: var(--po-video-text);
+  --po-surface: var(--studio-surface);
+  --po-surface-muted: var(--studio-surface-2, var(--studio-surface));
 }
 
 .po-canvas {
@@ -95,8 +107,25 @@ html, body {
   z-index: 5;
 }
 
+/* Brand-aware fade (not a fixed black scrim): .po-masthead-headline/-session use --po-text-primary/
+   -secondary, which flip per brand (dark text for a light skin like Peeps). A fixed dark gradient here
+   would make that text illegible on a light brand — color-mix against --po-surface keeps the same
+   fade-to-transparent shape while matching whatever surface tone the active brand actually uses. */
 .po-chrome-top {
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.55), transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--po-surface) 70%, transparent), transparent);
+}
+
+/* Logo left, headline/session immediately beside it (not pushed to the far right by the flex parent's
+   space-between) — right side stays empty by default, reserved only for a skin that genuinely wants
+   subtle watermark artwork there. */
+.po-masthead {
+  gap: clamp(0.8rem, 2vw, 1.4rem);
+  justify-content: flex-start;
+}
+
+.po-masthead::after {
+  content: "";
+  flex: 1 1 auto;
 }
 
 .po-brand img {
@@ -159,16 +188,58 @@ html, body {
   padding: 0.35em 0.6em;
 }
 
-.po-topic {
-  color: var(--po-video-text);
-  flex: 0 1 auto;
-  font-family: var(--po-font-heading);
-  font-size: clamp(0.7rem, 1.3vw, 0.98rem);
-  font-weight: 700;
+/* Masthead: brand lockup + show/topic + session name. Replaces the old bottom-bar topic entirely —
+   the bottom bar is LIVE + ticker/CTA only now. */
+.po-masthead-text {
   min-width: 0;
+}
+
+.po-masthead-headline {
+  color: var(--po-text-primary);
+  font-family: var(--po-font-heading);
+  font-size: clamp(0.95rem, 2vw, 1.5rem);
+  font-weight: 800;
+  line-height: 1.15;
+  margin: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.po-masthead-session {
+  color: var(--po-text-secondary);
+  font-family: var(--po-font-body);
+  font-size: clamp(0.62rem, 1vw, 0.8rem);
+  font-weight: 500;
+  margin: 0.15em 0 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.po-social-links {
+  display: flex;
+  gap: clamp(0.4rem, 1vw, 0.6rem);
+  flex: 0 0 auto;
+}
+
+.po-social-link {
+  align-items: center;
+  background: color-mix(in srgb, var(--po-surface) 82%, transparent);
+  border: 1px solid var(--studio-line);
+  border-radius: 50%;
+  color: var(--po-text-primary);
+  display: flex;
+  height: clamp(26px, 3.2vw, 34px);
+  width: clamp(26px, 3.2vw, 34px);
+}
+
+.po-social-link svg {
+  height: 46%;
+  width: 46%;
+  margin: auto;
 }
 
 .po-ticker {
@@ -224,11 +295,42 @@ html, body {
 /* minmax(0, 1fr) everywhere, never bare 1fr: an `fr` track's automatic minimum is `auto`, which for a
    track holding a replaced element (our VDO.Ninja <iframe>) resolves to that element's INTRINSIC size —
    letting a single wide iframe push its column past the viewport instead of shrinking to fill it. This is
-   the fix for "video extends off the right side of Program Output" on the single-participant layout. */
-.po-stage[data-layout="1"],
+   the fix for "video extends off the right side of Program Output" on the single-participant layout.
+   data-layout="1" fires ONLY for ProgramLayout.SINGLE (see js/program-renderer.js's LAYOUT_COUNT) — a
+   real one-participant frame, never an asset/screen fullscreen state ("fullmedia" below is legacy/
+   unreachable dead CSS, kept only so a stray reference wouldn't silently fall through to the base grid
+   with no column guard at all). */
 .po-stage[data-layout="fullmedia"] { grid-template-columns: minmax(0, 1fr); }
+/* Solo presenter frame: centered, ~4:3, not a full-bleed ultrawide slab. flex (not grid) here so a
+   single intrinsically-sized box can be centered directly; .po-tile still keeps every containment
+   property from the fix above (min-width:0/min-height:0/overflow:hidden) — this only changes how much
+   space the PARENT hands it, not how the tile itself clips its content. */
+.po-stage[data-layout="1"] {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+}
+.po-stage[data-layout="1"] .po-tile {
+  aspect-ratio: 4 / 3;
+  height: 100%;
+  max-width: 100%;
+  width: auto;
+}
 .po-stage[data-layout="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.po-stage[data-layout="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* Intentional 2+1, not a plain 3-up row: two tiles side by side, the third centered underneath at a
+   deliberately bounded width (not stretched full-bleed) — a broadcast composition choice, not "CSS ran
+   out of columns." Targets DOM order (composeProgram's slot order, which is also tile append order on a
+   fresh render), not a specific role, so it holds regardless of who's in which of the 3 slots. */
+.po-stage[data-layout="3"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+.po-stage[data-layout="3"] .po-tile:nth-child(3) {
+  grid-column: 1 / -1;
+  justify-self: center;
+  max-width: min(100%, 60%);
+  width: 100%;
+}
 .po-stage[data-layout="4"] { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
 .po-stage[data-layout="spotlight"],
 .po-stage[data-layout="active-speaker"],
@@ -625,18 +727,21 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
 
 .program-output[data-scene="holding"] .po-holding,
 .program-output[data-scene="brb"] .po-brb,
+.program-output[data-scene="technical-difficulties"] .po-technical,
 .program-output[data-scene="ending"] .po-ending {
   display: flex;
 }
 
 .program-output[data-scene="holding"] .po-stage,
 .program-output[data-scene="brb"] .po-stage,
+.program-output[data-scene="technical-difficulties"] .po-stage,
 .program-output[data-scene="ending"] .po-stage {
   visibility: hidden;
 }
 
 .program-output[data-scene="holding"] .po-chrome,
 .program-output[data-scene="brb"] .po-chrome,
+.program-output[data-scene="technical-difficulties"] .po-chrome,
 .program-output[data-scene="ending"] .po-chrome {
   visibility: hidden;
 }
@@ -663,6 +768,110 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
   font-weight: 900;
   margin: 0;
   max-width: 80%;
+}
+
+.po-scene-session {
+  color: var(--po-text-secondary);
+  font-family: var(--po-font-body);
+  font-size: clamp(0.7rem, 1.1vw, 0.9rem);
+  font-weight: 500;
+  margin: -0.4rem 0 0;
+}
+
+/* Technical Difficulties: "our production has hilariously exploded, give us a minute" — built entirely
+   from the existing Toasty mascot mark plus CSS shapes/animation. No external or AI-generated image, no
+   third-party characters/IP. ASSET SLOT: if a bespoke illustration is ever commissioned (e.g. the
+   mascot mid-repair, sparking wires, a dropped wrench), it can replace .po-technical-mark's <img> and
+   these CSS decorations can be trimmed or kept as accents — swapping one element, not this scene's
+   structure, state wiring, or the rest of Program Output. */
+.po-technical-rig {
+  align-items: center;
+  display: flex;
+  height: clamp(96px, 14vw, 160px);
+  justify-content: center;
+  position: relative;
+  width: clamp(96px, 14vw, 160px);
+}
+
+.po-technical-mark {
+  animation: po-technical-shake 2.4s ease-in-out infinite;
+  transform-origin: 50% 85%;
+}
+
+@keyframes po-technical-shake {
+  0%, 100% { transform: rotate(-3deg); }
+  50% { transform: rotate(4deg); }
+}
+
+.po-technical-wrench {
+  animation: po-technical-wrench 2.4s ease-in-out infinite;
+  bottom: -6%;
+  color: var(--studio-orange-bright);
+  height: 34%;
+  position: absolute;
+  right: -8%;
+  width: 34%;
+}
+
+@keyframes po-technical-wrench {
+  0%, 100% { transform: rotate(-18deg) translateY(0); }
+  50% { transform: rotate(14deg) translateY(-10%); }
+}
+
+.po-technical-spark {
+  background: var(--studio-amber);
+  border-radius: 50%;
+  box-shadow: 0 0 8px 2px var(--studio-amber);
+  height: 6px;
+  opacity: 0;
+  position: absolute;
+  width: 6px;
+}
+
+.po-technical-spark--1 { animation: po-technical-spark 1.6s ease-in-out infinite; left: 6%; top: 18%; }
+.po-technical-spark--2 { animation: po-technical-spark 1.6s ease-in-out 0.4s infinite; right: 4%; top: 32%; }
+.po-technical-spark--3 { animation: po-technical-spark 1.6s ease-in-out 0.9s infinite; left: 18%; top: 4%; }
+
+@keyframes po-technical-spark {
+  0%, 100% { opacity: 0; transform: scale(0.4); }
+  15%, 30% { opacity: 1; transform: scale(1.2); }
+  45% { opacity: 0; transform: scale(0.6); }
+}
+
+.po-technical-smoke {
+  background: radial-gradient(circle, color-mix(in srgb, var(--po-text-secondary) 55%, transparent), transparent 70%);
+  border-radius: 50%;
+  filter: blur(2px);
+  height: 40%;
+  left: 50%;
+  opacity: 0;
+  position: absolute;
+  top: -10%;
+  width: 40%;
+  animation: po-technical-smoke 3.2s ease-out infinite;
+}
+
+@keyframes po-technical-smoke {
+  0% { opacity: 0; transform: translate(-50%, 0) scale(0.6); }
+  20% { opacity: 0.55; }
+  100% { opacity: 0; transform: translate(-50%, -140%) scale(1.4); }
+}
+
+.po-technical-message {
+  color: var(--po-text-secondary);
+  font-family: var(--po-font-body);
+  font-size: clamp(0.85rem, 1.6vw, 1.1rem);
+  margin: 0;
+  max-width: 32em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .po-technical-mark,
+  .po-technical-wrench,
+  .po-technical-spark,
+  .po-technical-smoke {
+    animation: none;
+  }
 }
 
 .po-ending-message {
@@ -742,13 +951,17 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
   .po-waitingroom { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
 
+/* Semi-transparent (not the old opaque --studio-surface): lets the brand watermark/silhouette already
+   painted on .po-canvas::before/::after show through each slot instead of being fully covered by it —
+   the "tasteful branded background" the waiting room needs, using the SAME per-brand artwork tokens
+   every other scene already has, not a new asset layer. */
 .po-waitingroom-slot {
   align-items: center;
-  background: var(--studio-surface);
+  background: color-mix(in srgb, var(--po-surface) 55%, transparent);
   border: 1px dashed var(--studio-line);
   min-width: 0;
   border-radius: 12px;
-  color: var(--po-video-text-dim);
+  color: var(--po-text-secondary);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -767,7 +980,7 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
 }
 
 .po-waitingroom-label {
-  color: var(--po-video-text);
+  color: var(--po-text-primary);
   font-family: var(--po-font-heading);
   font-size: clamp(0.75rem, 1.4vw, 1rem);
   font-weight: 800;
