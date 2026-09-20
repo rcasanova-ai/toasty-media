@@ -87,7 +87,8 @@ export function buildCanonicalState({
     topic: topic || "",
     ticker: {
       enabled: Boolean(ticker?.enabled),
-      text: String(ticker?.text || "")
+      text: String(ticker?.text || ""),
+      speed: Number(ticker?.speed || 16) || 16
     },
     brandTheme: brandTheme || "",
     participants: (participants || []).map(serializeControlParticipant).filter(Boolean),

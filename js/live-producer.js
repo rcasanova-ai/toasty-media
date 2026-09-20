@@ -132,6 +132,7 @@ export class LiveProducerController {
     this._sinceCheckpoint = 0;
     if (!this.session.policy.canAiProcess()) return;
     this._emit({ type: ProducerEventType.CONTEXT_CHECKPOINT });
+    this._noticeRunOfShowTiming();
     this._noticeQuietParticipants();
     this._noticeUncoveredQuestions();
     this.session.proposeHottieLoop?.();
@@ -393,6 +394,40 @@ export class LiveProducerController {
       });
       this._emit({ type: ProducerEventType.PARTICIPANT_QUIET, participantId: guest.participantId, speaker: name });
     });
+  }
+
+  _noticeRunOfShowTiming() {
+    const current = this.session.runOfShow?.current?.();
+    if (!current) return;
+    const next = this.session.runOfShow?.next?.();
+    const elapsedMs = this.session.runOfShow?.currentElapsedMs?.() || 0;
+    const remainingMs = current.estimatedMinutes ? Math.max(0, current.estimatedMinutes * 60000 - elapsedMs) : null;
+    const key = `segment:${current.id}:${Math.floor(elapsedMs / 120000)}`;
+    if (!this._notified.has(key)) {
+      this._notified.add(key);
+      this._pushFeed({
+        type: ProducerEntryType.CONTEXT,
+        title: `NOW: ${current.title}`,
+        summary: `NEXT: ${next?.title || "—"}`,
+        items: [
+          { text: current.notes || "No notes/script for this segment." },
+          ...(remainingMs != null ? [{ text: `${Math.ceil(remainingMs / 60000)} minute${Math.ceil(remainingMs / 60000) === 1 ? "" : "s"} remaining.` }] : [])
+        ]
+      });
+      this._emit({ type: ProducerEventType.RUN_OF_SHOW_TIMING, topic: current, next, remainingMs });
+    }
+    if (remainingMs != null && remainingMs <= 120000) {
+      const lowKey = `segment-low:${current.id}`;
+      if (!this._notified.has(lowKey)) {
+        this._notified.add(lowKey);
+        this._pushFeed({
+          type: ProducerEntryType.TIMING,
+          title: "2 minutes remaining",
+          summary: `${current.title} is almost out of time.`,
+          items: current.notes ? [{ text: `Check you covered: ${current.notes}` }] : []
+        });
+      }
+    }
   }
 
   _noticeUncoveredQuestions() {

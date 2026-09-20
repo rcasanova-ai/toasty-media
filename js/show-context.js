@@ -167,10 +167,13 @@ export function attributeTranscriptLine(line, participants) {
 export function buildShowContext(session) {
   const runOfShow = session.runOfShow;
   const current = runOfShow.current();
+  const next = runOfShow.next();
   return {
     roomId: session.roomId,
     currentTopic: current ? { id: current.id, title: current.title, notes: current.notes, preparedQuestions: current.preparedQuestions } : null,
+    nextTopic: next ? { id: next.id, title: next.title, notes: next.notes, preparedQuestions: next.preparedQuestions } : null,
     topicElapsedMs: runOfShow.currentElapsedMs(),
+    topicRemainingMs: current?.estimatedMinutes ? Math.max(0, current.estimatedMinutes * 60000 - runOfShow.currentElapsedMs()) : null,
     elapsedMs: session.elapsedMs(),
     agenda: runOfShow.items.map((item) => ({ id: item.id, title: item.title, status: item.status, notes: item.notes })),
     previousTopics: runOfShow.completed().map((item) => ({ title: item.title, notes: item.notes })),

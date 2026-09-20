@@ -174,6 +174,7 @@ export class LiveSession {
       topic: "",
       tickerEnabled: false,
       tickerText: "",
+      tickerSpeed: 16,
       live: false,
       layout: "grid",
       layoutManualOverride: false,
@@ -1068,7 +1069,7 @@ export class LiveSession {
       scene: this.program.scene,
       live: this.program.live,
       topic: this.program.topic,
-      ticker: { enabled: this.program.tickerEnabled, text: this.program.tickerText },
+      ticker: { enabled: this.program.tickerEnabled, text: this.program.tickerText, speed: this.program.tickerSpeed },
       brandTheme: this.brandTheme,
       participants: this.participants.list().map((participant) => {
         const seat = this.guestSeats.find((item) => item?.id === participant.participantId);
@@ -1206,9 +1207,10 @@ export class LiveSession {
     this._syncProgramPreview();
   }
 
-  setTicker({ enabled, text }) {
+  setTicker({ enabled, text, speed }) {
     if (enabled !== undefined) this.program.tickerEnabled = enabled;
     if (text !== undefined) this.program.tickerText = text;
+    if (speed !== undefined) this.program.tickerSpeed = Math.max(8, Math.min(40, Number(speed) || 16));
     this.publishProgramState();
     this.emit("program", this.program);
   }

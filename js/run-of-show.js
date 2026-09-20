@@ -22,6 +22,24 @@ export class RunOfShow {
     return topic;
   }
 
+  load(items = []) {
+    const next = (items || [])
+      .map((item, index) => ({
+        id: item.id || nextId("topic"),
+        title: String(item.title || `Segment ${index + 1}`).trim(),
+        notes: String(item.notes || item.script || ""),
+        preparedQuestions: Array.isArray(item.preparedQuestions) ? item.preparedQuestions : [],
+        status: Object.values(TopicStatus).includes(item.status) ? item.status : TopicStatus.UPCOMING,
+        estimatedMinutes: Number(item.estimatedMinutes || item.duration || 5) || 5,
+        startedAt: item.startedAt || null,
+        completedAt: item.completedAt || null
+      }))
+      .filter((item) => item.title);
+    this.items = next.length ? normalizeStatuses(next) : defaultAgenda();
+    this._emit();
+    return this.items;
+  }
+
   editTopic(id, patch) {
     const topic = this.items.find((item) => item.id === id);
     if (!topic) return;
@@ -68,6 +86,32 @@ export class RunOfShow {
     this._emit();
   }
 
+  moveBack() {
+    const currentIndex = this.items.findIndex((item) => item.status === TopicStatus.CURRENT);
+    const targetIndex = currentIndex > 0 ? currentIndex - 1 : Math.max(0, this.items.findIndex((item) => item.status !== TopicStatus.COMPLETED));
+    const target = this.items[targetIndex];
+    if (!target) return null;
+    this.items.forEach((item, index) => {
+      if (index < targetIndex) item.status = TopicStatus.COMPLETED;
+      else if (index === targetIndex) { item.status = TopicStatus.CURRENT; item.startedAt = item.startedAt || Date.now(); item.completedAt = null; }
+      else { item.status = TopicStatus.UPCOMING; item.completedAt = null; }
+    });
+    this._emit();
+    return target;
+  }
+
+  goTo(id) {
+    const index = this.items.findIndex((item) => item.id === id);
+    if (index === -1) return null;
+    this.items.forEach((item, itemIndex) => {
+      if (itemIndex < index) item.status = TopicStatus.COMPLETED;
+      else if (itemIndex === index) { item.status = TopicStatus.CURRENT; item.startedAt = item.startedAt || Date.now(); item.completedAt = null; }
+      else { item.status = TopicStatus.UPCOMING; item.completedAt = null; }
+    });
+    this._emit();
+    return this.items[index];
+  }
+
   current() { return this.items.find((item) => item.status === TopicStatus.CURRENT) || null; }
   upcoming() { return this.items.filter((item) => item.status === TopicStatus.UPCOMING); }
   completed() { return this.items.filter((item) => item.status === TopicStatus.COMPLETED); }
@@ -92,13 +136,47 @@ export class RunOfShow {
   }
 }
 
+export function parseRunOfShowText(text = "") {
+  const blocks = String(text || "")
+    .split(/\n\s*\n/g)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  const source = blocks.length > 1 ? blocks : String(text || "").split(/\n/g).map((line) => line.trim()).filter(Boolean);
+  return source.map((block) => {
+    const lines = block.split(/\n/g).map((line) => line.trim()).filter(Boolean);
+    const first = lines[0] || "";
+    const durationMatch = first.match(/\((\d+)\s*(?:m|min|minutes?)\)$/i);
+    const title = first.replace(/^\s*[-*#\d.)]+\s*/, "").replace(/\s*\(\d+\s*(?:m|min|minutes?)\)$/i, "").trim();
+    return {
+      title: title || "Segment",
+      notes: lines.slice(1).join("\n"),
+      estimatedMinutes: durationMatch ? Number(durationMatch[1]) : 5
+    };
+  });
+}
+
+function normalizeStatuses(items) {
+  const hasCurrent = items.some((item) => item.status === TopicStatus.CURRENT);
+  if (!hasCurrent && items[0]) items[0].status = TopicStatus.CURRENT;
+  let seenCurrent = false;
+  return items.map((item) => {
+    if (item.status === TopicStatus.CURRENT) {
+      if (seenCurrent) item.status = TopicStatus.UPCOMING;
+      seenCurrent = true;
+    }
+    return item;
+  });
+}
+
 function defaultAgenda() {
-  const now = Date.now();
   return [
-    { id: nextId("topic"), title: "Opening", notes: "", preparedQuestions: [], status: TopicStatus.COMPLETED, estimatedMinutes: 5, startedAt: now - 20 * 60000, completedAt: now - 15 * 60000 },
-    { id: nextId("topic"), title: "Canada", notes: "", preparedQuestions: [], status: TopicStatus.COMPLETED, estimatedMinutes: 8, startedAt: now - 15 * 60000, completedAt: now - 8 * 60000 },
-    { id: nextId("topic"), title: "Thailand", notes: "Announced AI data-centre pipeline and whether the grid has capacity for it; distinguishing real AI facilities from traditional cloud/data centres.", preparedQuestions: ["Ask Kristine (CIO) whether the grid actually has spare capacity for the announced AI data-centre pipeline."], status: TopicStatus.CURRENT, estimatedMinutes: 10, startedAt: now - 8 * 60000, completedAt: null },
-    { id: nextId("topic"), title: "Vietnam", notes: "Manufacturing shift and power/grid buildout to support it.", preparedQuestions: [], status: TopicStatus.UPCOMING, estimatedMinutes: 10, startedAt: null, completedAt: null },
-    { id: nextId("topic"), title: "Closing", notes: "", preparedQuestions: [], status: TopicStatus.UPCOMING, estimatedMinutes: 5, startedAt: null, completedAt: null }
+    { id: nextId("topic"), title: "INTRO", notes: "", preparedQuestions: [], status: TopicStatus.CURRENT, estimatedMinutes: 2, startedAt: Date.now(), completedAt: null },
+    { id: nextId("topic"), title: "WEEK UPDATE", notes: "", preparedQuestions: [], status: TopicStatus.UPCOMING, estimatedMinutes: 4, startedAt: null, completedAt: null },
+    { id: nextId("topic"), title: "WHAT WE BUILT", notes: "", preparedQuestions: [], status: TopicStatus.UPCOMING, estimatedMinutes: 5, startedAt: null, completedAt: null },
+    { id: nextId("topic"), title: "LIVE DEMO", notes: "", preparedQuestions: [], status: TopicStatus.UPCOMING, estimatedMinutes: 6, startedAt: null, completedAt: null },
+    { id: nextId("topic"), title: "FOCUS GROUP / PEEPS", notes: "", preparedQuestions: [], status: TopicStatus.UPCOMING, estimatedMinutes: 4, startedAt: null, completedAt: null },
+    { id: nextId("topic"), title: "WHAT'S NEXT", notes: "", preparedQuestions: [], status: TopicStatus.UPCOMING, estimatedMinutes: 3, startedAt: null, completedAt: null },
+    { id: nextId("topic"), title: "CTA", notes: "", preparedQuestions: [], status: TopicStatus.UPCOMING, estimatedMinutes: 2, startedAt: null, completedAt: null },
+    { id: nextId("topic"), title: "OUTRO", notes: "", preparedQuestions: [], status: TopicStatus.UPCOMING, estimatedMinutes: 1, startedAt: null, completedAt: null }
   ];
 }

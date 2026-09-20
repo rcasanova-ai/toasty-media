@@ -29,6 +29,9 @@ import { cameraSourceFromParticipant, ParticipantSourceKind } from "../js/partic
 import { formatHottieProposalFeed } from "../js/hottie-show-runner.js";
 import { LiveProducerController } from "../js/live-producer.js";
 import { ProducerFeed, ProducerEntryType } from "../js/ai-producer.js";
+import { parseRunOfShowText, RunOfShow } from "../js/run-of-show.js";
+import { buildShowContext, TranscriptStore } from "../js/show-context.js";
+import { buildSessionDeliverables, buildWeeklyUpdatePackage } from "../js/post-production.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -49,6 +52,8 @@ const live = src("js/live-session.js");
 const guest = src("js/guest.js");
 const listener = src("js/listener.js");
 const presence = src("js/room-presence.js");
+const directorHtml = src("studio/director.html");
+const listenerHtml = src("studio/listener.html");
 const host = { participantId: "host", role: "host", connectionStatus: "connected", joinedAt: 0, onProgram: true, displayName: "Ricardo", transportSourceId: "tmroomh" };
 const tukta = { participantId: "g-tukta", role: "guest", connectionStatus: "connected", joinedAt: 1, onProgram: true, displayName: "Tukta", transportSourceId: "tmroomgtukta" };
 const duo = composeProgram([host, tukta]);
@@ -218,6 +223,41 @@ const destinations = new ProgramDestinationRouter();
 assert(destinations.list().some((item) => item.kind === ProgramDestinationKind.TOASTY_AUDIENCE), "Toasty Audience destination exists");
 assertEqual(destinations.goLive("youtube").ok, false, "unimplemented destinations are not faked live");
 assertEqual(cameraSourceFromParticipant(host).kind, ParticipantSourceKind.CAMERA, "participant camera is a distinct source from screen");
+
+console.log("\nTonight product surface: ticker, run of show, private teleprompter, post, focus");
+const tickerState = buildCanonicalState({
+  roomId: "tmroom",
+  ticker: { enabled: true, text: "Weekly update tonight", speed: 12 },
+  participants: [host]
+});
+assertEqual(tickerState.ticker.speed, 12, "ticker speed travels through canonical Program state");
+assert(listener.includes("--po-ticker-duration"), "Program Output applies canonical ticker speed");
+assert(directorHtml.includes("lvPoTickerShow") && directorHtml.includes("lvPoTickerClear"), "Producer has SHOW/HIDE/CLEAR ticker controls");
+assert(directorHtml.includes("lvTeleprompterText"), "Studio has a private teleprompter");
+assert(!listenerHtml.includes("lvTeleprompterText") && !listener.includes("Teleprompter"), "teleprompter never appears in Program Output");
+const parsedRos = parseRunOfShowText("INTRO\nWEEK UPDATE\nWHAT WE BUILT\nLIVE DEMO");
+assertEqual(parsedRos.length, 4, "Run of Show paste parses segments");
+const ros = new RunOfShow([]);
+ros.load(parsedRos);
+assertEqual(ros.current().title, "INTRO", "loaded Run of Show starts current");
+ros.moveNext();
+assertEqual(ros.current().title, "WEEK UPDATE", "Run of Show NEXT works");
+ros.moveBack();
+assertEqual(ros.current().title, "INTRO", "Run of Show BACK works");
+ros.goTo(ros.items[2].id);
+assertEqual(ros.current().title, "WHAT WE BUILT", "Run of Show GO TO SEGMENT works");
+const contextSession = { roomId: "tmroom", runOfShow: ros, elapsedMs: () => 90_000, transcript: new TranscriptStore(), showMemory: { compact: () => null }, hostDirectives: { recent: () => [] }, guestSeats: [], audience: { recent: () => [] }, aiProducerFeed: { recent: () => [] }, researchContext: null };
+const showContext = buildShowContext(contextSession);
+assertEqual(showContext.currentTopic.title, "WHAT WE BUILT", "Hottie context sees current segment");
+assert(showContext.nextTopic?.title, "Hottie context sees next segment");
+const emptyPost = buildSessionDeliverables({ runOfShow: ros, transcript: new TranscriptStore(), markers: { items: [] }, recording: {} });
+assert(emptyPost.summary, "post-production handles missing optional data");
+const weekly = buildWeeklyUpdatePackage({ runOfShow: ros, transcript: new TranscriptStore(), markers: { items: [] }, recording: {} });
+assert(weekly.linkedInPost && weekly.xPostThread.length, "weekly update package produces social outputs");
+const focusSession = { participants: { list: () => [host, tukta] }, runOfShow: new RunOfShow([]) };
+attachFocusGroupToSession(focusSession, { objective: "Test the pitch", researchQuestions: ["What is confusing?"] });
+assert(focusSession.runOfShow.items.some((item) => /Welcome/i.test(item.title)), "Focus Group uses shared Run of Show");
+assert(directorHtml.includes("lvGenerateFocusInsights"), "Focus Group uses shared Post Production surface");
 
 console.log("\nHottie proposal approval actually reaches ProgramController.execute (audit repair)");
 {

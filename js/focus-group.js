@@ -112,11 +112,26 @@ function buildSummary({speakers,counts,context}){
 
 export function buildFocusGroupDeliveryPack(lines=[],context={}){
   const analysis=analyzeFocusGroupTranscript(lines,context);
+  const agreements=analysis.observations.filter(o=>o.kind==="positive").slice(0,6);
+  const disagreements=analysis.observations.filter(o=>o.kind==="negative"||o.kind==="confusion").slice(0,6);
+  const opportunities=analysis.observations.filter(o=>o.kind==="positive"||o.kind==="intent").slice(0,6);
+  const risks=analysis.observations.filter(o=>o.kind==="negative"||o.kind==="trust"||o.kind==="price").slice(0,6);
   return {
     schema:"toasty.focus-group-delivery.v1",
     generatedAt:new Date().toISOString(),
     clientBoundary:"Client-private session output. Reusable participant profiles are handled separately by consent.",
     executiveSummary:analysis.summary,
+    researchObjective:context.objective||"",
+    participantOverview:analysis.participation,
+    majorThemes:Object.entries(analysis.stats.signalCounts).sort((a,b)=>b[1]-a[1]).map(([signal,count])=>({theme:signal,count,evidence:analysis.observations.filter(o=>o.kind===signal).slice(0,3)})),
+    pointsOfAgreement:agreements,
+    pointsOfDisagreement:disagreements,
+    keyFindings:Object.entries(analysis.stats.signalCounts).sort((a,b)=>b[1]-a[1]).map(([signal,count])=>({finding:`${signal} signal appeared ${count} time${count===1?"":"s"}`, evidence:analysis.observations.filter(o=>o.kind===signal).slice(0,3)})),
+    evidence:analysis.evidenceQuotes,
+    unansweredQuestions:analysis.gaps,
+    productOpportunities:opportunities,
+    risksConcerns:risks,
+    recommendedFollowUpResearch:analysis.gaps.length?analysis.gaps.map(g=>g.question):analysis.moderatorPrompts.map(p=>p.text),
     topFindings:Object.entries(analysis.stats.signalCounts).sort((a,b)=>b[1]-a[1]).map(([signal,count])=>({signal,count,evidence:analysis.observations.filter(o=>o.kind===signal).slice(0,3)})),
     participantObservations:analysis.participation,
     unansweredQuestions:analysis.gaps,

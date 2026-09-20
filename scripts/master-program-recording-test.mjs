@@ -406,7 +406,8 @@ console.log("\nProducer controls are Producer-only; Program Output has no REC ch
   assert(director.includes("lvProgramOutputStatus"), "Program Output readiness panel exists");
   assert(director.includes("lvRecordMarker"), "manual marker control exists");
   assert(producer.includes("STOP RECORDING"), "STOP RECORDING control");
-  assert(producer.includes("START RECORDING"), "START RECORDING control");
+  assert(producer.includes("RECORD PROGRAM"), "RECORD PROGRAM control");
+  assert(director.includes("Share tab audio ON"), "recording UX explicitly tells producer to enable tab audio");
   assert(producer.includes("RECORDING ·"), "RECORDING timer status");
   assert(producer.includes("SAVING RECORDING"), "SAVING RECORDING status");
   assert(producer.includes("RECORDING SAVED"), "RECORDING SAVED status");

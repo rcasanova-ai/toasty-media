@@ -213,6 +213,9 @@ function render(programState) {
 
   const tickerOn = Boolean(programState.ticker?.enabled && programState.ticker.text);
   elements.ticker.hidden = !tickerOn;
+  if (tickerOn && elements.tickerTrack) {
+    elements.tickerTrack.style.setProperty("--po-ticker-duration", `${Math.max(8, Math.min(40, Number(programState.ticker?.speed || 16)))}s`);
+  }
   if (tickerOn && elements.tickerText.textContent !== programState.ticker.text) {
     elements.tickerText.textContent = programState.ticker.text;
     restartTicker();
