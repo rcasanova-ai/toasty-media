@@ -61,6 +61,7 @@ import {
   createMediaCommand,
   MediaCommandType,
   SceneId,
+  normalizeScene,
   OutputConnection,
   summarizeOutputForProducer,
   recordingBlockReasonFromOutput,
@@ -1208,6 +1209,24 @@ export class LiveSession {
   }
 
   _applyControlBundle(bundle = {}) {
+    // Reconcile scene against what the server actually has, not just what we optimistically set locally.
+    // setScene()/setTicker()/etc. all mutate this.program synchronously before any network write even
+    // starts, and _publishControlNow() never awaits or checks the result — so until now, nothing ever
+    // corrected this.program if that write silently failed (rate-limited, rejected, or — the actual
+    // production regression this reconciliation was added to fix — corrupted server-side by an oversized
+    // payload). bundle.program is the response body of this participant's OWN just-completed announce
+    // (RoomPresence._announce stores it as this.program and forwards it here on every heartbeat, ~every
+    // 2s) — i.e. genuinely server-confirmed, not an echo of what we sent. Producer's scene buttons read
+    // this.program.scene (see producer-view.js's renderProgram), so this is what makes them reflect
+    // reality instead of staying permanently optimistic.
+    if (bundle.program && typeof bundle.program === "object") {
+      const confirmedScene = normalizeScene(bundle.program.scene);
+      if (confirmedScene !== this.program.scene) {
+        this.program.scene = confirmedScene;
+        this.program.live = confirmedScene === SceneId.LIVE;
+        this.emit("program", this.program);
+      }
+    }
     const outputs = bundle.outputs || this.presence?.outputs || [];
     if (outputs.length) this._setProgramOutput(outputs);
     else if (this.programOutput.connection === OutputConnection.CONNECTED) this._setProgramOutput([]);

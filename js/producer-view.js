@@ -141,11 +141,14 @@ export class ProducerView {
       this.session.setTicker({ enabled: false, text: "" });
     });
     this.elements.poTickerSpeed?.addEventListener("input", () => this.session.setTicker({ speed: Number(this.elements.poTickerSpeed.value) }));
+    // No optimistic aria-pressed update here on purpose: setScene() emits "program" synchronously with
+    // its own locally-set scene, which already flows into renderProgram() below and updates aria-pressed
+    // from program.scene — through the SAME path used to reconcile against the server-confirmed scene on
+    // every heartbeat (see LiveSession._applyControlBundle). A second, parallel "just believe the click"
+    // update here would be exactly what it looks like: a fake success state a failed/corrupted publish
+    // could leave stuck, with nothing to ever correct it back to what the server actually has.
     this.elements.poSceneGroup.querySelectorAll(".po-swatch").forEach((button) => {
-      button.addEventListener("click", () => {
-        this.session.setScene(button.dataset.scene);
-        this.elements.poSceneGroup.querySelectorAll(".po-swatch").forEach((other) => other.setAttribute("aria-pressed", String(other === button)));
-      });
+      button.addEventListener("click", () => this.session.setScene(button.dataset.scene));
     });
 
     this.elements.recordToggle.addEventListener("click", () => this.toggleRecording());

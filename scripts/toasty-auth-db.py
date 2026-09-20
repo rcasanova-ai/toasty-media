@@ -784,13 +784,37 @@ def session_program_get(conn, room_id):
     return state
 
 
+SESSION_PROGRAM_MAX_JSON_CHARS = 300000  # see comment in session_program_put — must stay well above
+# the End Card qrImage field's own 200000-char cap (sanitizeEndCard in render-production-server.mjs)
+# plus headroom for everything else in canonical program state (participants, ticker text, etc).
+
+
 def session_program_put(conn, room_id, state):
     if not isinstance(state, dict):
         return session_program_get(conn, room_id)
     now = utc_now()
     existing = conn.execute("SELECT revision FROM session_program WHERE room_id = ?", (room_id,)).fetchone()
     revision = (existing["revision"] + 1) if existing else 1
-    stored = json.dumps(state)[:48000]
+    stored = json.dumps(state)
+    # ROOT CAUSE of "scene transitions don't reliably propagate" (production regression after the End
+    # Card/QR upload feature shipped): this used to be json.dumps(state)[:48000] — a blind string slice.
+    # Once a producer attaches a real QR image (a base64 data: URL, easily 40-90KB on its own) to the
+    # End Card, the canonical program payload republished on every scene/ticker change routinely exceeds
+    # 48000 chars. Slicing mid-string produces syntactically invalid JSON; the write itself still returned
+    # 200 (nothing here ever saw an error), but session_program_get's json.loads then throws, gets caught,
+    # and silently returns {} — every subsequent read (including Program Output's own poll) got back an
+    # empty program with no scene at all, on every single transition, until the payload shrank back under
+    # the cap. Reproduced and confirmed against the real backend + a real SQLite DB before this fix.
+    # Fix: raise the cap (see SESSION_PROGRAM_MAX_JSON_CHARS above) so a real End Card+QR fits comfortably,
+    # and if a payload is STILL oversized, drop only the one field big enough to matter (qrImage — a
+    # once-per-session asset, not something that needs to survive a mid-show scene toggle) instead of
+    # truncating the string, so the result is always valid, parseable JSON with scene/ticker/participants
+    # intact even in that extreme case.
+    if len(stored) > SESSION_PROGRAM_MAX_JSON_CHARS:
+        trimmed = dict(state)
+        if isinstance(trimmed.get("endCard"), dict) and trimmed["endCard"].get("qrImage"):
+            trimmed["endCard"] = {**trimmed["endCard"], "qrImage": ""}
+        stored = json.dumps(trimmed)
     conn.execute(
         """
         INSERT INTO session_program (room_id, state_json, revision, updated_at)

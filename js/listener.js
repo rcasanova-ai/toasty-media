@@ -54,6 +54,8 @@ let connectedAt = null;
 
 const elements = {
   canvas: document.querySelector("#poCanvas"),
+  chromeTop: document.querySelector("#poChromeTop"),
+  chromeBottom: document.querySelector("#poChromeBottom"),
   brandLogo: document.querySelector("#poBrandLogo"),
   stage: document.querySelector("#poStage"),
   holding: document.querySelector("#poHolding"),
@@ -245,6 +247,31 @@ function render(programState, source = "unknown") {
   applyBrand(programState.brandTheme);
   const scene = normalizeScene(programState.scene);
   document.body.dataset.scene = scene;
+
+  // Explicit, deterministic scene visibility — do not rely on CSS [data-scene="x"] selectors alone.
+  // CSS still does the actual show/hide styling (display:flex/none), but .hidden is the ONE thing this
+  // function itself guarantees regardless of any stylesheet: if a future CSS edit ever drops a selector,
+  // adds a specificity conflict, or a scene name is ever mistyped, a scene will still explicitly hide
+  // every other scene element rather than silently leaving a stale one visible underneath it.
+  const isHolding = scene === SceneId.HOLDING;
+  const isBrb = scene === SceneId.BRB;
+  const isTechnical = scene === SceneId.TECHNICAL_DIFFICULTIES;
+  const isEnding = scene === SceneId.ENDING;
+  const isLiveScene = scene === SceneId.LIVE;
+  if (elements.holding) elements.holding.hidden = !isHolding;
+  if (elements.brb) elements.brb.hidden = !isBrb;
+  if (elements.technical) elements.technical.hidden = !isTechnical;
+  if (elements.ending) elements.ending.hidden = !isEnding;
+  // NOT the .hidden attribute here: .po-stage/.po-chrome each have their own unconditional class-level
+  // `display` rule (display:grid / display:flex), which — being author-origin CSS — beats the UA
+  // stylesheet's [hidden]{display:none} rule regardless of specificity tie-breaking (author origin always
+  // outranks UA origin at equal specificity). Setting .hidden here would silently do nothing, the exact
+  // "looks like it should work, doesn't" trap this codebase has hit before. Inline style wins over any
+  // class selector unconditionally, so it's what actually forces the outcome deterministically.
+  const stageVisibility = isLiveScene ? "" : "hidden";
+  if (elements.stage) elements.stage.style.visibility = stageVisibility;
+  if (elements.chromeTop) elements.chromeTop.style.visibility = stageVisibility;
+  if (elements.chromeBottom) elements.chromeBottom.style.visibility = stageVisibility;
 
   if (elements.headline) elements.headline.textContent = programState.topic || "";
   if (elements.sessionName) {
