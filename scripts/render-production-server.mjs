@@ -1649,8 +1649,17 @@ function requirePresenceId(value, label) {
   return id;
 }
 
+// Larger than readJson's default 64KB cap: this is the ONLY presence endpoint whose body can legitimately
+// carry the canonical program state, which now includes the End Card (its qrImage field alone is capped
+// at 200000 chars server-side in sanitizeEndCard — see js/end-card.js/producer-view.js). 64KB was fine
+// before End Card/QR existed; a real QR image now routinely pushes this request past it, which surfaced
+// as a clean 413 in some cases and, combined with session_program_put's now-fixed truncation bug, as
+// silent scene-transition failure in others. 320KB matches SESSION_PROGRAM_MAX_JSON_CHARS (300000) in
+// scripts/toasty-auth-db.py plus headroom for this request's other small fields.
+const PRESENCE_ANNOUNCE_MAX_BODY_BYTES = 320 * 1024;
+
 async function handlePresenceAnnounce(req, res) {
-  const body = await readJson(req);
+  const body = await readJson(req, PRESENCE_ANNOUNCE_MAX_BODY_BYTES);
   const roomId = requirePresenceId(body.roomId, "roomId");
   const participantId = requirePresenceId(body.participantId, "participantId");
   const role = String(body.role || "");
@@ -2370,12 +2379,12 @@ function limit(req, res, key, max, windowMs) {
   return true;
 }
 
-async function readJson(req) {
+async function readJson(req, maxBytes = 64 * 1024) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 64 * 1024) throw httpError(413, "Request is too large.");
+    if (size > maxBytes) throw httpError(413, "Request is too large.");
     chunks.push(chunk);
   }
   if (!chunks.length) return {};
