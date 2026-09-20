@@ -28,7 +28,8 @@ export const ProductionActionType = Object.freeze({
   PLAY_AUDIO: "PLAY_AUDIO",
   PLAY_ASSET: "PLAY_ASSET",
   STOP_AUDIO: "STOP_AUDIO",
-  PLAY_VIDEO: "PLAY_VIDEO"
+  PLAY_VIDEO: "PLAY_VIDEO",
+  MARKER: "MARKER"
 });
 
 const EXECUTABLE = new Set([
@@ -116,6 +117,7 @@ export class ProgramController {
       duration: command.duration,
       src: command.src
     });
+    this.session.noteProductionMarker?.("play-audio", item.displayName || item.id, initiator);
     this.session.emit?.("program-audio", command);
     this.session.publishProgramState?.();
     // Producer monitor is a parallel play of the same command. Program Audio is Program Output.
@@ -139,6 +141,7 @@ export class ProgramController {
       duration: command.duration,
       src: command.src
     });
+    this.session.noteProductionMarker?.("stop-audio", command.displayName || command.assetId || "audio", initiator);
     this.session.emit?.("program-audio", command);
     this.session.publishProgramState?.();
     this.session.programAudio?.stop();
@@ -163,6 +166,7 @@ export class ProgramController {
       layout: nextLayout,
       sourceUrl: asset.sourceUrl
     });
+    this.session.noteProductionMarker?.("take-live", asset.title || asset.id, "producer");
     this.session.emit?.("program-asset", this.liveAsset());
     this.session._syncProgramPreview?.();
     this.session.publishProgramState?.();
@@ -176,6 +180,7 @@ export class ProgramController {
     this.session.assets.update(targetId, { status: ProgramAssetStatus.REMOVED });
     this.session.program.assetLayout = null;
     this.session.productionLog?.record(ProductionActionType.REMOVE_ASSET, { assetId: targetId });
+    this.session.noteProductionMarker?.("remove-asset", live.title || targetId, "producer");
     this.session.emit?.("program-asset", null);
     this.session._syncProgramPreview?.();
     this.session.publishProgramState?.();

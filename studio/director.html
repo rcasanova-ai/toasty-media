@@ -393,6 +393,7 @@
             <div class="lv-topbar-status">
               <span class="lv-rec-chip" id="lvRecChip" hidden>
                 <span class="lv-rec-dot" aria-hidden="true"></span>
+                <span>MASTER</span>
                 <span id="lvRecChipTime">00:00:00</span>
               </span>
               <span class="lv-policy-chip" id="lvPolicyChip" hidden></span>
@@ -562,13 +563,27 @@
               <button id="lvOpenProgramOutput" class="btn btn-ghost btn-small" type="button">Open Program Output</button>
             </section>
 
-            <section class="lv-panel lv-record" data-lv-only="producer" hidden aria-label="Recording">
-              <div class="lv-panel-head"><span>Recording</span></div>
+            <section class="lv-panel lv-record" data-lv-only="producer" hidden aria-label="Master Program Recording">
+              <div class="lv-panel-head">
+                <span>Master Program Recording</span>
+                <span class="lv-chip" id="lvRecordStatus">Idle</span>
+              </div>
+              <p class="recording-purpose" id="lvRecordPurpose">Records what the audience saw and heard: Program Output + Program Audio.</p>
               <div class="recording-actions">
                 <strong id="lvRecordTimer" class="recording-timer" hidden>00:00:00</strong>
                 <button id="lvRecordToggle" class="rec-toggle" type="button" aria-pressed="false">Start recording</button>
+                <button id="lvRecordMarker" class="btn btn-ghost btn-small" type="button" hidden>Mark</button>
               </div>
-              <p class="control-note" id="lvRecordNote">Host track only here. Guest tracks are captured from the guest page.</p>
+              <p class="control-note" id="lvRecordNote">Opens Program Output. In the share dialog, select that tab and enable tab audio. Isolated Host camera tapes are not this master.</p>
+              <div class="master-playback" id="lvMasterPlayback" hidden>
+                <p class="rail-card-title">Last master</p>
+                <video id="lvMasterVideo" class="master-playback-video" controls playsinline></video>
+                <div class="recording-actions">
+                  <button id="lvMasterDownload" class="btn btn-ghost btn-small" type="button">Download master</button>
+                  <button id="lvMasterManifest" class="btn btn-ghost btn-small" type="button">Download manifest</button>
+                </div>
+                <p class="control-note" id="lvMasterManifestNote"></p>
+              </div>
             </section>
 
             <section class="lv-panel lv-audio" aria-label="Soundboard">

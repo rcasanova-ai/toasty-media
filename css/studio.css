@@ -1384,6 +1384,30 @@
   margin-top: -0.3rem;
 }
 
+.lv-record[data-active="true"] {
+  border-color: rgba(255, 91, 69, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(255, 91, 69, 0.18);
+}
+
+.lv-record .recording-purpose {
+  font-size: 0.86rem;
+  margin: 0 0 0.55rem;
+}
+
+.master-playback {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.master-playback-video {
+  background: #0b0908;
+  border: 1px solid var(--studio-line-strong);
+  border-radius: 8px;
+  max-height: 220px;
+  width: 100%;
+}
+
 .control-note {
   color: var(--studio-muted);
   font-size: 0.78rem;

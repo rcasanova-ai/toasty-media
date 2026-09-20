@@ -8,7 +8,8 @@ import { ProgramAudioBus, serializeProgramAudio } from "./program-audio.js";
 
 // Toasty Studio Program Output — the finished, audience-facing broadcast canvas.
 // This page contains ONLY the composited show: no director/guest/camera/scene controls of any kind.
-// It is the single feed re-used for the Toasty viewer, tab-capture RTMP broadcasting, and local recording.
+// It is the single feed re-used for the Toasty viewer, tab-capture RTMP broadcasting, and Master
+// Program Recording. Do not render recording chrome here — it would be burned into the master.
 //
 // Video is the ONE Program Renderer (js/program-renderer.js): composeProgram() + one clean per-person
 // source per slot. Producer Program Preview uses the same renderer. VDO is transport only

@@ -6,8 +6,8 @@
 //     → ProgramController (deterministic action + production log)
 //     → ProgramSync.audio { playId, assetId, src, startedAt, duration }
 //     → Program Output (listener.js) ProgramAudioBus plays the SAME local catalogue file
-//         ├→ AudioContext destination  = Toasty audience + tab-capture stream audio
-//         └→ MediaStreamDestination    = captureStream() for future master recording
+//         ├→ AudioContext destination  = Toasty audience + Program Output tab-capture audio
+//         └→ MediaStreamDestination    = captureStream() for native-stream mix / future server ingest
 //
 // Producer-local playback is a MONITOR of the same command. It is not Program Audio.
 // `new Audio(file).play()` on the Producer machine is not the program path.
@@ -17,12 +17,15 @@
 //   catalogue file against the same playId/startedAt. Tab-capture of Program Output with tab audio
 //   enabled is the current stream destination. Guest VDO headphones do not receive this mix yet.
 //
-// Next engineering steps (not this slice):
-//   1. Master recording: MediaRecorder(program video captureStream + programAudio.captureStream()).
-//      LocalIsolatedRecorder is still host-mic-only and cannot hear this bus.
-//   2. Server-side program mix (FFmpeg/GStreamer): participant tracks + catalogue files from the
-//      PLAY_AUDIO/STOP_AUDIO timeline, producing one Program Audio file for all destinations.
-//   3. Inject that mix into guest IFB / VDO so participants hear soundboard too.
+// Master recording (this product): Program Output tab capture, which already includes this bus's
+// destination plus VDO iframe speech. captureStream() is for native MediaStreams this page owns
+// (connectStream) and for a future server ingest — not a substitute for missing tab audio.
+//
+// Next engineering steps:
+//   1. Server-side program mix (FFmpeg/GStreamer): participant WebRTC tracks + catalogue files from
+//      the PLAY_AUDIO/STOP_AUDIO timeline, producing one Program Audio file for all destinations.
+//   2. Inject that mix into guest IFB / VDO so participants hear soundboard too.
+//   3. Chunked/resumable upload of the master timeslices so a closed tab does not lose the show.
 
 import { allowlistedCatalogueSrc } from "./program-asset.js";
 
@@ -101,13 +104,35 @@ export class ProgramAudioBus {
     this.captureDest = null;
     this.current = null;
     this.buffers = new Map();
+    this.liveSources = new Map();
   }
 
-  // Mix output for future master Program recording / non-tab-capture streams.
-  // Not yet wired to LocalIsolatedRecorder (that recorder is still host-mic-only).
+  // Mix output for master Program recording / non-tab-capture streams.
   captureStream() {
     this.ensure();
     return this.captureDest.stream;
+  }
+
+  // When a page actually owns a participant MediaStream (native host preview, later a server mix),
+  // that stream enters the same program graph as catalogue files. Program Output cannot do this for
+  // VDO iframes — those tracks are cross-origin. Guest speech reaches the master via Program Output
+  // tab audio, which already includes those iframes plus this bus's destination.
+  connectStream(id, mediaStream) {
+    if (!id || !mediaStream) return { ok: false, reason: "missing-stream" };
+    this.ensure();
+    this.disconnectStream(id);
+    const source = this.ctx.createMediaStreamSource(mediaStream);
+    source.connect(this.programGain);
+    this.liveSources.set(id, { source, mediaStream });
+    return { ok: true, id, liveSources: this.liveSources.size };
+  }
+
+  disconnectStream(id) {
+    const entry = this.liveSources.get(id);
+    if (!entry) return { ok: false, reason: "missing-source" };
+    try { entry.source.disconnect(); } catch (_) {}
+    this.liveSources.delete(id);
+    return { ok: true, id };
   }
 
   setVolume(value) {
@@ -132,8 +157,8 @@ export class ProgramAudioBus {
     this.monitorGain.gain.value = this.volume;
     this.captureDest = this.ctx.createMediaStreamDestination();
     // Program mix fans out to:
-    //   destination     → audience speakers / Producer monitor / tab-capture audio
-    //   captureDest     → future MediaRecorder master Program Audio
+    //   destination     → audience speakers / Producer monitor / Program Output tab-capture audio
+    //   captureDest     → native-stream mix / future server ingest (not a second Program Audio)
     this.programGain.connect(this.monitorGain);
     this.monitorGain.connect(this.ctx.destination);
     this.programGain.connect(this.captureDest);
