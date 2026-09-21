@@ -9,6 +9,7 @@ import { ProgramAudioMixer } from "./program-audio-mixer.js";
 import { RoomPresence } from "./room-presence.js";
 import { ProgramServerSubscriber } from "./program-server-sync.js";
 import { END_CARD_SOCIAL_PLATFORMS, END_CARD_SOCIAL_LABELS, END_CARD_SOCIAL_ICONS } from "./end-card.js";
+import { normalizeTickerSpeed, tickerDurationSeconds } from "./program-ticker.js";
 import {
   OutputConnection,
   SceneId,
@@ -33,6 +34,8 @@ const engine = new VideoEngine();
 let sync = null;
 let presence = null;
 let tickerRafId = null;
+let tickerMeasureRafId = null;
+let lastTickerAnimationKey = "";
 let lastProgramState = null;
 const mountedProgramTiles = new Map();
 let audioUnlocked = true;
@@ -114,6 +117,7 @@ async function init() {
   void unlockAudio();
   document.addEventListener("click", unlockAudioOnce, { once: true, capture: true });
   document.addEventListener("keydown", unlockAudioOnce, { once: true, capture: true });
+  window.addEventListener("resize", updateTickerFromLastState, { passive: true });
   engine.onMessage(handleTransportMessage);
 
   presence = new RoomPresence({
@@ -300,13 +304,8 @@ function render(programState, source = "unknown") {
 
   const tickerOn = Boolean(programState.ticker?.enabled && programState.ticker.text);
   elements.ticker.hidden = !tickerOn;
-  if (tickerOn && elements.tickerTrack) {
-    elements.tickerTrack.style.setProperty("--po-ticker-duration", `${Math.max(8, Math.min(40, Number(programState.ticker?.speed || 16)))}s`);
-  }
-  if (tickerOn && elements.tickerText.textContent !== programState.ticker.text) {
-    elements.tickerText.textContent = programState.ticker.text;
-    restartTicker();
-  }
+  if (tickerOn) renderTicker(programState.ticker);
+  else lastTickerAnimationKey = "";
 
   if (scene === SceneId.LIVE) {
     renderLiveStage(programState);
@@ -564,7 +563,48 @@ function applyBrand(themeId) {
   }
 }
 
+function renderTicker(ticker) {
+  if (!elements.ticker || !elements.tickerTrack || !elements.tickerText) return;
+  const text = String(ticker?.text || "");
+  const speed = normalizeTickerSpeed(ticker?.speed);
+  if (elements.tickerText.textContent !== text) elements.tickerText.textContent = text;
+  scheduleTickerMetrics(speed, text);
+}
+
+function updateTickerFromLastState() {
+  if (!lastProgramState?.ticker?.enabled || !lastProgramState.ticker.text) return;
+  renderTicker(lastProgramState.ticker);
+}
+
+function scheduleTickerMetrics(speed, text) {
+  if (tickerMeasureRafId) cancelAnimationFrame(tickerMeasureRafId);
+  applyTickerMetrics(speed, text);
+  tickerMeasureRafId = requestAnimationFrame(() => {
+    tickerMeasureRafId = null;
+    applyTickerMetrics(speed, text);
+  });
+}
+
+function applyTickerMetrics(speed, text) {
+  if (!elements.ticker || !elements.tickerTrack || !elements.tickerText) return;
+  const viewportWidth = elements.ticker.clientWidth || elements.ticker.getBoundingClientRect?.().width || 0;
+  const textWidth = elements.tickerText.scrollWidth || elements.tickerText.getBoundingClientRect?.().width || 0;
+  const duration = tickerDurationSeconds({ speed, viewportWidth, textWidth });
+  const roundedDuration = Math.round(duration * 10) / 10;
+  const start = Math.ceil(viewportWidth);
+  const end = -Math.ceil(textWidth);
+  elements.tickerTrack.style.setProperty("--po-ticker-duration", `${roundedDuration}s`);
+  elements.tickerTrack.style.setProperty("--po-ticker-start", `${start}px`);
+  elements.tickerTrack.style.setProperty("--po-ticker-end", `${end}px`);
+  const animationKey = `${text}|${speed}|${roundedDuration}|${start}|${end}`;
+  if (animationKey !== lastTickerAnimationKey) {
+    lastTickerAnimationKey = animationKey;
+    restartTicker();
+  }
+}
+
 function restartTicker() {
+  if (!elements.tickerTrack) return;
   if (tickerRafId) cancelAnimationFrame(tickerRafId);
   elements.tickerTrack.style.animation = "none";
   void elements.tickerTrack.offsetWidth;

@@ -231,6 +231,8 @@ assert(chrome.root.style.getPropertyValue("--studio-compact-mark-image").include
 applyBrandTheme("8alta", chrome);
 assert(chrome.root.dataset.lowerThirdMark === "shown", "8ALTA compact mark is shown from favicon");
 assert(chrome.root.style.getPropertyValue("--studio-compact-mark-image").includes("favicon.ico"), "8ALTA compact mark is the favicon");
+assert(!chrome.root.style.getPropertyValue("--studio-silhouette-image").includes("silhouette-skyline.png"), "8ALTA does not reuse Superteam skyline artwork");
+assert(chrome.root.style.getPropertyValue("--studio-identity-stripe").includes("200, 164, 93"), "8ALTA identity stripe is navy/gold, not Thai flag bars");
 
 applyBrandTheme("superteam", chrome);
 assert(chrome.root.dataset.brandTheme === "superteam", "switching to Superteam updates immediately");

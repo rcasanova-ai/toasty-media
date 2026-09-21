@@ -59,6 +59,24 @@ export const BRAND_THEMES = Object.freeze({
       preparedTitle: "Your 8ALTA production is prepared.",
       conciergePrefix: "8ALTA Studio suggests:"
     }),
+    artwork: Object.freeze({
+      backgroundArtwork: "",
+      backgroundWatermark: "",
+      backgroundSilhouette: "",
+      brandPattern: "",
+      surfaceGradient: "radial-gradient(980px 520px at 74% 12%, rgba(200, 164, 93, 0.13), transparent 62%), linear-gradient(165deg, rgba(7, 17, 31, 0.96) 0%, rgba(17, 29, 45, 0.86) 48%, rgba(7, 17, 31, 1) 100%)",
+      accentGradient: "linear-gradient(135deg, #ead99d, #c8a45d 62%, #7f632f)",
+      decorativeOpacity: 0.04,
+      watermarkOpacity: 0,
+      silhouetteOpacity: 0,
+      titleCardFill: "rgba(7, 17, 31, 0.84)",
+      grainBlend: "overlay",
+      identityStripe: "linear-gradient(90deg, transparent, rgba(200, 164, 93, 0.72), transparent)",
+      identityStripeWidth: "2px",
+      grainOpacity: 0.02,
+      introTreatment: "executive-lantern",
+      outroTreatment: "executive-close"
+    }),
     vars: Object.freeze({
       "--brand-primary":"#c8a45d","--brand-secondary":"#f5f1e8","--brand-accent":"#d8c17e","--brand-background":"#07111f","--brand-surface":"#111d2d","--brand-surface-alt":"#172334","--brand-text":"#f5f1e8","--brand-text-muted":"#aeb8c5","--brand-border":"rgba(200, 164, 93, 0.24)","--brand-button":"#c8a45d","--brand-button-text":"#07111f","--brand-focus":"#d8c17e","--brand-gradient":"linear-gradient(135deg, #d8c17e, #c8a45d)","--brand-heading-font":"Inter, system-ui, sans-serif","--brand-body-font":"Inter, system-ui, -apple-system, sans-serif",
       "--studio-canvas":"#07111f","--studio-canvas-2":"#0b1625","--studio-surface":"#111d2d","--studio-surface-2":"#172334","--studio-surface-raised":"#1d2a3c","--studio-line":"rgba(216, 222, 230, 0.12)","--studio-line-strong":"rgba(200, 164, 93, 0.34)","--studio-line-warm":"rgba(200, 164, 93, 0.42)","--studio-cream":"#f5f1e8","--studio-cream-dim":"#d8dee6","--studio-muted":"#95a2b2","--studio-orange":"#c8a45d","--studio-orange-bright":"#d8c17e","--studio-amber":"#ead99d","--studio-burnt":"#8a6a2f","--studio-brown":"#172334","--studio-green":"#75b798","--studio-client-glow":"rgba(200, 164, 93, 0.16)","--studio-button-text":"#07111f","--studio-button-shadow":"rgba(200, 164, 93, 0.20)","--studio-button-shadow-hover":"rgba(200, 164, 93, 0.30)","--studio-atmosphere-stroke":"rgba(200, 164, 93, 0.08)","--studio-atmosphere-stroke-2":"rgba(245, 241, 232, 0.045)","--studio-mark-opacity":"0.055"

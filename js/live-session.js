@@ -28,6 +28,7 @@ import {
   PROGRAM_OUTPUT_PICKER_INSTRUCTION
 } from "./program-recording.js";
 import { ProgramSync } from "./program-sync.js";
+import { normalizeTickerSpeed } from "./program-ticker.js";
 import { SessionPolicy } from "./session-policy.js";
 import { RunOfShow } from "./run-of-show.js";
 import { AudienceStore, DemoAudienceFeed } from "./audience.js";
@@ -1359,7 +1360,7 @@ export class LiveSession {
   setTicker({ enabled, text, speed }) {
     if (enabled !== undefined) this.program.tickerEnabled = enabled;
     if (text !== undefined) this.program.tickerText = text;
-    if (speed !== undefined) this.program.tickerSpeed = Math.max(8, Math.min(40, Number(speed) || 16));
+    if (speed !== undefined) this.program.tickerSpeed = normalizeTickerSpeed(speed);
     this._publishControlNow();
     this.emit("program", this.program);
   }
