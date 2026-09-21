@@ -272,7 +272,7 @@ function bindViewSwitch() {
   document.querySelectorAll("[data-studio-workflow]").forEach((button) => {
     button.addEventListener("click", () => setStudioWorkflow(button.dataset.studioWorkflow));
   });
-  setView("producer");
+  setView("host");
 }
 
 function setStudioWorkflow(workflow) {
@@ -280,8 +280,8 @@ function setStudioWorkflow(workflow) {
     button.setAttribute("aria-pressed", String(button.dataset.studioWorkflow === workflow));
   });
   if (workflow === "studio") {
-    if (document.body.classList.contains("session-gate-open")) return;
-    elements.switchSession?.click();
+    if (document.body.classList.contains("session-gate-open") || document.body.classList.contains("session-artifacts-open")) return;
+    setView("host");
     return;
   }
   if (document.body.classList.contains("session-gate-open") || document.body.classList.contains("session-artifacts-open")) return;
@@ -291,6 +291,11 @@ function setStudioWorkflow(workflow) {
   else if (workflow === "stream") setProducerDomain("broadcast");
   else if (workflow === "post") setProducerTool("media");
 }
+
+document.querySelector("#openSoundboardQuick")?.addEventListener("click", () => {
+  setView("producer");
+  setProducerTool("soundboard");
+});
 
 function setView(view) {
   elements.liveConsole.dataset.lvView = view;
