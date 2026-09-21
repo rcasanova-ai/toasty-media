@@ -91,13 +91,41 @@ export function createMarker({ timestamp = Date.now(), type = MarkerType.MANUAL,
   };
 }
 
+export function createMomentMarker({
+  sessionId = null,
+  timestamp = Date.now(),
+  preRollSeconds = 45,
+  postRollSeconds = 15,
+  reason = "",
+  transcriptContext = []
+} = {}) {
+  const marker = createMarker({
+    timestamp,
+    type: MarkerType.HOTTIE,
+    label: reason || "Moment",
+    source: "hottie"
+  });
+  return {
+    ...marker,
+    sessionId,
+    preRollSeconds: Number(preRollSeconds) || 45,
+    postRollSeconds: Number(postRollSeconds) || 15,
+    reason: String(reason || "").slice(0, 240),
+    transcriptContext: Array.isArray(transcriptContext) ? transcriptContext.slice(-8) : [],
+    kind: "moment-marker"
+  };
+}
+
 export class MarkerLog {
   constructor() {
     this.items = [];
   }
 
   add(fields) {
-    const marker = createMarker(fields);
+    const marker = fields?.kind === "moment-marker" ? fields : createMarker(fields);
+    if (fields?.kind === "moment-marker" && !fields.id) {
+      marker.id = nextMarkerId();
+    }
     this.items.push(marker);
     return marker;
   }

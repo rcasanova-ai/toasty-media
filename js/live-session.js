@@ -186,7 +186,8 @@ export class LiveSession {
       activeParticipantId: null,
       shareLayout: null,
       assetLayout: null,
-      audio: null
+      audio: null,
+      hottieVoice: null
     };
 
     // Seat -> {id,label,mic,camera,onProgram} — stable across join/leave order noise, backfilled only
@@ -354,7 +355,13 @@ export class LiveSession {
   }
 
   sendToProducer(instructionText, options) {
-    return this.aiProducerService.handleInstruction(instructionText, options);
+    try {
+      return this.liveProducer.handleManualRequest(instructionText, options);
+    } catch (error) {
+      console.error("[Hottie] request failed open", error);
+      this.liveProducer.setStatus("error", { label: "ERROR" }, "Couldn't complete that. The show continues.");
+      return null;
+    }
   }
 
   // ---- Transcription (policy-gated) ----
@@ -1164,7 +1171,8 @@ export class LiveSession {
         startedAt: this.recording.startedAt || null
       },
       outputs: this.presence?.outputs || [],
-      endCard: resolveEndCard({ sessionEndCard: this.sessionEndCard, profileEndCard: this.profileEndCard })
+      endCard: resolveEndCard({ sessionEndCard: this.sessionEndCard, profileEndCard: this.profileEndCard }),
+      hottieVoice: this.program.hottieVoice || null
     });
   }
 

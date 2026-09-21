@@ -55,7 +55,9 @@ export class HostView {
       talkState: root.querySelector("#lvTalkState"),
       talkLive: root.querySelector("#lvTalkLive"),
       talkTextForm: root.querySelector("#lvTalkTextForm"),
-      talkTextInput: root.querySelector("#lvTalkTextInput")
+      talkTextInput: root.querySelector("#lvTalkTextInput"),
+      hostHottieStatus: root.querySelector("#lvHostHottieStatus"),
+      hostHottieNote: root.querySelector("#lvHostHottieNote")
     };
     this._agendaTimerId = null;
     this._teleFontSize = 24;
@@ -86,6 +88,36 @@ export class HostView {
     this.initTeleprompter();
     this.initAudience();
     this.initAiProducer();
+    this.session.on("hottie", (status) => this.renderHottieCue(status));
+    this.renderHottieCue(this.session.hottieStatus);
+  }
+
+  renderHottieCue(status = this.session.hottieStatus || {}) {
+    const state = status.state || "listening";
+    const label = {
+      listening: "LISTENING",
+      heard: "HEARD COMMAND",
+      thinking: "HEARD COMMAND",
+      searching: "SEARCHING",
+      researching: "SEARCHING",
+      found: "FOUND",
+      preparing: "PREPARING PREVIEW",
+      "awaiting-approval": "WAITING FOR APPROVAL",
+      "taking-live": "TAKING LIVE",
+      "on-air": "TAKING LIVE",
+      speaking: "HOTTIE SPEAKING",
+      done: "DONE",
+      "needs-clarification": "NEEDS CLARIFICATION",
+      error: "ERROR",
+      ready: "DONE"
+    }[state] || String(state).replace(/-/g, " ").toUpperCase();
+    if (this.elements.hostHottieStatus) {
+      this.elements.hostHottieStatus.dataset.state = state;
+      this.elements.hostHottieStatus.textContent = label;
+    }
+    if (this.elements.hostHottieNote) {
+      this.elements.hostHottieNote.textContent = status.hostCue?.note || this.session.liveProducer?.hostCue?.note || "Hottie is listening.";
+    }
   }
 
   renderAv(av) {

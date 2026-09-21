@@ -249,6 +249,11 @@ function bindViewSwitch() {
   elements.toolButtons.forEach((button) => {
     button.addEventListener("click", () => setProducerTool(button.dataset.studioTool));
   });
+  document.querySelector("#lvAskHottieHeader")?.addEventListener("click", () => {
+    setView("producer");
+    setProducerTool("hottie");
+    window.setTimeout(() => document.querySelector("#lvAskHottieInput")?.focus(), 0);
+  });
   setView("producer");
 }
 

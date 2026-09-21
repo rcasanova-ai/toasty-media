@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Hottie AI Producer V1 · Rehearsal</title>
+  <link rel="stylesheet" href="../css/studio.css">
+  <link rel="stylesheet" href="../css/studio-chassis.css">
+  <style>
+    body { padding: 24px; max-width: 1100px; margin: auto; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .card { border: 1px solid rgba(0,0,0,.12); border-radius: 16px; padding: 18px; background: #fff; }
+    .log { font: 13px/1.45 ui-monospace, monospace; white-space: pre-wrap; min-height: 8rem; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <p class="eyebrow">Does not touch RoomPresence / ProgramSync / live Studio</p>
+  <h1>Hottie AI Producer V1 rehearsal</h1>
+  <p>Host speech → wake → research → Producer approval → existing TAKE LIVE. Typed Ask Hottie uses the same pipeline.</p>
+  <div class="row">
+    <button id="runSlice" class="btn btn-primary" type="button">Run acceptance slice</button>
+    <button id="askTyped" class="btn btn-ghost" type="button">Ask Hottie (typed)</button>
+  </div>
+  <div class="grid">
+    <section class="card">
+      <h2>Host</h2>
+      <p id="hostStatus">LISTENING</p>
+      <p id="hostNote">Hottie is listening.</p>
+    </section>
+    <section class="card">
+      <h2>Producer · Hottie</h2>
+      <p id="producerStatus">LISTENING</p>
+      <div id="ready"></div>
+      <div class="row">
+        <button id="preview" type="button">Preview</button>
+        <button id="takeLive" type="button">Take Live</button>
+        <button id="dismiss" type="button">Dismiss</button>
+      </div>
+    </section>
+  </div>
+  <section class="card">
+    <h2>Program card (after TAKE LIVE)</h2>
+    <div id="program"></div>
+  </section>
+  <pre class="log card" id="log"></pre>
+  <script type="module">
+    import { LiveProducerController, ingestAttributedTranscript } from "../js/live-producer.js";
+    import { ParticipantRegistry, createParticipant, ParticipantRole, ConnectionStatus } from "../js/participant-registry.js";
+    import { TranscriptStore, ShowContextMemory } from "../js/show-context.js";
+    import { SessionPolicy } from "../js/session-policy.js";
+    import { RunOfShow } from "../js/run-of-show.js";
+    import { AudienceStore } from "../js/audience.js";
+    import { ProducerFeed } from "../js/ai-producer.js";
+    import { HostDirectiveLog } from "../js/host-directive.js";
+    import { ProgramAssetCatalog, serializeProgramAsset } from "../js/program-asset.js";
+    import { ProgramController, ProductionActionLog } from "../js/production-controller.js";
+    import { SeededResearchProvider } from "../js/hottie-research.js";
+    import { buildProgramAssetCard } from "../js/program-renderer.js";
+    import { composeProgram } from "../js/program-composition.js";
+
+    const logEl = document.querySelector("#log");
+    const say = (line) => { logEl.textContent += line + "\n"; };
+
+    function fixture() {
+      const participants = new ParticipantRegistry();
+      participants.upsert(createParticipant({ participantId: "host", role: ParticipantRole.HOST, displayName: "Ricardo", connectionStatus: ConnectionStatus.CONNECTED }));
+      participants.upsert(createParticipant({ participantId: "g-anders", role: ParticipantRole.GUEST, displayName: "Anders", connectionStatus: ConnectionStatus.CONNECTED }));
+      const session = {
+        roomId: "hottie-demo",
+        policy: new SessionPolicy(),
+        participants,
+        transcript: new TranscriptStore(),
+        showMemory: new ShowContextMemory(),
+        hostDirectives: new HostDirectiveLog(),
+        aiProducerFeed: new ProducerFeed(),
+        runOfShow: new RunOfShow(),
+        audience: new AudienceStore(),
+        assets: new ProgramAssetCatalog(),
+        productionLog: new ProductionActionLog(),
+        researchProvider: new SeededResearchProvider(),
+        program: { assetLayout: null, scene: "live", live: true },
+        programOutput: { connection: "disconnected" },
+        elapsedMs: () => 0,
+        guestSeats: [],
+        emit() {},
+        publishProgramState() {},
+        _syncProgramPreview() {},
+        markers: { items: [], add(item) { this.items.push(item); return item; } },
+        timeline: { record() {} }
+      };
+      session.programController = new ProgramController(session);
+      session.liveProducer = new LiveProducerController(session);
+      return session;
+    }
+
+    let session = fixture();
+
+    function paint() {
+      const status = session.hottieStatus || {};
+      document.querySelector("#hostStatus").textContent = (status.state || "listening").toUpperCase();
+      document.querySelector("#hostNote").textContent = status.hostCue?.note || "";
+      document.querySelector("#producerStatus").textContent = (status.state || "listening").toUpperCase();
+      const ready = session.aiProducerFeed.visible().filter((e) => e.type === "asset_proposal" || e.title === "From earlier" || e.title === "Moment marked");
+      document.querySelector("#ready").innerHTML = ready.map((e) => `<p><strong>${e.title}</strong> — ${e.summary}</p>`).join("");
+      const live = session.programController.liveAsset();
+      const program = document.querySelector("#program");
+      program.replaceChildren();
+      if (live) program.appendChild(buildProgramAssetCard(serializeProgramAsset(live)));
+    }
+
+    document.querySelector("#runSlice").addEventListener("click", async () => {
+      session = fixture();
+      logEl.textContent = "";
+      say("Anders: Pricing only works if FluidVoice stays on-device.");
+      ingestAttributedTranscript(session, { participantId: "g-anders", role: "guest", speaker: "Anders", text: "Pricing only works if FluidVoice stays on-device." });
+      say('Host: Hottie, look up FluidVoice and pull up the GitHub repo.');
+      ingestAttributedTranscript(session, { participantId: "host", role: "host", speaker: "Ricardo", text: "Hottie, look up FluidVoice and pull up the GitHub repo." });
+      await session.liveProducer.ready();
+      paint();
+      say("Status: " + session.liveProducer.status);
+    });
+
+    document.querySelector("#askTyped").addEventListener("click", async () => {
+      await session.liveProducer.handleManualRequest("what did Anders say about pricing earlier?");
+      paint();
+      say("Typed recall done.");
+    });
+
+    document.querySelector("#preview").addEventListener("click", () => {
+      const entry = session.aiProducerFeed.visible().find((e) => e.proposal?.asset);
+      if (!entry) return;
+      document.querySelector("#program").replaceChildren(buildProgramAssetCard(entry.proposal.asset));
+      session.liveProducer.setStatus("preparing", { label: "PREVIEW" }, "Private preview.");
+      paint();
+    });
+
+    document.querySelector("#takeLive").addEventListener("click", () => {
+      const entry = session.aiProducerFeed.visible().find((e) => e.proposal?.asset);
+      if (!entry) return;
+      session.liveProducer.takeProposalLive(entry.id);
+      say("TAKE LIVE → " + composeProgram(session.participants.list(), { asset: session.programController.liveAsset(), assetLayout: session.program.assetLayout }).layout);
+      paint();
+    });
+
+    document.querySelector("#dismiss").addEventListener("click", () => {
+      const entry = session.aiProducerFeed.visible().find((e) => e.proposal?.asset);
+      if (entry) session.liveProducer.discardProposal(entry.id);
+      paint();
+    });
+  </script>
+</body>
+</html>

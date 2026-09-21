@@ -99,7 +99,7 @@
         <span class="studio-status-pill studio-status-pill--recording" id="studioRecordingPill">Recording</span>
         <span class="studio-status-pill studio-status-pill--streaming" id="studioStreamingPill">Streaming</span>
         <span class="studio-status-pill studio-status-pill--audio" id="studioAudioPill">Audio</span>
-        <button type="button" class="lv-ask-hottie" disabled title="Hottie operational workspace lives in Producer → Intelligence">Ask Hottie</button>
+        <button type="button" class="lv-ask-hottie" id="lvAskHottieHeader" title="Open Hottie in Producer → Intelligence">Ask Hottie</button>
       </div>
     </header>
 
@@ -519,11 +519,11 @@
             </section>
 
             <!-- HOST-only panels -->
-            <aside class="lv-panel lv-ai-producer" data-lv-only="host" hidden aria-label="AI Producer">
-              <div class="lv-panel-head"><span>AI Producer</span></div>
-              <div class="lv-feed-list" id="lvFeedListHost">
+            <aside class="lv-panel lv-ai-producer" data-lv-only="host" hidden aria-label="Hottie">
+              <div class="lv-panel-head"><span>Hottie</span><span class="lv-chip" id="lvHostHottieStatus" data-state="listening">LISTENING</span></div>
+              <p class="lv-host-hottie-note" id="lvHostHottieNote">Hottie is listening.</p>
+              <div class="lv-feed-list" id="lvFeedListHost" hidden>
                 <p class="lv-placeholder">Following conversation…</p>
-                <p class="lv-placeholder lv-placeholder-sub">No producer requests yet.</p>
               </div>
               <div class="lv-talk-row" hidden>
                 <button id="lvTalkBtn" class="lv-talk-btn" type="button" data-state="ready" disabled>🎙 Talk to Hottie</button>
@@ -531,7 +531,7 @@
               </div>
               <p class="lv-talk-live" id="lvTalkLive" hidden></p>
               <form id="lvTalkTextForm" class="lv-talk-text-form" hidden>
-                <input id="lvTalkTextInput" type="text" placeholder="Or type an instruction…" aria-label="Type an instruction to the AI Producer" disabled>
+                <input id="lvTalkTextInput" type="text" placeholder="Or type to Hottie…" aria-label="Type an instruction to Hottie" disabled>
                 <button type="submit" class="btn btn-ghost btn-small">Send</button>
               </form>
             </aside>
@@ -663,20 +663,41 @@
 
             <aside class="lv-panel lv-ai-producer-pane lv-hottie-workspace" data-lv-only="producer" data-studio-tool-panel="hottie" hidden aria-label="Hottie">
               <div class="lv-panel-head"><span>Hottie</span><span class="lv-chip">Intelligence</span></div>
-              <p class="control-note">Operational production assistant workspace. Listening, research, take-live approval and chat participation land here — not in a floating bubble.</p>
+              <p class="control-note">Operational queue. Voice and typed Ask Hottie share the same command pipeline.</p>
               <div class="lv-hottie-rail" id="lvHottieRail" aria-label="Hottie status">
                 <span class="lv-hottie-status" id="lvHottieStatus" data-state="listening">LISTENING</span>
                 <p class="lv-hottie-proposal" id="lvHottieProposal">Waiting for a Host production cue.</p>
               </div>
+              <form id="lvAskHottieForm" class="lv-ask-hottie-form">
+                <input id="lvAskHottieInput" type="text" placeholder="Ask Hottie…" aria-label="Ask Hottie">
+                <button type="submit" class="lv-mini-btn">Ask</button>
+              </form>
+              <div class="lv-hottie-preview" id="lvHottiePreview" hidden></div>
               <div class="lv-ai-diagnostics" id="lvAiDiagnostics" aria-label="AI cost diagnostics">
                 <span id="lvAiDiagRequests">0 requests</span>
                 <span id="lvAiDiagTokens">0 tokens</span>
                 <span id="lvAiDiagCost">$0.0000</span>
                 <span id="lvAiDiagProvider" class="lv-ai-diag-provider"></span>
               </div>
-              <div class="lv-feed-list" id="lvFeedListProducer">
-                <p class="lv-placeholder">Host requests will appear here.</p>
+              <div class="lv-hottie-queues" id="lvHottieQueues">
+                <section class="lv-hottie-queue" data-queue="now">
+                  <h3>Now</h3>
+                  <div id="lvHottieNow"></div>
+                </section>
+                <section class="lv-hottie-queue" data-queue="ready">
+                  <h3>Ready</h3>
+                  <div id="lvHottieReady"></div>
+                </section>
+                <section class="lv-hottie-queue" data-queue="suggestions">
+                  <h3>Suggestions</h3>
+                  <div id="lvHottieSuggestions"></div>
+                </section>
+                <section class="lv-hottie-queue" data-queue="history">
+                  <h3>History</h3>
+                  <div id="lvHottieHistory"></div>
+                </section>
               </div>
+              <div class="lv-feed-list" id="lvFeedListProducer" hidden></div>
             </aside>
 
             <section class="lv-panel lv-graphics" data-lv-only="producer" data-studio-tool-panel="graphics" hidden aria-label="Graphics">
@@ -792,8 +813,11 @@
             </section>
 
             <section class="lv-panel lv-transcription-shell" data-lv-only="producer" data-studio-tool-panel="transcription" hidden aria-label="Transcription">
-              <div class="lv-panel-head"><span>Transcription</span><span class="lv-chip">Reserved</span></div>
-              <p class="control-note">Continuous transcript, speaker attribution and Hottie context feed land here.</p>
+              <div class="lv-panel-head"><span>Transcription</span><span class="lv-chip" id="lvTranscriptLiveChip">Idle</span></div>
+              <p class="control-note">Live speaker-attributed transcript. Search and jump later. Hottie reads this; this panel is not the Hottie queue.</p>
+              <input id="lvTranscriptSearch" type="search" placeholder="Search transcript…" aria-label="Search transcript">
+              <p class="lv-transcript-current" id="lvTranscriptCurrent">No current utterance.</p>
+              <div class="lv-transcript-list" id="lvTranscriptList"></div>
             </section>
 
             <section class="lv-panel lv-media-shell" data-lv-only="producer" data-studio-tool-panel="media" hidden aria-label="Media and assets">
