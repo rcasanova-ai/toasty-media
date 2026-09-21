@@ -170,6 +170,12 @@ async function showHome(resolve, brandId) {
   gate.hidden = false;
   document.body.classList.add("session-gate-open");
   document.body.classList.remove("session-artifacts-open");
+  // Studio Home itself is a fully resolved authenticated destination. Tell the
+  // top-level shell immediately so its first-paint curtain does not wait for a
+  // live session to be selected.
+  if (window.parent !== window) {
+    window.parent.postMessage({ type: "toasty:studio-ready", surface: "home" }, window.location.origin);
+  }
 
   const statusEl = el("sessionGateStatus");
   const board = el("studioHomeBoard");
