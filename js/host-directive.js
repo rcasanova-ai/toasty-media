@@ -5,7 +5,7 @@
 // Routing (intent family + payload) is string matching, not an LLM. Downstream actions
 // are NOT executed here — this module only recognizes and structures.
 
-import { HottieIntent, ActionRiskLevel, riskForIntent } from "./hottie-action.js";
+import { HottieIntent, ActionRiskLevel, ResponseAudience, riskForIntent } from "./hottie-action.js";
 
 export const DEFAULT_WAKE_WORD = "hottie";
 export const WAKE_WORDS = Object.freeze(["hottie", "toasty"]);
@@ -31,6 +31,8 @@ export const DirectiveIntent = Object.freeze({
   CHANGE_SCENE: "change_scene",
   READ_CHAT: "read_chat",
   RESPOND_CHAT: "respond_chat",
+  ANSWER: "answer",
+  CREW: "crew",
   END_SHOW: "end_show",
   RECORDING: "recording",
   GENERIC: "generic"
@@ -48,6 +50,7 @@ export const HottieStatus = Object.freeze({
   AWAITING_APPROVAL: "awaiting-approval",
   TAKING_LIVE: "taking-live",
   ON_AIR: "on-air",
+  SPEAKING: "speaking",
   DONE: "done",
   NEEDS_CLARIFICATION: "needs-clarification",
   ERROR: "error"
@@ -97,11 +100,96 @@ export function extractAddressedCommand(text, wakeWord = DEFAULT_WAKE_WORD) {
   return null;
 }
 
+export function commandBody(text) {
+  return foldText(text).replace(/^(?:hey\s+)?(hottie|toasty)\s*[,:—\-]?\s*/i, "").trim();
+}
+
+export function wantsProgramVisual(utterance) {
+  const text = commandBody(utterance).toLowerCase();
+  if (!text) return false;
+  if (/\btake (it|that) live\b/.test(text) || /\bput it (?:on|up)(?:\s+live)?\b/.test(text)) return false;
+  if (/\b(on screen|on program)\b/.test(text)) return true;
+  if (/\bpull(\s+\w+){0,8}\s+up\b/.test(text)) return true;
+  if (/\b(show|put|bring|display)\b.{0,50}\b(photo|picture|image|article|graphic|card)\b/.test(text)) return true;
+  if (/\bput this audience question on screen\b/.test(text)) return true;
+  return false;
+}
+
+export function wantsAssetPrep(utterance) {
+  const text = commandBody(utterance).toLowerCase();
+  if (!text || wantsProgramVisual(text)) return false;
+  return /\b(get (it|that) ready|get (it|that) prepared|prepare it|find (me )?(an? )?(article|source|clip))\b/.test(text)
+    || /^(find|look\s*up|search)\b/.test(text);
+}
+
+export function isConversationalQuestion(utterance) {
+  const text = commandBody(utterance).toLowerCase();
+  if (!text) return false;
+  if (wantsProgramVisual(text)) return false;
+  if (/\b(get (it|that) ready|clip that|mark that|end the show)\b/.test(text)) return false;
+  if (/\b(post|reply) (that |this )?(to|in) (the )?chat\b/.test(text)) return false;
+  return /^(who|what|when|where|why|how|is|are|was|were|did|does|do)\b/.test(text)
+    || /\?$/.test(text)
+    || /\bremind (everyone|us|the (room|audience))\b/.test(text)
+    || /\bwhat (does|is|are) (the )?(chat|people in chat|audience)\b/.test(text)
+    || /\banswer\b.{0,40}\bquestion\b/.test(text)
+    || /\btell everyone\b/.test(text);
+}
+
+export function inferResponseAudience(utterance, { intent } = {}) {
+  const text = commandBody(utterance).toLowerCase();
+  if (/\bdon'?t say (this|that|it) on air\b/.test(text) || /\bnot on (air|program)\b/.test(text) || /\boff the air\b/.test(text)) {
+    return ResponseAudience.PRIVATE_CREW;
+  }
+  if (/\bprivately\b/.test(text) || /\btell me privately\b/.test(text) || /\bjust (tell|between) me\b/.test(text) || /\bin my ear\b/.test(text)) {
+    return ResponseAudience.PRIVATE_HOST;
+  }
+  if (/\btell the producer\b/.test(text) || /\bfor the producer\b/.test(text)) {
+    return ResponseAudience.PRIVATE_PRODUCER;
+  }
+  if (/\btell (everyone|the (room|audience)|them)\b/.test(text) || /\bsay it (out loud|on (air|program))\b/.test(text) || /\bannounce\b/.test(text)) {
+    return ResponseAudience.PROGRAM;
+  }
+  if (intent === DirectiveIntent.CLIP || intent === DirectiveIntent.MARK) return ResponseAudience.NONE;
+  if (intent === DirectiveIntent.RESPOND_CHAT) return ResponseAudience.PRIVATE_PRODUCER;
+  if (intent === DirectiveIntent.END_SHOW || intent === DirectiveIntent.RECORDING || intent === DirectiveIntent.CHANGE_SCENE) {
+    return ResponseAudience.PRIVATE_PRODUCER;
+  }
+  if (wantsProgramVisual(text) || wantsAssetPrep(text)) return ResponseAudience.PRIVATE_PRODUCER;
+  if (intent === DirectiveIntent.CREW || /\b(which camera|what camera|camera should we)\b/.test(text)) {
+    return ResponseAudience.PRIVATE_HOST;
+  }
+  if (
+    intent === DirectiveIntent.SET_SPOTLIGHT
+    || intent === DirectiveIntent.CLEAR_SPOTLIGHT
+    || intent === DirectiveIntent.SET_LAYOUT
+    || intent === DirectiveIntent.SET_ACTIVE_SPEAKER_MODE
+    || intent === DirectiveIntent.SET_SHARE_LAYOUT
+    || intent === DirectiveIntent.STOP_SHARE
+    || intent === DirectiveIntent.PLAY_AUDIO
+    || intent === DirectiveIntent.TAKE_ASSET
+    || intent === DirectiveIntent.REMOVE_ASSET
+  ) {
+    return ResponseAudience.PRIVATE_HOST;
+  }
+  if (
+    intent === DirectiveIntent.ANSWER
+    || intent === DirectiveIntent.FACT_CHECK
+    || intent === DirectiveIntent.RECALL
+    || intent === DirectiveIntent.AUDIENCE
+    || intent === DirectiveIntent.READ_CHAT
+  ) {
+    return ResponseAudience.PROGRAM;
+  }
+  if (isConversationalQuestion(text)) return ResponseAudience.PROGRAM;
+  return ResponseAudience.PRIVATE_PRODUCER;
+}
+
 export function classifyDirectiveIntent(rest) {
   const text = foldText(rest).toLowerCase();
   if (/\b(end (the )?show|kill the stream|disconnect everyone)\b/.test(text)) return DirectiveIntent.END_SHOW;
   if (/\b(start recording|stop recording|record (this|that)|stop the recording)\b/.test(text)) return DirectiveIntent.RECORDING;
-  if (/\bfact[-\s]?check\b/.test(text) || /\bis that (actually )?(true|right)\b/.test(text) || /\bcheck if that'?s actually true\b/.test(text)) {
+  if (/\bfact[-\s]?check\b/.test(text) || /\bis (that|what) .{0,80}(actually )?(true|right|accurate)\b/.test(text) || /\bcheck if that'?s actually true\b/.test(text)) {
     return DirectiveIntent.FACT_CHECK;
   }
   if (/\b(clip that|clip this|save the last|mark that|mark this|mark the last|mark a moment)\b/.test(text)) {
@@ -110,11 +198,16 @@ export function classifyDirectiveIntent(rest) {
   if (/\b(go to|switch to|take us to|put us on)\b/.test(text) && /\b(brb|holding|starting soon|live|ending|technical)\b/.test(text)) {
     return DirectiveIntent.CHANGE_SCENE;
   }
-  if (/\b(read (the )?chat|from chat|audience question|from the audience|bring up .+ (question|comment))\b/.test(text)) {
+  if (wantsProgramVisual(text)) return DirectiveIntent.FIND;
+  if (/\b(post|reply) (that |this )?(to|in) (the )?chat\b/.test(text) || /\brespond (to|in) (the )?chat\b/.test(text)) {
+    return DirectiveIntent.RESPOND_CHAT;
+  }
+  if (
+    /\b(read (the )?chat|from chat|audience question|from the audience|people in chat|what (does|is|are) (the )?chat|what chat is saying|what (is|are) (the )?people in chat|chat (is )?(saying|think)|answer .{0,40}question)\b/.test(text)
+  ) {
     return DirectiveIntent.AUDIENCE;
   }
-  if (/\b(reply to chat|respond (to|in) (the )?chat|answer (the )?(chat|audience))\b/.test(text)) return DirectiveIntent.RESPOND_CHAT;
-  if (/remind me|what did .+ say|said about|what did we say|what was the name|ten minutes ago/.test(text)) {
+  if (/remind (me|everyone|us)|what did .+ say|said about|what did we say|what was the name|ten minutes ago|what you found/.test(text)) {
     return DirectiveIntent.RECALL;
   }
   if (/who hasn'?t|who have we not heard|not heard from|hasn'?t answered|have not answered/.test(text)) return DirectiveIntent.QUIET;
@@ -137,17 +230,24 @@ export function classifyDirectiveIntent(rest) {
   if (/\b(spotlight|up big|make .+ big|put .+ (?:up|on) (?:big|large)|bring .+ full screen)\b/.test(text)) {
     return DirectiveIntent.SET_SPOTLIGHT;
   }
-  if (/^(find|look\s*up|look\s+(that|it|this)\s+up|search|get|show|bring|pull(\s+up)?)\b/.test(text) || /\b(article|source|clip|image|picture|photo|chart|document|repo|github)\b/.test(text)) {
+  if (/\b(which camera|what camera|camera should we)\b/.test(text)) return DirectiveIntent.CREW;
+  if (wantsProgramVisual(text) || wantsAssetPrep(text) || /^(find|look\s*up|look\s+(that|it|this)\s+up|search|get|show|bring|pull(\s+up)?)\b/.test(text) || /\b(article|source|clip|image|picture|photo|chart|document|repo|github)\b/.test(text)) {
     return DirectiveIntent.FIND;
   }
+  if (isConversationalQuestion(text)) return DirectiveIntent.ANSWER;
   return DirectiveIntent.GENERIC;
 }
 
 export function hottieIntentFromDirective(intent, rest = "") {
   const text = foldText(rest).toLowerCase();
+  if (intent === DirectiveIntent.ANSWER) {
+    if (/\bdefine\b/.test(text)) return HottieIntent.DEFINE;
+    if (/\bexplain\b/.test(text)) return HottieIntent.EXPLAIN;
+    return HottieIntent.SEARCH_WEB;
+  }
   if (intent === DirectiveIntent.FIND) {
-    if (/\b(picture|photo|image)\b/.test(text)) return HottieIntent.SEARCH_IMAGE;
-    if (/\b(pull (that|it|this)?\s*up|show|put (it|that) on)\b/.test(text)) return HottieIntent.SHOW_URL;
+    if (/\b(picture|photo|image)\b/.test(text)) return wantsProgramVisual(text) ? HottieIntent.SHOW_IMAGE : HottieIntent.SEARCH_IMAGE;
+    if (wantsProgramVisual(text) || /\b(pull (that|it|this)?\s*up|show|put (it|that) on)\b/.test(text)) return HottieIntent.SHOW_URL;
     return HottieIntent.SEARCH_WEB;
   }
   if (intent === DirectiveIntent.RECALL) return HottieIntent.RECALL_TRANSCRIPT;
@@ -163,6 +263,7 @@ export function hottieIntentFromDirective(intent, rest = "") {
   if (intent === DirectiveIntent.TAKE_ASSET) return HottieIntent.SHOW_ASSET;
   if (intent === DirectiveIntent.AUDIENCE || intent === DirectiveIntent.READ_CHAT) return HottieIntent.READ_CHAT;
   if (intent === DirectiveIntent.RESPOND_CHAT) return HottieIntent.RESPOND_CHAT;
+  if (intent === DirectiveIntent.CREW) return HottieIntent.CREW_ADVICE;
   if (intent === DirectiveIntent.END_SHOW || intent === DirectiveIntent.RECORDING) return intent === DirectiveIntent.END_SHOW ? "END_SHOW" : "START_RECORDING";
   return HottieIntent.UNKNOWN;
 }
@@ -235,7 +336,15 @@ export function extractDirectivePayload(intent, rest, participants = []) {
   }
   if (intent === DirectiveIntent.AUDIENCE) {
     const about = trimmed.match(/about\s+(.+)$/i);
-    return { query: about ? about[1].trim() : trimmed };
+    const who = trimmed.match(/answer\s+(.+?)(?:'s|s)?\s+question/i);
+    return {
+      query: about ? about[1].trim() : trimmed,
+      author: who ? who[1].trim() : "",
+      speakAnswer: /\banswer\b/.test(trimmed.toLowerCase())
+    };
+  }
+  if (intent === DirectiveIntent.ANSWER) {
+    return { query: trimmed.replace(/^(who|what|when|where|why|how|is|are)\s+/i, "").replace(/\?+$/g, "").trim() || trimmed };
   }
   if (intent === DirectiveIntent.SET_SPOTLIGHT) {
     const name = spotlightNameFrom(trimmed);
@@ -272,9 +381,13 @@ export function detectHostDirective(line, { wakeWord = DEFAULT_WAKE_WORD, partic
   const intent = classifyDirectiveIntent(addressed.rest);
   const hottieIntent = hottieIntentFromDirective(intent, addressed.rest);
   const payload = extractDirectivePayload(intent, addressed.rest, participants);
-  const riskLevel = riskForIntent(hottieIntent, {
+  const responseAudience = inferResponseAudience(line.text || addressed.rest, { intent, hottieIntent });
+  let riskLevel = riskForIntent(hottieIntent, {
     destructive: intent === DirectiveIntent.END_SHOW || intent === DirectiveIntent.RECORDING
   });
+  if (responseAudience === ResponseAudience.PROGRAM && !wantsProgramVisual(addressed.rest) && riskLevel !== ActionRiskLevel.RED) {
+    riskLevel = ActionRiskLevel.GREEN;
+  }
   return {
     id: nextId(),
     participantId: line.participantId || "host",
@@ -285,6 +398,7 @@ export function detectHostDirective(line, { wakeWord = DEFAULT_WAKE_WORD, partic
     intent,
     hottieIntent,
     riskLevel,
+    responseAudience,
     payload,
     status: DirectiveStatus.RECOGNIZED,
     explicit: !alreadyAddressed
@@ -368,4 +482,4 @@ export class HostDirectiveLog {
   }
 }
 
-export { HottieIntent, ActionRiskLevel };
+export { HottieIntent, ActionRiskLevel, ResponseAudience };

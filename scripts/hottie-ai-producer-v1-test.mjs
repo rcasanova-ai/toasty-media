@@ -12,16 +12,22 @@ import {
   DirectiveIntent,
   HostDirectiveLog,
   hottieIntentFromDirective,
-  ensureAddressedText
+  ensureAddressedText,
+  inferResponseAudience,
+  wantsProgramVisual
 } from "../js/host-directive.js";
 import { LiveProducerController, ingestAttributedTranscript } from "../js/live-producer.js";
 import { ProgramAssetCatalog, ProgramAssetStatus } from "../js/program-asset.js";
 import { ProgramController, ProductionActionLog, ProductionActionType } from "../js/production-controller.js";
 import { SeededResearchProvider, EmptyResearchProvider, FLUIDVOICE_GITHUB_CANDIDATE } from "../js/hottie-research.js";
-import { riskForIntent, requiresApproval, ActionRiskLevel, HottieIntent, HottieActionBus, ProductionActionStatus } from "../js/hottie-action.js";
+import { riskForIntent, requiresApproval, ActionRiskLevel, HottieIntent, HottieActionBus, ProductionActionStatus, ResponseAudience } from "../js/hottie-action.js";
 import { resolveReferences, recallTranscript } from "../js/hottie-context.js";
 import { createMomentMarker } from "../js/program-recording.js";
 import { composeProgram } from "../js/program-composition.js";
+import { isHottieSelfEcho, createHottieVoicePlan, serializeHottieVoice } from "../js/hottie-voice.js";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 function assert(condition, message) {
   if (!condition) throw new Error(`FAILED: ${message}`);
@@ -105,7 +111,7 @@ console.log("\nCommand extraction + intent routing");
   const scene = detectHostDirective({ role: "host", participantId: "host", text: "Hottie, go to BRB" });
   assertEqual(scene.intent, DirectiveIntent.CHANGE_SCENE, "scene change");
   assertEqual(scene.payload.scene, "brb", "BRB scene payload");
-  assertEqual(hottieIntentFromDirective(DirectiveIntent.FIND, "pull up a picture"), HottieIntent.SEARCH_IMAGE, "picture maps to SEARCH_IMAGE");
+  assertEqual(hottieIntentFromDirective(DirectiveIntent.FIND, "pull up a picture"), HottieIntent.SHOW_IMAGE, "picture pull-up maps to SHOW_IMAGE");
 }
 
 console.log("\nRisk classification + approval");
@@ -269,6 +275,155 @@ console.log("\nEnsure typed text is addressed");
 {
   assertEqual(ensureAddressedText("look that up").startsWith("Hottie,"), true, "typed commands are addressed");
   assert(ensureAddressedText("Hottie, look that up").startsWith("Hottie"), "already addressed stays");
+}
+
+console.log("\nResponse audience routing");
+{
+  const founded = detectHostDirective({ role: "host", participantId: "host", text: "Hottie, who founded FluidVoice?" });
+  assertEqual(founded.intent, DirectiveIntent.ANSWER, "who-founded is a conversational answer");
+  assertEqual(founded.responseAudience, ResponseAudience.PROGRAM, "public question is PROGRAM");
+  assertEqual(founded.riskLevel, ActionRiskLevel.GREEN, "ordinary informational answer is GREEN");
+  assert(!requiresApproval(founded.riskLevel), "PROGRAM answers do not wait on Producer");
+
+  const prep = detectHostDirective({ role: "host", participantId: "host", text: "Hottie, find an article about FluidVoice and get it ready." });
+  assertEqual(prep.intent, DirectiveIntent.FIND, "prep stays FIND");
+  assertEqual(prep.responseAudience, ResponseAudience.PRIVATE_PRODUCER, "prep is PRIVATE_PRODUCER");
+  assert(!prep.spokenResponse, "prep is not a spoken program answer");
+
+  const visual = detectHostDirective({ role: "host", participantId: "host", text: "Hottie, put that article on screen." });
+  assert(wantsProgramVisual(visual.rawText), "put on screen is a visual production action");
+  assertEqual(visual.hottieIntent, HottieIntent.SHOW_URL, "visual maps to SHOW_URL");
+  assertEqual(visual.riskLevel, ActionRiskLevel.AMBER, "visual take-live is AMBER");
+  assert(requiresApproval(visual.riskLevel), "visual production still needs approval");
+  assert(visual.responseAudience !== ResponseAudience.PROGRAM, "public answer is not a public production action");
+
+  const chat = detectHostDirective({ role: "host", participantId: "host", text: "Hottie, what is chat saying?" });
+  assertEqual(chat.intent, DirectiveIntent.AUDIENCE, "chat summary intent");
+  assertEqual(chat.responseAudience, ResponseAudience.PROGRAM, "chat summary is PROGRAM");
+
+  const privateChat = detectHostDirective({ role: "host", participantId: "host", text: "Hottie, privately tell me what chat is saying." });
+  assertEqual(privateChat.intent, DirectiveIntent.AUDIENCE, "private chat is still a chat read");
+  assertEqual(privateChat.responseAudience, ResponseAudience.PRIVATE_HOST, "privately tell me is PRIVATE_HOST");
+
+  const tellEveryone = detectHostDirective({ role: "host", participantId: "host", text: "Hottie, tell everyone what you found." });
+  assertEqual(tellEveryone.responseAudience, ResponseAudience.PROGRAM, "tell everyone is PROGRAM");
+  assertEqual(inferResponseAudience("Hottie, tell the Producer what you found."), ResponseAudience.PRIVATE_PRODUCER, "tell the Producer override");
+  assertEqual(inferResponseAudience("Hottie, don't say this on air."), ResponseAudience.PRIVATE_CREW, "off-air override");
+}
+
+console.log("\nPROGRAM conversational answer does not propose TAKE LIVE");
+{
+  const session = fixtureSession();
+  ingestAttributedTranscript(session, {
+    participantId: "host", role: "host", speaker: "Ricardo",
+    text: "Hottie, who founded FluidVoice?"
+  });
+  await session.liveProducer.ready();
+  const action = session.liveProducer.actions.items[0];
+  assertEqual(action.responseAudience, ResponseAudience.PROGRAM, "action audience is PROGRAM");
+  assertEqual(action.riskLevel, ActionRiskLevel.GREEN, "spoken research is GREEN");
+  assert(session.liveProducer.voicePlan.speak, "HottieVoice will speak on Program Audio");
+  assertEqual(session.liveProducer.voicePlan.mode, "PROGRAM_AUDIO", "voice mode is PROGRAM_AUDIO");
+  assert(session.program.hottieVoice?.speak, "canonical program carries hottieVoice");
+  assert(/hottie-voice/.test(session.program.hottieVoice.source), "voice source is hottie-voice");
+  assertEqual(session.liveProducer.status, "speaking", "Host/Producer see HOTTIE SPEAKING");
+  assert(!session.aiProducerFeed.visible().some((e) => e.type === ProducerEntryType.ASSET_PROPOSAL), "answer does not propose TAKE LIVE");
+  assertEqual(session.programController.liveAsset(), null, "program visual unchanged");
+}
+
+console.log("\nPRIVATE prep still proposes an asset");
+{
+  const session = fixtureSession();
+  ingestAttributedTranscript(session, {
+    participantId: "host", role: "host", speaker: "Ricardo",
+    text: "Hottie, find an article about FluidVoice and get it ready."
+  });
+  await session.liveProducer.ready();
+  const action = session.liveProducer.actions.items[0];
+  assertEqual(action.responseAudience, ResponseAudience.PRIVATE_PRODUCER, "prep stays private to Producer");
+  assert(!session.liveProducer.voicePlan.speak, "prep is not spoken on Program Audio");
+  assert(session.aiProducerFeed.visible().some((e) => e.type === ProducerEntryType.ASSET_PROPOSAL), "prep is ready for Producer Preview");
+}
+
+console.log("\nPUBLIC chat summary vs explicit private chat");
+{
+  const session = fixtureSession();
+  session.audience.ingest({ displayName: "Sarah", message: "Does FluidVoice stay on-device?", type: "question" });
+  session.audience.ingest({ displayName: "Lee", message: "What about pricing?", type: "question" });
+  ingestAttributedTranscript(session, {
+    participantId: "host", role: "host", speaker: "Ricardo",
+    text: "Hottie, what is chat saying?"
+  });
+  await session.liveProducer.ready();
+  assertEqual(session.liveProducer.actions.items[0].responseAudience, ResponseAudience.PROGRAM, "chat summary speaks to the room");
+  assert(session.liveProducer.voicePlan.speak, "chat summary uses Program Audio");
+
+  const privateSession = fixtureSession();
+  privateSession.audience.ingest({ displayName: "Sarah", message: "Does FluidVoice stay on-device?", type: "question" });
+  ingestAttributedTranscript(privateSession, {
+    participantId: "host", role: "host", speaker: "Ricardo",
+    text: "Hottie, privately tell me what chat is saying."
+  });
+  await privateSession.liveProducer.ready();
+  assertEqual(privateSession.liveProducer.actions.items[0].responseAudience, ResponseAudience.PRIVATE_HOST, "explicit private chat stays in-ear");
+  assert(!privateSession.liveProducer.voicePlan.speak, "private chat is not Program Audio");
+}
+
+console.log("\nExplicit public recall of what Hottie found");
+{
+  const session = fixtureSession();
+  ingestAttributedTranscript(session, {
+    participantId: "host", role: "host", speaker: "Ricardo",
+    text: "Hottie, find an article about FluidVoice and get it ready."
+  });
+  await session.liveProducer.ready();
+  ingestAttributedTranscript(session, {
+    participantId: "host", role: "host", speaker: "Ricardo",
+    text: "Hottie, tell everyone what you found."
+  });
+  await session.liveProducer.ready();
+  const spoken = session.liveProducer.actions.items[0];
+  assertEqual(spoken.responseAudience, ResponseAudience.PROGRAM, "tell everyone speaks the finding");
+  assert(session.liveProducer.voicePlan.speak, "finding is spoken on Program Audio");
+}
+
+console.log("\nSELF-ECHO: Program Audio must not retrigger wake");
+{
+  const session = fixtureSession();
+  ingestAttributedTranscript(session, {
+    participantId: "host", role: "host", speaker: "Ricardo",
+    text: "Hottie, who founded FluidVoice?"
+  });
+  await session.liveProducer.ready();
+  const first = session.hostDirectives.items.length;
+  const spoken = session.liveProducer.voicePlan.text;
+  assert(isHottieSelfEcho({
+    role: "host",
+    participantId: "host",
+    speaker: "Hottie",
+    text: spoken,
+    source: "hottie-voice"
+  }, { speaking: true, lastSpoken: spoken, spokenAt: Date.now() }), "hottie-voice source is self-echo");
+  ingestAttributedTranscript(session, {
+    participantId: "host", role: "host", speaker: "Ricardo",
+    text: "Hottie, who founded FluidVoice?",
+    source: "hottie-voice"
+  });
+  ingestAttributedTranscript(session, {
+    participantId: "host", role: "host", speaker: "Ricardo",
+    text: spoken
+  });
+  assertEqual(session.hostDirectives.items.length, first, "Hottie's own audio does not create a new command");
+  const plan = createHottieVoicePlan({ responseAudience: ResponseAudience.PROGRAM, text: "Short answer." });
+  assert(serializeHottieVoice(plan).speak, "serialized program voice is speakable");
+}
+
+console.log("\nProgram Output consumes HottieVoice");
+{
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const listener = readFileSync(join(root, "js/listener.js"), "utf8");
+  assert(listener.includes("syncHottieVoice"), "Program Output syncs Hottie Program Audio");
+  assert(listener.includes("speakHottieVoiceOnProgram"), "Program Output uses the TTS provider boundary");
 }
 
 console.log("\nALL PASSED — Hottie V1 command pipeline.");

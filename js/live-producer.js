@@ -9,7 +9,7 @@
 // is NOT executed here — ProgramController is the only path onto Program Output.
 
 import { ProducerEntryType } from "./ai-producer.js";
-import { detectHostDirective, detectImplicitProductionCue, DirectiveIntent, DirectiveStatus, HottieStatus, productionActionFromDirective, ensureAddressedText } from "./host-directive.js";
+import { detectHostDirective, detectImplicitProductionCue, DirectiveIntent, DirectiveStatus, HottieStatus, productionActionFromDirective, ensureAddressedText, inferResponseAudience, wantsProgramVisual, wantsAssetPrep, isHostSpeaker, extractAddressedCommand } from "./host-directive.js";
 import { attributeTranscriptLine } from "./show-context.js";
 import { programAssetFromCandidate, ProgramAssetStatus, serializeProgramAsset } from "./program-asset.js";
 import { ProductionActionType } from "./production-controller.js";
@@ -17,9 +17,9 @@ import { ProgramLayout } from "./program-composition.js";
 import { createResearchProvider } from "./hottie-research.js";
 import { resolveSoundCommand } from "./soundboard.js";
 import { ProductionEventType } from "./production-timeline.js";
-import { ActionRiskLevel, HottieIntent, HottieActionBus, ProductionActionStatus, createProductionAction } from "./hottie-action.js";
+import { ActionRiskLevel, HottieIntent, HottieActionBus, ProductionActionStatus, createProductionAction, ResponseAudience } from "./hottie-action.js";
 import { resolveReferences, recallTranscript } from "./hottie-context.js";
-import { createHottieVoicePlan, shouldSpeakOnProgram } from "./hottie-voice.js";
+import { createHottieVoicePlan, serializeHottieVoice, isHottieSelfEcho, conciseSpokenText } from "./hottie-voice.js";
 import { createMomentMarker } from "./program-recording.js";
 import { clusterAudienceQuestions } from "./audience-message.js";
 
@@ -63,6 +63,11 @@ export class LiveProducerController {
     this.momentMarkers = [];
     this.hostCue = { state: HottieStatus.LISTENING, note: "Hottie is listening." };
     this.voicePlan = createHottieVoicePlan();
+    this._speaking = false;
+    this._lastSpoken = "";
+    this._lastHeardCommand = "";
+    this._spokenAt = 0;
+    this._speakTimer = null;
   }
 
   onEvent(callback) {
@@ -80,6 +85,7 @@ export class LiveProducerController {
     this._researchJobs.clear();
     this.actions.clear();
     this.momentMarkers = [];
+    this.cancelSpeech();
     this.setStatus(HottieStatus.LISTENING, { label: "LISTENING" }, "Hottie is listening.");
   }
 
@@ -95,6 +101,15 @@ export class LiveProducerController {
   _observeUnsafe(line) {
     if (!line?.text) return;
     if (!this.session.policy.canAiProcess()) return;
+    if (isHottieSelfEcho(line, {
+      speaking: this._speaking,
+      lastSpoken: this._lastSpoken,
+      lastHeardCommand: this._lastHeardCommand,
+      spokenAt: this._spokenAt
+    })) return;
+    if (this._speaking && isHostSpeaker(line) && extractAddressedCommand(line.text)) {
+      this.cancelSpeech();
+    }
 
     const implicit = detectImplicitProductionCue(line);
     if (implicit) {
@@ -156,6 +171,7 @@ export class LiveProducerController {
     this.session.hostDirectives?.push(directive);
     this.session.showMemory?.rememberDirective(directive);
     this._emit({ type: ProducerEventType.HOST_DIRECTIVE, directive, line });
+    this._lastHeardCommand = directive.rawText || "";
     this.setStatus(HottieStatus.HEARD, { label: "HEARD COMMAND", query: directive.payload?.query }, hostHeardNote(directive));
     const action = this.actions.push(createProductionAction({
       sessionId: this.session.roomId || this.session.sessionId || null,
@@ -164,6 +180,7 @@ export class LiveProducerController {
       requestedBy: directive.speaker || "host",
       heardText: directive.rawText,
       riskLevel: directive.riskLevel,
+      responseAudience: directive.responseAudience || inferResponseAudience(directive.rawText, { intent: directive.intent }),
       status: ProductionActionStatus.RECEIVED
     }));
     directive.actionId = action.id;
@@ -176,6 +193,7 @@ export class LiveProducerController {
     });
 
     const shouldResolve = directive.intent === DirectiveIntent.FIND
+      || directive.intent === DirectiveIntent.ANSWER
       || directive.intent === DirectiveIntent.RECALL
       || directive.intent === DirectiveIntent.FACT_CHECK;
     if (shouldResolve) {
@@ -201,13 +219,28 @@ export class LiveProducerController {
 
     this.actions.setStatus(action.id, ProductionActionStatus.PROCESSING);
     this.voicePlan = createHottieVoicePlan({
-      mode: shouldSpeakOnProgram(directive.rawText) ? "PROGRAM_AUDIO" : "TEXT_ONLY",
+      responseAudience: action.responseAudience,
       text: "",
       requestedBy: directive.speaker
     });
 
     if (directive.riskLevel === ActionRiskLevel.RED) {
       this._queueRedAction(directive, action);
+      return;
+    }
+
+    const spokenResearch = directive.intent === DirectiveIntent.ANSWER
+      || (
+        (directive.intent === DirectiveIntent.FIND || directive.hottieIntent === HottieIntent.SEARCH_WEB)
+        && action.responseAudience === ResponseAudience.PROGRAM
+        && !wantsProgramVisual(directive.rawText)
+        && !wantsAssetPrep(directive.rawText)
+      );
+
+    if (spokenResearch) {
+      this.setStatus(HottieStatus.SEARCHING, { label: "SEARCHING", query: directive.payload?.query }, "Looking that up…");
+      this._inflight = this.runSpokenResearch(directive, action);
+      void this._inflight;
       return;
     }
 
@@ -339,6 +372,19 @@ export class LiveProducerController {
       query: directive.payload?.query
     });
     if (!hits.length) {
+      const found = /what you found/i.test(directive.rawText)
+        ? this.session.showMemory?.researchResults?.slice(-1)[0]
+        : null;
+      if (found) {
+        const spoken = conciseSpokenText(`I found ${found.title}. ${found.excerpt || found.sourceUrl || ""}`.trim());
+        this._completeWithAudience(directive, action, {
+          title: "From earlier",
+          summary: spoken,
+          items: [{ text: found.sourceUrl || found.title }],
+          spoken
+        });
+        return;
+      }
       this.actions.setStatus(action.id, ProductionActionStatus.FAILED);
       this._pushFeed({
         type: ProducerEntryType.CONTEXT,
@@ -351,19 +397,13 @@ export class LiveProducerController {
       return;
     }
     const summary = hits.map((line) => `${line.speaker}: ${line.text}`).join(" ");
-    this.actions.setStatus(action.id, ProductionActionStatus.COMPLETED, {
-      preview: { hits: hits.map((line) => ({ speaker: line.speaker, text: line.text, timestamp: line.timestamp })) }
-    });
-    this._pushFeed({
-      type: ProducerEntryType.CONTEXT,
+    this._completeWithAudience(directive, action, {
       title: "From earlier",
-      instruction: directive.rawText,
       summary: summary.slice(0, 280),
       items: hits.map((line) => ({ from: line.speaker, text: line.text })),
-      actionId: action.id,
-      bucket: "ready"
+      spoken: conciseSpokenText(`${hits[0].speaker} said: ${hits[0].text}`),
+      preview: { hits: hits.map((line) => ({ speaker: line.speaker, text: line.text, timestamp: line.timestamp })) }
     });
-    this.setStatus(HottieStatus.DONE, { label: "DONE" }, summary.slice(0, 140));
   }
 
   runMomentMarker(directive, action) {
@@ -407,6 +447,21 @@ export class LiveProducerController {
 
   runReadChat(directive, action) {
     const audience = this.session.audience?.recent?.(40) || [];
+    const authorQuery = String(directive.payload?.author || "").toLowerCase();
+    const named = authorQuery
+      ? audience.filter((item) => String(item.displayName || "").toLowerCase().includes(authorQuery))
+      : [];
+    if (directive.payload?.speakAnswer && named[0]) {
+      const spoken = conciseSpokenText(`${named[0].displayName} asked: ${named[0].message}`);
+      this._completeWithAudience(directive, action, {
+        type: ProducerEntryType.AUDIENCE_QUESTIONS,
+        title: "Chat",
+        summary: spoken,
+        items: [{ from: named[0].displayName, text: named[0].message }],
+        spoken
+      });
+      return;
+    }
     const clusters = clusterAudienceQuestions(audience.map((item) => ({
       id: item.id,
       text: item.message,
@@ -414,17 +469,22 @@ export class LiveProducerController {
       author: item.displayName
     })));
     const top = clusters[0];
-    this.actions.setStatus(action.id, ProductionActionStatus.COMPLETED, { preview: { clusters } });
-    this._pushFeed({
+    const recentText = audience.slice(-4).map((item) => `${item.displayName}: ${item.message}`).join(" ");
+    const summary = top
+      ? `${top.count} viewers asked about ${top.theme}.`
+      : (recentText ? `Chat is talking about: ${recentText}` : "No clustered audience questions yet.");
+    this._completeWithAudience(directive, action, {
       type: ProducerEntryType.AUDIENCE_QUESTIONS,
       title: "Chat",
-      instruction: directive.rawText,
-      summary: top ? `${top.count} viewers asked about ${top.theme}.` : "No clustered audience questions yet.",
-      items: (top?.messages || []).slice(0, 3).map((item) => ({ from: item.author, text: item.text })),
-      actionId: action.id,
-      bucket: "suggestions"
+      summary,
+      items: (top?.messages || audience.slice(-3)).slice(0, 3).map((item) => ({
+        from: item.author || item.displayName,
+        text: item.text || item.message
+      })),
+      spoken: conciseSpokenText(summary),
+      preview: { clusters },
+      bucket: directive.responseAudience === ResponseAudience.PROGRAM ? "ready" : "suggestions"
     });
-    this.setStatus(HottieStatus.DONE, { label: "DONE" }, top ? `Chat: ${top.theme}` : "No useful chat cluster yet.");
   }
 
   async runFactCheck(directive, action) {
@@ -452,21 +512,17 @@ export class LiveProducerController {
         sourceUrl: top.sourceUrl,
         timestamp: Date.now()
       });
-      this.actions.setStatus(action.id, ProductionActionStatus.COMPLETED, {
-        preview: { title: top.title, sourceUrl: top.sourceUrl, excerpt: top.excerpt, sources: candidates.slice(0, 3) }
-      });
+      const spoken = conciseSpokenText(top.excerpt || top.title);
       this.actions.recordProvenance(action.id, { sources: candidates.slice(0, 3).map((item) => item.sourceUrl) });
-      this._pushFeed({
+      this._completeWithAudience(directive, action, {
         type: ProducerEntryType.RESEARCH,
         title: "Fact check",
-        instruction: directive.rawText,
         summary: top.excerpt || top.title,
         items: candidates.slice(0, 3).map((item) => ({ text: `${item.sourceName}: ${item.title}` })),
         sources: candidates.slice(0, 3).map((item) => item.sourceUrl),
-        actionId: action.id,
-        bucket: "ready"
+        spoken,
+        preview: { title: top.title, sourceUrl: top.sourceUrl, excerpt: top.excerpt, sources: candidates.slice(0, 3) }
       });
-      this.setStatus(HottieStatus.DONE, { label: "DONE" }, "Fact check is private — say it yourself if you want it on air.");
       return candidates;
     } catch (_) {
       this.actions.setStatus(action.id, ProductionActionStatus.FAILED);
@@ -764,6 +820,149 @@ export class LiveProducerController {
     return proposal;
   }
 
+  async runSpokenResearch(directive, action) {
+    if (!this.session.policy.canAiProcess()) return null;
+    const query = directive.payload?.query || directive.rawText;
+    this.session.productionLog?.record(ProductionActionType.RESEARCH_REQUEST, {
+      directiveId: directive.id,
+      query,
+      responseAudience: action.responseAudience
+    });
+    try {
+      const provider = this.session.researchProvider || createResearchProvider({ preferSeeded: this.session.demoMode });
+      const candidates = (await provider.search(query)).filter(Boolean);
+      if (!candidates.length) {
+        this.actions.setStatus(action.id, ProductionActionStatus.FAILED);
+        this._pushFeed({
+          type: ProducerEntryType.RESEARCH,
+          title: "Answer",
+          instruction: directive.rawText,
+          summary: "I couldn't find a source I trust for that.",
+          actionId: action.id
+        });
+        this.setStatus(HottieStatus.ERROR, { label: "ERROR" }, "Couldn't find a reliable source.");
+        return null;
+      }
+      const top = candidates[0];
+      this.session.showMemory?.rememberResearch({
+        query,
+        title: top.title,
+        sourceUrl: top.sourceUrl,
+        excerpt: top.excerpt,
+        timestamp: Date.now()
+      });
+      this.actions.recordProvenance(action.id, { sources: candidates.slice(0, 3).map((item) => item.sourceUrl) });
+      const spoken = composeSpokenAnswer(query, top);
+      this._completeWithAudience(directive, action, {
+        type: ProducerEntryType.RESEARCH,
+        title: "Answer",
+        summary: spoken,
+        items: candidates.slice(0, 3).map((item) => ({ text: `${item.sourceName}: ${item.title}` })),
+        sources: candidates.slice(0, 3).map((item) => item.sourceUrl),
+        spoken,
+        preview: { title: top.title, sourceUrl: top.sourceUrl, excerpt: top.excerpt }
+      });
+      return candidates;
+    } catch (_) {
+      this.actions.setStatus(action.id, ProductionActionStatus.FAILED);
+      this._pushFeed({
+        type: ProducerEntryType.ERROR,
+        title: "Answer",
+        instruction: directive.rawText,
+        summary: "Search unavailable.",
+        actionId: action.id
+      });
+      this.setStatus(HottieStatus.ERROR, { label: "ERROR" }, "Search unavailable.");
+      return null;
+    }
+  }
+
+  _completeWithAudience(directive, action, {
+    type = ProducerEntryType.CONTEXT,
+    title,
+    summary,
+    items = [],
+    sources = null,
+    spoken,
+    preview,
+    bucket = "ready"
+  } = {}) {
+    const audience = action.responseAudience || directive.responseAudience || ResponseAudience.PRIVATE_PRODUCER;
+    this.actions.setStatus(action.id, ProductionActionStatus.COMPLETED, {
+      preview: preview || { summary },
+      spokenResponse: audience === ResponseAudience.PROGRAM ? spoken || summary : null,
+      responseAudience: audience
+    });
+    this._pushFeed({
+      type,
+      title,
+      instruction: directive.rawText,
+      summary,
+      items,
+      sources,
+      actionId: action.id,
+      bucket,
+      responseAudience: audience
+    });
+    if (audience === ResponseAudience.PROGRAM && (spoken || summary)) {
+      this.speakProgram(spoken || summary, { action, requestedBy: directive.speaker });
+      return;
+    }
+    this.voicePlan = createHottieVoicePlan({
+      responseAudience: audience,
+      text: "",
+      requestedBy: directive.speaker
+    });
+    this.setStatus(HottieStatus.DONE, { label: "DONE" }, summary);
+  }
+
+  speakProgram(text, { action = null, requestedBy = "host" } = {}) {
+    const spoken = conciseSpokenText(text);
+    if (!spoken) return null;
+    if (this._speaking) this.cancelSpeech();
+    const plan = createHottieVoicePlan({
+      responseAudience: ResponseAudience.PROGRAM,
+      text: spoken,
+      requestedBy
+    });
+    this._speaking = true;
+    this._lastSpoken = plan.text;
+    this._spokenAt = Date.now();
+    this.voicePlan = plan;
+    if (action) {
+      this.actions.update(action.id, {
+        spokenResponse: plan.text,
+        responseAudience: ResponseAudience.PROGRAM
+      });
+    }
+    if (!this.session.program) this.session.program = {};
+    this.session.program.hottieVoice = serializeHottieVoice(plan);
+    this.session.publishProgramState?.();
+    this.setStatus(HottieStatus.SPEAKING, { label: "HOTTIE SPEAKING" }, "Hottie is speaking on Program Audio.");
+    const ms = Math.min(14000, Math.max(1400, plan.text.split(/\s+/).length * 380));
+    if (typeof setTimeout === "function") {
+      this._speakTimer = setTimeout(() => this._finishSpeaking(plan.utteranceId), ms);
+      this._speakTimer.unref?.();
+    }
+    return plan;
+  }
+
+  cancelSpeech() {
+    if (this._speakTimer) {
+      clearTimeout(this._speakTimer);
+      this._speakTimer = null;
+    }
+    this._speaking = false;
+    if (this.session.program) this.session.program.hottieVoice = null;
+  }
+
+  _finishSpeaking(utteranceId) {
+    if (this.voicePlan?.utteranceId && utteranceId && this.voicePlan.utteranceId !== utteranceId) return;
+    this._speakTimer = null;
+    this._speaking = false;
+    this.setStatus(HottieStatus.DONE, { label: "DONE" }, this._lastSpoken || "Done.");
+  }
+
   _failResearch(feedEntryId, directive, query, actionId = null) {
     if (directive) {
       this._researchJobs.set(directive.id, {
@@ -994,7 +1193,20 @@ function hostNoteFromStatus(state, proposal) {
   if (state === HottieStatus.NEEDS_CLARIFICATION) return "Couldn't identify which one you meant.";
   if (state === HottieStatus.ERROR) return "Couldn't complete that. The show continues.";
   if (state === HottieStatus.DONE) return proposal?.title ? `Done · ${proposal.title}` : "Done.";
+  if (state === HottieStatus.SPEAKING) return "Hottie is speaking on Program Audio.";
   return proposal?.label || "Hottie is listening.";
+}
+
+function composeSpokenAnswer(query, candidate) {
+  const excerpt = String(candidate?.excerpt || "").trim();
+  const title = String(candidate?.title || "").trim();
+  const source = String(candidate?.sourceName || "").trim();
+  if (excerpt) {
+    const lead = source ? `From ${source}: ` : "";
+    return conciseSpokenText(`${lead}${excerpt}`);
+  }
+  if (title && source) return conciseSpokenText(`I found ${title} on ${source}.`);
+  return conciseSpokenText(title || `I found a source for ${query}.`);
 }
 
 function tokenize(text) {

@@ -622,8 +622,10 @@
 
 .lv-hottie-status[data-state="searching"],
 .lv-hottie-status[data-state="heard"],
+.lv-hottie-status[data-state="speaking"],
 #lvHostHottieStatus[data-state="searching"],
-#lvHostHottieStatus[data-state="heard"] {
+#lvHostHottieStatus[data-state="heard"],
+#lvHostHottieStatus[data-state="speaking"] {
   color: var(--studio-orange-bright);
 }
 

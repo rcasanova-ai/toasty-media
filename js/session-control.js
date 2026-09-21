@@ -80,6 +80,7 @@ export function buildCanonicalState({
   recording = null,
   outputs = [],
   endCard = null,
+  hottieVoice = null,
   revision = 0,
   updatedAt = Date.now()
 } = {}) {
@@ -116,6 +117,16 @@ export function buildCanonicalState({
     recording: recording || null,
     outputs: (outputs || []).map(normalizeOutputStatus).filter(Boolean),
     endCard: endCard || null,
+    hottieVoice: hottieVoice && typeof hottieVoice === "object" ? {
+      utteranceId: hottieVoice.utteranceId || null,
+      text: String(hottieVoice.text || "").slice(0, 400),
+      speak: Boolean(hottieVoice.speak),
+      source: hottieVoice.source || "hottie-voice",
+      provider: hottieVoice.provider || "browser-speech",
+      speaker: hottieVoice.speaker || "Hottie",
+      mode: hottieVoice.mode || "PROGRAM_AUDIO",
+      startedAt: Number(hottieVoice.startedAt) || Date.now()
+    } : null,
     revision: Number(revision) || 0,
     updatedAt: Number(updatedAt) || Date.now()
   };

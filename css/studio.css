@@ -3996,6 +3996,7 @@
 .lv-hottie-status[data-state="found"],
 .lv-hottie-status[data-state="ready"] { color: var(--studio-green, #34c77b); }
 .lv-hottie-status[data-state="on-air"] { color: #ff8d86; }
+.lv-hottie-status[data-state="speaking"] { color: var(--studio-orange-bright, #ffab5c); }
 
 .lv-hottie-proposal {
   color: var(--studio-cream-dim, #d3c2ac);

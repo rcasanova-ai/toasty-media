@@ -186,7 +186,8 @@ export class LiveSession {
       activeParticipantId: null,
       shareLayout: null,
       assetLayout: null,
-      audio: null
+      audio: null,
+      hottieVoice: null
     };
 
     // Seat -> {id,label,mic,camera,onProgram} — stable across join/leave order noise, backfilled only
@@ -1170,7 +1171,8 @@ export class LiveSession {
         startedAt: this.recording.startedAt || null
       },
       outputs: this.presence?.outputs || [],
-      endCard: resolveEndCard({ sessionEndCard: this.sessionEndCard, profileEndCard: this.profileEndCard })
+      endCard: resolveEndCard({ sessionEndCard: this.sessionEndCard, profileEndCard: this.profileEndCard }),
+      hottieVoice: this.program.hottieVoice || null
     });
   }
 

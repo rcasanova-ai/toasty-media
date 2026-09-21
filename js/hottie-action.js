@@ -21,6 +21,14 @@ export const ActionRiskLevel = Object.freeze({
   RED: "RED"
 });
 
+export const ResponseAudience = Object.freeze({
+  PRIVATE_HOST: "PRIVATE_HOST",
+  PRIVATE_PRODUCER: "PRIVATE_PRODUCER",
+  PRIVATE_CREW: "PRIVATE_CREW",
+  PROGRAM: "PROGRAM",
+  NONE: "NONE"
+});
+
 export const HottieIntent = Object.freeze({
   SEARCH_WEB: "SEARCH_WEB",
   SEARCH_IMAGE: "SEARCH_IMAGE",
@@ -43,6 +51,7 @@ export const HottieIntent = Object.freeze({
   MARK_MOMENT: "MARK_MOMENT",
   READ_CHAT: "READ_CHAT",
   RESPOND_CHAT: "RESPOND_CHAT",
+  CREW_ADVICE: "CREW_ADVICE",
   UNKNOWN: "UNKNOWN"
 });
 
@@ -55,7 +64,8 @@ const GREEN_INTENTS = new Set([
   HottieIntent.EXPLAIN,
   HottieIntent.CLIP_MOMENT,
   HottieIntent.MARK_MOMENT,
-  HottieIntent.READ_CHAT
+  HottieIntent.READ_CHAT,
+  HottieIntent.CREW_ADVICE
 ]);
 
 const RED_INTENTS = new Set([
@@ -93,9 +103,14 @@ export function createProductionAction({
   status = ProductionActionStatus.RECEIVED,
   preview = null,
   heardText = "",
-  provenance = null
+  provenance = null,
+  responseAudience = ResponseAudience.PRIVATE_PRODUCER,
+  spokenResponse = null
 } = {}) {
   const risk = riskLevel || riskForIntent(intent);
+  const audience = Object.values(ResponseAudience).includes(responseAudience)
+    ? responseAudience
+    : ResponseAudience.PRIVATE_PRODUCER;
   return {
     id: id || nextProductionActionId(),
     sessionId,
@@ -107,6 +122,8 @@ export function createProductionAction({
     status,
     preview,
     heardText: String(heardText || ""),
+    responseAudience: audience,
+    spokenResponse: spokenResponse || null,
     provenance: provenance || {
       heardText: String(heardText || ""),
       requestedBy,

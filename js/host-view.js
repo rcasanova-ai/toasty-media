@@ -105,6 +105,7 @@ export class HostView {
       "awaiting-approval": "WAITING FOR APPROVAL",
       "taking-live": "TAKING LIVE",
       "on-air": "TAKING LIVE",
+      speaking: "HOTTIE SPEAKING",
       done: "DONE",
       "needs-clarification": "NEEDS CLARIFICATION",
       error: "ERROR",
