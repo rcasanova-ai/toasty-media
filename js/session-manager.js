@@ -237,11 +237,14 @@ function persistOverlay(overlay, ownerUserId) {
 function renderStudioHome(board, home, overlay, ctx) {
   if (!board) return;
   const fragments = [];
-  fragments.push(renderSystemSection("Active", home.active, overlay, ctx, { empty: "No active sessions." }));
-  fragments.push(renderSystemSection("Upcoming", home.upcoming, overlay, ctx, { empty: "Nothing scheduled." }));
-  fragments.push(renderSystemSection("Recent", home.recent, overlay, ctx, { empty: "No recent sessions." }));
+  fragments.push(renderSystemSection("Recent", home.recent.slice(0, 3), overlay, ctx, { empty: "No recent sessions." }));
+  const homeCollectionIds = new Set([
+    StudioHomeCollectionId.SHOWS,
+    StudioHomeCollectionId.FOCUS_GROUPS,
+    StudioHomeCollectionId.MEETINGS
+  ]);
   home.collections.forEach((collection) => {
-    if (collection.hidden) return;
+    if (collection.hidden || !homeCollectionIds.has(collection.id)) return;
     fragments.push(renderCollectionSection(collection, overlay, ctx));
   });
   board.replaceChildren(...fragments);
@@ -278,10 +281,24 @@ function renderCollectionSection(collection, overlay, ctx) {
   section.append(head);
   if (collection.collapsed) return section;
   const list = document.createElement("div");
-  list.className = "studio-home-grid";
-  if (!collection.items.length) list.append(placeholder("Nothing in this collection yet."));
-  else list.append(...collection.items.map((item) => renderSessionCard(item, overlay, ctx)));
+  list.className = "studio-home-list";
+  const visibleItems = collection.items.slice(0, 3);
+  if (!visibleItems.length) list.append(placeholder("Nothing in this collection yet."));
+  else list.append(...visibleItems.map((item) => renderSessionCard(item, overlay, ctx)));
   section.append(list);
+  if (collection.items.length > 3) {
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "studio-home-more";
+    more.textContent = `More ${collection.label}`;
+    more.addEventListener("click", () => {
+      const expanded = more.getAttribute("aria-expanded") === "true";
+      more.setAttribute("aria-expanded", String(!expanded));
+      more.textContent = expanded ? `More ${collection.label}` : "Show less";
+      list.replaceChildren(...(expanded ? visibleItems : collection.items).map((item) => renderSessionCard(item, overlay, ctx)));
+    });
+    section.append(more);
+  }
   return section;
 }
 

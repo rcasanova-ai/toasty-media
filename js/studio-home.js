@@ -252,7 +252,7 @@ export function organizeStudioHome(sessions = [], overlay = emptyHomeOverlay(), 
   const recent = items
     .filter((item) => item.lifecycle !== StudioLifecycle.ARCHIVED)
     .sort((a, b) => byLastActive(a.session, b.session))
-    .slice(0, 8);
+    .slice(0, 3);
 
   const collections = listHomeCollections(overlay).map((collection) => {
     const collectionItems = items.filter((item) => item.collectionId === collection.id);
