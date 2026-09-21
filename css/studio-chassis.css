@@ -30,7 +30,66 @@
   align-items: center;
   display: grid;
   gap: 0.75rem 1rem;
-  grid-template-columns: minmax(160px, auto) minmax(220px, 0.9fr) minmax(280px, 1.2fr);
+  grid-template-columns: minmax(220px, auto) minmax(0, 1fr);
+}
+
+.studio-live-identity {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.85rem;
+  min-width: 0;
+}
+
+.studio-live-wordmark {
+  color: var(--studio-cream);
+  font-family: var(--font-heading);
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+body:not(.session-gate-open):not(.session-artifacts-open) .studio-mode-switcher,
+body:not(.session-gate-open):not(.session-artifacts-open) .studio-workflow-nav,
+body:not(.session-gate-open):not(.session-artifacts-open) #lvAskHottieHeader,
+body:not(.session-gate-open):not(.session-artifacts-open) .producer-domain-nav,
+body:not(.session-gate-open):not(.session-artifacts-open) .quick-actions,
+body:not(.session-gate-open):not(.session-artifacts-open) .brand-block,
+body:not(.session-gate-open):not(.session-artifacts-open) #studioStreamingPill,
+body:not(.session-gate-open):not(.session-artifacts-open) #studioAudioPill,
+body:not(.session-gate-open):not(.session-artifacts-open) .lv-view-switch--chrome {
+  display: none !important;
+}
+
+body:not(.session-gate-open):not(.session-artifacts-open):not(.studio-settings-open) .rail-right {
+  display: none !important;
+}
+
+body.studio-settings-open .rail-right {
+  background: color-mix(in srgb, var(--studio-canvas-2, #16110e) 96%, transparent);
+  display: flex !important;
+  flex-direction: column;
+  inset: 3.5rem 0.75rem 0.75rem auto;
+  max-height: calc(100vh - 4.4rem);
+  overflow: auto;
+  position: fixed;
+  top: 3.5rem;
+  width: min(320px, 92vw);
+  z-index: 90;
+}
+
+body.studio-settings-open .studio-workflow-nav,
+body.studio-settings-open .studio-mode-switcher {
+  display: flex !important;
+}
+
+.director-shell:has(#liveConsole[data-lv-view="producer"]) .rail-left {
+  display: none !important;
+}
+
+.director-shell:has(#liveConsole[data-lv-view="producer"]) .studio-grid {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .studio-workflow-nav {
@@ -216,18 +275,18 @@
 
 .studio-chassis.live-console[data-lv-view="producer"] .studio-chassis-body {
   display: grid !important;
-  grid-template-columns: minmax(220px, 260px) minmax(420px, 1fr) minmax(240px, 320px) !important;
+  grid-template-columns: minmax(200px, 240px) minmax(0, 1fr) minmax(240px, 320px) !important;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
 }
 
-.studio-chassis.live-console[data-lv-view="producer"] .lv-run-of-show {
+.studio-chassis.live-console[data-lv-view="producer"] .lv-sources {
   grid-column: 1 !important;
-  grid-row: 1 / span 3 !important;
+  grid-row: 1 / span 4 !important;
 }
 
 .studio-chassis.live-console[data-lv-view="producer"] .lv-program {
   grid-column: 2 !important;
-  grid-row: 1 / span 3 !important;
+  grid-row: 1 / span 2 !important;
 }
 
 .studio-chassis.live-console[data-lv-view="producer"] .producer-context-nav {
@@ -237,29 +296,26 @@
 
 .studio-chassis.live-console[data-lv-view="producer"] [data-studio-tool-panel] {
   grid-column: 3 !important;
-  grid-row: 2 !important;
-}
-
-.studio-chassis.live-console[data-lv-view="producer"] .lv-output-inspector {
-  grid-column: 3 !important;
-  grid-row: 3 / span 2 !important;
+  grid-row: 2 / span 2 !important;
 }
 
 .studio-chassis.live-console[data-lv-view="producer"] .producer-live-rail {
-  grid-column: 1 !important;
-  grid-row: 4 !important;
+  grid-column: 2 !important;
+  grid-row: 3 / span 2 !important;
 }
 
-.studio-chassis.live-console[data-lv-view="producer"] .lv-sources {
-  grid-column: 2 !important;
-  grid-row: 4 !important;
+.studio-chassis.live-console[data-lv-view="producer"] .lv-run-of-show,
+.studio-chassis.live-console[data-lv-view="producer"] .lv-output-inspector,
+.studio-chassis.live-console[data-lv-view="producer"] .lv-runshow-edit {
+  display: none !important;
 }
 
 .studio-chassis.live-console[data-lv-view="producer"] .lv-program-preview {
   aspect-ratio: 16 / 9;
+  flex: 1 1 auto;
   height: auto;
-  max-height: min(58vh, 720px);
-  min-height: 0;
+  max-height: min(68vh, 820px);
+  min-height: 220px;
   width: 100%;
 }
 
@@ -393,36 +449,83 @@
 }
 
 .studio-chassis[data-lv-view="producer"] .lv-sources {
-  max-height: 9.5rem;
+  max-height: none;
+  min-height: 0;
   overflow: auto;
+}
+
+.lv-roster-card {
+  display: grid;
+  gap: 0.12rem;
+  padding: 0.35rem 0;
+}
+
+.lv-roster-flags {
+  color: var(--studio-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.lv-transport-bar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.65rem;
+  justify-content: space-between;
+  margin-top: 0.45rem;
+}
+
+.lv-transport-bar .lv-host-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+}
+
+.lv-transport-bar .rec-toggle {
+  min-height: 38px;
+  padding: 0.4rem 0.9rem;
 }
 
 /* ---------- Host presenter console ---------- */
 
 .studio-chassis[data-lv-view="host"] .studio-chassis-body {
-  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.78fr);
-  grid-template-rows: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1.7fr) minmax(280px, 0.85fr);
+  grid-template-rows: minmax(0, 1fr) auto auto auto;
   grid-template-areas:
-    "program tele"
-    "program effects"
-    "program hottie";
+    "ros program tele"
+    "ros program producerchat"
+    "ros program publicchat"
+    "ros program effects";
 }
 
 .studio-chassis[data-lv-view="host"] .lv-program {
   grid-area: program;
 }
 
+.studio-chassis[data-lv-view="host"] .lv-run-of-show {
+  grid-area: ros;
+  max-height: calc(100vh - 8.5rem);
+  overflow: auto;
+}
+
 .studio-chassis[data-lv-view="host"] .lv-teleprompter {
   grid-area: tele;
-  min-height: 18rem;
+  min-height: 10rem;
+}
+
+.studio-chassis[data-lv-view="host"] .lv-ai-producer {
+  grid-area: producerchat;
+  min-height: 12rem;
+}
+
+.studio-chassis[data-lv-view="host"] .lv-audience {
+  grid-area: publicchat;
+  min-height: 10rem;
 }
 
 .studio-chassis[data-lv-view="host"] .lv-host-effects {
   grid-area: effects;
-}
-
-.studio-chassis[data-lv-view="host"] .lv-ai-producer {
-  grid-area: hottie;
 }
 
 .studio-chassis[data-lv-view="host"] .lv-teleprompter textarea {
@@ -457,7 +560,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  margin-top: 0.45rem;
+  margin: 0;
 }
 
 /* Laptop: keep Program dominant; collapse secondary columns */
@@ -502,13 +605,11 @@
     grid-template-rows: none;
   }
 
-  .studio-chassis.live-console[data-lv-view="producer"] .lv-run-of-show,
+  .studio-chassis.live-console[data-lv-view="producer"] .lv-sources,
   .studio-chassis.live-console[data-lv-view="producer"] .lv-program,
   .studio-chassis.live-console[data-lv-view="producer"] .producer-context-nav,
   .studio-chassis.live-console[data-lv-view="producer"] [data-studio-tool-panel],
-  .studio-chassis.live-console[data-lv-view="producer"] .lv-output-inspector,
-  .studio-chassis.live-console[data-lv-view="producer"] .producer-live-rail,
-  .studio-chassis.live-console[data-lv-view="producer"] .lv-sources {
+  .studio-chassis.live-console[data-lv-view="producer"] .producer-live-rail {
     grid-column: 1 !important;
     grid-row: auto !important;
   }

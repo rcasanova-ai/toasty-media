@@ -176,9 +176,10 @@ async function showHome(resolve, brandId) {
   const titleInput = el("sessionGateTitle");
   const createBtn = el("sessionGateCreate");
   let overlay = loadHomeOverlay();
+  let lastHome = { liveNow: [] };
 
   function finishLive(session) {
-    if (!canOpenLiveStudio(session)) {
+    if (!canOpenLiveStudio(session) || isTerminalSession(session)) {
       statusEl.textContent = "This session has ended. Use View Session.";
       return;
     }
@@ -201,8 +202,9 @@ async function showHome(resolve, brandId) {
       const [active, ended] = await Promise.all([fetchSessions("active"), fetchSessions("ended")]);
       const allSessions = [...active, ...ended];
       overlay = loadHomeOverlay(allSessions[0]?.ownerUserId);
+      lastHome = organizeStudioHome(allSessions, overlay);
       statusEl.textContent = "";
-      renderStudioHome(board, organizeStudioHome(allSessions, overlay), overlay, {
+      renderStudioHome(board, lastHome, overlay, {
         onOpen: finishLive,
         onView: finishArtifacts,
         onRefresh: refresh,
@@ -216,6 +218,27 @@ async function showHome(resolve, brandId) {
   }
 
   createBtn.onclick = async () => {
+    const liveNow = lastHome.liveNow || [];
+    if (liveNow.length) {
+      const live = liveNow[0];
+      const choice = await chooseLiveConflict(live.title);
+      if (choice === "cancel" || !choice) return;
+      if (choice === "resume") {
+        finishLive(live.session);
+        return;
+      }
+      if (choice === "replace") {
+        createBtn.disabled = true;
+        statusEl.textContent = "Ending live session…";
+        try {
+          await endSession(live.session.id);
+        } catch (error) {
+          statusEl.textContent = `Couldn't end live session: ${error.message}`;
+          createBtn.disabled = false;
+          return;
+        }
+      }
+    }
     createBtn.disabled = true;
     statusEl.textContent = "Creating session…";
     try {
@@ -237,6 +260,7 @@ function persistOverlay(overlay, ownerUserId) {
 function renderStudioHome(board, home, overlay, ctx) {
   if (!board) return;
   const fragments = [];
+  if (home.liveNow?.length) fragments.push(renderLiveNowSection(home.liveNow, overlay, ctx));
   fragments.push(renderSystemSection("Recent", home.recent.slice(0, 3), overlay, ctx, { empty: "No recent sessions." }));
   const homeCollectionIds = new Set([
     StudioHomeCollectionId.SHOWS,
@@ -248,6 +272,132 @@ function renderStudioHome(board, home, overlay, ctx) {
     fragments.push(renderCollectionSection(collection, overlay, ctx));
   });
   board.replaceChildren(...fragments);
+}
+
+function renderLiveNowSection(items, overlay, ctx) {
+  const section = document.createElement("section");
+  section.className = "studio-home-section studio-home-live-now";
+  section.innerHTML = `<p class="session-gate-label">Live Now</p>`;
+  const list = document.createElement("div");
+  list.className = "studio-home-grid";
+  list.append(...items.map((item) => renderLiveNowCard(item, overlay, ctx)));
+  section.append(list);
+  return section;
+}
+
+function renderLiveNowCard(item, overlay, ctx) {
+  const { session, title } = item;
+  const card = document.createElement("article");
+  card.className = "session-card session-card--live-now";
+  card.dataset.lifecycle = "ACTIVE";
+  card.dataset.status = session.status;
+  card.innerHTML = `
+    <div class="session-card-main">
+      <p class="session-live-badge" aria-label="Live">LIVE</p>
+      <h2 class="session-card-title">${escapeHtml(title)}</h2>
+      <p class="session-card-meta">${escapeHtml(liveNowMeta(session))}</p>
+    </div>
+    <div class="session-card-actions">
+      <button type="button" class="lv-mini-btn lv-mini-btn--primary" data-action="resume">Resume Live Session</button>
+      <button type="button" class="lv-mini-btn lv-mini-btn--danger" data-action="end">End Session</button>
+    </div>
+  `;
+  card.querySelector('[data-action="resume"]').addEventListener("click", () => ctx.onOpen(session));
+  card.querySelector('[data-action="end"]').addEventListener("click", () => endLiveCard(session, overlay, ctx));
+  return card;
+}
+
+function liveNowMeta(session) {
+  const parts = [];
+  const duration = fmtDuration(session.startedAt);
+  if (duration) parts.push(duration);
+  if (session.participantCount != null) parts.push(`${session.participantCount} participant${session.participantCount === 1 ? "" : "s"}`);
+  else parts.push("Live room");
+  return parts.join(" · ");
+}
+
+function fmtDuration(iso) {
+  if (!iso) return "";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return "";
+  const mins = Math.max(0, Math.round(ms / 60000));
+  if (mins < 1) return "Active just now";
+  if (mins < 60) return `Active ${mins}m`;
+  const hours = Math.floor(mins / 60);
+  const rem = mins % 60;
+  return rem ? `Active ${hours}h ${rem}m` : `Active ${hours}h`;
+}
+
+function chooseLiveConflict(title) {
+  return new Promise((resolve) => {
+    const existing = document.querySelector(".studio-live-conflict");
+    existing?.remove();
+    const dialog = document.createElement("div");
+    dialog.className = "studio-live-conflict";
+    dialog.setAttribute("role", "dialog");
+    dialog.innerHTML = `
+      <div class="studio-live-conflict-card">
+        <p>You already have a live session: ${escapeHtml(title)}.</p>
+        <div class="session-card-actions">
+          <button type="button" class="lv-mini-btn lv-mini-btn--primary" data-choice="resume">Resume Live Session</button>
+          <button type="button" class="lv-mini-btn lv-mini-btn--danger" data-choice="replace">End & Create New</button>
+          <button type="button" class="lv-mini-btn" data-choice="cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+    const finish = (choice) => {
+      dialog.remove();
+      resolve(choice);
+    };
+    dialog.addEventListener("click", (event) => {
+      const choice = event.target?.dataset?.choice;
+      if (choice) finish(choice);
+    });
+    document.body.append(dialog);
+  });
+}
+
+function confirmEndSession(title) {
+  return new Promise((resolve) => {
+    const existing = document.querySelector(".studio-live-conflict");
+    existing?.remove();
+    const dialog = document.createElement("div");
+    dialog.className = "studio-live-conflict";
+    dialog.setAttribute("role", "dialog");
+    dialog.innerHTML = `
+      <div class="studio-live-conflict-card">
+        <p>End “${escapeHtml(title)}”?</p>
+        <p>The live room will close. This session cannot be resumed.</p>
+        <div class="session-card-actions">
+          <button type="button" class="lv-mini-btn" data-choice="cancel">Cancel</button>
+          <button type="button" class="lv-mini-btn lv-mini-btn--danger" data-choice="end">End Session</button>
+        </div>
+      </div>
+    `;
+    const finish = (choice) => {
+      dialog.remove();
+      resolve(choice === "end");
+    };
+    dialog.addEventListener("click", (event) => {
+      const choice = event.target?.dataset?.choice;
+      if (choice) finish(choice);
+    });
+    document.body.append(dialog);
+  });
+}
+
+async function endLiveCard(session, overlay, ctx) {
+  const title = sessionDisplayTitle(session, overlay);
+  const ok = await confirmEndSession(title);
+  if (!ok) return;
+  ctx.statusEl.textContent = "Ending session…";
+  try {
+    await endSession(session.id);
+    ctx.statusEl.textContent = "";
+    await ctx.onRefresh();
+  } catch (error) {
+    ctx.statusEl.textContent = `Couldn't end session: ${error.message}`;
+  }
 }
 
 function renderSystemSection(label, items, overlay, ctx, { empty }) {
@@ -312,7 +462,9 @@ function renderSessionCard(item, overlay, ctx) {
     ? "View Session"
     : action === StudioHomeAction.USE_SESSION
       ? "Use Session"
-      : "Open Studio";
+      : action === StudioHomeAction.RESUME_LIVE_SESSION
+        ? "Resume Live Session"
+        : "Open Studio";
   card.innerHTML = `
     <div class="session-card-main">
       <p class="session-card-kicker">${escapeHtml(lifecycle)}</p>
@@ -339,6 +491,10 @@ function renderSessionCard(item, overlay, ctx) {
     }
     if (action === StudioHomeAction.USE_SESSION) {
       await duplicateFrom(session, overlay, ctx, { open: true });
+      return;
+    }
+    if (isTerminalSession(session)) {
+      ctx.onView(session);
       return;
     }
     ctx.onOpen(session);
