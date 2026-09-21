@@ -454,10 +454,16 @@ body.studio-settings-open .studio-mode-switcher {
   overflow: auto;
 }
 
-.lv-people-invite {
+.lv-roster-card {
   display: grid;
-  gap: 0.35rem;
-  margin-bottom: 0.55rem;
+  gap: 0.12rem;
+  padding: 0.35rem 0;
+}
+
+.lv-roster-flags {
+  color: var(--studio-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
 }
 
 .lv-transport-bar {
@@ -484,29 +490,42 @@ body.studio-settings-open .studio-mode-switcher {
 /* ---------- Host presenter console ---------- */
 
 .studio-chassis[data-lv-view="host"] .studio-chassis-body {
-  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.78fr);
-  grid-template-rows: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1.7fr) minmax(280px, 0.85fr);
+  grid-template-rows: minmax(0, 1fr) auto auto auto;
   grid-template-areas:
-    "program tele"
-    "program effects"
-    "program hottie";
+    "ros program tele"
+    "ros program producerchat"
+    "ros program publicchat"
+    "ros program effects";
 }
 
 .studio-chassis[data-lv-view="host"] .lv-program {
   grid-area: program;
 }
 
+.studio-chassis[data-lv-view="host"] .lv-run-of-show {
+  grid-area: ros;
+  max-height: calc(100vh - 8.5rem);
+  overflow: auto;
+}
+
 .studio-chassis[data-lv-view="host"] .lv-teleprompter {
   grid-area: tele;
-  min-height: 18rem;
+  min-height: 10rem;
+}
+
+.studio-chassis[data-lv-view="host"] .lv-ai-producer {
+  grid-area: producerchat;
+  min-height: 12rem;
+}
+
+.studio-chassis[data-lv-view="host"] .lv-audience {
+  grid-area: publicchat;
+  min-height: 10rem;
 }
 
 .studio-chassis[data-lv-view="host"] .lv-host-effects {
   grid-area: effects;
-}
-
-.studio-chassis[data-lv-view="host"] .lv-ai-producer {
-  grid-area: hottie;
 }
 
 .studio-chassis[data-lv-view="host"] .lv-teleprompter textarea {

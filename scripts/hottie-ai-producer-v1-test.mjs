@@ -309,6 +309,13 @@ console.log("\nResponse audience routing");
   assertEqual(tellEveryone.responseAudience, ResponseAudience.PROGRAM, "tell everyone is PROGRAM");
   assertEqual(inferResponseAudience("Hottie, tell the Producer what you found."), ResponseAudience.PRIVATE_PRODUCER, "tell the Producer override");
   assertEqual(inferResponseAudience("Hottie, don't say this on air."), ResponseAudience.PRIVATE_CREW, "off-air override");
+
+  const yes = detectHostDirective({ role: "host", participantId: "host", text: "yes" });
+  assertEqual(yes.intent, DirectiveIntent.TAKE_ASSET, "bare yes approves pending Hottie result");
+  const useThat = detectHostDirective({ role: "host", participantId: "host", text: "Hottie, use that" });
+  assertEqual(useThat.intent, DirectiveIntent.TAKE_ASSET, "use that approves pending result");
+  const shareIt = detectHostDirective({ role: "host", participantId: "host", text: "share it" });
+  assertEqual(shareIt.intent, DirectiveIntent.TAKE_ASSET, "share it approves pending result");
 }
 
 console.log("\nPROGRAM conversational answer does not propose TAKE LIVE");

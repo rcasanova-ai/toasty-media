@@ -8,6 +8,8 @@ const root = process.cwd();
 const html = readFileSync(join(root, "studio/director.html"), "utf8");
 const director = readFileSync(join(root, "js/director.js"), "utf8");
 const producerView = readFileSync(join(root, "js/producer-view.js"), "utf8");
+const aiProducer = readFileSync(join(root, "js/ai-producer.js"), "utf8");
+const hostDirective = readFileSync(join(root, "js/host-directive.js"), "utf8");
 const chassisCss = readFileSync(join(root, "css/studio-chassis.css"), "utf8");
 const brandThemes = readFileSync(join(root, "js/brand-themes.js"), "utf8");
 const programOutputCss = readFileSync(join(root, "css/program-output.css"), "utf8");
@@ -48,9 +50,11 @@ const requiredTools = [
   "participants",
   "layout",
   "graphics",
+  "lowerthirds",
   "ticker",
   "media",
   "soundboard",
+  "branding",
   "audience",
   "hottie",
   "transcription",
@@ -81,7 +85,13 @@ assert.ok(!graphicsPanel.includes('id="lvPoSceneGroup"'), "scene rail must not b
 
 const persistentRos = html.match(/<section class="lv-panel lv-run-of-show"[\s\S]*?<\/section>/)?.[0] || "";
 assert.ok(persistentRos, "missing persistent Run of Show");
+assert.ok(persistentRos.includes('data-lv-only="host"'), "Run of Show belongs on the Host desk");
 assert.ok(persistentRos.includes('data-studio-cockpit="runshow"'), "Run of Show must remain a cockpit rail");
+includes(html, "Producer Chat");
+includes(html, "Public Chat");
+includes(html, 'data-studio-host-surface="true"');
+includes(html, "Starting Soon / Standby");
+includes(director, "studioHostSurface");
 assert.ok(!persistentRos.includes('data-studio-tool-panel="runshow"'), "persistent Run of Show must not be a hideable tool tab");
 
 const hostEffects = html.match(/<section class="lv-panel lv-host-effects"[\s\S]*?<\/section>/)?.[0] || "";
@@ -113,6 +123,10 @@ includes(director, 'session.on("program-output", renderBroadcastChip)');
 includes(director, "studioProgramOutputPill");
 includes(director, "studioTruthOutput");
 
+includes(aiProducer, 'feedButton("OPEN SOURCE"');
+includes(aiProducer, 'feedButton("TAKE LIVE"');
+includes(hostDirective, "function isPendingAssetApproval");
+includes(hostDirective, "use that");
 includes(producerView, "outputStateChip");
 includes(producerView, "sceneLabels");
 includes(producerView, "No optimistic aria-pressed update here on purpose");

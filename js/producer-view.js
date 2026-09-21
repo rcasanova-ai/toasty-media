@@ -495,6 +495,7 @@ export class ProducerView {
       const cameraLabel = cameraPending ? (seat.cameraPending.wantEnabled ? "Camera requested" : "Camera off…") : "Cam";
       row.innerHTML = `
         <span class="lv-source-name">${escapeHtml(name)}</span>
+        <span class="lv-source-status">${escapeHtml([seat.title, seat.company].filter(Boolean).join(" · ") || "Guest")} · ${escapeHtml(seat.connectionStatus || "connected")}</span>
         <button type="button" class="lv-mini-btn" data-action="mic" data-pending="${String(micPending)}" aria-pressed="${String(!seat.mic)}" aria-busy="${String(micPending)}">${escapeHtml(micLabel)}</button>
         <button type="button" class="lv-mini-btn" data-action="camera" data-pending="${String(cameraPending)}" aria-pressed="${String(!seat.camera)}" aria-busy="${String(cameraPending)}">${escapeHtml(cameraLabel)}</button>
         <input type="range" class="lv-mini-slider" data-action="volume" min="0" max="1" step="0.05" value="${seat.volume ?? 1}">
