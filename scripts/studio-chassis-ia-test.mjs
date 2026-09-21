@@ -106,8 +106,8 @@ includes(producerView, "outputStateChip");
 includes(producerView, "sceneLabels");
 includes(producerView, "No optimistic aria-pressed update here on purpose");
 
-includes(chassisCss, ".studio-chassis[data-lv-view=\"producer\"] .studio-chassis-body");
-includes(chassisCss, "grid-template-areas");
+includes(chassisCss, ".studio-chassis.live-console[data-lv-view=\"producer\"] .studio-chassis-body");
+includes(chassisCss, "grid-template-columns");
 includes(chassisCss, ".producer-tool-nav");
 includes(chassisCss, ".producer-domain-nav");
 includes(chassisCss, "aspect-ratio: 16 / 9");

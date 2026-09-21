@@ -215,47 +215,44 @@
 /* ---------- Producer control room ---------- */
 
 .studio-chassis.live-console[data-lv-view="producer"] .studio-chassis-body {
-  display: grid;
-  grid-template-columns: minmax(220px, 260px) minmax(0, 1.7fr) minmax(240px, 320px);
+  display: grid !important;
+  grid-template-columns: minmax(220px, 260px) minmax(420px, 1fr) minmax(240px, 320px) !important;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
-  grid-template-areas:
-    "ros program context"
-    "ros program workspace"
-    "ros program inspector"
-    "scenes sources inspector";
 }
 
 .studio-chassis.live-console[data-lv-view="producer"] .lv-run-of-show {
-  grid-area: ros !important;
-  grid-column: auto !important;
-  grid-row: auto !important;
+  grid-column: 1 !important;
+  grid-row: 1 / span 3 !important;
 }
 
 .studio-chassis.live-console[data-lv-view="producer"] .lv-program {
-  grid-area: program !important;
-  grid-column: auto !important;
+  grid-column: 2 !important;
+  grid-row: 1 / span 3 !important;
 }
 
 .studio-chassis.live-console[data-lv-view="producer"] .producer-context-nav {
-  grid-area: context !important;
-}
-
-.studio-chassis.live-console[data-lv-view="producer"] .producer-live-rail {
-  grid-area: scenes !important;
-}
-
-.studio-chassis.live-console[data-lv-view="producer"] .lv-output-inspector {
-  grid-area: inspector !important;
+  grid-column: 3 !important;
+  grid-row: 1 !important;
 }
 
 .studio-chassis.live-console[data-lv-view="producer"] [data-studio-tool-panel] {
-  grid-area: workspace !important;
-  grid-column: auto !important;
+  grid-column: 3 !important;
+  grid-row: 2 !important;
+}
+
+.studio-chassis.live-console[data-lv-view="producer"] .lv-output-inspector {
+  grid-column: 3 !important;
+  grid-row: 3 / span 2 !important;
+}
+
+.studio-chassis.live-console[data-lv-view="producer"] .producer-live-rail {
+  grid-column: 1 !important;
+  grid-row: 4 !important;
 }
 
 .studio-chassis.live-console[data-lv-view="producer"] .lv-sources {
-  grid-area: sources !important;
-  grid-column: auto !important;
+  grid-column: 2 !important;
+  grid-row: 4 !important;
 }
 
 .studio-chassis.live-console[data-lv-view="producer"] .lv-program-preview {
@@ -476,18 +473,13 @@
     justify-content: flex-start;
   }
 
-  .studio-chassis[data-lv-view="producer"] .studio-chassis-body {
-    grid-template-columns: minmax(200px, 230px) minmax(0, 1fr);
-    grid-template-areas:
-      "ros program"
-      "ros program"
-      "scenes sources"
-      "context workspace"
-      "inspector inspector";
+  .studio-chassis.live-console[data-lv-view="producer"] .studio-chassis-body {
+    grid-template-columns: minmax(190px, 220px) minmax(320px, 1fr) minmax(220px, 280px) !important;
   }
 
-  .studio-chassis[data-lv-view="producer"] .lv-program-preview {
-    min-height: 280px;
+  .studio-chassis.live-console[data-lv-view="producer"] .lv-program-preview {
+    min-height: 220px;
+    max-height: min(48vh, 520px);
   }
 
   .producer-scene-strip {
@@ -506,20 +498,21 @@
 }
 
 @media (max-width: 900px) {
-  .studio-chassis[data-lv-view="producer"] .studio-chassis-body,
+  .studio-chassis.live-console[data-lv-view="producer"] .studio-chassis-body,
   .studio-chassis[data-lv-view="host"] .studio-chassis-body {
-    grid-template-columns: 1fr;
-    grid-template-areas:
-      "program"
-      "scenes"
-      "sources"
-      "ros"
-      "context"
-      "workspace"
-      "inspector"
-      "tele"
-      "effects"
-      "hottie";
+    grid-template-columns: 1fr !important;
+    grid-template-rows: none;
+  }
+
+  .studio-chassis.live-console[data-lv-view="producer"] .lv-run-of-show,
+  .studio-chassis.live-console[data-lv-view="producer"] .lv-program,
+  .studio-chassis.live-console[data-lv-view="producer"] .producer-context-nav,
+  .studio-chassis.live-console[data-lv-view="producer"] [data-studio-tool-panel],
+  .studio-chassis.live-console[data-lv-view="producer"] .lv-output-inspector,
+  .studio-chassis.live-console[data-lv-view="producer"] .producer-live-rail,
+  .studio-chassis.live-console[data-lv-view="producer"] .lv-sources {
+    grid-column: 1 !important;
+    grid-row: auto !important;
   }
 
   .studio-chassis[data-lv-view="producer"] .lv-program-preview {
