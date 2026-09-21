@@ -1,6 +1,5 @@
 import { Soundboard } from "./soundboard.js";
 import { renderFeedEntry } from "./ai-producer.js";
-import { buildProgramAssetCard } from "./program-renderer.js";
 import { attachFocusGroupToSession, buildFocusGroupInsightArtifact } from "./focus-group-studio.js";
 import { buildSessionDeliverables, buildWeeklyUpdatePackage, formatDeliverableMarkdown } from "./post-production.js";
 import { sanitizeEndCard, readImageFileAsDataUrl } from "./end-card.js";
@@ -21,20 +20,8 @@ export class ProducerView {
       shareModeChip: root.querySelector("#lvShareModeChip"),
       hottieStatus: root.querySelector("#lvHottieStatus"),
       hottieProposal: root.querySelector("#lvHottieProposal"),
-      askHottieForm: root.querySelector("#lvAskHottieForm"),
-      askHottieInput: root.querySelector("#lvAskHottieInput"),
-      hottiePreview: root.querySelector("#lvHottiePreview"),
-      hottieNow: root.querySelector("#lvHottieNow"),
-      hottieReady: root.querySelector("#lvHottieReady"),
-      hottieSuggestions: root.querySelector("#lvHottieSuggestions"),
-      hottieHistory: root.querySelector("#lvHottieHistory"),
-      transcriptSearch: root.querySelector("#lvTranscriptSearch"),
-      transcriptCurrent: root.querySelector("#lvTranscriptCurrent"),
-      transcriptList: root.querySelector("#lvTranscriptList"),
-      transcriptLiveChip: root.querySelector("#lvTranscriptLiveChip"),
       programPreview: root.querySelector("#lvProgramPreviewStage"),
       poTopic: root.querySelector("#lvPoTopic"),
-      outputStateChip: root.querySelector("#lvOutputStateChip"),
       poSceneGroup: root.querySelector("#lvPoSceneGroup"),
       poSceneRejected: root.querySelector("#lvPoSceneRejected"),
       poTickerEnabled: root.querySelector("#lvPoTickerEnabled"),
@@ -141,15 +128,6 @@ export class ProducerView {
       this.session.setSpotlight(tile.dataset.participantId);
     });
     this.session.on("hottie", (status) => this.renderHottie(status));
-    this.elements.askHottieForm?.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const text = this.elements.askHottieInput?.value?.trim();
-      if (!text) return;
-      this.elements.askHottieInput.value = "";
-      this.session.sendToProducer(text);
-    });
-    this.elements.transcriptSearch?.addEventListener("input", () => this.renderTranscriptPanel());
-    this.session.transcript?.on?.(() => this.renderTranscriptPanel());
 
     this.elements.poTopic.addEventListener("input", () => this.session.setTopic(this.elements.poTopic.value));
     this.elements.poTickerEnabled.addEventListener("change", () => {
@@ -235,7 +213,6 @@ export class ProducerView {
     this.renderGuests();
     this.renderProgram(this.session.program);
     this.renderHottie(this.session.hottieStatus);
-    this.renderTranscriptPanel();
     this.renderRecording(this.session.recording);
     this.renderProgramOutputStatus();
     this.renderRecordingGate();
@@ -390,47 +367,26 @@ export class ProducerView {
   // Jam mid-demo genuinely stops transcription underneath it (see LiveSession._enforcePolicy) without
   // touching the checkbox, so this note is what actually tells the truth about whether it's running.
   renderTranscriptionStatus(state) {
-    if (this.elements.transcriptLiveChip) {
-      this.elements.transcriptLiveChip.textContent = state?.active ? (state.demo ? "Demo" : "Live") : "Idle";
-    }
-    if (this.elements.demoModeToggle?.checked) {
-      this.elements.demoModeNote.textContent = state.active
-        ? "Drips a seeded audience feed and transcript so AI Producer can be demoed without live mic/chat."
-        : "Audience feed is still dripping, but transcript capture is blocked by this session's capture policy.";
-    }
+    if (!this.elements.demoModeToggle.checked) return;
+    this.elements.demoModeNote.textContent = state.active
+      ? "Drips a seeded audience feed and transcript so AI Producer can be demoed without live mic/chat."
+      : "Audience feed is still dripping, but transcript capture is blocked by this session's capture policy.";
   }
 
-  renderTranscriptPanel() {
-    if (!this.elements.transcriptList) return;
-    const query = String(this.elements.transcriptSearch?.value || "").trim().toLowerCase();
-    const lines = this.session.transcript?.recent?.(200) || [];
-    const filtered = query ? lines.filter((line) => `${line.speaker} ${line.text}`.toLowerCase().includes(query)) : lines;
-    const current = lines[lines.length - 1];
-    if (this.elements.transcriptCurrent) {
-      this.elements.transcriptCurrent.textContent = current
-        ? `${current.speaker}: ${current.text}`
-        : "No current utterance.";
-    }
-    if (!filtered.length) {
-      const empty = document.createElement("p");
-      empty.className = "lv-placeholder";
-      empty.textContent = query ? "No matching lines." : "Transcript will appear here as people speak.";
-      this.elements.transcriptList.replaceChildren(empty);
-      return;
-    }
-    this.elements.transcriptList.replaceChildren(...filtered.slice(-80).reverse().map((line) => {
-      const row = document.createElement("p");
-      row.className = "lv-transcript-line";
-      const time = new Date(line.timestamp || Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-      row.innerHTML = `<time>${escapeHtml(time)}</time> <strong>${escapeHtml(line.speaker || "Unknown")}</strong> ${escapeHtml(line.text)}`;
-      return row;
-    }));
-  }
-
-  // Read-only operational Hottie queues. Same ProducerFeed as Host View, bucketed for production work.
+  // Read-only mirror of the SAME ProducerFeed HostView renders — no dismiss/pin here, no separate AI
+  // state. The human Producer sees exactly what the host asked and what AI Producer said back. The one
+  // exception is "Send to Program": that's a production decision, not a private-feed curation one, so
+  // Producer (who owns broadcast/Program Output per the Host-vs-Producer split) can confirm it here too.
   renderFeedMirror() {
     const entries = this.session.aiProducerFeed.visible();
-    const handlers = {
+    if (!entries.length) {
+      const p = document.createElement("p");
+      p.className = "lv-placeholder";
+      p.textContent = "Host requests will appear here.";
+      this.elements.feedListProducer.replaceChildren(p);
+      return;
+    }
+    this.elements.feedListProducer.replaceChildren(...entries.map((entry) => renderFeedEntry(entry, {
       onSendToProgram: (id) => this.session.aiProducerService.sendEntryToProgram(id),
       onTakeLive: (id) => this.session.liveProducer.takeProposalLive(id),
       onFindAnother: (id) => this.session.liveProducer.findAnother(id),
@@ -438,42 +394,8 @@ export class ProducerView {
       onRetryResearch: (id) => this.session.liveProducer.retryResearch(id),
       onRemoveAsset: (id) => this.session.liveProducer.removeLiveAsset(id),
       onApproveHottieProposal: (id) => this.session.liveProducer.approveHottieProposal(id),
-      onDismissHottieProposal: (id) => this.session.liveProducer.dismissHottieProposal(id),
-      onPreview: (id) => this.previewHottieEntry(id)
-    };
-    const buckets = { now: [], ready: [], suggestions: [], history: [] };
-    entries.forEach((entry) => {
-      const bucket = hottieBucketFor(entry);
-      buckets[bucket].push(entry);
-    });
-    this.renderQueue(this.elements.hottieNow, buckets.now, handlers, "Listening. No active request.");
-    this.renderQueue(this.elements.hottieReady, buckets.ready, handlers, "Nothing prepared.");
-    this.renderQueue(this.elements.hottieSuggestions, buckets.suggestions, handlers, "No suggestions.");
-    this.renderQueue(this.elements.hottieHistory, buckets.history, handlers, "No completed requests.");
-    if (this.elements.feedListProducer && !this.elements.hottieNow) {
-      this.elements.feedListProducer.replaceChildren(...entries.map((entry) => renderFeedEntry(entry, handlers)));
-    }
-  }
-
-  renderQueue(node, entries, handlers, emptyText) {
-    if (!node) return;
-    if (!entries.length) {
-      const p = document.createElement("p");
-      p.className = "lv-placeholder";
-      p.textContent = emptyText;
-      node.replaceChildren(p);
-      return;
-    }
-    node.replaceChildren(...entries.map((entry) => renderFeedEntry(entry, handlers)));
-  }
-
-  previewHottieEntry(entryId) {
-    const entry = this.session.aiProducerFeed.entries.find((item) => item.id === entryId);
-    const asset = entry?.proposal?.asset;
-    if (!this.elements.hottiePreview || !asset) return;
-    this.elements.hottiePreview.hidden = false;
-    this.elements.hottiePreview.replaceChildren(buildProgramAssetCard(asset));
-    this.session.liveProducer.setStatus("preparing", { label: "PREPARING PREVIEW", title: asset.title }, "Private preview ready.");
+      onDismissHottieProposal: (id) => this.session.liveProducer.dismissHottieProposal(id)
+    })));
   }
 
   renderGuests() {
@@ -495,7 +417,6 @@ export class ProducerView {
       const cameraLabel = cameraPending ? (seat.cameraPending.wantEnabled ? "Camera requested" : "Camera off…") : "Cam";
       row.innerHTML = `
         <span class="lv-source-name">${escapeHtml(name)}</span>
-        <span class="lv-source-status">${escapeHtml([seat.title, seat.company].filter(Boolean).join(" · ") || "Guest")} · ${escapeHtml(seat.connectionStatus || "connected")}</span>
         <button type="button" class="lv-mini-btn" data-action="mic" data-pending="${String(micPending)}" aria-pressed="${String(!seat.mic)}" aria-busy="${String(micPending)}">${escapeHtml(micLabel)}</button>
         <button type="button" class="lv-mini-btn" data-action="camera" data-pending="${String(cameraPending)}" aria-pressed="${String(!seat.camera)}" aria-busy="${String(cameraPending)}">${escapeHtml(cameraLabel)}</button>
         <input type="range" class="lv-mini-slider" data-action="volume" min="0" max="1" step="0.05" value="${seat.volume ?? 1}">
@@ -538,30 +459,6 @@ export class ProducerView {
     this.elements.poSceneGroup.querySelectorAll(".po-swatch").forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.scene === program.scene));
     });
-    if (this.elements.outputStateChip) {
-      const sceneLabels = {
-        holding: "WAITING",
-        live: "LIVE",
-        brb: "BRB",
-        "technical-difficulties": "TECHNICAL",
-        ending: "ENDING"
-      };
-      this.elements.outputStateChip.textContent = sceneLabels[program.scene] || String(program.scene || "waiting").toUpperCase();
-      this.elements.outputStateChip.dataset.scene = program.scene || "holding";
-      const truthScene = document.querySelector("#studioTruthScene");
-      if (truthScene) {
-        const labels = {
-          holding: "Starting Soon",
-          live: "Live",
-          brb: "BRB",
-          "technical-difficulties": "Technical",
-          ending: "Ending"
-        };
-        truthScene.dataset.state = program.scene === "live" ? "live" : "idle";
-        const value = truthScene.querySelector("strong");
-        if (value) value.textContent = labels[program.scene] || program.scene;
-      }
-    }
     const layout = program.compositionMode || (program.layout === "grid" ? "balanced" : program.layout) || "balanced";
     const layoutLabel = layout === "active-speaker" ? "Active Speaker" : layout === "spotlight" ? "Spotlight" : "Balanced";
     this.elements.layoutModeChip.textContent = layoutLabel;
@@ -578,32 +475,15 @@ export class ProducerView {
 
   renderHottie(status = this.session.hottieStatus || {}) {
     const state = status.state || "listening";
-    const label = {
-      listening: "LISTENING",
-      heard: "HEARD COMMAND",
-      thinking: "HEARD COMMAND",
-      searching: "SEARCHING",
-      researching: "SEARCHING",
-      found: "FOUND",
-      preparing: "PREPARING PREVIEW",
-      "awaiting-approval": "WAITING FOR APPROVAL",
-      "taking-live": "TAKING LIVE",
-      "on-air": "TAKING LIVE",
-      speaking: "HOTTIE SPEAKING",
-      done: "DONE",
-      "needs-clarification": "NEEDS CLARIFICATION",
-      error: "ERROR",
-      ready: "READY"
-    }[state] || String(state).replace(/-/g, " ").toUpperCase();
     if (this.elements.hottieStatus) {
       this.elements.hottieStatus.dataset.state = state;
-      this.elements.hottieStatus.textContent = label;
+      this.elements.hottieStatus.textContent = String(state).replace("-", " ").toUpperCase();
     }
     if (this.elements.hottieProposal) {
       const proposal = status.proposal;
       this.elements.hottieProposal.textContent = proposal?.label
         ? [proposal.label, proposal.query || proposal.title].filter(Boolean).join(" · ")
-        : (status.hostCue?.note || "Waiting for a Host production cue.");
+        : "Waiting for a Host production cue.";
     }
   }
 
@@ -783,14 +663,4 @@ function splitLines(value = "") {
 
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
-}
-
-function hottieBucketFor(entry) {
-  if (entry.bucket && ["now", "ready", "suggestions", "history"].includes(entry.bucket)) return entry.bucket;
-  if (entry.type === "working") return "now";
-  if (entry.type === "asset_proposal" && entry.proposal?.live) return "history";
-  if (entry.type === "asset_proposal" || entry.type === "research") return "ready";
-  if (entry.type === "production_suggestion") return entry.proposal?.implicit || entry.proposal?.requiresApproval ? "suggestions" : "history";
-  if (entry.type === "error") return "now";
-  return "history";
 }

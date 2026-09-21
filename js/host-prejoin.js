@@ -36,10 +36,6 @@ export class HostPrejoin {
 
   async init() {
     log("init() starting");
-    if (!this.elements.preview || !this.elements.camera || !this.elements.mic || !this.elements.join) {
-      log("init() aborted — missing prejoin DOM");
-      return;
-    }
     this.elements.camera.addEventListener("change", () => this.startPreview());
     this.elements.mic.addEventListener("change", () => this.startPreview());
     this.elements.join.addEventListener("click", () => this.join());
