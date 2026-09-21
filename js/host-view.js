@@ -55,9 +55,7 @@ export class HostView {
       talkState: root.querySelector("#lvTalkState"),
       talkLive: root.querySelector("#lvTalkLive"),
       talkTextForm: root.querySelector("#lvTalkTextForm"),
-      talkTextInput: root.querySelector("#lvTalkTextInput"),
-      hostHottieStatus: root.querySelector("#lvHostHottieStatus"),
-      hostHottieNote: root.querySelector("#lvHostHottieNote")
+      talkTextInput: root.querySelector("#lvTalkTextInput")
     };
     this._agendaTimerId = null;
     this._teleFontSize = 24;
@@ -70,16 +68,10 @@ export class HostView {
     this.elements.toggleScreen.addEventListener("click", () => this.session.toggleScreenShare());
     this.elements.leaveStudio.addEventListener("click", () => this.session.leaveStudio());
 
-    this.session.on("guests", () => this.renderGuestContext());
-    this.session.on("av", (av) => {
-      this.renderAv(av);
-      this.renderGuestContext();
-    });
+    this.session.on("av", (av) => this.renderAv(av));
     this.session.on("screenshare", (s) => this.renderScreenShare(s));
-    this.session.on("connection", (c) => {
-      this.renderConnection(c);
-      this.renderGuestContext();
-    });
+    this.session.on("guests", () => this.renderGuestContext());
+    this.session.on("connection", (c) => this.renderConnection(c));
     this.session.on("host-state", (state) => this.renderHostState(state));
     this.session.on("remote-media-state", (s) => this.renderRemoteMediaState(s));
 
@@ -94,36 +86,6 @@ export class HostView {
     this.initTeleprompter();
     this.initAudience();
     this.initAiProducer();
-    this.session.on("hottie", (status) => this.renderHottieCue(status));
-    this.renderHottieCue(this.session.hottieStatus);
-  }
-
-  renderHottieCue(status = this.session.hottieStatus || {}) {
-    const state = status.state || "listening";
-    const label = {
-      listening: "LISTENING",
-      heard: "HEARD COMMAND",
-      thinking: "HEARD COMMAND",
-      searching: "SEARCHING",
-      researching: "SEARCHING",
-      found: "FOUND",
-      preparing: "PREPARING PREVIEW",
-      "awaiting-approval": "WAITING FOR APPROVAL",
-      "taking-live": "TAKING LIVE",
-      "on-air": "TAKING LIVE",
-      speaking: "HOTTIE SPEAKING",
-      done: "DONE",
-      "needs-clarification": "NEEDS CLARIFICATION",
-      error: "ERROR",
-      ready: "DONE"
-    }[state] || String(state).replace(/-/g, " ").toUpperCase();
-    if (this.elements.hostHottieStatus) {
-      this.elements.hostHottieStatus.dataset.state = state;
-      this.elements.hostHottieStatus.textContent = label;
-    }
-    if (this.elements.hostHottieNote) {
-      this.elements.hostHottieNote.textContent = status.hostCue?.note || this.session.liveProducer?.hostCue?.note || "Hottie is listening.";
-    }
   }
 
   renderAv(av) {
@@ -160,35 +122,40 @@ export class HostView {
   }
 
   renderGuestContext() {
-    const connected = this.session.guestSeats.filter(Boolean);
+    const seats = this.session.guestSeats;
+    const connected = seats.filter(Boolean);
     this.elements.guestPanelStatus.textContent = `${connected.length} connected`;
     this.elements.guestPanelStatus.dataset.state = connected.length > 0 ? "connected" : "idle";
+    // guestStageEmpty's visibility/text is now driven by renderRemoteMediaState (see below), not just
+    // "is someone connected" — a connected guest with unconfirmed video is a real, different state (see
+    // js/remote-media-state.js) that used to be indistinguishable from "no one's here."
     this.elements.guestCount.textContent = String(connected.length);
 
-    const av = this.session.av || {};
-    const hostConn = this.session.connection?.status || "idle";
-    const host = this.session.hostProfile || {};
-    const rows = [
-      rosterCard({
-        name: host.displayName || "Host",
-        title: host.title || "Host",
-        company: host.company || "",
-        role: "Host",
-        micOn: !av.micMuted,
-        cameraOn: !av.cameraOff,
-        connection: hostConn === "connected" ? "connected" : (this.session.hostState || hostConn)
-      }),
-      ...connected.map((seat) => rosterCard({
-        name: seat.displayName || seat.label || "Guest",
-        title: seat.title || "",
-        company: seat.company || "",
-        role: seat.role || "Guest",
-        micOn: seat.mic !== false,
-        cameraOn: seat.camera !== false,
-        connection: seat.connectionStatus || "connected"
-      }))
-    ];
-    this.elements.guestContext.replaceChildren(...rows);
+    if (!connected.length) {
+      this.elements.guestContext.replaceChildren(placeholder("No guests connected yet."));
+      return;
+    }
+
+    this.elements.guestContext.replaceChildren(...connected.map((seat) => {
+      const row = document.createElement("div");
+      row.className = "lv-guest-row";
+      row.dataset.status = seat.connectionStatus || "connected";
+      const dot = document.createElement("span");
+      dot.className = "lv-guest-dot";
+      dot.setAttribute("aria-hidden", "true");
+      const name = document.createElement("span");
+      name.className = "lv-guest-name";
+      name.textContent = seat.displayName || seat.label || "Guest";
+      row.append(dot, name);
+      const role = [seat.title, seat.company].filter(Boolean).join(", ");
+      if (role) {
+        const roleEl = document.createElement("span");
+        roleEl.className = "lv-guest-role";
+        roleEl.textContent = `· ${role}`;
+        row.appendChild(roleEl);
+      }
+      return row;
+    }));
   }
 
   // See js/remote-media-state.js — presence/connection confirming a guest is a DIFFERENT fact from their
@@ -208,9 +175,7 @@ export class HostView {
 
   initRunOfShow() {
     const saved = loadJson("toasty.run-of-show.items");
-    if (!this.session._reusableSetupApplied?.runOfShow && Array.isArray(saved) && saved.length) {
-      this.session.runOfShow.load(saved);
-    }
+    if (Array.isArray(saved) && saved.length) this.session.runOfShow.load(saved);
     this.session.runOfShow.on(() => {
       saveJson("toasty.run-of-show.items", this.session.runOfShow.items);
       this.renderAgenda();
@@ -337,19 +302,6 @@ export class HostView {
     this.session.audience.on(() => this.renderAudience());
     this.session.on("demo-mode", () => this.renderAudience());
     this.elements.audienceDemoToggle.addEventListener("change", () => this.session.setDemoMode(this.elements.audienceDemoToggle.checked));
-    this.elements.publicChatReply = this.root.querySelector("#lvPublicChatReply");
-    this.elements.publicChatReplyInput = this.root.querySelector("#lvPublicChatReplyInput");
-    this.elements.publicChatReply?.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const text = this.elements.publicChatReplyInput?.value?.trim();
-      if (!text) return;
-      this.elements.publicChatReplyInput.value = "";
-      this.session.audienceAdapter?.ingest?.({
-        author: this.session.hostProfile?.displayName || "Host",
-        text,
-        metadata: { hostReply: true }
-      });
-    });
     this.renderAudience();
   }
 
@@ -394,15 +346,6 @@ export class HostView {
       text.className = "lv-audience-message";
       text.textContent = message.message;
       row.append(name, text);
-      const promote = document.createElement("button");
-      promote.type = "button";
-      promote.className = "lv-feed-mini-btn";
-      promote.textContent = message.surfaced ? "On Program" : "Take to Program";
-      promote.disabled = Boolean(message.surfaced);
-      promote.addEventListener("click", () => {
-        this.session.programController?.surfaceChat?.({ messageIds: [message.id], initiator: "host" });
-      });
-      row.appendChild(promote);
       return row;
     }));
   }
@@ -568,23 +511,6 @@ function rowActionButton(glyph, title, onClick) {
   button.dataset.action = title;
   button.addEventListener("click", onClick);
   return button;
-}
-
-function rosterCard({ name, title, company, role, micOn, cameraOn, connection }) {
-  const row = document.createElement("div");
-  row.className = "lv-guest-row lv-roster-card";
-  row.dataset.status = connection || "idle";
-  const nameEl = document.createElement("span");
-  nameEl.className = "lv-guest-name";
-  nameEl.textContent = name;
-  const meta = document.createElement("span");
-  meta.className = "lv-guest-role";
-  meta.textContent = [title, company].filter(Boolean).join(" · ") || role || "";
-  const flags = document.createElement("span");
-  flags.className = "lv-roster-flags";
-  flags.textContent = `${role || "Guest"} · Mic ${micOn ? "on" : "off"} · Cam ${cameraOn ? "on" : "off"} · ${connection || "idle"}`;
-  row.append(nameEl, meta, flags);
-  return row;
 }
 
 function placeholder(text, extraClass) {
