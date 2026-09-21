@@ -458,15 +458,28 @@ function bindRailControls() {
     url.searchParams.delete("session");
     window.location.href = url.toString();
   });
-  elements.endSessionBtn.addEventListener("click", async () => {
+  elements.endSessionBtn?.addEventListener("click", async () => {
     if (!session.durableSession) {
       window.alert("This room has no durable session record (it predates Session Manager) — nothing to end here.");
       return;
     }
     if (!window.confirm(`End "${session.durableSession.title || "this session"}" for everyone?`)) return;
-    elements.endSessionBtn.disabled = true;
-    await session.endDurableSession();
-    elements.endSessionBtn.disabled = false;
+
+    const button = elements.endSessionBtn;
+    button.disabled = true;
+    button.textContent = "Ending…";
+    try {
+      await session.endDurableSession();
+      const url = new URL(window.location.href);
+      url.searchParams.delete("session");
+      url.searchParams.delete("view");
+      window.location.assign(url.toString());
+    } catch (error) {
+      console.error("[Director] End Session failed", error);
+      window.alert(`Couldn't end session: ${error?.message || error}`);
+      button.disabled = false;
+      button.textContent = "End Session";
+    }
   });
   elements.toggleScreenQuick?.addEventListener("click", () => session.toggleScreenShare());
   session.on("screenshare", (s) => {
