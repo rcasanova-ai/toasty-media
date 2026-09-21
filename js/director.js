@@ -10,7 +10,7 @@ import { ProducerView } from "./producer-view.js";
 import { HostPrejoin } from "./host-prejoin.js";
 import { HostState } from "./host-state.js";
 import { BUILD_ID } from "./build-info.js";
-import { resolveSession, showSessionArtifacts } from "./session-manager.js";
+import { resolveSession } from "./session-manager.js";
 
 // Set by js/studio-auth.js's openStudio when /auth/session reports a "locked" account (a brand-locked
 // customer like Moe @ Superteam Thailand) — a UX nicety only (hides the selector, blocks the local optimistic
@@ -43,19 +43,6 @@ const elements = {
   directorControlFrame: document.querySelector("#directorControlFrame"),
   recChip: document.querySelector("#lvRecChip"),
   recChipTime: document.querySelector("#lvRecChipTime"),
-  studioSessionStatus: document.querySelector("#studioSessionStatus"),
-  studioProgramOutputPill: document.querySelector("#studioProgramOutputPill"),
-  studioRailAudioState: document.querySelector("#studioRailAudioState"),
-  studioRailRecordingState: document.querySelector("#studioRailRecordingState"),
-  studioRecordingPill: document.querySelector("#studioRecordingPill"),
-  studioStreamingPill: document.querySelector("#studioStreamingPill"),
-  studioAudioPill: document.querySelector("#studioAudioPill"),
-  studioTruthOutput: document.querySelector("#studioTruthOutput"),
-  studioTruthScene: document.querySelector("#studioTruthScene"),
-  studioTruthAudio: document.querySelector("#studioTruthAudio"),
-  studioTruthRec: document.querySelector("#studioTruthRec"),
-  studioTruthStream: document.querySelector("#studioTruthStream"),
-  studioInspectorSubject: document.querySelector("#studioInspectorSubject"),
   policyChip: document.querySelector("#lvPolicyChip"),
   sessionDate: document.querySelector("#sessionDate"),
   sessionTime: document.querySelector("#sessionTime"),
@@ -87,74 +74,8 @@ const elements = {
   lvForceHeuristicMode: document.querySelector("#lvForceHeuristicMode"),
   lvHostRelationship: document.querySelector("#lvHostRelationship"),
   lvShowTone: document.querySelector("#lvShowTone"),
-  lvProducerAutonomy: document.querySelector("#lvProducerAutonomy"),
-  toolButtons: [...document.querySelectorAll("[data-studio-tool]")],
-  domainButtons: [...document.querySelectorAll("[data-studio-domain]:not([data-studio-tool])")],
-  toolPanels: [...document.querySelectorAll("[data-studio-tool-panel]")]
+  lvProducerAutonomy: document.querySelector("#lvProducerAutonomy")
 };
-
-const PRODUCER_TOOL_DOMAIN = Object.freeze({
-  participants: "show",
-  layout: "show",
-  runshow: "show",
-  graphics: "content",
-  lowerthirds: "content",
-  ticker: "content",
-  media: "content",
-  soundboard: "content",
-  branding: "content",
-  hottie: "intelligence",
-  transcription: "intelligence",
-  audience: "intelligence",
-  audio: "broadcast",
-  recording: "broadcast",
-  streaming: "broadcast"
-});
-
-const DOMAIN_DEFAULT_TOOL = Object.freeze({
-  show: "participants",
-  content: "graphics",
-  intelligence: "hottie",
-  broadcast: "audio"
-});
-
-const PRIMARY_PRODUCER_TOOLS = new Set([
-  "participants",
-  "layout",
-  "graphics",
-  "lowerthirds",
-  "ticker",
-  "media",
-  "soundboard",
-  "branding",
-  "hottie",
-  "audience",
-  "audio",
-  "recording",
-  "streaming"
-]);
-
-const TOOL_INSPECTOR_LABEL = Object.freeze({
-  participants: "Participant",
-  layout: "Layout",
-  runshow: "Run of Show",
-  graphics: "Graphic",
-  lowerthirds: "Lower Third",
-  ticker: "Ticker",
-  media: "Asset",
-  soundboard: "Sound",
-  branding: "Brand",
-  hottie: "Producer Chat",
-  transcription: "Transcript",
-  audience: "Public Chat",
-  audio: "Audio",
-  recording: "Recording",
-  streaming: "Stream"
-});
-
-function dismissStudioBootCurtain() {
-  if (window.parent !== window) window.parent.postMessage({ type: "toasty:studio-ready" }, window.location.origin);
-}
 
 init();
 
@@ -166,101 +87,74 @@ init();
 // target the right room from the very first frame mount, not a throwaway one that gets swapped out later.
 async function init() {
   applySelectedBrand();
-  bindChassisUi();
-  const entry = await resolveSession({ brandId: session.brandTheme });
-  if (entry?.mode === "artifacts") {
-    await showSessionArtifacts(entry.session);
-    bindArtifactsHome();
-    dismissStudioBootCurtain();
-    return;
-  }
-  const durableSession = entry?.session || entry;
-  try {
-    session.applyDurableSession(durableSession);
-    if (elements.studioSessionStatus) elements.studioSessionStatus.textContent = durableSession.title || "Untitled";
-    void session.loadProfileEndCard();
-  } catch (error) {
-    console.error("[Director] applyDurableSession failed; continuing Host camera boot", error);
-    session.durableSession = durableSession;
-    if (durableSession?.roomId) session.roomId = durableSession.roomId;
-  }
+  const durableSession = await resolveSession({ brandId: session.brandTheme });
+  session.applyDurableSession(durableSession);
+  void session.loadProfileEndCard();
   initStudio();
 }
 
-function bindArtifactsHome() {
-  document.querySelector("#sessionArtifactsHome")?.addEventListener("click", () => {
-    const url = new URL(window.location.href);
-    url.searchParams.delete("session");
-    url.searchParams.delete("view");
-    window.location.href = url.toString();
-  });
-}
-
 function initStudio() {
+  session.start({
+    host: elements.hostFrame,
+    hostTransport: elements.hostTransportFrame,
+    hostScreenTransport: elements.hostScreenTransportFrame,
+    roomPreview: elements.guestFrame,
+    control: elements.directorControlFrame,
+    programPreview: elements.programPreviewStage
+  });
+
+  new HostView({ session }).init();
+  new ProducerView({ session }).init();
+  session.loadAssetCatalogue().catch((error) => {
+    console.error("[Toasty] Asset Catalogue failed to load", error);
+    session.emit("catalogue-error", error);
+  });
   const hostPrejoin = new HostPrejoin({ session });
+  hostPrejoin.init();
+  // The one place LEAVING is ever emitted is LiveSession.leaveStudio() — see js/host-state.js — so this
+  // can't double-fire against startPreview()'s own routine PREJOIN_LOADING transitions (device changes,
+  // first load) and trigger a second, redundant getUserMedia call.
   session.on("host-state", (state) => { if (state === HostState.LEAVING) hostPrejoin.resume(); });
-  void hostPrejoin.init().catch((error) => console.error("[Director] HostPrejoin failed", error));
 
-  try {
-    session.start({
-      host: elements.hostFrame,
-      hostTransport: elements.hostTransportFrame,
-      hostScreenTransport: elements.hostScreenTransportFrame,
-      roomPreview: elements.guestFrame,
-      control: elements.directorControlFrame,
-      programPreview: elements.programPreviewStage
-    });
+  new AIProductionController({
+    getBrandTheme: () => session.brandTheme,
+    onBrandChange: (brandTheme) => {
+      // Same lock this file's own selector respects — Hottie can't do via voice what the hidden dropdown
+      // can't do via click. Backend enforces this regardless either way (see isBrandLocked's own comment).
+      if (isBrandLocked && normalizeBrandTheme(brandTheme) !== session.brandTheme) return;
+      elements.brandThemeSelect.value = normalizeBrandTheme(brandTheme);
+      session.changeBrandTheme(brandTheme);
+    }
+  }).init();
 
-    new HostView({ session }).init();
-    new ProducerView({ session }).init();
-    session.loadAssetCatalogue().catch((error) => {
-      console.error("[Toasty] Asset Catalogue failed to load", error);
-      session.emit("catalogue-error", error);
-    });
+  // Mounted before bindViewSwitch()'s initial setView("host") call, so its Producer-only broadcast
+  // panel (data-lv-only="producer") exists in the DOM the first time [data-lv-only] elements are queried.
+  new ToastyBroadcastController({
+    getProgramUrl: () => elements.listenerInvite.value,
+    requireLegacyAuthGate: false,
+    onStateChange: (broadcastState) => session.setLive(broadcastState === "live"),
+    onError: () => renderBroadcastError()
+  }).init();
 
-    new AIProductionController({
-      getBrandTheme: () => session.brandTheme,
-      onBrandChange: (brandTheme) => {
-        if (isBrandLocked && normalizeBrandTheme(brandTheme) !== session.brandTheme) return;
-        elements.brandThemeSelect.value = normalizeBrandTheme(brandTheme);
-        session.changeBrandTheme(brandTheme);
-      }
-    }).init();
+  bindViewSwitch();
+  bindRailControls();
+  bindPolicyDrawer();
+  bindAiProviderDrawer();
+  bindPersonaDrawer();
 
-    new ToastyBroadcastController({
-      getProgramUrl: () => elements.listenerInvite.value,
-      requireLegacyAuthGate: false,
-      onStateChange: (broadcastState) => session.setLive(broadcastState === "live"),
-      onError: () => renderBroadcastError()
-    }).init();
+  session.on("recording", renderRecChip);
+  session.on("policy", renderPolicyChip);
+  session.on("connection", renderBroadcastChip);
+  session.on("program", renderBroadcastChip);
+  session.on("brand", () => { applySelectedBrand(); updateInviteFields(); });
+  session.on("room", updateInviteFields);
 
-    bindChassisUi();
-    bindPolicyDrawer();
-    bindAiProviderDrawer();
-    bindPersonaDrawer();
-    bindWorkflowSettings();
-    bindProgramOutputButtons();
-
-    session.on("recording", renderRecChip);
-    session.on("policy", renderPolicyChip);
-    session.on("connection", renderBroadcastChip);
-    session.on("program", renderBroadcastChip);
-    session.on("program-output", renderBroadcastChip);
-    session.on("brand", () => { applySelectedBrand(); updateInviteFields(); });
-    session.on("room", updateInviteFields);
-
-    renderRecChip(session.recording);
-    renderPolicyChip(session.policy);
-    renderBroadcastChip();
-    updateInviteFields();
-    mountTimeOfDay();
-    void startHostDebugMedia();
-    setView("host");
-  } catch (error) {
-    console.error("[Director] initStudio failed after HostPrejoin start", error);
-  } finally {
-    dismissStudioBootCurtain();
-  }
+  renderRecChip(session.recording);
+  renderPolicyChip(session.policy);
+  renderBroadcastChip();
+  updateInviteFields();
+  mountTimeOfDay();
+  void startHostDebugMedia();
 }
 
 async function startHostDebugMedia() {
@@ -281,148 +175,25 @@ async function startHostDebugMedia() {
   }
 }
 
-function bindChassisUi() {
-  if (bindChassisUi.bound) return;
-  bindChassisUi.bound = true;
-  bindViewSwitch();
-  bindRailControls();
-}
-
 function bindViewSwitch() {
-  document.querySelectorAll("[data-lv-view-btn]").forEach((button) => {
+  elements.viewButtons.forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.lvViewBtn));
-  });
-  elements.domainButtons.forEach((button) => {
-    button.addEventListener("click", () => setProducerDomain(button.dataset.studioDomain));
-  });
-  elements.toolButtons.forEach((button) => {
-    button.addEventListener("click", () => setProducerTool(button.dataset.studioTool));
-  });
-  document.querySelector("#lvAskHottieHeader")?.addEventListener("click", () => {
-    setView("producer");
-    setProducerTool("hottie");
-    window.setTimeout(() => document.querySelector("#lvAskHottieInput")?.focus(), 0);
-  });
-  document.querySelectorAll("[data-studio-workflow]").forEach((button) => {
-    button.addEventListener("click", () => setStudioWorkflow(button.dataset.studioWorkflow));
-  });
-  document.querySelector("#studioOpenSettings")?.addEventListener("click", () => {
-    document.body.classList.toggle("studio-settings-open");
-  });
-  document.querySelector("#studioExitSession")?.addEventListener("click", () => {
-    elements.switchSession?.click();
-  });
-  document.querySelectorAll("[data-proxy-click]").forEach((button) => {
-    button.addEventListener("click", () => document.getElementById(button.dataset.proxyClick)?.click());
-  });
-  document.querySelectorAll("[data-proxy-change]").forEach((el) => {
-    const source = document.getElementById(el.dataset.proxyChange);
-    if (!source || el.tagName !== "SELECT" || source.tagName !== "SELECT") return;
-    el.innerHTML = source.innerHTML;
-    el.value = source.value;
-    el.addEventListener("change", () => {
-      source.value = el.value;
-      source.dispatchEvent(new Event("change"));
-    });
-    source.addEventListener("change", () => { el.value = source.value; });
   });
   setView("host");
 }
 
-function setStudioWorkflow(workflow) {
-  document.querySelectorAll("[data-studio-workflow]").forEach((button) => {
-    button.setAttribute("aria-pressed", String(button.dataset.studioWorkflow === workflow));
-  });
-  if (document.body.classList.contains("session-gate-open") || document.body.classList.contains("session-artifacts-open")) return;
-  openWorkflowSettings(workflow);
-}
-
-function bindWorkflowSettings() {
-  document.querySelector("#studioWorkflowDrawerClose")?.addEventListener("click", closeWorkflowSettings);
-}
-
-function openWorkflowSettings(workflow) {
-  const drawer = document.querySelector("#studioWorkflowDrawer");
-  if (!drawer) return;
-  drawer.hidden = false;
-  drawer.querySelectorAll("[data-workflow-panel]").forEach((panel) => {
-    panel.hidden = panel.dataset.workflowPanel !== workflow;
-  });
-}
-
-function closeWorkflowSettings() {
-  const drawer = document.querySelector("#studioWorkflowDrawer");
-  if (drawer) drawer.hidden = true;
-}
-
-function bindProgramOutputButtons() {
-  const openOutput = () => {
-    if (typeof session.ensureProgramOutputWindow === "function") session.ensureProgramOutputWindow();
-    else window.open(session.inviteUrls().listener, "toasty-program-output");
-  };
-  document.querySelector("#studioOpenProgramOutput")?.addEventListener("click", openOutput);
-  document.querySelector("#studioOpenProgramOutputRail")?.addEventListener("click", openOutput);
-  document.querySelector("#studioOpenSoundboard")?.addEventListener("click", () => {
-    setView("producer");
-    setProducerTool("soundboard");
-  });
-}
-
-document.querySelector("#openSoundboardQuick")?.addEventListener("click", () => {
-  setView("producer");
-  setProducerTool("soundboard");
-});
-
 function setView(view) {
   elements.liveConsole.dataset.lvView = view;
-  document.querySelectorAll("[data-lv-view-btn]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.lvViewBtn === view)));
+  elements.viewButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.lvViewBtn === view)));
   // Queried live (not cached at init time) so panels mounted later by other controllers — e.g. the
   // Producer-only broadcast card injected into .rail-right — are still gated correctly.
   document.querySelectorAll("[data-lv-only]").forEach((panel) => { panel.hidden = panel.dataset.lvOnly !== view; });
-  setProducerTool(currentProducerTool());
-}
-
-function currentProducerTool() {
-  return elements.toolButtons.find((button) => button.getAttribute("aria-pressed") === "true")?.dataset.studioTool || "participants";
-}
-
-function setProducerDomain(domain = "show") {
-  setProducerTool(DOMAIN_DEFAULT_TOOL[domain] || "participants");
-}
-
-function setProducerTool(tool = "participants") {
-  const activeTool = tool || "participants";
-  const producerActive = elements.liveConsole?.dataset.lvView === "producer";
-  const domain = PRODUCER_TOOL_DOMAIN[activeTool] || "show";
-  elements.domainButtons.forEach((button) => {
-    button.setAttribute("aria-pressed", String(button.dataset.studioDomain === domain));
-  });
-  elements.toolButtons.forEach((button) => {
-    const isPrimary = button.dataset.studioToolPrimary === "true" || PRIMARY_PRODUCER_TOOLS.has(button.dataset.studioTool);
-    button.hidden = !isPrimary;
-    button.setAttribute("aria-pressed", String(button.dataset.studioTool === activeTool));
-  });
-  elements.toolPanels.forEach((panel) => {
-    if (panel.dataset.studioCockpit) {
-      const desk = panel.dataset.lvOnly;
-      panel.hidden = desk === "host" ? producerActive : !producerActive;
-      return;
-    }
-    if (!producerActive && panel.dataset.studioHostSurface === "true") {
-      panel.hidden = false;
-      return;
-    }
-    panel.hidden = !producerActive || panel.dataset.studioToolPanel !== activeTool;
-  });
-  if (elements.studioInspectorSubject) {
-    elements.studioInspectorSubject.textContent = TOOL_INSPECTOR_LABEL[activeTool] || "Program";
-  }
 }
 
 function bindRailControls() {
-  elements.inviteGuestBtn?.addEventListener("click", inviteGuest);
-  elements.copyInvite?.addEventListener("click", copyInvite);
-  elements.copyListenerInvite?.addEventListener("click", copyListenerInvite);
+  elements.inviteGuestBtn.addEventListener("click", inviteGuest);
+  elements.copyInvite.addEventListener("click", copyInvite);
+  elements.copyListenerInvite.addEventListener("click", copyListenerInvite);
   if (isBrandLocked) {
     // hidden, not removed: ai-production.js's own #aiBrandProfile selector (below) is queried and used
     // directly with no null-guard (addEventListener/replaceChildren/.value= all assume it exists) — that
@@ -441,47 +212,29 @@ function bindRailControls() {
     // given.
     hideElement(document.querySelector("#aiBrandProfile")?.closest(".ai-brand-control"));
   } else {
-    elements.brandThemeSelect?.addEventListener("change", () => {
-      session.changeBrandTheme(elements.brandThemeSelect.value);
-      applySelectedBrand();
-    });
+    elements.brandThemeSelect.addEventListener("change", () => session.changeBrandTheme(elements.brandThemeSelect.value));
   }
   // Full page reload, deliberately — the simplest reliable teardown of camera/VDO state before showing
   // the Session gate again, rather than trying to hand-roll an equivalent in-JS teardown. Drops the
   // `?session=` param so resolveSession() shows the gate instead of re-resolving the same session.
-  elements.switchSession?.addEventListener("click", () => {
+  elements.switchSession.addEventListener("click", () => {
     const url = new URL(window.location.href);
     url.searchParams.delete("session");
     window.location.href = url.toString();
   });
-  elements.endSessionBtn?.addEventListener("click", async () => {
+  elements.endSessionBtn.addEventListener("click", async () => {
     if (!session.durableSession) {
       window.alert("This room has no durable session record (it predates Session Manager) — nothing to end here.");
       return;
     }
     if (!window.confirm(`End "${session.durableSession.title || "this session"}" for everyone?`)) return;
-
-    const button = elements.endSessionBtn;
-    button.disabled = true;
-    button.textContent = "Ending…";
-    try {
-      await session.endDurableSession();
-      const url = new URL(window.location.href);
-      url.searchParams.delete("session");
-      url.searchParams.delete("view");
-      window.location.assign(url.toString());
-    } catch (error) {
-      console.error("[Director] End Session failed", error);
-      window.alert(`Couldn't end session: ${error?.message || error}`);
-      button.disabled = false;
-      button.textContent = "End Session";
-    }
+    elements.endSessionBtn.disabled = true;
+    await session.endDurableSession();
+    elements.endSessionBtn.disabled = false;
   });
   elements.toggleScreenQuick?.addEventListener("click", () => session.toggleScreenShare());
   session.on("screenshare", (s) => {
     if (elements.toggleScreenQuick) elements.toggleScreenQuick.setAttribute("aria-pressed", String(Boolean(s?.active)));
-    const shareHealth = document.querySelector("#lvHostShareHealth");
-    if (shareHealth) shareHealth.textContent = s?.active ? "Sharing" : "Off";
   });
 }
 
@@ -535,22 +288,12 @@ function syncJamFieldsFromPolicy() {
 
 function renderRecChip(recording) {
   elements.recChip.hidden = !recording.active;
-  const recLabel = recording.status === "saving" ? "Saving" : recording.active ? "Recording" : "Idle";
-  const recState = recording.active ? "recording" : recording.status === "saving" ? "ready" : "idle";
-  if (elements.studioRailRecordingState) elements.studioRailRecordingState.textContent = recLabel;
-  if (elements.studioRecordingPill) {
-    elements.studioRecordingPill.dataset.state = recState;
-    elements.studioRecordingPill.textContent = recording.active ? `Recording ${elements.recChipTime?.textContent || ""}`.trim() : "Recording idle";
-  }
-  setTruthItem(elements.studioTruthRec, recState, recording.active && recording.startedAt ? elements.recChipTime.textContent : recLabel);
   if (recording.active && recording.startedAt) {
     const elapsed = Math.floor((Date.now() - recording.startedAt) / 1000);
     const hours = String(Math.floor(elapsed / 3600)).padStart(2, "0");
     const minutes = String(Math.floor((elapsed % 3600) / 60)).padStart(2, "0");
     const seconds = String(elapsed % 60).padStart(2, "0");
     elements.recChipTime.textContent = `${hours}:${minutes}:${seconds}`;
-    setTruthItem(elements.studioTruthRec, "recording", elements.recChipTime.textContent);
-    if (elements.studioRecordingPill) elements.studioRecordingPill.textContent = `REC ${elements.recChipTime.textContent}`;
   }
 }
 
@@ -580,42 +323,6 @@ function setBroadcastChip(state, label) {
   elements.connectionState.textContent = label;
   const textEl = elements.connectionChip.querySelector(".on-air-text");
   if (textEl) textEl.textContent = state === "live" ? "ON AIR" : state === "ready" ? "READY" : state === "error" ? "ERROR" : "OFFLINE";
-  const output = session.programOutput || {};
-  const outputConnected = output.connection === "connected" || output.connected;
-  const audioState = output.audioError ? "error" : output.audioReady ? "ready" : "offline";
-  const audioLabel = output.audioError ? "Error" : output.audioReady ? "Ready" : "Pending";
-  if (elements.studioProgramOutputPill) {
-    elements.studioProgramOutputPill.dataset.state = outputConnected ? "ready" : "offline";
-    elements.studioProgramOutputPill.textContent = outputConnected ? "Program Output connected" : "Program Output offline";
-  }
-  if (elements.studioRailAudioState) elements.studioRailAudioState.textContent = audioLabel;
-  if (elements.studioAudioPill) {
-    elements.studioAudioPill.dataset.state = audioState === "ready" ? "ready" : audioState;
-    elements.studioAudioPill.textContent = `Audio ${audioLabel}`;
-  }
-  if (elements.studioStreamingPill) {
-    elements.studioStreamingPill.dataset.state = state === "live" ? "live" : state === "ready" ? "ready" : "offline";
-    elements.studioStreamingPill.textContent = state === "live" ? "Streaming live" : "Streaming idle";
-  }
-  setTruthItem(elements.studioTruthOutput, outputConnected ? "ready" : "offline", outputConnected ? "Connected" : "Offline");
-  setTruthItem(elements.studioTruthAudio, audioState, audioLabel);
-  setTruthItem(elements.studioTruthStream, state === "live" ? "live" : "idle", state === "live" ? "Live" : "Idle");
-  const scene = session.program?.scene || "holding";
-  const sceneLabels = {
-    holding: "Starting Soon",
-    live: "Live",
-    brb: "BRB",
-    "technical-difficulties": "Technical",
-    ending: "Ending"
-  };
-  setTruthItem(elements.studioTruthScene, scene === "live" ? "live" : "idle", sceneLabels[scene] || scene);
-}
-
-function setTruthItem(node, state, label) {
-  if (!node) return;
-  node.dataset.state = state;
-  const value = node.querySelector("strong");
-  if (value) value.textContent = label;
 }
 
 async function inviteGuest() {
@@ -651,12 +358,12 @@ function setLabel(button, text) {
 
 function updateInviteFields() {
   const urls = session.inviteUrls();
-  if (elements.guestInvite) elements.guestInvite.value = urls.guest;
-  if (elements.listenerInvite) elements.listenerInvite.value = urls.listener;
+  elements.guestInvite.value = urls.guest;
+  elements.listenerInvite.value = urls.listener;
 }
 
 function applySelectedBrand() {
-  if (elements.brandThemeSelect) elements.brandThemeSelect.value = session.brandTheme;
+  elements.brandThemeSelect.value = session.brandTheme;
   session.applyBrand({
     root: document.body,
     logoImg: elements.studioBrandLogo,
@@ -671,7 +378,7 @@ function applySelectedBrand() {
 
 function mountTimeOfDay() {
   const now = new Date();
-  if (elements.sessionDate) elements.sessionDate.textContent = now.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
-  if (elements.sessionTime) elements.sessionTime.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  elements.sessionDate.textContent = now.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+  elements.sessionTime.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   if (elements.buildId) elements.buildId.textContent = BUILD_ID;
 }
