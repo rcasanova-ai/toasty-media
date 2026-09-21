@@ -150,9 +150,15 @@ async function init() {
     return;
   }
   const durableSession = entry?.session || entry;
-  session.applyDurableSession(durableSession);
-  if (elements.studioSessionStatus) elements.studioSessionStatus.textContent = durableSession.title || "Untitled";
-  void session.loadProfileEndCard();
+  try {
+    session.applyDurableSession(durableSession);
+    if (elements.studioSessionStatus) elements.studioSessionStatus.textContent = durableSession.title || "Untitled";
+    void session.loadProfileEndCard();
+  } catch (error) {
+    console.error("[Director] applyDurableSession failed; continuing Host camera boot", error);
+    session.durableSession = durableSession;
+    if (durableSession?.roomId) session.roomId = durableSession.roomId;
+  }
   initStudio();
 }
 
@@ -166,67 +172,68 @@ function bindArtifactsHome() {
 }
 
 function initStudio() {
-  session.start({
-    host: elements.hostFrame,
-    hostTransport: elements.hostTransportFrame,
-    hostScreenTransport: elements.hostScreenTransportFrame,
-    roomPreview: elements.guestFrame,
-    control: elements.directorControlFrame,
-    programPreview: elements.programPreviewStage
-  });
-
-  new HostView({ session }).init();
-  new ProducerView({ session }).init();
-  session.loadAssetCatalogue().catch((error) => {
-    console.error("[Toasty] Asset Catalogue failed to load", error);
-    session.emit("catalogue-error", error);
-  });
   const hostPrejoin = new HostPrejoin({ session });
-  hostPrejoin.init();
-  // The one place LEAVING is ever emitted is LiveSession.leaveStudio() — see js/host-state.js — so this
-  // can't double-fire against startPreview()'s own routine PREJOIN_LOADING transitions (device changes,
-  // first load) and trigger a second, redundant getUserMedia call.
   session.on("host-state", (state) => { if (state === HostState.LEAVING) hostPrejoin.resume(); });
+  void hostPrejoin.init().catch((error) => console.error("[Director] HostPrejoin failed", error));
 
-  new AIProductionController({
-    getBrandTheme: () => session.brandTheme,
-    onBrandChange: (brandTheme) => {
-      // Same lock this file's own selector respects — Hottie can't do via voice what the hidden dropdown
-      // can't do via click. Backend enforces this regardless either way (see isBrandLocked's own comment).
-      if (isBrandLocked && normalizeBrandTheme(brandTheme) !== session.brandTheme) return;
-      elements.brandThemeSelect.value = normalizeBrandTheme(brandTheme);
-      session.changeBrandTheme(brandTheme);
-    }
-  }).init();
+  try {
+    session.start({
+      host: elements.hostFrame,
+      hostTransport: elements.hostTransportFrame,
+      hostScreenTransport: elements.hostScreenTransportFrame,
+      roomPreview: elements.guestFrame,
+      control: elements.directorControlFrame,
+      programPreview: elements.programPreviewStage
+    });
 
-  // Mounted before bindViewSwitch()'s initial setView("host") call, so its Producer-only broadcast
-  // panel (data-lv-only="producer") exists in the DOM the first time [data-lv-only] elements are queried.
-  new ToastyBroadcastController({
-    getProgramUrl: () => elements.listenerInvite.value,
-    requireLegacyAuthGate: false,
-    onStateChange: (broadcastState) => session.setLive(broadcastState === "live"),
-    onError: () => renderBroadcastError()
-  }).init();
+    new HostView({ session }).init();
+    new ProducerView({ session }).init();
+    session.loadAssetCatalogue().catch((error) => {
+      console.error("[Toasty] Asset Catalogue failed to load", error);
+      session.emit("catalogue-error", error);
+    });
 
-  bindChassisUi();
-  bindPolicyDrawer();
-  bindAiProviderDrawer();
-  bindPersonaDrawer();
+    new AIProductionController({
+      getBrandTheme: () => session.brandTheme,
+      onBrandChange: (brandTheme) => {
+        if (isBrandLocked && normalizeBrandTheme(brandTheme) !== session.brandTheme) return;
+        elements.brandThemeSelect.value = normalizeBrandTheme(brandTheme);
+        session.changeBrandTheme(brandTheme);
+      }
+    }).init();
 
-  session.on("recording", renderRecChip);
-  session.on("policy", renderPolicyChip);
-  session.on("connection", renderBroadcastChip);
-  session.on("program", renderBroadcastChip);
-  session.on("program-output", renderBroadcastChip);
-  session.on("brand", () => { applySelectedBrand(); updateInviteFields(); });
-  session.on("room", updateInviteFields);
+    new ToastyBroadcastController({
+      getProgramUrl: () => elements.listenerInvite.value,
+      requireLegacyAuthGate: false,
+      onStateChange: (broadcastState) => session.setLive(broadcastState === "live"),
+      onError: () => renderBroadcastError()
+    }).init();
 
-  renderRecChip(session.recording);
-  renderPolicyChip(session.policy);
-  renderBroadcastChip();
-  updateInviteFields();
-  mountTimeOfDay();
-  void startHostDebugMedia();
+    bindChassisUi();
+    bindPolicyDrawer();
+    bindAiProviderDrawer();
+    bindPersonaDrawer();
+    bindWorkflowSettings();
+    bindProgramOutputButtons();
+
+    session.on("recording", renderRecChip);
+    session.on("policy", renderPolicyChip);
+    session.on("connection", renderBroadcastChip);
+    session.on("program", renderBroadcastChip);
+    session.on("program-output", renderBroadcastChip);
+    session.on("brand", () => { applySelectedBrand(); updateInviteFields(); });
+    session.on("room", updateInviteFields);
+
+    renderRecChip(session.recording);
+    renderPolicyChip(session.policy);
+    renderBroadcastChip();
+    updateInviteFields();
+    mountTimeOfDay();
+    void startHostDebugMedia();
+    setView("host");
+  } catch (error) {
+    console.error("[Director] initStudio failed after HostPrejoin start", error);
+  }
 }
 
 async function startHostDebugMedia() {
@@ -279,17 +286,39 @@ function setStudioWorkflow(workflow) {
   document.querySelectorAll("[data-studio-workflow]").forEach((button) => {
     button.setAttribute("aria-pressed", String(button.dataset.studioWorkflow === workflow));
   });
-  if (workflow === "studio") {
-    if (document.body.classList.contains("session-gate-open") || document.body.classList.contains("session-artifacts-open")) return;
-    setView("host");
-    return;
-  }
   if (document.body.classList.contains("session-gate-open") || document.body.classList.contains("session-artifacts-open")) return;
-  setView("producer");
-  if (workflow === "show") setProducerDomain("show");
-  else if (workflow === "focus-group") setProducerTool("hottie");
-  else if (workflow === "stream") setProducerDomain("broadcast");
-  else if (workflow === "post") setProducerTool("media");
+  openWorkflowSettings(workflow);
+}
+
+function bindWorkflowSettings() {
+  document.querySelector("#studioWorkflowDrawerClose")?.addEventListener("click", closeWorkflowSettings);
+}
+
+function openWorkflowSettings(workflow) {
+  const drawer = document.querySelector("#studioWorkflowDrawer");
+  if (!drawer) return;
+  drawer.hidden = false;
+  drawer.querySelectorAll("[data-workflow-panel]").forEach((panel) => {
+    panel.hidden = panel.dataset.workflowPanel !== workflow;
+  });
+}
+
+function closeWorkflowSettings() {
+  const drawer = document.querySelector("#studioWorkflowDrawer");
+  if (drawer) drawer.hidden = true;
+}
+
+function bindProgramOutputButtons() {
+  const openOutput = () => {
+    if (typeof session.ensureProgramOutputWindow === "function") session.ensureProgramOutputWindow();
+    else window.open(session.inviteUrls().listener, "toasty-program-output");
+  };
+  document.querySelector("#studioOpenProgramOutput")?.addEventListener("click", openOutput);
+  document.querySelector("#studioOpenProgramOutputRail")?.addEventListener("click", openOutput);
+  document.querySelector("#studioOpenSoundboard")?.addEventListener("click", () => {
+    setView("producer");
+    setProducerTool("soundboard");
+  });
 }
 
 document.querySelector("#openSoundboardQuick")?.addEventListener("click", () => {

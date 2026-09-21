@@ -435,9 +435,7 @@
 }
 
 .host-device-health {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
+  display: none !important;
 }
 
 .host-device-health span {
@@ -634,7 +632,39 @@
   color: var(--studio-red, #c45c5c);
 }
 
-/* Thai/regional atmosphere stays token-driven. Non-Thai brands must not pick up Superteam art. */
+.studio-workflow-drawer {
+  background: color-mix(in srgb, var(--studio-canvas-2, #16110e) 96%, transparent);
+  border-left: 1px solid var(--studio-line);
+  inset: 0 0 0 auto;
+  max-width: 360px;
+  overflow-y: auto;
+  padding: 1rem 1.1rem;
+  position: fixed;
+  width: min(360px, 92vw);
+  z-index: 80;
+}
+
+.studio-workflow-drawer[hidden] {
+  display: none;
+}
+
+.studio-workflow-drawer h2 {
+  color: var(--studio-cream);
+  font-size: 1.05rem;
+  margin: 0.5rem 0;
+}
+
+.studio-workflow-drawer p {
+  color: var(--studio-cream-dim);
+  font-size: 0.85rem;
+}
+
+.producer-rail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.55rem;
+}
 .studio-shell[data-brand-theme="8alta"] .studio-chassis .lv-program-preview,
 .program-output[data-brand-theme="8alta"] .po-stage {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, #c8a45d 22%, transparent);

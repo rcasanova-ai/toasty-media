@@ -4052,6 +4052,14 @@
   position: relative;
 }
 
+.lv-stage-pip {
+  position: relative;
+}
+
+.host-device-health {
+  display: none !important;
+}
+
 .lv-stage-main {
   width: 100%;
 }
@@ -4161,9 +4169,10 @@
 .lv-host-prejoin-video {
   background: #000;
   border-radius: 6px;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   height: auto;
-  max-height: 96px;
+  max-height: min(42vh, 360px);
+  min-height: 180px;
   object-fit: cover;
   width: 100%;
 }

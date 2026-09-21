@@ -18,9 +18,9 @@ function includes(haystack, needle, message = needle) {
 
 includes(html, '<link rel="stylesheet" href="../css/studio-chassis.css">');
 includes(html, 'class="live-console live-studio-panel studio-chassis"');
-includes(html, 'id="liveConsole" data-lv-view="producer"');
-includes(html, 'data-lv-view-btn="producer" aria-pressed="true"');
-includes(html, 'data-lv-view-btn="host" aria-pressed="false"');
+includes(html, 'id="liveConsole" data-lv-view="host"');
+includes(html, 'data-lv-view-btn="host" aria-pressed="true"');
+includes(html, 'data-lv-view-btn="producer" aria-pressed="false"');
 includes(html, "studio-chassis-status");
 includes(html, 'id="studioSessionStatus"');
 includes(html, 'id="studioProgramOutputPill"');
@@ -98,10 +98,17 @@ includes(html, "Media / Assets");
 includes(html, "lv-hottie-workspace");
 includes(html, "Ask Hottie");
 
-includes(director, 'setView("producer")');
+includes(director, 'setView("host")');
 includes(director, "function setProducerTool");
 includes(director, "function setProducerDomain");
 includes(director, "function bindChassisUi");
+includes(director, "openWorkflowSettings");
+includes(director, "ensureProgramOutputWindow");
+assert.ok(!director.includes('if (workflow === "show") setProducerDomain("show")'), "workflow tabs must not hijack Producer tools");
+includes(html, 'id="studioOpenProgramOutput"');
+includes(html, "Open Program Output");
+includes(html, 'id="studioOpenSoundboard"');
+includes(html, 'id="studioWorkflowDrawer"');
 includes(director, 'session.on("program-output", renderBroadcastChip)');
 includes(director, "studioProgramOutputPill");
 includes(director, "studioTruthOutput");
