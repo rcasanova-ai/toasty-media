@@ -5019,11 +5019,6 @@
   gap: 0.4rem;
 }
 
-.lv-mini-btn--danger {
-  border-color: var(--studio-red-bright);
-  color: var(--studio-red-bright);
-}
-
 .studio-home-board {
   display: grid;
   gap: 1.5rem;
@@ -5078,6 +5073,55 @@
 .session-card[data-lifecycle="ENDED"],
 .session-card[data-lifecycle="ARCHIVED"] {
   opacity: 0.88;
+}
+
+.studio-home-live-now .session-card--live-now {
+  border-color: #e11d2e;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #e11d2e 55%, transparent);
+  gap: 1rem;
+  padding: 1.15rem 1.2rem;
+}
+
+.session-live-badge {
+  background: #e11d2e;
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  margin: 0 0 0.45rem;
+  padding: 0.28rem 0.7rem;
+  text-transform: uppercase;
+}
+
+.studio-live-conflict {
+  align-items: center;
+  background: color-mix(in srgb, #000 55%, transparent);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 120;
+}
+
+.studio-live-conflict-card {
+  background: var(--studio-surface);
+  border: 1px solid var(--studio-line);
+  border-radius: 12px;
+  max-width: 28rem;
+  padding: 1.1rem 1.2rem;
+}
+
+.studio-live-conflict-card p {
+  color: var(--studio-cream);
+  margin: 0 0 0.85rem;
+}
+
+.lv-mini-btn--danger {
+  background: color-mix(in srgb, #e11d2e 88%, #000);
+  border-color: #e11d2e;
+  color: #fff;
 }
 
 .session-card-kicker {
