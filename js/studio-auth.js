@@ -14,6 +14,8 @@ const state = {
 
 const els = {};
 
+function dismissEntryCurtain() { const el = document.getElementById("studioEntryCurtain"); if (!el || el.classList.contains("is-leaving")) return; el.classList.add("is-leaving"); window.setTimeout(() => el.remove(), 320); }
+
 document.addEventListener("DOMContentLoaded", () => {
   [
     "studioPublicPage",
@@ -56,6 +58,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // this page listens for postMessage at all; ignores anything not from this same origin.
   window.addEventListener("message", (event) => {
     if (event.origin !== window.location.origin) return;
+    if (event.data?.type === "toasty:studio-ready") { dismissEntryCurtain(); return; }
     if (event.data?.type !== "toasty:session-selected" || !event.data.sessionId) return;
     const url = new URL(window.location.href);
     url.searchParams.set("session", event.data.sessionId);
@@ -74,8 +77,10 @@ async function checkSession() {
       return;
     }
     showPublic("");
+    dismissEntryCurtain();
   } catch {
     showPublic("Studio account service is unavailable. Please try again shortly.", true);
+    dismissEntryCurtain();
   }
 }
 
