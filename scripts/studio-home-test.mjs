@@ -16,6 +16,7 @@ import {
   renameHomeSession
 } from "../js/studio-home.js";
 import { deferredArtifactReport, loadSessionArtifacts } from "../js/session-artifacts.js";
+import { extractReusableSetup, setupOmitsHistory } from "../js/session-setup.js";
 
 function assert(condition, message) {
   if (!condition) throw new Error(`FAILED: ${message}`);
@@ -65,6 +66,43 @@ console.log("Duplicate copies setup only");
   assertEqual(duplicateSessionConfig(ended, renamed).title, "Copy of Thursday recap", "duplicate uses overlay title");
 }
 
+console.log("Duplicate copies reusable production setup, never history");
+{
+  const rich = {
+    ...ended,
+    setup: extractReusableSetup({
+      brandId: "peeps",
+      policy: { sessionType: "jam", privacy: "confidential", capturePolicy: "none", access: "invited_only" },
+      program: {
+        compositionMode: "active-speaker",
+        layout: "active-speaker",
+        shareLayout: "screen-speaker",
+        assetLayout: "asset-speaker",
+        tickerSpeed: 24,
+        tickerText: "LIVE FROM THURSDAY — do not copy",
+        scene: "live"
+      },
+      runOfShowItems: [
+        { title: "Open", notes: "welcome", estimatedMinutes: 3, status: "completed", startedAt: 1, completedAt: 2 },
+        { title: "Interview", preparedQuestions: ["Why now?"], estimatedMinutes: 12, status: "current", startedAt: 99 }
+      ]
+    })
+  };
+  const config = duplicateSessionConfig(rich);
+  assertEqual(config.setup.sessionType, "jam", "duplicate copies show/session type");
+  assertEqual(config.setup.layouts.compositionMode, "active-speaker", "duplicate copies layout mode");
+  assertEqual(config.setup.layouts.shareLayout, "screen-speaker", "duplicate copies share layout");
+  assertEqual(config.setup.ticker.speed, 24, "duplicate copies ticker speed");
+  assertEqual(config.setup.runOfShow[0].title, "Open", "duplicate copies Run of Show titles");
+  assertEqual(config.setup.runOfShow[1].preparedQuestions[0], "Why now?", "duplicate copies prepared questions");
+  assert(!("status" in config.setup.runOfShow[0]), "ROS template has no live status");
+  assert(!("startedAt" in config.setup.runOfShow[0]), "ROS template has no timestamps");
+  assert(!("tickerText" in config.setup), "duplicate does not copy live ticker text");
+  assert(!("scene" in config.setup), "duplicate does not copy live scene");
+  assert(setupOmitsHistory(config.setup), "sanitized setup omits history keys");
+  assert(config.omitsHistory, "duplicate config reports history omitted");
+}
+
 console.log("Artifacts only from real persistence");
 {
   const pack = await loadSessionArtifacts(ended, {
@@ -91,7 +129,10 @@ console.log("Director surfaces");
   assert(manager.includes('mode: "artifacts"'), "ended URL resolves to artifacts");
   assert(manager.includes("canOpenLiveStudio"), "live open is gated");
   assert(director.includes('entry?.mode === "artifacts"'), "director does not boot live studio for artifacts");
-  assert(director.includes("applyDurableSession"), "live path still applies durable session");
+  assert(manager.includes("/duplicate"), "duplicate hits the session duplicate API");
+  assert(manager.includes("/title"), "rename hits the session title API");
+  assert(manager.includes("/delete"), "delete hits the session delete API");
+  assert(!manager.includes("This hides the card here"), "delete is not overlay-only");
   assert(!director.includes("RoomPresence ="), "director does not rewrite RoomPresence");
 }
 

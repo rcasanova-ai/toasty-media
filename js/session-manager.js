@@ -74,11 +74,39 @@ export async function endSession(sessionId) {
   return studioRequest(`/api/sessions/${sessionId}/end`, { method: "POST", body: "{}" });
 }
 
-export async function createSession({ title, brandId }) {
+export async function createSession({ title, brandId, setup, endCard } = {}) {
   const roomId = createDisposableRoomId();
   const result = await studioRequest("/api/sessions", {
     method: "POST",
-    body: JSON.stringify({ roomId, title: title || "", brandId: brandId || "" })
+    body: JSON.stringify({
+      roomId,
+      title: title || "",
+      brandId: brandId || "",
+      ...(setup ? { setup } : {}),
+      ...(endCard ? { endCard } : {})
+    })
+  });
+  return result.session;
+}
+
+export async function renameSession(sessionId, title) {
+  const result = await studioRequest(`/api/sessions/${sessionId}/title`, {
+    method: "POST",
+    body: JSON.stringify({ title: title || "" })
+  });
+  return result.session;
+}
+
+export async function deleteSession(sessionId) {
+  return studioRequest(`/api/sessions/${sessionId}/delete`, { method: "POST", body: "{}" });
+}
+
+export async function duplicateSession(session, overlay) {
+  const config = duplicateSessionConfig(session, overlay);
+  const roomId = createDisposableRoomId();
+  const result = await studioRequest(`/api/sessions/${session.id}/duplicate`, {
+    method: "POST",
+    body: JSON.stringify({ roomId, title: config.title })
   });
   return result.session;
 }
@@ -318,8 +346,17 @@ function cardMeta(session, lifecycle) {
 function renameCard(session, overlay, ctx) {
   const nextTitle = window.prompt("Rename session", sessionDisplayTitle(session, overlay));
   if (nextTitle == null) return;
-  persistOverlay(renameHomeSession(overlay, session.id, nextTitle), session.ownerUserId);
-  ctx.onRefresh();
+  const trimmed = String(nextTitle).trim();
+  ctx.statusEl.textContent = "Renaming…";
+  renameSession(session.id, trimmed)
+    .then((updated) => {
+      persistOverlay(renameHomeSession(overlay, session.id, updated?.title ?? trimmed), session.ownerUserId);
+      ctx.statusEl.textContent = "";
+      return ctx.onRefresh();
+    })
+    .catch((error) => {
+      ctx.statusEl.textContent = `Couldn't rename: ${error.message}`;
+    });
 }
 
 function moveCard(session, overlay, ctx) {
@@ -338,8 +375,7 @@ function moveCard(session, overlay, ctx) {
 async function duplicateFrom(session, overlay, ctx, { open }) {
   ctx.statusEl.textContent = "Creating new session…";
   try {
-    const config = duplicateSessionConfig(session, overlay);
-    const created = await createSession({ title: config.title, brandId: config.brandId || ctx.brandId });
+    const created = await duplicateSession(session, overlay);
     ctx.statusEl.textContent = "";
     if (open && canOpenLiveStudio(created)) ctx.onOpen(created);
     else await ctx.onRefresh();
@@ -355,11 +391,19 @@ function archiveCard(session, overlay, ctx) {
 
 function deleteCard(session, overlay, ctx) {
   const ok = window.confirm(
-    `Delete “${sessionDisplayTitle(session, overlay)}” from Studio Home?\n\nThis hides the card here. It does not destroy the server session row or recordings stored in this browser (IndexedDB). Those files are not silently orphaned — they stay until you clear site data.\n\nContinue?`
+    `Delete “${sessionDisplayTitle(session, overlay)}”?\n\nThis permanently removes the session from the server. Recordings stored in this browser (IndexedDB) are not deleted automatically.\n\nContinue?`
   );
   if (!ok) return;
-  persistOverlay(moveSessionToCollection(overlay, session.id, StudioHomeCollectionId.ARCHIVE), session.ownerUserId);
-  ctx.onRefresh();
+  ctx.statusEl.textContent = "Deleting…";
+  deleteSession(session.id)
+    .then(() => {
+      persistOverlay(moveSessionToCollection(overlay, session.id, StudioHomeCollectionId.ARCHIVE), session.ownerUserId);
+      ctx.statusEl.textContent = "";
+      return ctx.onRefresh();
+    })
+    .catch((error) => {
+      ctx.statusEl.textContent = `Couldn't delete: ${error.message}`;
+    });
 }
 
 function placeholder(text) {

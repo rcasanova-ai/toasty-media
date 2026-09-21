@@ -589,6 +589,9 @@ def migrate(conn):
     # and returns whatever JSON blob each level was last saved with.
     ensure_columns(conn, "users", {"end_card_json": "TEXT NOT NULL DEFAULT '{}'"})
     ensure_columns(conn, "live_sessions", {"end_card_json": "TEXT NOT NULL DEFAULT '{}'"})
+    # Reusable production setup (brand/type/layouts/policy/ROS template). Distinct from session_program,
+    # which is the live scene and must never be copied as history on duplicate.
+    ensure_columns(conn, "live_sessions", {"setup_json": "TEXT NOT NULL DEFAULT '{}'"})
     conn.commit()
 
 
@@ -965,6 +968,16 @@ def session_end_card(row):
         return {}
 
 
+def session_setup(row):
+    if not row or not _row_has(row, "setup_json"):
+        return {}
+    try:
+        parsed = json.loads(row["setup_json"] or "{}")
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
 def public_session(row):
     if not row:
         return None
@@ -981,6 +994,7 @@ def public_session(row):
         "lastActiveAt": row["last_active_at"],
         "endedBy": row["ended_by"],
         "endCard": session_end_card(row),
+        "setup": session_setup(row),
     }
 
 
@@ -1582,12 +1596,15 @@ def main():
         if brand_id and brand_id not in KNOWN_BRAND_IDS:
             print(json.dumps({"error": "invalid_brand"}))
             return
+        setup_json = json.dumps(payload.get("setup") or {})
+        end_card_json = json.dumps(payload.get("endCard") or {})
         conn.execute(
             """
             INSERT INTO live_sessions (
-              id, room_id, owner_user_id, brand_id, title, status, created_at, last_active_at
+              id, room_id, owner_user_id, brand_id, title, status, created_at, last_active_at,
+              end_card_json, setup_json
             )
-            VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?)
+            VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)
             """,
             (
                 payload["id"],
@@ -1597,6 +1614,8 @@ def main():
                 payload.get("title") or "",
                 now,
                 now,
+                end_card_json,
+                setup_json,
             ),
         )
         conn.commit()
@@ -1683,6 +1702,104 @@ def main():
             print(json.dumps({"session": None}))
             return
         print(json.dumps({"session": public_session(row)}))
+        return
+
+    if action == "session_set_title":
+        now = utc_now()
+        conn.execute(
+            "UPDATE live_sessions SET title = ?, last_active_at = ? WHERE id = ? AND owner_user_id = ?",
+            (payload.get("title") or "", now, payload["id"], payload["ownerUserId"]),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM live_sessions WHERE id = ? AND owner_user_id = ?",
+            (payload["id"], payload["ownerUserId"]),
+        ).fetchone()
+        print(json.dumps({"session": public_session(row)}))
+        return
+
+    if action == "session_set_setup":
+        setup_json = json.dumps(payload.get("setup") or {})
+        now = utc_now()
+        conn.execute(
+            "UPDATE live_sessions SET setup_json = ?, last_active_at = ? WHERE id = ? AND owner_user_id = ?",
+            (setup_json, now, payload["id"], payload["ownerUserId"]),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM live_sessions WHERE id = ? AND owner_user_id = ?",
+            (payload["id"], payload["ownerUserId"]),
+        ).fetchone()
+        print(json.dumps({"session": public_session(row)}))
+        return
+
+    if action == "session_duplicate":
+        source = conn.execute(
+            "SELECT * FROM live_sessions WHERE id = ? AND owner_user_id = ?",
+            (payload["sourceId"], payload["ownerUserId"]),
+        ).fetchone()
+        if not source:
+            print(json.dumps({"session": None}))
+            return
+        now = utc_now()
+        brand_id = payload.get("brandId")
+        if brand_id is None:
+            brand_id = source["brand_id"] or ""
+        if brand_id and brand_id not in KNOWN_BRAND_IDS:
+            print(json.dumps({"error": "invalid_brand"}))
+            return
+        title = payload.get("title")
+        if not title:
+            source_title = (source["title"] or "").strip() or "Untitled session"
+            title = f"Copy of {source_title}"
+        setup = payload.get("setup")
+        setup_json = json.dumps(setup if isinstance(setup, dict) else session_setup(source))
+        end_card = payload.get("endCard")
+        end_card_json = json.dumps(end_card if isinstance(end_card, dict) else session_end_card(source))
+        conn.execute(
+            """
+            INSERT INTO live_sessions (
+              id, room_id, owner_user_id, brand_id, title, status, created_at, last_active_at,
+              end_card_json, setup_json
+            )
+            VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["roomId"],
+                payload["ownerUserId"],
+                brand_id,
+                title,
+                now,
+                now,
+                end_card_json,
+                setup_json,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM live_sessions WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"session": public_session(row), "sourceId": source["id"]}))
+        return
+
+    if action == "session_delete":
+        row = conn.execute(
+            "SELECT * FROM live_sessions WHERE id = ? AND owner_user_id = ?",
+            (payload["id"], payload["ownerUserId"]),
+        ).fetchone()
+        if not row:
+            print(json.dumps({"session": None}))
+            return
+        room_id = row["room_id"]
+        conn.execute("DELETE FROM room_presence WHERE room_id = ?", (room_id,))
+        conn.execute("DELETE FROM session_commands WHERE room_id = ?", (room_id,))
+        conn.execute("DELETE FROM session_kicks WHERE room_id = ?", (room_id,))
+        conn.execute("DELETE FROM session_program WHERE room_id = ?", (room_id,))
+        conn.execute(
+            "DELETE FROM live_sessions WHERE id = ? AND owner_user_id = ?",
+            (payload["id"], payload["ownerUserId"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True, "id": payload["id"], "roomId": room_id}))
         return
 
     if action == "user_set_end_card":

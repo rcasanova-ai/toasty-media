@@ -3,6 +3,8 @@
 // User-specific collection assignment lives in localStorage so categories are not hard-coded in HTML
 // and are not Ricardo's brands as a global taxonomy.
 
+import { extractReusableSetup, sanitizeReusableSetup, setupOmitsHistory } from "./session-setup.js";
+
 export const StudioLifecycle = Object.freeze({
   DRAFT: "DRAFT",
   SCHEDULED: "SCHEDULED",
@@ -132,11 +134,16 @@ export function canOpenLiveStudio(session) {
 }
 
 export function duplicateSessionConfig(session, overlay = emptyHomeOverlay()) {
+  const setup = sanitizeReusableSetup(session?.setup || extractReusableSetup(session));
+  if (session?.brandId && !setup.brandId) setup.brandId = session.brandId;
   return {
     title: `Copy of ${sessionDisplayTitle(session, overlay)}`,
-    brandId: session?.brandId || "",
+    brandId: setup.brandId || session?.brandId || "",
+    setup,
+    endCard: session?.endCard && typeof session.endCard === "object" ? session.endCard : {},
     sourceSessionId: session?.id || null,
-    copiesHistory: false
+    copiesHistory: false,
+    omitsHistory: setupOmitsHistory(setup)
   };
 }
 

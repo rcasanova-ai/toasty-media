@@ -315,6 +315,34 @@ const server = createServer(async (req, res) => {
     await handleSessionEndCard(req, res, session);
     return;
   }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/title")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sessions-title", 60, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSessionTitle(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/setup")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sessions-setup", 60, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSessionSetup(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/duplicate")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sessions-duplicate", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSessionDuplicate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/delete")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sessions-delete", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSessionDelete(req, res, session);
+    return;
+  }
   if (req.method === "POST" && req.url === "/api/profile/end-card") {
     if (!requireCsrf(req, res) || !limit(req, res, "profile-end-card", 60, 15 * 60 * 1000)) return;
     const session = await requireSession(req, res);
@@ -1764,6 +1792,81 @@ const END_CARD_SOCIAL_PLATFORMS = new Set(["x", "linkedin", "youtube", "instagra
 // / live_sessions.end_card_json), not a dedicated upload store, so it needs a real ceiling. qrImage is a
 // data: URL (the user uploads their own QR, we don't generate one) — capped generously above what a
 // reasonably-compressed QR PNG needs, well under nginx's default client_max_body_size.
+const SESSION_SETUP_TYPES = new Set(["live", "jam"]);
+const SESSION_SETUP_PRIVACY = new Set(["private", "confidential", "blind"]);
+const SESSION_SETUP_CAPTURE = new Set(["none", "transcript", "recording", "recording_and_transcript"]);
+const SESSION_SETUP_ACCESS = new Set(["public", "invited_only"]);
+const SESSION_SETUP_COMPOSITION = new Set(["balanced", "active-speaker", "spotlight"]);
+const SESSION_SETUP_LAYOUTS = new Set([
+  "grid", "balanced", "active-speaker", "spotlight", "single", "duo", "trio", "quad",
+  "screen-only", "screen-speaker", "screen-strip", "asset-full", "asset-speaker", "asset-speaker-pip"
+]);
+const SESSION_SETUP_SHARE = new Set(["screen-only", "screen-speaker", "screen-strip"]);
+const SESSION_SETUP_ASSET = new Set(["asset-full", "asset-speaker", "asset-speaker-pip"]);
+
+function sanitizeSessionSetup(input) {
+  const raw = input && typeof input === "object" ? input : {};
+  const sessionType = SESSION_SETUP_TYPES.has(raw.sessionType)
+    ? raw.sessionType
+    : (SESSION_SETUP_TYPES.has(raw.policy?.sessionType) ? raw.policy.sessionType : "live");
+  const policyRaw = policyRawObject(raw.policy) ? raw.policy : {};
+  const jam = sessionType === "jam";
+  const privacy = SESSION_SETUP_PRIVACY.has(policyRaw.privacy) ? policyRaw.privacy : (jam ? "confidential" : null);
+  const capturePolicy = SESSION_SETUP_CAPTURE.has(policyRaw.capturePolicy)
+    ? policyRaw.capturePolicy
+    : (jam ? "none" : "recording_and_transcript");
+  const access = SESSION_SETUP_ACCESS.has(policyRaw.access) ? policyRaw.access : (jam ? "invited_only" : "public");
+  const layoutsRaw = raw.layouts && typeof raw.layouts === "object" ? raw.layouts : {};
+  const tickerRaw = raw.ticker && typeof raw.ticker === "object" ? raw.ticker : {};
+  const speed = Number(tickerRaw.speed);
+  const runOfShow = (Array.isArray(raw.runOfShow) ? raw.runOfShow : []).slice(0, 80).map((item, index) => {
+    const title = sessionText(item?.title, 160);
+    if (!title) return null;
+    const minutes = Number(item?.estimatedMinutes || item?.duration || 5);
+    const questions = Array.isArray(item?.preparedQuestions)
+      ? item.preparedQuestions.map((q) => sessionText(q, 400)).filter(Boolean).slice(0, 20)
+      : [];
+    return {
+      id: sessionText(item?.id, 80) || `topic-${index + 1}`,
+      title,
+      notes: sessionText(item?.notes || item?.script, 4000),
+      preparedQuestions: questions,
+      estimatedMinutes: Number.isFinite(minutes) ? Math.max(1, Math.min(180, Math.round(minutes))) : 5
+    };
+  }).filter(Boolean);
+  const brandId = sessionText(raw.brandId || raw.brandTheme, 60);
+  if (brandId && !isKnownBrandId(brandId)) throw httpError(400, "Unknown brand.");
+  return {
+    version: 1,
+    brandId,
+    sessionType,
+    policy: {
+      sessionType,
+      privacy: jam ? privacy : null,
+      capturePolicy,
+      aiProcessingAllowed: jam
+        ? Boolean(policyRaw.aiProcessingAllowed) && capturePolicy !== "none" && capturePolicy !== "recording"
+        : true,
+      jamRecordAllowed: jam
+        ? Boolean(policyRaw.jamRecordAllowed) && (capturePolicy === "recording" || capturePolicy === "recording_and_transcript")
+        : true,
+      access
+    },
+    layouts: {
+      compositionMode: SESSION_SETUP_COMPOSITION.has(layoutsRaw.compositionMode) ? layoutsRaw.compositionMode : "balanced",
+      layout: SESSION_SETUP_LAYOUTS.has(layoutsRaw.layout) ? layoutsRaw.layout : "grid",
+      shareLayout: SESSION_SETUP_SHARE.has(layoutsRaw.shareLayout) ? layoutsRaw.shareLayout : null,
+      assetLayout: SESSION_SETUP_ASSET.has(layoutsRaw.assetLayout) ? layoutsRaw.assetLayout : null
+    },
+    ticker: { speed: Number.isFinite(speed) ? Math.max(8, Math.min(40, speed)) : 16 },
+    runOfShow
+  };
+}
+
+function policyRawObject(value) {
+  return value && typeof value === "object";
+}
+
 function sanitizeEndCard(input) {
   const raw = input && typeof input === "object" ? input : {};
   const socials = {};
@@ -1806,12 +1909,16 @@ async function handleSessionCreate(req, res, authSession) {
   // body.brandId is simply ignored, not merely overridden after checking it, so there is no "did they
   // still manage to sneak a different value through" question to answer.
   const brandId = resolveAuthoritativeBrandId(authSession, body.brandId);
+  const setup = body.setup != null ? sanitizeSessionSetup(body.setup) : {};
+  const endCard = body.endCard != null ? sanitizeEndCard(body.endCard) : {};
   const result = await db("session_create", {
     id,
     roomId,
     ownerUserId: authSession.id,
     brandId,
-    title: sessionText(body.title, 160)
+    title: sessionText(body.title, 160),
+    setup,
+    endCard
   });
   if (result.error === "invalid_brand") throw httpError(400, "Unknown brand.");
   sendJson(req, res, 200, { session: result.session });
@@ -1882,6 +1989,66 @@ async function handleSessionEndCard(req, res, authSession) {
   const result = await db("session_set_end_card", { id, ownerUserId: authSession.id, endCard });
   if (!result.session) throw httpError(404, "Session not found.");
   sendJson(req, res, 200, { session: result.session });
+}
+
+async function handleSessionTitle(req, res, authSession) {
+  const path = req.url.slice("/api/sessions/".length, -"/title".length);
+  const id = decodeURIComponent(path);
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
+  const body = await readJson(req);
+  const title = sessionText(body.title, 160);
+  const result = await db("session_set_title", { id, ownerUserId: authSession.id, title });
+  if (!result.session) throw httpError(404, "Session not found.");
+  sendJson(req, res, 200, { session: result.session });
+}
+
+async function handleSessionSetup(req, res, authSession) {
+  const path = req.url.slice("/api/sessions/".length, -"/setup".length);
+  const id = decodeURIComponent(path);
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
+  const body = await readJson(req);
+  const setup = sanitizeSessionSetup(body.setup);
+  const result = await db("session_set_setup", { id, ownerUserId: authSession.id, setup });
+  if (!result.session) throw httpError(404, "Session not found.");
+  sendJson(req, res, 200, { session: result.session });
+}
+
+async function handleSessionDuplicate(req, res, authSession) {
+  const path = req.url.slice("/api/sessions/".length, -"/duplicate".length);
+  const id = decodeURIComponent(path);
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
+  const body = await readJson(req);
+  const roomId = requirePresenceId(body.roomId, "roomId");
+  const source = await db("session_get", { id, ownerUserId: authSession.id });
+  if (source.error === "brand_forbidden") throw httpError(403, "This session is outside your account's permitted brand.");
+  if (!source.session) throw httpError(404, "Session not found.");
+  const setup = sanitizeSessionSetup(source.session.setup);
+  const brandId = resolveAuthoritativeBrandId(authSession, setup.brandId || source.session.brandId);
+  setup.brandId = brandId;
+  const title = sessionText(body.title, 160) || `Copy of ${sessionText(source.session.title, 160) || "Untitled session"}`;
+  const newId = `ls_${randomUUID().replace(/-/g, "")}`;
+  const result = await db("session_duplicate", {
+    id: newId,
+    sourceId: id,
+    roomId,
+    ownerUserId: authSession.id,
+    brandId,
+    title,
+    setup,
+    endCard: sanitizeEndCard(source.session.endCard)
+  });
+  if (result.error === "invalid_brand") throw httpError(400, "Unknown brand.");
+  if (!result.session) throw httpError(404, "Session not found.");
+  sendJson(req, res, 200, { session: result.session });
+}
+
+async function handleSessionDelete(req, res, authSession) {
+  const path = req.url.slice("/api/sessions/".length, -"/delete".length);
+  const id = decodeURIComponent(path);
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
+  const result = await db("session_delete", { id, ownerUserId: authSession.id });
+  if (!result.ok) throw httpError(404, "Session not found.");
+  sendJson(req, res, 200, { ok: true, id: result.id });
 }
 
 // Account-level end-card default — reused across every session for this logged-in Studio account until a

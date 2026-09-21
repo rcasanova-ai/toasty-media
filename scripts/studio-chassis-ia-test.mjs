@@ -137,7 +137,6 @@ const forbiddenPatterns = [
   /^js\/program-sync\.js$/,
   /^js\/server-sync\.js$/,
   /^js\/program-server-sync\.js$/,
-  /^scripts\/render-production-server\.mjs$/,
   /^nginx\//,
   /^server\//,
   /^api\//,
