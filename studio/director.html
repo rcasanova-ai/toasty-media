@@ -93,19 +93,25 @@
         <button type="button" data-studio-workflow="post" aria-pressed="false">Post Production</button>
       </nav>
 
-      <div class="studio-chassis-status" aria-label="Studio session status">
+      <div class="studio-live-identity" aria-label="Toasty Studio">
+        <strong class="studio-live-wordmark">Toasty Studio</strong>
         <span class="studio-status-pill studio-status-pill--session">Session <strong id="studioSessionStatus">Ready</strong></span>
+      </div>
+
+      <div class="studio-chassis-status" aria-label="Studio session status">
         <div class="on-air-sign on-air-sign--compact" id="connectionChip" data-state="offline">
           <span class="on-air-bulb" aria-hidden="true"></span>
           <span class="on-air-text" aria-hidden="true">OFFLINE</span>
           <span id="connectionState" class="sr-only">Ready</span>
         </div>
         <button type="button" class="btn btn-primary btn-small" id="studioOpenProgramOutput">Open Program Output</button>
-        <span class="studio-status-pill" id="studioProgramOutputPill">Program Output</span>
-        <span class="studio-status-pill studio-status-pill--recording" id="studioRecordingPill">Recording</span>
+        <span class="studio-status-pill" id="studioProgramOutputPill">Output</span>
+        <span class="studio-status-pill studio-status-pill--recording" id="studioRecordingPill">REC</span>
         <span class="studio-status-pill studio-status-pill--streaming" id="studioStreamingPill">Streaming</span>
         <span class="studio-status-pill studio-status-pill--audio" id="studioAudioPill">Audio</span>
-        <button type="button" class="lv-ask-hottie" id="lvAskHottieHeader" title="Open Hottie in Producer → Intelligence">Ask Hottie</button>
+        <button type="button" class="lv-ask-hottie" id="lvAskHottieHeader" title="Open Hottie">Ask Hottie</button>
+        <button type="button" class="btn btn-ghost btn-small" id="studioOpenSettings">Settings</button>
+        <button type="button" class="btn btn-ghost btn-small" id="studioExitSession">Exit</button>
       </div>
     </header>
 
@@ -413,7 +419,7 @@
 
         <section class="live-console live-studio-panel studio-chassis" id="liveConsole" data-lv-view="host" aria-label="Live Studio console">
           <header class="lv-topbar">
-            <nav class="lv-view-switch" aria-label="Studio view">
+            <nav class="lv-view-switch lv-view-switch--chrome" aria-label="Studio view">
               <button type="button" class="lv-view-btn" data-lv-view-btn="host" aria-pressed="true">Host</button>
               <button type="button" class="lv-view-btn" data-lv-view-btn="producer" aria-pressed="false">Producer</button>
             </nav>
@@ -495,16 +501,23 @@
                 <span class="studio-truth-item" data-truth="rec" id="studioTruthRec" data-state="idle"><span class="studio-truth-dot" aria-hidden="true"></span> Rec <strong>Idle</strong></span>
                 <span class="studio-truth-item" data-truth="stream" id="studioTruthStream" data-state="idle"><span class="studio-truth-dot" aria-hidden="true"></span> Stream <strong>Idle</strong></span>
               </div>
-              <div class="lv-host-controls" data-lv-only="host" hidden>
-                <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
-                <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>
-                <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Share screen">Screen</button>
-                <button id="lvLeaveStudio" class="lv-icon-btn lv-icon-btn-danger" type="button" title="Leave Studio" hidden>Leave Studio</button>
-                <div class="host-device-health" aria-label="Host device status" hidden>
-                  <span>Microphone <strong id="lvHostMicHealth">Ready</strong></span>
-                  <span>Camera <strong id="lvHostCamHealth">Ready</strong></span>
-                  <span>Share <strong id="lvHostShareHealth">Off</strong></span>
+              <div class="lv-transport-bar" aria-label="Studio transport">
+                <div class="lv-host-controls">
+                  <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
+                  <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>
+                  <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Share screen">Screen</button>
+                  <button id="lvLeaveStudio" class="lv-icon-btn lv-icon-btn-danger" type="button" title="Leave Studio" hidden>Leave Studio</button>
+                  <div class="host-device-health" aria-label="Host device status" hidden>
+                    <span>Microphone <strong id="lvHostMicHealth">Ready</strong></span>
+                    <span>Camera <strong id="lvHostCamHealth">Ready</strong></span>
+                    <span>Share <strong id="lvHostShareHealth">Off</strong></span>
+                  </div>
                 </div>
+                <nav class="lv-view-switch lv-view-switch--transport" aria-label="Live role">
+                  <button type="button" class="lv-view-btn" data-lv-view-btn="host" aria-pressed="true">Host</button>
+                  <button type="button" class="lv-view-btn" data-lv-view-btn="producer" aria-pressed="false">Producer</button>
+                </nav>
+                <button id="lvRecordToggle" class="rec-toggle" type="button" aria-pressed="false" disabled>Record</button>
               </div>
             </section>
 
@@ -567,7 +580,7 @@
               <p class="control-note">Host-owned camera background. Preview before applying. Shared/virtual sets belong to Producer composition, not Host.</p>
             </section>
 
-            <div class="lv-panel producer-context-nav" data-lv-only="producer" aria-label="Producer operational domains">
+            <div class="lv-panel producer-context-nav" data-lv-only="producer" aria-label="Production tools">
               <nav class="producer-domain-nav" aria-label="Producer domains">
                 <button type="button" data-studio-domain="show" aria-pressed="true">Show</button>
                 <button type="button" data-studio-domain="content" aria-pressed="false">Content</button>
@@ -575,19 +588,19 @@
                 <button type="button" data-studio-domain="broadcast" aria-pressed="false">Broadcast</button>
               </nav>
               <nav class="producer-tool-nav" aria-label="Producer tools">
-                <button type="button" data-studio-tool="participants" data-studio-domain="show" aria-pressed="true">Participants</button>
-                <button type="button" data-studio-tool="layout" data-studio-domain="show" aria-pressed="false">Layout / Composition</button>
+                <button type="button" data-studio-tool="participants" data-studio-tool-primary="true" data-studio-domain="show" aria-pressed="true">People</button>
+                <button type="button" data-studio-tool="layout" data-studio-tool-primary="true" data-studio-domain="show" aria-pressed="false">Layout</button>
                 <button type="button" data-studio-tool="runshow" data-studio-domain="show" aria-pressed="false">Run of Show</button>
-                <button type="button" data-studio-tool="graphics" data-studio-domain="content" aria-pressed="false" hidden>Graphics</button>
-                <button type="button" data-studio-tool="ticker" data-studio-domain="content" aria-pressed="false" hidden>Ticker</button>
-                <button type="button" data-studio-tool="media" data-studio-domain="content" aria-pressed="false" hidden>Media / Assets</button>
-                <button type="button" data-studio-tool="soundboard" data-studio-domain="content" aria-pressed="false" hidden>Soundboard</button>
-                <button type="button" data-studio-tool="hottie" data-studio-domain="intelligence" aria-pressed="false" hidden>Hottie</button>
-                <button type="button" data-studio-tool="transcription" data-studio-domain="intelligence" aria-pressed="false" hidden>Transcription</button>
-                <button type="button" data-studio-tool="audience" data-studio-domain="intelligence" aria-pressed="false" hidden>Audience / Chat</button>
-                <button type="button" data-studio-tool="audio" data-studio-domain="broadcast" aria-pressed="false" hidden>Audio</button>
-                <button type="button" data-studio-tool="recording" data-studio-domain="broadcast" aria-pressed="false" hidden>Recording</button>
-                <button type="button" data-studio-tool="streaming" data-studio-domain="broadcast" aria-pressed="false" hidden>Streaming</button>
+                <button type="button" data-studio-tool="graphics" data-studio-tool-primary="true" data-studio-domain="content" aria-pressed="false">Graphics</button>
+                <button type="button" data-studio-tool="ticker" data-studio-tool-primary="true" data-studio-domain="content" aria-pressed="false">Ticker</button>
+                <button type="button" data-studio-tool="media" data-studio-tool-primary="true" data-studio-domain="content" aria-pressed="false">Media</button>
+                <button type="button" data-studio-tool="soundboard" data-studio-tool-primary="true" data-studio-domain="content" aria-pressed="false">Soundboard</button>
+                <button type="button" data-studio-tool="hottie" data-studio-tool-primary="true" data-studio-domain="intelligence" aria-pressed="false">Hottie</button>
+                <button type="button" data-studio-tool="transcription" data-studio-domain="intelligence" aria-pressed="false">Transcription</button>
+                <button type="button" data-studio-tool="audience" data-studio-tool-primary="true" data-studio-domain="intelligence" aria-pressed="false">Chat</button>
+                <button type="button" data-studio-tool="audio" data-studio-tool-primary="true" data-studio-domain="broadcast" aria-pressed="false">Audio</button>
+                <button type="button" data-studio-tool="recording" data-studio-domain="broadcast" aria-pressed="false">Recording</button>
+                <button type="button" data-studio-tool="streaming" data-studio-domain="broadcast" aria-pressed="false">Streaming</button>
               </nav>
             </div>
 
@@ -641,8 +654,13 @@
             </aside>
 
             <!-- PRODUCER-only panels -->
-            <section class="lv-panel lv-sources" data-lv-only="producer" data-studio-cockpit="sources" data-studio-tool-panel="participants" aria-label="Sources and participants">
-              <div class="lv-panel-head"><span>Participants</span></div>
+            <section class="lv-panel lv-sources" data-lv-only="producer" data-studio-cockpit="sources" data-studio-tool-panel="participants" aria-label="People and sources">
+              <div class="lv-panel-head"><span>People / Sources</span></div>
+              <div class="lv-people-invite">
+                <button type="button" class="btn btn-primary" data-proxy-click="inviteGuestBtn">Invite Guest</button>
+                <button type="button" class="link-action" data-proxy-click="copyInvite">Copy Link</button>
+                <button type="button" class="link-action" data-proxy-click="copyListenerInvite">Copy Listener Link</button>
+              </div>
               <div class="lv-source-row">
                 <span class="lv-source-name">Host (you)</span>
                 <span class="lv-source-status" id="lvSourceHostStatus">—</span>
@@ -766,7 +784,7 @@
               </p>
               <div class="recording-actions">
                 <strong id="lvRecordTimer" class="recording-timer" hidden>00:00</strong>
-                <button id="lvRecordToggle" class="rec-toggle" type="button" aria-pressed="false" disabled>START RECORDING</button>
+                <p class="control-note">Use Record on the transport bar. Open Program Output first, wait until VIDEO READY and AUDIO READY, then start recording.</p>
                 <button id="lvRecordMarker" class="btn btn-ghost btn-small" type="button" hidden>Mark</button>
               </div>
               <p class="control-note" id="lvRecordNote">Open Program Output first. Wait until VIDEO READY and AUDIO READY, then start recording.</p>

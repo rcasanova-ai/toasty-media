@@ -125,6 +125,21 @@ includes(chassisCss, "aspect-ratio: 16 / 9");
 includes(chassisCss, "@media (max-width: 760px)");
 includes(chassisCss, "[data-lv-only=\"host\"]");
 includes(chassisCss, "[data-lv-only=\"producer\"]");
+includes(chassisCss, "studio-live-identity");
+includes(chassisCss, "lv-transport-bar");
+includes(html, 'id="studioOpenSettings"');
+includes(html, 'id="studioExitSession"');
+includes(html, "lv-transport-bar");
+includes(html, 'data-studio-tool-primary="true"');
+includes(director, "PRIMARY_PRODUCER_TOOLS");
+assert.ok(!director.includes("button.hidden = !inDomain"), "Producer tools must not hide behind domain tabs");
+includes(director, "button.hidden = !isPrimary");
+
+const studioCss = readFileSync(join(root, "css/studio.css"), "utf8");
+includes(studioCss, "max-width: min(35%");
+includes(programOutputCss, "max-width: min(35%");
+assert.ok(!studioCss.includes(".live-console[data-lv-view=\"producer\"] .lv-host-controls"), "Producer must not park Mic/Camera/Screen off-screen");
+includes(studioCss, ".live-console[data-lv-view=\"producer\"] #lvParticipantStage");
 
 assert.ok(!brandThemes.includes("clients/superteam-thailand/silhouette-skyline.png") || !/8alta[\s\S]{0,1800}silhouette-skyline/.test(brandThemes), "8ALTA must not reuse Superteam skyline in nearby artwork");
 const altaBlock = brandThemes.slice(brandThemes.indexOf('"8alta"'), brandThemes.indexOf("santati:"));

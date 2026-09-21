@@ -113,8 +113,20 @@ const DOMAIN_DEFAULT_TOOL = Object.freeze({
   show: "participants",
   content: "graphics",
   intelligence: "hottie",
-  broadcast: "recording"
+  broadcast: "audio"
 });
+
+const PRIMARY_PRODUCER_TOOLS = new Set([
+  "participants",
+  "layout",
+  "graphics",
+  "ticker",
+  "media",
+  "soundboard",
+  "hottie",
+  "audience",
+  "audio"
+]);
 
 const TOOL_INSPECTOR_LABEL = Object.freeze({
   participants: "Participant",
@@ -262,7 +274,7 @@ function bindChassisUi() {
 }
 
 function bindViewSwitch() {
-  elements.viewButtons.forEach((button) => {
+  document.querySelectorAll("[data-lv-view-btn]").forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.lvViewBtn));
   });
   elements.domainButtons.forEach((button) => {
@@ -278,6 +290,15 @@ function bindViewSwitch() {
   });
   document.querySelectorAll("[data-studio-workflow]").forEach((button) => {
     button.addEventListener("click", () => setStudioWorkflow(button.dataset.studioWorkflow));
+  });
+  document.querySelector("#studioOpenSettings")?.addEventListener("click", () => {
+    document.body.classList.toggle("studio-settings-open");
+  });
+  document.querySelector("#studioExitSession")?.addEventListener("click", () => {
+    elements.switchSession?.click();
+  });
+  document.querySelectorAll("[data-proxy-click]").forEach((button) => {
+    button.addEventListener("click", () => document.getElementById(button.dataset.proxyClick)?.click());
   });
   setView("host");
 }
@@ -328,7 +349,7 @@ document.querySelector("#openSoundboardQuick")?.addEventListener("click", () => 
 
 function setView(view) {
   elements.liveConsole.dataset.lvView = view;
-  elements.viewButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.lvViewBtn === view)));
+  document.querySelectorAll("[data-lv-view-btn]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.lvViewBtn === view)));
   // Queried live (not cached at init time) so panels mounted later by other controllers — e.g. the
   // Producer-only broadcast card injected into .rail-right — are still gated correctly.
   document.querySelectorAll("[data-lv-only]").forEach((panel) => { panel.hidden = panel.dataset.lvOnly !== view; });
@@ -351,8 +372,8 @@ function setProducerTool(tool = "participants") {
     button.setAttribute("aria-pressed", String(button.dataset.studioDomain === domain));
   });
   elements.toolButtons.forEach((button) => {
-    const inDomain = button.dataset.studioDomain === domain;
-    button.hidden = !inDomain;
+    const isPrimary = button.dataset.studioToolPrimary === "true" || PRIMARY_PRODUCER_TOOLS.has(button.dataset.studioTool);
+    button.hidden = !isPrimary;
     button.setAttribute("aria-pressed", String(button.dataset.studioTool === activeTool));
   });
   elements.toolPanels.forEach((panel) => {
