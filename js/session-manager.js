@@ -358,32 +358,7 @@ function chooseLiveConflict(title) {
 }
 
 function confirmEndSession(title) {
-  return new Promise((resolve) => {
-    const existing = document.querySelector(".studio-live-conflict");
-    existing?.remove();
-    const dialog = document.createElement("div");
-    dialog.className = "studio-live-conflict";
-    dialog.setAttribute("role", "dialog");
-    dialog.innerHTML = `
-      <div class="studio-live-conflict-card">
-        <p>End “${escapeHtml(title)}”?</p>
-        <p>The live room will close. This session cannot be resumed.</p>
-        <div class="session-card-actions">
-          <button type="button" class="lv-mini-btn" data-choice="cancel">Cancel</button>
-          <button type="button" class="lv-mini-btn lv-mini-btn--danger" data-choice="end">End Session</button>
-        </div>
-      </div>
-    `;
-    const finish = (choice) => {
-      dialog.remove();
-      resolve(choice === "end");
-    };
-    dialog.addEventListener("click", (event) => {
-      const choice = event.target?.dataset?.choice;
-      if (choice) finish(choice);
-    });
-    document.body.append(dialog);
-  });
+  return Promise.resolve(window.confirm(`End “${title}”?\n\nThe live room will close. This session cannot be resumed.`));
 }
 
 async function endLiveCard(session, overlay, ctx) {
@@ -391,11 +366,14 @@ async function endLiveCard(session, overlay, ctx) {
   const ok = await confirmEndSession(title);
   if (!ok) return;
   ctx.statusEl.textContent = "Ending session…";
+  const button = document.querySelector(`.session-card--live-now [data-action="end"]`);
+  if (button) { button.disabled = true; button.textContent = "Ending…"; }
   try {
     await endSession(session.id);
-    ctx.statusEl.textContent = "";
-    await ctx.onRefresh();
+    window.location.reload();
+    return;
   } catch (error) {
+    if (button) { button.disabled = false; button.textContent = "End Session"; }
     ctx.statusEl.textContent = `Couldn't end session: ${error.message}`;
   }
 }
