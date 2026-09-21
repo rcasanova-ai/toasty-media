@@ -153,12 +153,8 @@ const TOOL_INSPECTOR_LABEL = Object.freeze({
 });
 
 function dismissStudioBootCurtain() {
-  const curtain = document.querySelector("#studioBootCurtain");
-  if (!curtain || curtain.hidden || curtain.classList.contains("is-leaving")) return;
-  curtain.classList.add("is-leaving");
-  window.setTimeout(() => { curtain.hidden = true; }, 360);
+  if (window.parent !== window) window.parent.postMessage({ type: "toasty:studio-ready" }, window.location.origin);
 }
-window.addEventListener("toasty:boot-ready", dismissStudioBootCurtain);
 
 init();
 

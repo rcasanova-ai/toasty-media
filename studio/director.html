@@ -18,16 +18,6 @@
         window.location.replace(`./${window.location.search}`);
       }
     </script>
-    <style id="studio-boot-curtain-css">
-      #studioBootCurtain{position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;background:radial-gradient(circle at 50% 43%,#2a1209 0,#120907 34%,#070504 72%);color:#fff4e5;font-family:Inter,system-ui,sans-serif;opacity:1;visibility:visible;transition:opacity .32s ease,visibility .32s ease}
-      #studioBootCurtain[hidden]{display:none} #studioBootCurtain.is-leaving{opacity:0;visibility:hidden;pointer-events:none}
-      .studio-boot-inner{text-align:center;transform:translateY(-2vh)} .studio-boot-fire{position:relative;width:112px;height:132px;margin:0 auto 22px;filter:drop-shadow(0 0 18px rgba(255,92,25,.55)) drop-shadow(0 0 42px rgba(255,64,0,.24))}
-      .studio-boot-flame{position:absolute;left:50%;bottom:10px;border-radius:58% 42% 64% 36%/70% 55% 45% 30%;transform-origin:50% 100%;clip-path:polygon(50% 0,72% 25%,91% 55%,82% 82%,61% 100%,34% 96%,11% 76%,17% 45%);animation:studioFlame 1.05s ease-in-out infinite alternate}
-      .studio-boot-flame--outer{width:86px;height:116px;margin-left:-43px;background:linear-gradient(180deg,#ff3b0a 5%,#ff6a00 55%,#ff9d19 100%)} .studio-boot-flame--mid{width:58px;height:82px;margin-left:-29px;background:linear-gradient(180deg,#ff8a00,#ffc229 68%,#ffe083);animation-duration:.82s;animation-delay:-.28s} .studio-boot-flame--core{width:30px;height:48px;margin-left:-15px;background:linear-gradient(180deg,#fff3b0,#ffd64a);animation-duration:.66s;animation-delay:-.44s}
-      .studio-boot-spark{position:absolute;bottom:92px;left:50%;width:5px;height:5px;border-radius:50%;background:#ffb126;box-shadow:0 0 10px #ff6a00;animation:studioSpark 1.5s ease-out infinite}.studio-boot-spark.s2{margin-left:-31px;animation-delay:-.55s;animation-duration:1.25s}.studio-boot-spark.s3{margin-left:27px;animation-delay:-1.05s;animation-duration:1.7s}.studio-boot-spark.s4{margin-left:8px;animation-delay:-.2s;animation-duration:1.1s}
-      .studio-boot-brand{font:800 13px/1.2 Manrope,Inter,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:#ff9a42;margin-bottom:10px}.studio-boot-copy{font:700 clamp(20px,2.3vw,30px)/1.2 Manrope,Inter,sans-serif;letter-spacing:-.02em}.studio-boot-copy::after{content:"";display:inline-block;width:1.1em;text-align:left;animation:studioDots 1.25s steps(4,end) infinite}
-      @keyframes studioFlame{0%{transform:translateX(-2px) rotate(-2deg) scale(.96,1.03)}45%{transform:translateX(2px) rotate(2deg) scale(1.03,.97)}100%{transform:translateX(-1px) rotate(-1deg) scale(.98,1.05)}} @keyframes studioSpark{0%{opacity:0;transform:translate(0,8px) scale(.5)}18%{opacity:1}100%{opacity:0;transform:translate(14px,-72px) scale(0)}} @keyframes studioDots{0%{content:""}25%{content:"."}50%{content:".."}75%,100%{content:"..."}} @media (prefers-reduced-motion:reduce){.studio-boot-flame,.studio-boot-spark,.studio-boot-copy::after{animation:none}.studio-boot-copy::after{content:"..."}}
-    </style>
     <script type="module" src="../js/director.js"></script>
   </head>
   <body class="studio-shell director-shell">
