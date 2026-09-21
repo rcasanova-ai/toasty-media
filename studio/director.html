@@ -100,6 +100,7 @@
           <span class="on-air-text" aria-hidden="true">OFFLINE</span>
           <span id="connectionState" class="sr-only">Ready</span>
         </div>
+        <button type="button" class="btn btn-primary btn-small" id="studioOpenProgramOutput">Open Program Output</button>
         <span class="studio-status-pill" id="studioProgramOutputPill">Program Output</span>
         <span class="studio-status-pill studio-status-pill--recording" id="studioRecordingPill">Recording</span>
         <span class="studio-status-pill studio-status-pill--streaming" id="studioStreamingPill">Streaming</span>
@@ -410,11 +411,11 @@
           </section>
         </section>
 
-        <section class="live-console live-studio-panel studio-chassis" id="liveConsole" data-lv-view="producer" aria-label="Live Studio console">
+        <section class="live-console live-studio-panel studio-chassis" id="liveConsole" data-lv-view="host" aria-label="Live Studio console">
           <header class="lv-topbar">
             <nav class="lv-view-switch" aria-label="Studio view">
-              <button type="button" class="lv-view-btn" data-lv-view-btn="producer" aria-pressed="true">Producer</button>
-              <button type="button" class="lv-view-btn" data-lv-view-btn="host" aria-pressed="false">Host</button>
+              <button type="button" class="lv-view-btn" data-lv-view-btn="host" aria-pressed="true">Host</button>
+              <button type="button" class="lv-view-btn" data-lv-view-btn="producer" aria-pressed="false">Producer</button>
             </nav>
             <div class="lv-topbar-status">
               <span class="lv-rec-chip" id="lvRecChip" hidden>
@@ -524,6 +525,10 @@
                 <span>Transition <strong>Cut</strong></span>
                 <span>Program audio <strong id="studioRailAudioState">Pending</strong></span>
                 <span>Recording <strong id="studioRailRecordingState">Idle</strong></span>
+              </div>
+              <div class="producer-rail-actions">
+                <button type="button" class="lv-mini-btn lv-mini-btn--primary" id="studioOpenProgramOutputRail">Open Program Output</button>
+                <button type="button" class="lv-mini-btn" id="studioOpenSoundboard">Soundboard</button>
               </div>
             </section>
 
@@ -1025,6 +1030,31 @@
       </aside>
     </div>
 
+    <aside id="studioWorkflowDrawer" class="studio-workflow-drawer" hidden>
+      <div class="studio-workflow-drawer-inner">
+        <button type="button" class="link-action" id="studioWorkflowDrawerClose">Close</button>
+        <section data-workflow-panel="studio">
+          <h2>Studio settings</h2>
+          <p>General session configuration for this live room. Brand/theme and session type stay on the left rail. This does not switch Host/Producer.</p>
+        </section>
+        <section data-workflow-panel="show" hidden>
+          <h2>Show settings</h2>
+          <p>Show format and Run of Show belong to this session. Edit ROS on the Producer console when you need it — this tab does not change Host/Producer.</p>
+        </section>
+        <section data-workflow-panel="focus-group" hidden>
+          <h2>Focus Group settings</h2>
+          <p>Participant/research options and Hottie research stay on this session. This tab does not switch Host/Producer.</p>
+        </section>
+        <section data-workflow-panel="stream" hidden>
+          <h2>Stream settings</h2>
+          <p>Streaming destinations and RTMP stay in Producer → Broadcast. Use Open Program Output for the current session audience window. This tab does not switch Host/Producer.</p>
+        </section>
+        <section data-workflow-panel="post" hidden>
+          <h2>Post Production</h2>
+          <p>Recording and session artifacts stay on this session. Use Producer → Recording for capture. This tab does not switch Host/Producer.</p>
+        </section>
+      </div>
+    </aside>
     <div id="directorControlFrame" class="director-control-frame" aria-hidden="true"></div>
   </body>
 </html>
