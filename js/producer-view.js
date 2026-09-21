@@ -630,7 +630,7 @@ function formatClock(totalSeconds) {
 function humanizeError(error) {
   if (error?.userMessage) return error.userMessage;
   if (error?.reason === "missing-audio" || error?.reason === "audio-not-live") {
-    return "Program Output audio was not shared. Start again and enable Share tab audio.";
+    return "Recording needs Program Output audio. Select the Toasty Program Output tab and enable Share tab audio.";
   }
   if (error?.reason === "missing-video" || error?.reason === "video-not-live") {
     return "Program Output video capture is unavailable.";

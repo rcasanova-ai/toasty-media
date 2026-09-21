@@ -195,7 +195,7 @@ export function assetsUsedFromTimeline(timeline = [], assets = []) {
 }
 
 export const PROGRAM_OUTPUT_PICKER_INSTRUCTION =
-  "Select:\n“Toasty Studio — Program Output”\nMake sure:\n“Share tab audio” is ON.";
+  "SELECT THE TOASTY PROGRAM OUTPUT TAB\nENABLE “SHARE TAB AUDIO”\nTHEN CLICK SHARE";
 
 function trackReadyState(track) {
   if (!track) return "missing";
@@ -264,7 +264,7 @@ export function composeMasterMediaStream(tracks) {
 
 export function captureFailureMessage(reason) {
   if (reason === "missing-audio" || reason === "audio-not-live") {
-    return "Program Output audio was not shared. Start again and enable Share tab audio.";
+    return "Recording needs Program Output audio. Select the Toasty Program Output tab and enable Share tab audio.";
   }
   if (reason === "missing-video" || reason === "video-not-live") {
     return "Program Output video capture is unavailable.";

@@ -385,7 +385,12 @@
         </section>
 
         <section class="live-console live-studio-panel" id="liveConsole" data-lv-view="host" aria-label="Live Studio console">
-          <header class="lv-topbar">
+          <header class="lv-topbar" aria-label="Producer status">
+            <div class="lv-topbar-left">
+              <span class="lv-brand-chip" id="lvTopBrand">Toasty Media</span>
+              <strong class="lv-session-name" id="lvTopSessionName">Live Studio</strong>
+              <span class="lv-live-state" id="lvTopLiveState" data-state="holding">STARTING SOON</span>
+            </div>
             <nav class="lv-view-switch" aria-label="Studio view">
               <button type="button" class="lv-view-btn" data-lv-view-btn="host" aria-pressed="true">Host</button>
               <button type="button" class="lv-view-btn" data-lv-view-btn="producer" aria-pressed="false">Producer</button>
@@ -397,6 +402,12 @@
                 <span id="lvRecChipTime">00:00:00</span>
               </span>
               <span class="lv-policy-chip" id="lvPolicyChip" hidden></span>
+              <span class="lv-health-chip" id="lvTopHealth">Offline</span>
+              <span class="lv-identity-chip" id="lvTopHost">Host: Not joined</span>
+              <span class="lv-identity-chip" id="lvTopProducer">Producer: Local</span>
+              <button type="button" class="lv-mini-btn" id="lvTopProgramOutput">Program Output</button>
+              <button type="button" class="lv-mini-btn" id="lvTopSettings">Settings</button>
+              <button type="button" class="lv-mini-btn lv-mini-btn-danger" id="lvTopEndSession">End Session</button>
             </div>
           </header>
 
@@ -461,12 +472,6 @@
                    Muted here. Parked off-screen in Host view (never display:none) so switching to
                    Producer does not remount. -->
               <div class="lv-program-preview po-stage" id="lvProgramPreviewStage"></div>
-              <div class="lv-host-controls" data-lv-only="host">
-                <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
-                <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>
-                <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Share screen">Screen</button>
-                <button id="lvLeaveStudio" class="lv-icon-btn lv-icon-btn-danger" type="button" title="Leave Studio" hidden>Leave Studio</button>
-              </div>
             </section>
 
             <!-- HOST-only panels -->
@@ -628,7 +633,7 @@
               </p>
               <div class="recording-actions">
                 <strong id="lvRecordTimer" class="recording-timer" hidden>00:00</strong>
-                <button id="lvRecordToggle" class="rec-toggle" type="button" aria-pressed="false" disabled>START RECORDING</button>
+                <p class="control-note">Use the persistent Record control in the bottom bar.</p>
                 <button id="lvRecordMarker" class="btn btn-ghost btn-small" type="button" hidden>Mark</button>
               </div>
               <p class="control-note" id="lvRecordNote">Open Program Output first. Wait until VIDEO READY and AUDIO READY, then start recording.</p>
@@ -756,6 +761,21 @@
               <p class="control-note" id="lvEndCardStatus"></p>
             </section>
           </div>
+
+          <footer class="lv-bottom-bar" aria-label="Studio controls">
+            <div class="lv-host-controls">
+              <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
+              <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>
+              <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Share screen">Screen</button>
+              <button id="lvLeaveStudio" class="lv-icon-btn lv-icon-btn-danger" type="button" title="Leave Studio" hidden>Leave Studio</button>
+            </div>
+            <button id="lvRecordToggle" class="rec-toggle lv-bottom-record" type="button" aria-pressed="false" disabled>RECORD PROGRAM</button>
+            <nav class="lv-bottom-nav" aria-label="Producer navigation">
+              <button type="button" class="lv-bottom-nav-btn" data-producer-jump="participants">Participants</button>
+              <button type="button" class="lv-bottom-nav-btn" data-producer-jump="chat">Chat</button>
+              <button type="button" class="lv-bottom-nav-btn" data-producer-jump="assets">Assets / Media</button>
+            </nav>
+          </footer>
         </section>
       </section>
 

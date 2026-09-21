@@ -169,7 +169,7 @@ console.log("\nMaster MediaStream composition and missing-track failure");
   const composed = composeMasterMediaStream({ videoTracks: [{ id: "v" }], audioTracks: [{ id: "a" }] });
   assert(composed.ok !== false, "compose does not throw when tracks exist");
   assert(captureFailureMessage("missing-audio").includes("Share tab audio"), "missing-audio message tells the operator to enable tab audio");
-  assertEqual(captureFailureMessage("missing-audio"), "Program Output audio was not shared. Start again and enable Share tab audio.", "exact missing-audio copy");
+  assertEqual(captureFailureMessage("missing-audio"), "Recording needs Program Output audio. Select the Toasty Program Output tab and enable Share tab audio.", "exact missing-audio copy");
   assertEqual(captureFailureMessage("missing-video"), "Program Output video capture is unavailable.", "exact missing-video copy");
   const endedVideo = assertMasterTracks({ videoTracks: [fakeTrack("video", "Program Output", { readyState: "ended" })], audioTracks: [fakeTrack("audio")] });
   assertEqual(endedVideo.ok, false, "ended video fails");
@@ -216,7 +216,7 @@ console.log("\nMediaRecorder start/stop lifecycle");
   }
   assert(failed, "missing tab audio throws");
   assertEqual(failed.reason, "missing-audio", "does not silently substitute host-mic + catalogue");
-  assertEqual(failed.message, "Program Output audio was not shared. Start again and enable Share tab audio.", "missing audio is human-readable");
+  assertEqual(failed.message, "Recording needs Program Output audio. Select the Toasty Program Output tab and enable Share tab audio.", "missing audio is human-readable");
 
   const noVideo = new MasterProgramRecorder({
     displayMedia: async () => fakeCapture({ audio: true, video: false }),
@@ -256,7 +256,7 @@ console.log("\nMediaRecorder start/stop lifecycle");
   assert(!/^invalid state$/i.test(invalidFailed.message), "user-facing message is not raw 'invalid state'");
   assert(invalidFailed.diagnostics?.videoReadyState === "live", "diagnostics include live video track state");
   assert(invalidFailed.diagnostics?.audioReadyState === "live", "diagnostics include live audio track state");
-  assert(PROGRAM_OUTPUT_PICKER_INSTRUCTION.includes("Share tab audio"), "picker instruction names Share tab audio");
+  assert(/share tab audio/i.test(PROGRAM_OUTPUT_PICKER_INSTRUCTION), "picker instruction names Share tab audio");
 
   let recoveredAttempts = 0;
   class RecoveringRecorder extends FakeMediaRecorder {
@@ -394,10 +394,31 @@ console.log("\nAlready-live assets at record start are not dropped");
 console.log("\nProducer controls are Producer-only; Program Output has no REC chrome");
 {
   const director = read("studio/director.html");
+  const studioCss = read("css/studio.css");
   const producer = read("js/producer-view.js");
   const listener = read("js/listener.js");
   const listenerHtml = read("studio/listener.html");
   assert(director.includes("data-lv-only=\"producer\""), "recording panel is producer-only");
+  assert(director.includes("id=\"lvTopBrand\""), "Producer top bar shows active skin");
+  assert(director.includes("id=\"lvTopSessionName\""), "Producer top bar shows session name");
+  assert(director.includes("id=\"lvTopLiveState\""), "Producer top bar shows LIVE/scene state");
+  assert(director.includes("id=\"lvTopHealth\""), "Producer top bar shows connection/session health");
+  assert(director.includes("id=\"lvTopHost\""), "Producer top bar shows Host identity");
+  assert(director.includes("id=\"lvTopProducer\""), "Producer top bar shows Producer identity");
+  assert(director.includes("id=\"lvTopProgramOutput\""), "Producer top bar has Program Output action");
+  assert(director.includes("id=\"lvTopSettings\""), "Producer top bar has Settings action");
+  assert(director.includes("id=\"lvTopEndSession\""), "Producer top bar has End Session action");
+  assert(director.includes("class=\"lv-bottom-bar\""), "persistent bottom control bar exists");
+  assert(director.includes("id=\"lvToggleMic\""), "bottom bar restores real Mic control");
+  assert(director.includes("id=\"lvToggleCamera\""), "bottom bar restores real Camera control");
+  assert(director.includes("id=\"lvToggleScreen\""), "bottom bar restores real Screen Share control");
+  assert(director.includes("id=\"lvRecordToggle\""), "bottom bar restores real Record control");
+  assert(director.includes("data-producer-jump=\"participants\""), "bottom bar includes Participants navigation");
+  assert(director.includes("data-producer-jump=\"chat\""), "bottom bar includes Chat navigation");
+  assert(director.includes("data-producer-jump=\"assets\""), "bottom bar includes Assets / Media navigation");
+  assert(!/live-console\[data-lv-view="producer"\]\s+\.lv-host-controls/.test(studioCss), "Producer view no longer CSS-hides Host transport controls");
+  assert(studioCss.includes(".lv-bottom-bar"), "bottom bar is styled as persistent chrome");
+  assert(studioCss.includes("position: sticky"), "Producer chrome keeps controls reachable in normal laptop viewport");
   assert(director.includes("Master Program Recording"), "panel is labeled master");
   assert(director.includes("lvMasterVideo"), "playback surface exists");
   assert(director.includes("lvMasterPlay"), "PLAY control exists");

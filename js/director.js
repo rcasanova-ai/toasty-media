@@ -44,6 +44,16 @@ const elements = {
   recChip: document.querySelector("#lvRecChip"),
   recChipTime: document.querySelector("#lvRecChipTime"),
   policyChip: document.querySelector("#lvPolicyChip"),
+  topBrand: document.querySelector("#lvTopBrand"),
+  topSessionName: document.querySelector("#lvTopSessionName"),
+  topLiveState: document.querySelector("#lvTopLiveState"),
+  topHealth: document.querySelector("#lvTopHealth"),
+  topHost: document.querySelector("#lvTopHost"),
+  topProducer: document.querySelector("#lvTopProducer"),
+  topProgramOutput: document.querySelector("#lvTopProgramOutput"),
+  topSettings: document.querySelector("#lvTopSettings"),
+  topEndSession: document.querySelector("#lvTopEndSession"),
+  bottomNavButtons: [...document.querySelectorAll("[data-producer-jump]")],
   sessionDate: document.querySelector("#sessionDate"),
   sessionTime: document.querySelector("#sessionTime"),
   buildId: document.querySelector("#buildId"),
@@ -87,8 +97,8 @@ init();
 // target the right room from the very first frame mount, not a throwaway one that gets swapped out later.
 async function init() {
   applySelectedBrand();
-  const durableSession = await resolveSession({ brandId: session.brandTheme });
-  session.applyDurableSession(durableSession);
+  const resolvedSession = await resolveSession({ brandId: session.brandTheme });
+  session.applyDurableSession(resolvedSession?.session || resolvedSession);
   void session.loadProfileEndCard();
   initStudio();
 }
@@ -141,17 +151,23 @@ function initStudio() {
   bindPolicyDrawer();
   bindAiProviderDrawer();
   bindPersonaDrawer();
+  bindProducerChrome();
 
   session.on("recording", renderRecChip);
   session.on("policy", renderPolicyChip);
-  session.on("connection", renderBroadcastChip);
-  session.on("program", renderBroadcastChip);
-  session.on("brand", () => { applySelectedBrand(); updateInviteFields(); });
-  session.on("room", updateInviteFields);
+  session.on("connection", () => { renderBroadcastChip(); renderProducerChrome(); });
+  session.on("program", () => { renderBroadcastChip(); renderProducerChrome(); });
+  session.on("program-output", renderProducerChrome);
+  session.on("recording", renderProducerChrome);
+  session.on("host-profile", renderProducerChrome);
+  session.on("host-state", renderProducerChrome);
+  session.on("brand", () => { applySelectedBrand(); updateInviteFields(); renderProducerChrome(); });
+  session.on("room", () => { updateInviteFields(); renderProducerChrome(); });
 
   renderRecChip(session.recording);
   renderPolicyChip(session.policy);
   renderBroadcastChip();
+  renderProducerChrome();
   updateInviteFields();
   mountTimeOfDay();
   void startHostDebugMedia();
@@ -188,6 +204,33 @@ function setView(view) {
   // Queried live (not cached at init time) so panels mounted later by other controllers — e.g. the
   // Producer-only broadcast card injected into .rail-right — are still gated correctly.
   document.querySelectorAll("[data-lv-only]").forEach((panel) => { panel.hidden = panel.dataset.lvOnly !== view; });
+}
+
+function bindProducerChrome() {
+  elements.topProgramOutput?.addEventListener("click", () => document.querySelector("#lvOpenProgramOutput")?.click());
+  elements.topSettings?.addEventListener("click", () => {
+    const drawer = document.querySelector(".lv-advanced-drawer");
+    if (drawer) drawer.open = true;
+    drawer?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  });
+  elements.topEndSession?.addEventListener("click", () => elements.endSessionBtn?.click());
+  elements.bottomNavButtons.forEach((button) => {
+    button.addEventListener("click", () => jumpProducerPanel(button.dataset.producerJump));
+  });
+}
+
+function jumpProducerPanel(target) {
+  setView("producer");
+  elements.bottomNavButtons.forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.producerJump === target));
+  });
+  const panel = {
+    participants: document.querySelector(".lv-sources"),
+    chat: document.querySelector(".lv-ai-producer-pane"),
+    assets: document.querySelector(".lv-graphics") || document.querySelector(".lv-audio")
+  }[target] || null;
+  panel?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  panel?.focus?.({ preventScroll: true });
 }
 
 function bindRailControls() {
@@ -303,6 +346,40 @@ function renderPolicyChip(policy) {
   if (summary) elements.policyChip.textContent = `${summary.icon} ${summary.label} · ${summary.detail}`;
 }
 
+function renderProducerChrome() {
+  if (elements.topBrand) {
+    const selected = elements.brandThemeSelect?.selectedOptions?.[0]?.textContent?.trim();
+    elements.topBrand.textContent = selected || brandLabel(session.brandTheme);
+  }
+  if (elements.topSessionName) {
+    elements.topSessionName.textContent = session.durableSession?.title || "Live Studio";
+  }
+  if (elements.topLiveState) {
+    const scene = session.program?.scene || "holding";
+    elements.topLiveState.dataset.state = scene;
+    elements.topLiveState.textContent = sceneLabel(scene);
+  }
+  if (elements.topHealth) {
+    const output = session.programOutput || {};
+    const connection = output.connected ? "Output connected" : session.connection?.status === "connected" ? "Studio ready" : session.connection?.label || "Offline";
+    const ready = output.readyToRecord ? " · Ready to record" : "";
+    elements.topHealth.textContent = `${connection}${ready}`;
+  }
+  if (elements.topHost) {
+    const hostName = session.hostProfile?.displayName || "Not joined";
+    const state = session.hostState === HostState.IN_STUDIO ? "Live" : "Waiting";
+    elements.topHost.textContent = `Host: ${hostName} · ${state}`;
+  }
+  if (elements.topProducer) {
+    elements.topProducer.textContent = "Producer: Local";
+  }
+  if (elements.topProgramOutput) {
+    const connected = Boolean(session.programOutput?.connected);
+    elements.topProgramOutput.dataset.state = connected ? "connected" : "disconnected";
+    elements.topProgramOutput.textContent = connected ? "Program Output Connected" : "Program Output";
+  }
+}
+
 // Real broadcast state, not a VDO.Ninja room-connection ping: session.connection tracks whether the
 // Studio room itself is up (distinguishes OFFLINE from READY); session.program.live is the actual RTMP
 // broadcast flag set by ToastyBroadcastController via session.setLive() (distinguishes READY from ON
@@ -354,6 +431,28 @@ function setLabel(button, text) {
   const label = button.querySelector(".btn-label");
   if (label) label.textContent = text;
   else button.textContent = text;
+}
+
+function brandLabel(brandTheme) {
+  return {
+    toasty: "Toasty Media",
+    "8alta": "8ALTA",
+    santati: "Santati",
+    optimai: "OptimAI Network",
+    tangem: "Tangem",
+    superteam: "Superteam Thailand",
+    peeps: "Toasty Peeps"
+  }[brandTheme] || "Toasty Media";
+}
+
+function sceneLabel(scene) {
+  return {
+    holding: "STARTING SOON",
+    live: "LIVE",
+    brb: "BRB",
+    "technical-difficulties": "TECH DIFFICULTIES",
+    ending: "ENDING"
+  }[scene] || String(scene || "holding").toUpperCase();
 }
 
 function updateInviteFields() {
