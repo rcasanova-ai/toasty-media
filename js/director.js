@@ -98,9 +98,11 @@ const PRODUCER_TOOL_DOMAIN = Object.freeze({
   layout: "show",
   runshow: "show",
   graphics: "content",
+  lowerthirds: "content",
   ticker: "content",
   media: "content",
   soundboard: "content",
+  branding: "content",
   hottie: "intelligence",
   transcription: "intelligence",
   audience: "intelligence",
@@ -113,24 +115,50 @@ const DOMAIN_DEFAULT_TOOL = Object.freeze({
   show: "participants",
   content: "graphics",
   intelligence: "hottie",
-  broadcast: "recording"
+  broadcast: "audio"
 });
+
+const PRIMARY_PRODUCER_TOOLS = new Set([
+  "participants",
+  "layout",
+  "graphics",
+  "lowerthirds",
+  "ticker",
+  "media",
+  "soundboard",
+  "branding",
+  "hottie",
+  "audience",
+  "audio",
+  "recording",
+  "streaming"
+]);
 
 const TOOL_INSPECTOR_LABEL = Object.freeze({
   participants: "Participant",
   layout: "Layout",
   runshow: "Run of Show",
   graphics: "Graphic",
+  lowerthirds: "Lower Third",
   ticker: "Ticker",
   media: "Asset",
   soundboard: "Sound",
-  hottie: "Hottie",
+  branding: "Brand",
+  hottie: "Producer Chat",
   transcription: "Transcript",
-  audience: "Audience",
+  audience: "Public Chat",
   audio: "Audio",
   recording: "Recording",
   streaming: "Stream"
 });
+
+function dismissStudioBootCurtain() {
+  const curtain = document.querySelector("#studioBootCurtain");
+  if (!curtain || curtain.hidden || curtain.classList.contains("is-leaving")) return;
+  curtain.classList.add("is-leaving");
+  window.setTimeout(() => { curtain.hidden = true; }, 360);
+}
+window.addEventListener("toasty:boot-ready", dismissStudioBootCurtain);
 
 init();
 
@@ -147,6 +175,7 @@ async function init() {
   if (entry?.mode === "artifacts") {
     await showSessionArtifacts(entry.session);
     bindArtifactsHome();
+    dismissStudioBootCurtain();
     return;
   }
   const durableSession = entry?.session || entry;
@@ -233,6 +262,8 @@ function initStudio() {
     setView("host");
   } catch (error) {
     console.error("[Director] initStudio failed after HostPrejoin start", error);
+  } finally {
+    dismissStudioBootCurtain();
   }
 }
 
@@ -262,7 +293,7 @@ function bindChassisUi() {
 }
 
 function bindViewSwitch() {
-  elements.viewButtons.forEach((button) => {
+  document.querySelectorAll("[data-lv-view-btn]").forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.lvViewBtn));
   });
   elements.domainButtons.forEach((button) => {
@@ -278,6 +309,26 @@ function bindViewSwitch() {
   });
   document.querySelectorAll("[data-studio-workflow]").forEach((button) => {
     button.addEventListener("click", () => setStudioWorkflow(button.dataset.studioWorkflow));
+  });
+  document.querySelector("#studioOpenSettings")?.addEventListener("click", () => {
+    document.body.classList.toggle("studio-settings-open");
+  });
+  document.querySelector("#studioExitSession")?.addEventListener("click", () => {
+    elements.switchSession?.click();
+  });
+  document.querySelectorAll("[data-proxy-click]").forEach((button) => {
+    button.addEventListener("click", () => document.getElementById(button.dataset.proxyClick)?.click());
+  });
+  document.querySelectorAll("[data-proxy-change]").forEach((el) => {
+    const source = document.getElementById(el.dataset.proxyChange);
+    if (!source || el.tagName !== "SELECT" || source.tagName !== "SELECT") return;
+    el.innerHTML = source.innerHTML;
+    el.value = source.value;
+    el.addEventListener("change", () => {
+      source.value = el.value;
+      source.dispatchEvent(new Event("change"));
+    });
+    source.addEventListener("change", () => { el.value = source.value; });
   });
   setView("host");
 }
@@ -328,7 +379,7 @@ document.querySelector("#openSoundboardQuick")?.addEventListener("click", () => 
 
 function setView(view) {
   elements.liveConsole.dataset.lvView = view;
-  elements.viewButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.lvViewBtn === view)));
+  document.querySelectorAll("[data-lv-view-btn]").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.lvViewBtn === view)));
   // Queried live (not cached at init time) so panels mounted later by other controllers — e.g. the
   // Producer-only broadcast card injected into .rail-right — are still gated correctly.
   document.querySelectorAll("[data-lv-only]").forEach((panel) => { panel.hidden = panel.dataset.lvOnly !== view; });
@@ -351,13 +402,18 @@ function setProducerTool(tool = "participants") {
     button.setAttribute("aria-pressed", String(button.dataset.studioDomain === domain));
   });
   elements.toolButtons.forEach((button) => {
-    const inDomain = button.dataset.studioDomain === domain;
-    button.hidden = !inDomain;
+    const isPrimary = button.dataset.studioToolPrimary === "true" || PRIMARY_PRODUCER_TOOLS.has(button.dataset.studioTool);
+    button.hidden = !isPrimary;
     button.setAttribute("aria-pressed", String(button.dataset.studioTool === activeTool));
   });
   elements.toolPanels.forEach((panel) => {
     if (panel.dataset.studioCockpit) {
-      panel.hidden = !producerActive;
+      const desk = panel.dataset.lvOnly;
+      panel.hidden = desk === "host" ? producerActive : !producerActive;
+      return;
+    }
+    if (!producerActive && panel.dataset.studioHostSurface === "true") {
+      panel.hidden = false;
       return;
     }
     panel.hidden = !producerActive || panel.dataset.studioToolPanel !== activeTool;

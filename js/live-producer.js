@@ -1116,9 +1116,25 @@ export class LiveProducerController {
       }
       action.assetId = cue.id;
     }
-    if (action.type === ProductionActionType.TAKE_ASSET && !action.assetId) {
-      const liveJob = [...this._researchJobs.values()].find((item) => item.assetId);
-      action.assetId = liveJob?.assetId;
+    if (action.type === ProductionActionType.TAKE_ASSET) {
+      const pending = this.session.aiProducerFeed?.visible?.().find((item) => item.proposal?.requiresApproval && item.proposal?.asset);
+      if (pending) {
+        const result = this.takeProposalLive(pending.id);
+        const summary = productionSummary(action, result);
+        if (busAction) {
+          this.actions.setStatus(busAction.id, result?.ok ? ProductionActionStatus.LIVE : ProductionActionStatus.FAILED);
+        }
+        this.setStatus(result?.ok === false ? HottieStatus.READY : HottieStatus.DONE, {
+          label: action.type,
+          query: directive.payload?.query
+        }, summary.line);
+        if (directive.status) directive.status = result?.ok === false ? DirectiveStatus.RECOGNIZED : DirectiveStatus.COMPLETED;
+        return;
+      }
+      if (!action.assetId) {
+        const liveJob = [...this._researchJobs.values()].find((item) => item.assetId);
+        action.assetId = liveJob?.assetId;
+      }
     }
     const result = this.session.programController?.execute({ ...action, initiator: "host" });
     const summary = productionSummary(action, result);

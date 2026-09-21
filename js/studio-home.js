@@ -31,6 +31,7 @@ export const STUDIO_HOME_COLLECTIONS = Object.freeze([
 
 export const StudioHomeAction = Object.freeze({
   OPEN_STUDIO: "open-studio",
+  RESUME_LIVE_SESSION: "resume-live-session",
   VIEW_SESSION: "view-session",
   USE_SESSION: "use-session"
 });
@@ -111,10 +112,18 @@ export function mapSessionLifecycle(session, overlay = emptyHomeOverlay(), now =
   const scheduled = overlay.scheduledAt?.[id];
   if (scheduled && new Date(scheduled).getTime() > now) return StudioLifecycle.SCHEDULED;
   const status = String(session.status || "").toUpperCase();
-  if (status === "LIVE") return StudioLifecycle.ACTIVE;
+  if (status === "LIVE" || status === "ACTIVE") return StudioLifecycle.ACTIVE;
   if (status === "OPEN" && !session.startedAt) return StudioLifecycle.DRAFT;
   if (status === "OPEN") return StudioLifecycle.ACTIVE;
   return StudioLifecycle.DRAFT;
+}
+
+export function isLiveNowSession(session, overlay = emptyHomeOverlay(), now = Date.now()) {
+  if (!session?.id || isTerminalSession(session)) return false;
+  const life = mapSessionLifecycle(session, overlay, now);
+  if (life !== StudioLifecycle.ACTIVE) return false;
+  const status = String(session.status || "").toUpperCase();
+  return status === "LIVE" || status === "ACTIVE" || (status === "OPEN" && Boolean(session.startedAt));
 }
 
 export function primaryHomeAction(session, overlay = emptyHomeOverlay(), now = Date.now()) {
@@ -126,6 +135,7 @@ export function primaryHomeAction(session, overlay = emptyHomeOverlay(), now = D
     return StudioHomeAction.VIEW_SESSION;
   }
   if (isTerminalSession(session)) return StudioHomeAction.VIEW_SESSION;
+  if (isLiveNowSession(session, overlay, now)) return StudioHomeAction.RESUME_LIVE_SESSION;
   return StudioHomeAction.OPEN_STUDIO;
 }
 
@@ -241,6 +251,11 @@ export function organizeStudioHome(sessions = [], overlay = emptyHomeOverlay(), 
     };
   });
 
+  const liveNow = items
+    .filter((item) => isLiveNowSession(item.session, overlay, now))
+    .sort((a, b) => byLastActive(a.session, b.session));
+  const liveNowIds = new Set(liveNow.map((item) => item.session.id));
+
   const active = items
     .filter((item) => (item.lifecycle === StudioLifecycle.ACTIVE || item.lifecycle === StudioLifecycle.DRAFT) && item.session.status !== "ENDED")
     .sort((a, b) => byLastActive(a.session, b.session));
@@ -250,7 +265,7 @@ export function organizeStudioHome(sessions = [], overlay = emptyHomeOverlay(), 
     .sort((a, b) => new Date(overlay.scheduledAt[a.session.id]) - new Date(overlay.scheduledAt[b.session.id]));
 
   const recent = items
-    .filter((item) => item.lifecycle !== StudioLifecycle.ARCHIVED)
+    .filter((item) => item.lifecycle !== StudioLifecycle.ARCHIVED && !liveNowIds.has(item.session.id))
     .sort((a, b) => byLastActive(a.session, b.session))
     .slice(0, 3);
 
@@ -266,5 +281,5 @@ export function organizeStudioHome(sessions = [], overlay = emptyHomeOverlay(), 
     };
   });
 
-  return { active, upcoming, recent, collections, items };
+  return { liveNow, active, upcoming, recent, collections, items };
 }

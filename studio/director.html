@@ -18,9 +18,21 @@
         window.location.replace(`./${window.location.search}`);
       }
     </script>
+    <style id="studio-boot-curtain-css">
+      #studioBootCurtain{position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;background:radial-gradient(circle at 50% 43%,#2a1209 0,#120907 34%,#070504 72%);color:#fff4e5;font-family:Inter,system-ui,sans-serif;opacity:1;visibility:visible;transition:opacity .32s ease,visibility .32s ease}
+      #studioBootCurtain[hidden]{display:none} #studioBootCurtain.is-leaving{opacity:0;visibility:hidden;pointer-events:none}
+      .studio-boot-inner{text-align:center;transform:translateY(-2vh)} .studio-boot-fire{position:relative;width:112px;height:132px;margin:0 auto 22px;filter:drop-shadow(0 0 18px rgba(255,92,25,.55)) drop-shadow(0 0 42px rgba(255,64,0,.24))}
+      .studio-boot-flame{position:absolute;left:50%;bottom:10px;border-radius:58% 42% 64% 36%/70% 55% 45% 30%;transform-origin:50% 100%;clip-path:polygon(50% 0,72% 25%,91% 55%,82% 82%,61% 100%,34% 96%,11% 76%,17% 45%);animation:studioFlame 1.05s ease-in-out infinite alternate}
+      .studio-boot-flame--outer{width:86px;height:116px;margin-left:-43px;background:linear-gradient(180deg,#ff3b0a 5%,#ff6a00 55%,#ff9d19 100%)} .studio-boot-flame--mid{width:58px;height:82px;margin-left:-29px;background:linear-gradient(180deg,#ff8a00,#ffc229 68%,#ffe083);animation-duration:.82s;animation-delay:-.28s} .studio-boot-flame--core{width:30px;height:48px;margin-left:-15px;background:linear-gradient(180deg,#fff3b0,#ffd64a);animation-duration:.66s;animation-delay:-.44s}
+      .studio-boot-spark{position:absolute;bottom:92px;left:50%;width:5px;height:5px;border-radius:50%;background:#ffb126;box-shadow:0 0 10px #ff6a00;animation:studioSpark 1.5s ease-out infinite}.studio-boot-spark.s2{margin-left:-31px;animation-delay:-.55s;animation-duration:1.25s}.studio-boot-spark.s3{margin-left:27px;animation-delay:-1.05s;animation-duration:1.7s}.studio-boot-spark.s4{margin-left:8px;animation-delay:-.2s;animation-duration:1.1s}
+      .studio-boot-brand{font:800 13px/1.2 Manrope,Inter,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:#ff9a42;margin-bottom:10px}.studio-boot-copy{font:700 clamp(20px,2.3vw,30px)/1.2 Manrope,Inter,sans-serif;letter-spacing:-.02em}.studio-boot-copy::after{content:"";display:inline-block;width:1.1em;text-align:left;animation:studioDots 1.25s steps(4,end) infinite}
+      @keyframes studioFlame{0%{transform:translateX(-2px) rotate(-2deg) scale(.96,1.03)}45%{transform:translateX(2px) rotate(2deg) scale(1.03,.97)}100%{transform:translateX(-1px) rotate(-1deg) scale(.98,1.05)}} @keyframes studioSpark{0%{opacity:0;transform:translate(0,8px) scale(.5)}18%{opacity:1}100%{opacity:0;transform:translate(14px,-72px) scale(0)}} @keyframes studioDots{0%{content:""}25%{content:"."}50%{content:".."}75%,100%{content:"..."}} @media (prefers-reduced-motion:reduce){.studio-boot-flame,.studio-boot-spark,.studio-boot-copy::after{animation:none}.studio-boot-copy::after{content:"..."}}
+    </style>
     <script type="module" src="../js/director.js"></script>
   </head>
   <body class="studio-shell director-shell">
+    <div id="studioBootCurtain" role="status" aria-live="polite" aria-label="Loading Toasty Studio"><div class="studio-boot-inner"><div class="studio-boot-fire" aria-hidden="true"><span class="studio-boot-spark s1"></span><span class="studio-boot-spark s2"></span><span class="studio-boot-spark s3"></span><span class="studio-boot-spark s4"></span><span class="studio-boot-flame studio-boot-flame--outer"></span><span class="studio-boot-flame studio-boot-flame--mid"></span><span class="studio-boot-flame studio-boot-flame--core"></span></div><div class="studio-boot-brand">Toasty Studio</div><div class="studio-boot-copy">Loading your experience</div></div></div>
+    <script>(()=>{const reveal=()=>{if(document.body.classList.contains("session-gate-open")||document.body.classList.contains("session-artifacts-open"))window.dispatchEvent(new CustomEvent("toasty:boot-ready"));};new MutationObserver(reveal).observe(document.body,{attributes:true,attributeFilter:["class"]});reveal();})();</script>
     <div class="studio-atmosphere" aria-hidden="true">
       <span class="atmosphere-word" id="atmosphereBrandWord">TOASTY</span>
       <span class="atmosphere-word atmosphere-word--second" id="atmosphereProductWord">STUDIO</span>
@@ -93,19 +105,25 @@
         <button type="button" data-studio-workflow="post" aria-pressed="false">Post Production</button>
       </nav>
 
-      <div class="studio-chassis-status" aria-label="Studio session status">
+      <div class="studio-live-identity" aria-label="Toasty Studio">
+        <strong class="studio-live-wordmark">Toasty Studio</strong>
         <span class="studio-status-pill studio-status-pill--session">Session <strong id="studioSessionStatus">Ready</strong></span>
+      </div>
+
+      <div class="studio-chassis-status" aria-label="Studio session status">
         <div class="on-air-sign on-air-sign--compact" id="connectionChip" data-state="offline">
           <span class="on-air-bulb" aria-hidden="true"></span>
           <span class="on-air-text" aria-hidden="true">OFFLINE</span>
           <span id="connectionState" class="sr-only">Ready</span>
         </div>
         <button type="button" class="btn btn-primary btn-small" id="studioOpenProgramOutput">Open Program Output</button>
-        <span class="studio-status-pill" id="studioProgramOutputPill">Program Output</span>
-        <span class="studio-status-pill studio-status-pill--recording" id="studioRecordingPill">Recording</span>
+        <span class="studio-status-pill" id="studioProgramOutputPill">Output</span>
+        <span class="studio-status-pill studio-status-pill--recording" id="studioRecordingPill">REC</span>
         <span class="studio-status-pill studio-status-pill--streaming" id="studioStreamingPill">Streaming</span>
         <span class="studio-status-pill studio-status-pill--audio" id="studioAudioPill">Audio</span>
-        <button type="button" class="lv-ask-hottie" id="lvAskHottieHeader" title="Open Hottie in Producer → Intelligence">Ask Hottie</button>
+        <button type="button" class="lv-ask-hottie" id="lvAskHottieHeader" title="Open Hottie">Ask Hottie</button>
+        <button type="button" class="btn btn-ghost btn-small" id="studioOpenSettings">Settings</button>
+        <button type="button" class="btn btn-ghost btn-small" id="studioExitSession">Exit</button>
       </div>
     </header>
 
@@ -413,7 +431,7 @@
 
         <section class="live-console live-studio-panel studio-chassis" id="liveConsole" data-lv-view="host" aria-label="Live Studio console">
           <header class="lv-topbar">
-            <nav class="lv-view-switch" aria-label="Studio view">
+            <nav class="lv-view-switch lv-view-switch--chrome" aria-label="Studio view">
               <button type="button" class="lv-view-btn" data-lv-view-btn="host" aria-pressed="true">Host</button>
               <button type="button" class="lv-view-btn" data-lv-view-btn="producer" aria-pressed="false">Producer</button>
             </nav>
@@ -495,16 +513,23 @@
                 <span class="studio-truth-item" data-truth="rec" id="studioTruthRec" data-state="idle"><span class="studio-truth-dot" aria-hidden="true"></span> Rec <strong>Idle</strong></span>
                 <span class="studio-truth-item" data-truth="stream" id="studioTruthStream" data-state="idle"><span class="studio-truth-dot" aria-hidden="true"></span> Stream <strong>Idle</strong></span>
               </div>
-              <div class="lv-host-controls" data-lv-only="host" hidden>
-                <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
-                <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>
-                <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Share screen">Screen</button>
-                <button id="lvLeaveStudio" class="lv-icon-btn lv-icon-btn-danger" type="button" title="Leave Studio" hidden>Leave Studio</button>
-                <div class="host-device-health" aria-label="Host device status" hidden>
-                  <span>Microphone <strong id="lvHostMicHealth">Ready</strong></span>
-                  <span>Camera <strong id="lvHostCamHealth">Ready</strong></span>
-                  <span>Share <strong id="lvHostShareHealth">Off</strong></span>
+              <div class="lv-transport-bar" aria-label="Studio transport">
+                <div class="lv-host-controls">
+                  <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
+                  <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>
+                  <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Share screen">Screen</button>
+                  <button id="lvLeaveStudio" class="lv-icon-btn lv-icon-btn-danger" type="button" title="Leave Studio" hidden>Leave Studio</button>
+                  <div class="host-device-health" aria-label="Host device status" hidden>
+                    <span>Microphone <strong id="lvHostMicHealth">Ready</strong></span>
+                    <span>Camera <strong id="lvHostCamHealth">Ready</strong></span>
+                    <span>Share <strong id="lvHostShareHealth">Off</strong></span>
+                  </div>
                 </div>
+                <nav class="lv-view-switch lv-view-switch--transport" aria-label="Live role">
+                  <button type="button" class="lv-view-btn" data-lv-view-btn="host" aria-pressed="true">Host</button>
+                  <button type="button" class="lv-view-btn" data-lv-view-btn="producer" aria-pressed="false">Producer</button>
+                </nav>
+                <button id="lvRecordToggle" class="rec-toggle" type="button" aria-pressed="false" disabled>Record</button>
               </div>
             </section>
 
@@ -514,7 +539,7 @@
                 <span class="lv-chip" id="lvOutputStateChip">WAITING</span>
               </div>
               <div class="po-button-group producer-scene-strip" id="lvPoSceneGroup" role="radiogroup" aria-label="Program scene">
-                <button type="button" class="po-swatch" data-scene="holding" aria-pressed="true">Starting Soon</button>
+                <button type="button" class="po-swatch" data-scene="holding" aria-pressed="true">Starting Soon / Standby</button>
                 <button type="button" class="po-swatch po-swatch--live" data-scene="live" aria-pressed="false">Live</button>
                 <button type="button" class="po-swatch" data-scene="brb" aria-pressed="false">BRB</button>
                 <button type="button" class="po-swatch po-swatch--warn" data-scene="technical-difficulties" aria-pressed="false">Technical Difficulties</button>
@@ -533,19 +558,19 @@
             </section>
 
             <!-- HOST-only panels -->
-            <aside class="lv-panel lv-ai-producer" data-lv-only="host" hidden aria-label="Hottie">
-              <div class="lv-panel-head"><span>Hottie</span><span class="lv-chip" id="lvHostHottieStatus" data-state="listening">LISTENING</span></div>
-              <p class="lv-host-hottie-note" id="lvHostHottieNote">Hottie is listening.</p>
-              <div class="lv-feed-list" id="lvFeedListHost" hidden>
-                <p class="lv-placeholder">Following conversation…</p>
+            <aside class="lv-panel lv-ai-producer" data-lv-only="host" hidden aria-label="Producer Chat">
+              <div class="lv-panel-head"><span>Producer Chat</span><span class="lv-chip" id="lvHostHottieStatus" data-state="listening">LISTENING</span></div>
+              <p class="lv-host-hottie-note" id="lvHostHottieNote">Private Hottie research and approval. Nothing goes to Program until you Take Live.</p>
+              <div class="lv-feed-list" id="lvFeedListHost">
+                <p class="lv-placeholder">Ask Hottie here. Results stay private until approved.</p>
               </div>
               <div class="lv-talk-row" hidden>
-                <button id="lvTalkBtn" class="lv-talk-btn" type="button" data-state="ready" disabled>🎙 Talk to Hottie</button>
+                <button id="lvTalkBtn" class="lv-talk-btn" type="button" data-state="ready" disabled>Talk to Hottie</button>
                 <span class="lv-talk-state" id="lvTalkState">Ready</span>
               </div>
               <p class="lv-talk-live" id="lvTalkLive" hidden></p>
               <form id="lvTalkTextForm" class="lv-talk-text-form" hidden>
-                <input id="lvTalkTextInput" type="text" placeholder="Or type to Hottie…" aria-label="Type an instruction to Hottie" disabled>
+                <input id="lvTalkTextInput" type="text" placeholder="Hottie, find me a picture of…" aria-label="Ask Hottie in Producer Chat" disabled>
                 <button type="submit" class="btn btn-ghost btn-small">Send</button>
               </form>
             </aside>
@@ -567,7 +592,7 @@
               <p class="control-note">Host-owned camera background. Preview before applying. Shared/virtual sets belong to Producer composition, not Host.</p>
             </section>
 
-            <div class="lv-panel producer-context-nav" data-lv-only="producer" aria-label="Producer operational domains">
+            <div class="lv-panel producer-context-nav" data-lv-only="producer" aria-label="Production tools">
               <nav class="producer-domain-nav" aria-label="Producer domains">
                 <button type="button" data-studio-domain="show" aria-pressed="true">Show</button>
                 <button type="button" data-studio-domain="content" aria-pressed="false">Content</button>
@@ -575,23 +600,25 @@
                 <button type="button" data-studio-domain="broadcast" aria-pressed="false">Broadcast</button>
               </nav>
               <nav class="producer-tool-nav" aria-label="Producer tools">
-                <button type="button" data-studio-tool="participants" data-studio-domain="show" aria-pressed="true">Participants</button>
-                <button type="button" data-studio-tool="layout" data-studio-domain="show" aria-pressed="false">Layout / Composition</button>
+                <button type="button" data-studio-tool="participants" data-studio-tool-primary="true" data-studio-domain="show" aria-pressed="true">People</button>
+                <button type="button" data-studio-tool="layout" data-studio-tool-primary="true" data-studio-domain="show" aria-pressed="false">Layout / Composition</button>
                 <button type="button" data-studio-tool="runshow" data-studio-domain="show" aria-pressed="false">Run of Show</button>
-                <button type="button" data-studio-tool="graphics" data-studio-domain="content" aria-pressed="false" hidden>Graphics</button>
-                <button type="button" data-studio-tool="ticker" data-studio-domain="content" aria-pressed="false" hidden>Ticker</button>
-                <button type="button" data-studio-tool="media" data-studio-domain="content" aria-pressed="false" hidden>Media / Assets</button>
-                <button type="button" data-studio-tool="soundboard" data-studio-domain="content" aria-pressed="false" hidden>Soundboard</button>
-                <button type="button" data-studio-tool="hottie" data-studio-domain="intelligence" aria-pressed="false" hidden>Hottie</button>
-                <button type="button" data-studio-tool="transcription" data-studio-domain="intelligence" aria-pressed="false" hidden>Transcription</button>
-                <button type="button" data-studio-tool="audience" data-studio-domain="intelligence" aria-pressed="false" hidden>Audience / Chat</button>
-                <button type="button" data-studio-tool="audio" data-studio-domain="broadcast" aria-pressed="false" hidden>Audio</button>
-                <button type="button" data-studio-tool="recording" data-studio-domain="broadcast" aria-pressed="false" hidden>Recording</button>
-                <button type="button" data-studio-tool="streaming" data-studio-domain="broadcast" aria-pressed="false" hidden>Streaming</button>
+                <button type="button" data-studio-tool="graphics" data-studio-tool-primary="true" data-studio-domain="content" aria-pressed="false">Graphics</button>
+                <button type="button" data-studio-tool="lowerthirds" data-studio-tool-primary="true" data-studio-domain="content" aria-pressed="false">Lower Thirds</button>
+                <button type="button" data-studio-tool="ticker" data-studio-tool-primary="true" data-studio-domain="content" aria-pressed="false">Ticker</button>
+                <button type="button" data-studio-tool="media" data-studio-tool-primary="true" data-studio-domain="content" aria-pressed="false">Media</button>
+                <button type="button" data-studio-tool="soundboard" data-studio-tool-primary="true" data-studio-domain="content" aria-pressed="false">Soundboard</button>
+                <button type="button" data-studio-tool="branding" data-studio-tool-primary="true" data-studio-domain="content" aria-pressed="false">Branding</button>
+                <button type="button" data-studio-tool="hottie" data-studio-tool-primary="true" data-studio-domain="intelligence" aria-pressed="false">Producer Chat</button>
+                <button type="button" data-studio-tool="transcription" data-studio-domain="intelligence" aria-pressed="false">Transcription</button>
+                <button type="button" data-studio-tool="audience" data-studio-tool-primary="true" data-studio-domain="intelligence" aria-pressed="false">Public Chat</button>
+                <button type="button" data-studio-tool="audio" data-studio-tool-primary="true" data-studio-domain="broadcast" aria-pressed="false">Audio</button>
+                <button type="button" data-studio-tool="recording" data-studio-tool-primary="true" data-studio-domain="broadcast" aria-pressed="false">Recording</button>
+                <button type="button" data-studio-tool="streaming" data-studio-tool-primary="true" data-studio-domain="broadcast" aria-pressed="false">Streaming</button>
               </nav>
             </div>
 
-            <section class="lv-panel lv-run-of-show" data-lv-only="producer" data-studio-cockpit="runshow" aria-label="Run of show">
+            <section class="lv-panel lv-run-of-show" data-lv-only="host" data-studio-cockpit="runshow" aria-label="Run of show">
               <div class="lv-panel-head">
                 <span>Run of Show</span>
                 <span class="lv-chip" id="lvAgendaNowNext">CURRENT —</span>
@@ -625,9 +652,9 @@
                 <button id="lvTeleAuto" class="lv-mini-btn" type="button" aria-pressed="false">Auto</button>
               </div>
             </section>
-            <aside class="lv-panel lv-audience" data-lv-only="producer" data-studio-tool-panel="audience" hidden aria-label="Audience">
+            <aside class="lv-panel lv-audience" data-studio-tool-panel="audience" data-studio-host-surface="true" hidden aria-label="Public Chat">
               <div class="lv-panel-head">
-                <span>Audience</span>
+                <span>Public Chat</span>
                 <label class="lv-audience-demo-toggle">
                   <input id="lvAudienceDemoToggle" type="checkbox">
                   Demo
@@ -636,13 +663,22 @@
               </div>
               <div class="lv-audience-demo-breakdown" id="lvAudienceDemoBreakdown" hidden></div>
               <div class="lv-audience-list" id="lvAudienceList">
-                <p class="lv-placeholder">Live chat and questions land here.</p>
+                <p class="lv-placeholder">Audience messages land here.</p>
               </div>
+              <form id="lvPublicChatReply" class="lv-talk-text-form">
+                <input id="lvPublicChatReplyInput" type="text" placeholder="Reply to audience…" aria-label="Reply in public chat">
+                <button type="submit" class="btn btn-ghost btn-small">Reply</button>
+              </form>
             </aside>
 
             <!-- PRODUCER-only panels -->
-            <section class="lv-panel lv-sources" data-lv-only="producer" data-studio-cockpit="sources" data-studio-tool-panel="participants" aria-label="Sources and participants">
-              <div class="lv-panel-head"><span>Participants</span></div>
+            <section class="lv-panel lv-sources" data-lv-only="producer" data-studio-cockpit="sources" data-studio-tool-panel="participants" aria-label="People and sources">
+              <div class="lv-panel-head"><span>People / Sources</span></div>
+              <div class="lv-people-invite">
+                <button type="button" class="btn btn-primary" data-proxy-click="inviteGuestBtn">Invite Guest</button>
+                <button type="button" class="link-action" data-proxy-click="copyInvite">Copy Link</button>
+                <button type="button" class="link-action" data-proxy-click="copyListenerInvite">Copy Listener Link</button>
+              </div>
               <div class="lv-source-row">
                 <span class="lv-source-name">Host (you)</span>
                 <span class="lv-source-status" id="lvSourceHostStatus">—</span>
@@ -675,9 +711,9 @@
               </div>
             </section>
 
-            <aside class="lv-panel lv-ai-producer-pane lv-hottie-workspace" data-lv-only="producer" data-studio-tool-panel="hottie" hidden aria-label="Hottie">
-              <div class="lv-panel-head"><span>Hottie</span><span class="lv-chip">Intelligence</span></div>
-              <p class="control-note">Operational queue. Voice and typed Ask Hottie share the same command pipeline.</p>
+            <aside class="lv-panel lv-ai-producer-pane lv-hottie-workspace" data-lv-only="producer" data-studio-tool-panel="hottie" hidden aria-label="Producer Chat">
+              <div class="lv-panel-head"><span>Producer Chat</span><span class="lv-chip">Private</span></div>
+              <p class="control-note">Private Hottie research. Take Live is the only way a result reaches Program.</p>
               <div class="lv-hottie-rail" id="lvHottieRail" aria-label="Hottie status">
                 <span class="lv-hottie-status" id="lvHottieStatus" data-state="listening">LISTENING</span>
                 <p class="lv-hottie-proposal" id="lvHottieProposal">Waiting for a Host production cue.</p>
@@ -766,7 +802,7 @@
               </p>
               <div class="recording-actions">
                 <strong id="lvRecordTimer" class="recording-timer" hidden>00:00</strong>
-                <button id="lvRecordToggle" class="rec-toggle" type="button" aria-pressed="false" disabled>START RECORDING</button>
+                <p class="control-note">Use Record on the transport bar. Open Program Output first, wait until VIDEO READY and AUDIO READY, then start recording.</p>
                 <button id="lvRecordMarker" class="btn btn-ghost btn-small" type="button" hidden>Mark</button>
               </div>
               <p class="control-note" id="lvRecordNote">Open Program Output first. Wait until VIDEO READY and AUDIO READY, then start recording.</p>
@@ -899,8 +935,16 @@
               <p class="control-note" id="lvFocusSummary">Target 5 · matched 0 · confirmed 0 · remaining 5</p>
             </section>
 
-            <section class="lv-panel lv-end-card" data-lv-only="producer" data-studio-tool-panel="graphics" hidden aria-label="End card">
-              <div class="lv-panel-head"><span>End Card</span></div>
+            <section class="lv-panel lv-branding-shell" data-lv-only="producer" data-studio-tool-panel="branding" hidden aria-label="Branding">
+              <div class="lv-panel-head"><span>Branding</span><span class="lv-chip">Workspace</span></div>
+              <p class="control-note">Logos, colors, and fonts follow the workspace theme. Overlays stay in Graphics and Lower Thirds.</p>
+              <label class="po-field">Workspace
+                <select id="lvBrandingThemeSelect" data-proxy-change="brandThemeSelect"></select>
+              </label>
+            </section>
+
+            <section class="lv-panel lv-end-card" data-lv-only="producer" data-studio-tool-panel="lowerthirds" hidden aria-label="Lower thirds">
+              <div class="lv-panel-head"><span>Lower Thirds / End Card</span></div>
               <input id="lvEndCardHeadline" type="text" placeholder="Headline (e.g. Follow Ricardo / Toasty Peeps)" maxlength="120">
               <textarea id="lvEndCardMessage" rows="2" placeholder="Message (e.g. Building the human layer for the agent economy.)" maxlength="400"></textarea>
               <input id="lvEndCardWebsite" type="text" placeholder="Website (e.g. toasty.media/peeps)" maxlength="300">

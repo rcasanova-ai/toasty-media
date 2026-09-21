@@ -647,8 +647,12 @@ export function renderFeedEntry(entry, {
     actionRow.className = "lv-feed-entry-action lv-feed-entry-action--producer";
     if (proposal?.live && onRemoveAsset) {
       actionRow.appendChild(feedButton("REMOVE", () => onRemoveAsset(entry.id)));
-    } else if (proposal?.requiresApproval) {
+    } else     if (proposal?.requiresApproval) {
       if (onPreview) actionRow.appendChild(feedButton("PREVIEW", () => onPreview(entry.id)));
+      const sourceUrl = proposal.asset?.sourceUrl;
+      if (sourceUrl) {
+        actionRow.appendChild(feedButton("OPEN SOURCE", () => window.open(sourceUrl, "_blank", "noopener,noreferrer")));
+      }
       if (onTakeLive) actionRow.appendChild(feedButton("TAKE LIVE", () => onTakeLive(entry.id), true));
       if (onFindAnother) actionRow.appendChild(feedButton("FIND ANOTHER", () => onFindAnother(entry.id)));
       if (onDiscardProposal) actionRow.appendChild(feedButton("DISMISS", () => onDiscardProposal(entry.id)));

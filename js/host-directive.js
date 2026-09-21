@@ -107,12 +107,18 @@ export function commandBody(text) {
 export function wantsProgramVisual(utterance) {
   const text = commandBody(utterance).toLowerCase();
   if (!text) return false;
+  if (isPendingAssetApproval(text)) return false;
   if (/\btake (it|that) live\b/.test(text) || /\bput it (?:on|up)(?:\s+live)?\b/.test(text)) return false;
   if (/\b(on screen|on program)\b/.test(text)) return true;
   if (/\bpull(\s+\w+){0,8}\s+up\b/.test(text)) return true;
   if (/\b(show|put|bring|display)\b.{0,50}\b(photo|picture|image|article|graphic|card)\b/.test(text)) return true;
   if (/\bput this audience question on screen\b/.test(text)) return true;
   return false;
+}
+
+export function isPendingAssetApproval(utterance) {
+  const text = foldText(utterance).toLowerCase().replace(/[.,!?]/g, "").trim();
+  return /^(yes|yeah|yep|ok|okay|use that|use it|share it|put that up|put it up)$/.test(text);
 }
 
 export function wantsAssetPrep(utterance) {
@@ -213,6 +219,7 @@ export function classifyDirectiveIntent(rest) {
   if (/who hasn'?t|who have we not heard|not heard from|hasn'?t answered|have not answered/.test(text)) return DirectiveIntent.QUIET;
   if (/haven'?t covered|have not covered|what haven'?t we|missed anything|what are we missing/.test(text)) return DirectiveIntent.UNCOVERED;
   if (/\b(take it live|take that live|take it on(?:\s+air)?|put it (?:on|up)(?:\s+live)?)\b/.test(text)) return DirectiveIntent.TAKE_ASSET;
+  if (isPendingAssetApproval(text)) return DirectiveIntent.TAKE_ASSET;
   if (/\b(remove that|take that off|get that off|clear the (?:card|article|asset))\b/.test(text)) return DirectiveIntent.REMOVE_ASSET;
   if (/\b(drum roll|rimshot|applause|sting|stinger|whistle|whoosh)\b/.test(text) || /^(play|give me|hit me with|cue)\b/.test(text)) {
     return DirectiveIntent.PLAY_AUDIO;
@@ -374,9 +381,10 @@ export function extractDirectivePayload(intent, rest, participants = []) {
 
 export function detectHostDirective(line, { wakeWord = DEFAULT_WAKE_WORD, participants = [], alreadyAddressed = false } = {}) {
   if (!line?.text || !isHostSpeaker(line)) return null;
+  const pendingApproval = isPendingAssetApproval(commandBody(line.text)) || isPendingAssetApproval(line.text);
   const addressed = alreadyAddressed
     ? { wakeWord: DEFAULT_WAKE_WORD, rest: foldText(line.text).replace(/^(?:hey\s+)?(hottie|toasty)\s*[,:—\-]?\s*/i, "") }
-    : extractAddressedCommand(line.text, wakeWord);
+    : extractAddressedCommand(line.text, wakeWord) || (pendingApproval ? { wakeWord: DEFAULT_WAKE_WORD, rest: commandBody(line.text) } : null);
   if (!addressed?.rest) return null;
   const intent = classifyDirectiveIntent(addressed.rest);
   const hottieIntent = hottieIntentFromDirective(intent, addressed.rest);
