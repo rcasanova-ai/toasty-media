@@ -420,9 +420,9 @@ function setProducerTool(tool = "participants") {
 }
 
 function bindRailControls() {
-  elements.inviteGuestBtn.addEventListener("click", inviteGuest);
-  elements.copyInvite.addEventListener("click", copyInvite);
-  elements.copyListenerInvite.addEventListener("click", copyListenerInvite);
+  elements.inviteGuestBtn?.addEventListener("click", inviteGuest);
+  elements.copyInvite?.addEventListener("click", copyInvite);
+  elements.copyListenerInvite?.addEventListener("click", copyListenerInvite);
   if (isBrandLocked) {
     // hidden, not removed: ai-production.js's own #aiBrandProfile selector (below) is queried and used
     // directly with no null-guard (addEventListener/replaceChildren/.value= all assume it exists) — that
@@ -441,7 +441,7 @@ function bindRailControls() {
     // given.
     hideElement(document.querySelector("#aiBrandProfile")?.closest(".ai-brand-control"));
   } else {
-    elements.brandThemeSelect.addEventListener("change", () => {
+    elements.brandThemeSelect?.addEventListener("change", () => {
       session.changeBrandTheme(elements.brandThemeSelect.value);
       applySelectedBrand();
     });
@@ -449,7 +449,7 @@ function bindRailControls() {
   // Full page reload, deliberately — the simplest reliable teardown of camera/VDO state before showing
   // the Session gate again, rather than trying to hand-roll an equivalent in-JS teardown. Drops the
   // `?session=` param so resolveSession() shows the gate instead of re-resolving the same session.
-  elements.switchSession.addEventListener("click", () => {
+  elements.switchSession?.addEventListener("click", () => {
     const url = new URL(window.location.href);
     url.searchParams.delete("session");
     window.location.href = url.toString();
@@ -651,12 +651,12 @@ function setLabel(button, text) {
 
 function updateInviteFields() {
   const urls = session.inviteUrls();
-  elements.guestInvite.value = urls.guest;
-  elements.listenerInvite.value = urls.listener;
+  if (elements.guestInvite) elements.guestInvite.value = urls.guest;
+  if (elements.listenerInvite) elements.listenerInvite.value = urls.listener;
 }
 
 function applySelectedBrand() {
-  elements.brandThemeSelect.value = session.brandTheme;
+  if (elements.brandThemeSelect) elements.brandThemeSelect.value = session.brandTheme;
   session.applyBrand({
     root: document.body,
     logoImg: elements.studioBrandLogo,
@@ -671,7 +671,7 @@ function applySelectedBrand() {
 
 function mountTimeOfDay() {
   const now = new Date();
-  elements.sessionDate.textContent = now.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
-  elements.sessionTime.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (elements.sessionDate) elements.sessionDate.textContent = now.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+  if (elements.sessionTime) elements.sessionTime.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   if (elements.buildId) elements.buildId.textContent = BUILD_ID;
 }
