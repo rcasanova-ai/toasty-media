@@ -5109,6 +5109,41 @@
   gap: 0.6rem;
 }
 
+.studio-home-board,
+.studio-home-section,
+.studio-home-grid,
+.studio-home-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.studio-home-board {
+  max-height: min(58vh, 520px);
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.studio-home-section-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.studio-home-collapse,
+.studio-home-more {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.studio-home-more {
+  color: var(--studio-orange-bright);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
 .session-gate-empty {
   color: var(--studio-cream-dim);
   font-size: 0.8rem;
@@ -5116,6 +5151,7 @@
   padding: 0.75rem;
 }
 
+.session-card,
 .session-row {
   background: var(--studio-surface);
   border: 1px solid var(--studio-line);
@@ -5127,31 +5163,95 @@
   padding: 0.85rem 1rem;
 }
 
+.session-card[data-lifecycle="ENDED"],
 .session-row--ended {
   opacity: 0.75;
 }
 
+.session-card-main,
 .session-row-main {
   min-width: 200px;
 }
 
+.session-card-title,
 .session-row-title {
   color: var(--studio-cream);
   font-weight: 700;
   margin: 0 0 0.2rem;
 }
 
+.session-card-kicker,
+.session-card-meta,
 .session-row-meta {
   color: var(--studio-cream-dim);
   font-size: 0.72rem;
   margin: 0;
 }
 
+.session-card-kicker {
+  color: var(--studio-orange);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.session-card-actions,
 .session-row-actions {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
+}
+
+.session-card-menu {
+  position: relative;
+}
+
+.session-card-menu summary {
+  color: var(--studio-cream-dim);
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.session-card-menu button {
+  background: var(--studio-surface-2);
+  border: 1px solid var(--studio-line);
+  color: var(--studio-cream);
+  display: block;
+  font-size: 0.75rem;
+  padding: 0.45rem 0.6rem;
+  width: 100%;
+}
+
+.session-artifacts {
+  margin: min(8vh, 4rem) auto;
+  max-width: 980px;
+  padding: 1rem;
+  position: relative;
+  z-index: 3;
+}
+
+.session-artifacts-inner {
+  background: rgba(14, 8, 5, 0.92);
+  border: 1px solid var(--studio-line);
+  border-radius: 16px;
+  box-shadow: var(--studio-shadow);
+  display: grid;
+  gap: 1rem;
+  padding: 1.5rem;
+}
+
+.session-artifact-section {
+  background: var(--studio-surface);
+  border: 1px solid var(--studio-line);
+  border-radius: 10px;
+  padding: 1rem;
+}
+
+.session-artifact-json {
+  color: var(--studio-cream);
+  overflow: auto;
+  white-space: pre-wrap;
 }
 
 .lv-mini-btn--danger {

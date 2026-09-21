@@ -29,6 +29,7 @@ import {
 } from "./program-recording.js";
 import { ProgramSync } from "./program-sync.js";
 import { normalizeTickerSpeed } from "./program-ticker.js";
+import { studioRequest } from "./studio-api.js";
 import { SessionPolicy } from "./session-policy.js";
 import { RunOfShow } from "./run-of-show.js";
 import { AudienceStore, DemoAudienceFeed } from "./audience.js";

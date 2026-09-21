@@ -10,7 +10,7 @@ import { ProducerView } from "./producer-view.js";
 import { HostPrejoin } from "./host-prejoin.js";
 import { HostState } from "./host-state.js";
 import { BUILD_ID } from "./build-info.js";
-import { resolveSession } from "./session-manager.js";
+import { resolveSession, showSessionArtifacts } from "./session-manager.js";
 
 // Set by js/studio-auth.js's openStudio when /auth/session reports a "locked" account (a brand-locked
 // customer like Moe @ Superteam Thailand) — a UX nicety only (hides the selector, blocks the local optimistic
@@ -97,8 +97,12 @@ init();
 // target the right room from the very first frame mount, not a throwaway one that gets swapped out later.
 async function init() {
   applySelectedBrand();
-  const resolvedSession = await resolveSession({ brandId: session.brandTheme });
-  session.applyDurableSession(resolvedSession?.session || resolvedSession);
+  const entry = await resolveSession({ brandId: session.brandTheme });
+  if (entry?.mode === "artifacts") {
+    await showSessionArtifacts(entry.session);
+    return;
+  }
+  session.applyDurableSession(entry?.session || entry);
   void session.loadProfileEndCard();
   initStudio();
 }

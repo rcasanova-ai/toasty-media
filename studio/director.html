@@ -36,7 +36,7 @@
       <div class="session-gate-inner">
         <header class="session-gate-header">
           <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="" class="session-gate-logo" data-brand-logo>
-          <h1>Live Studio Sessions</h1>
+          <h1>Studio Home</h1>
           <p class="session-gate-sub">Open an existing session or start a new one.</p>
         </header>
 
@@ -47,15 +47,18 @@
 
         <p class="session-gate-status" id="sessionGateStatus"></p>
 
-        <div class="session-gate-section">
-          <p class="session-gate-label">Active</p>
-          <div id="sessionGateActiveList" class="session-gate-list"></div>
-        </div>
+        <div id="studioHomeBoard" class="studio-home-board" aria-label="Studio Home sessions"></div>
+      </div>
+    </section>
 
-        <div class="session-gate-section">
-          <p class="session-gate-label">Ended</p>
-          <div id="sessionGateEndedList" class="session-gate-list"></div>
-        </div>
+    <section class="session-artifacts" id="sessionArtifacts" hidden aria-label="Session artifacts">
+      <div class="session-artifacts-inner">
+        <header class="session-gate-header">
+          <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="" class="session-gate-logo" data-brand-logo>
+          <h1 id="sessionArtifactsTitle">Session</h1>
+          <p class="session-gate-sub">Review saved session artifacts.</p>
+        </header>
+        <div id="sessionArtifactsBody" class="session-artifacts-body"></div>
       </div>
     </section>
 
