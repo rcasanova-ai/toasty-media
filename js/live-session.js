@@ -70,7 +70,7 @@ import {
 } from "./session-control.js";
 import { RemoteMediaState } from "./remote-media-state.js";
 import { ProducerFeed, AIProducerService, createAIProducerProvider } from "./ai-producer.js";
-import { studioRequest } from "./studio-api.js";
+import { extractReusableSetup, sanitizeReusableSetup } from "./session-setup.js";
 import { syncParticipantStage, clearParticipantStage } from "./participant-stage.js";
 import { resolveEndCard, sanitizeEndCard } from "./end-card.js";
 import { syncProgramRenderer, clearProgramRenderer, serializeProgramParticipant } from "./program-renderer.js";
@@ -224,6 +224,9 @@ export class LiveSession {
     // record and simply won't have one — end/kick/capacity-by-session simply don't apply to those rooms.
     this.durableSession = null;
     this._sessionEndedTimerId = null;
+    this._setupPersistTimer = null;
+    this._suppressSetupPersist = false;
+    this._reusableSetupApplied = { runOfShow: false };
     // Outro CTA (see js/end-card.js): sessionEndCard rides on the durable session row (applyDurableSession
     // below), profileEndCard comes from the account's own /auth/session read (loadProfileEndCard). Both
     // start empty, which resolveEndCard() treats as "not set" and falls through to the next tier.
@@ -286,7 +289,10 @@ export class LiveSession {
     this.programController = new ProgramController(this);
     this.researchProvider = createResearchProvider({ preferSeeded: false });
     this.liveProducer = new LiveProducerController(this);
-    this.runOfShow.on(() => this.liveProducer.onShowAgendaChanged());
+    this.runOfShow.on(() => {
+      this.liveProducer.onShowAgendaChanged();
+      this.scheduleReusableSetupPersist();
+    });
     this.hottieStatus = { state: "listening", proposal: null };
     this.screenShare = createScreenShareSource({ ownerParticipantId: "host" });
     this.focusGroupContext = null;
@@ -627,6 +633,7 @@ export class LiveSession {
         body: JSON.stringify({ brandId: this.brandTheme })
       }).catch((error) => console.error("[LiveSession] persisting brand theme failed", error));
     }
+    this.scheduleReusableSetupPersist();
   }
 
   applyBrand(elements) {
@@ -999,8 +1006,80 @@ export class LiveSession {
     this.durableSession = record;
     this.roomId = record.roomId;
     this.sessionEndCard = record.endCard || {};
+    if (record.brandId) this.brandTheme = normalizeBrandTheme(record.brandId);
+    this.applyReusableSetup(record.setup);
     this.emit("durable-session", record);
     this.emit("end-card", { sessionEndCard: this.sessionEndCard, profileEndCard: this.profileEndCard });
+  }
+
+  applyReusableSetup(rawSetup) {
+    const setup = sanitizeReusableSetup(rawSetup);
+    const hasSetup = rawSetup && typeof rawSetup === "object" && Object.keys(rawSetup).length > 0;
+    if (!hasSetup) return setup;
+    this._suppressSetupPersist = true;
+    try {
+      if (setup.brandId) this.brandTheme = normalizeBrandTheme(setup.brandId);
+      this.policy = new SessionPolicy({ ...setup.policy, sessionType: setup.sessionType });
+      this.program.compositionMode = setup.layouts.compositionMode;
+      this.program.layout = setup.layouts.layout;
+      this.program.shareLayout = setup.layouts.shareLayout;
+      this.program.assetLayout = setup.layouts.assetLayout;
+      this.program.tickerSpeed = normalizeTickerSpeed(setup.ticker.speed);
+      if (setup.runOfShow.length) {
+        this.runOfShow.load(setup.runOfShow.map((item) => ({
+          ...item,
+          status: "upcoming",
+          startedAt: null,
+          completedAt: null
+        })));
+        this._reusableSetupApplied = { runOfShow: true };
+      }
+      this.emit("policy", this.policy);
+      this.emit("program", this.program);
+      this.emit("brand", this.brandTheme);
+    } finally {
+      this._suppressSetupPersist = false;
+    }
+    return setup;
+  }
+
+  captureReusableSetup() {
+    return extractReusableSetup({
+      brandId: this.brandTheme,
+      brandTheme: this.brandTheme,
+      policy: this.policy.state,
+      program: this.program,
+      runOfShowItems: this.runOfShow.items
+    });
+  }
+
+  scheduleReusableSetupPersist() {
+    if (this._suppressSetupPersist || !this.durableSession?.id || this.durableSession.status === "ENDED") return;
+    if (this._setupPersistTimer) window.clearTimeout(this._setupPersistTimer);
+    this._setupPersistTimer = window.setTimeout(() => {
+      this._setupPersistTimer = null;
+      this.persistReusableSetupNow();
+    }, 800);
+  }
+
+  async persistReusableSetupNow() {
+    if (this._setupPersistTimer) {
+      window.clearTimeout(this._setupPersistTimer);
+      this._setupPersistTimer = null;
+    }
+    if (!this.durableSession?.id || this.durableSession.status === "ENDED") return null;
+    const setup = this.captureReusableSetup();
+    try {
+      const result = await studioRequest(`/api/sessions/${this.durableSession.id}/setup`, {
+        method: "POST",
+        body: JSON.stringify({ setup })
+      });
+      if (result?.session) this.durableSession = result.session;
+      return result?.session || null;
+    } catch (error) {
+      console.error("[LiveSession] persisting reusable setup failed", error);
+      return null;
+    }
   }
 
   // Loads the account's profile-default end card. Best-effort: if it fails, resolveEndCard() just falls
@@ -1056,6 +1135,7 @@ export class LiveSession {
   async endDurableSession() {
     if (!this.durableSession) return;
     try {
+      await this.persistReusableSetupNow();
       await studioRequest(`/api/sessions/${this.durableSession.id}/end`, { method: "POST", body: "{}" });
     } catch (error) {
       console.error("[LiveSession] endDurableSession request failed", error);
@@ -1371,6 +1451,7 @@ export class LiveSession {
     if (speed !== undefined) this.program.tickerSpeed = normalizeTickerSpeed(speed);
     this._publishControlNow();
     this.emit("program", this.program);
+    this.scheduleReusableSetupPersist();
   }
 
   // manual=true marks this as the producer's own choice, which stops toggleScreenShare's automatic
@@ -1402,6 +1483,7 @@ export class LiveSession {
     this._publishControlNow();
     this.emit("program", this.program);
     this._syncProgramPreview();
+    this.scheduleReusableSetupPersist();
   }
 
   setCompositionMode(mode) {
@@ -1658,6 +1740,7 @@ export class LiveSession {
     this.policy.setSessionType(sessionType);
     this.emit("policy", this.policy);
     this._enforcePolicy();
+    this.scheduleReusableSetupPersist();
   }
 
   setResearchContext(context) {
@@ -1669,6 +1752,7 @@ export class LiveSession {
     this.policy.set(patch);
     this.emit("policy", this.policy);
     this._enforcePolicy();
+    this.scheduleReusableSetupPersist();
   }
 
   // A policy change must actually stop anything already running that it now forbids — not just block
@@ -1897,6 +1981,7 @@ export class LiveSession {
   // for HostState.LEAVING) to re-show prejoin and request a fresh preview — a real, user-triggered
   // getUserMedia call, not a leftover one, since the previous stream's tracks are genuinely stopped here.
   leaveStudio() {
+    void this.persistReusableSetupNow();
     this.setHostState(HostState.LEAVING);
     this._activityMeter?.stop?.();
     this._activityMeter = null;

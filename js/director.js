@@ -10,7 +10,7 @@ import { ProducerView } from "./producer-view.js";
 import { HostPrejoin } from "./host-prejoin.js";
 import { HostState } from "./host-state.js";
 import { BUILD_ID } from "./build-info.js";
-import { resolveSession } from "./session-manager.js";
+import { resolveSession, showSessionArtifacts } from "./session-manager.js";
 
 // Set by js/studio-auth.js's openStudio when /auth/session reports a "locked" account (a brand-locked
 // customer like Moe @ Superteam Thailand) — a UX nicety only (hides the selector, blocks the local optimistic
@@ -143,11 +143,26 @@ init();
 async function init() {
   applySelectedBrand();
   bindChassisUi();
-  const durableSession = await resolveSession({ brandId: session.brandTheme });
+  const entry = await resolveSession({ brandId: session.brandTheme });
+  if (entry?.mode === "artifacts") {
+    await showSessionArtifacts(entry.session);
+    bindArtifactsHome();
+    return;
+  }
+  const durableSession = entry?.session || entry;
   session.applyDurableSession(durableSession);
   if (elements.studioSessionStatus) elements.studioSessionStatus.textContent = durableSession.title || "Untitled";
   void session.loadProfileEndCard();
   initStudio();
+}
+
+function bindArtifactsHome() {
+  document.querySelector("#sessionArtifactsHome")?.addEventListener("click", () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("session");
+    url.searchParams.delete("view");
+    window.location.href = url.toString();
+  });
 }
 
 function initStudio() {
@@ -254,7 +269,27 @@ function bindViewSwitch() {
     setProducerTool("hottie");
     window.setTimeout(() => document.querySelector("#lvAskHottieInput")?.focus(), 0);
   });
+  document.querySelectorAll("[data-studio-workflow]").forEach((button) => {
+    button.addEventListener("click", () => setStudioWorkflow(button.dataset.studioWorkflow));
+  });
   setView("producer");
+}
+
+function setStudioWorkflow(workflow) {
+  document.querySelectorAll("[data-studio-workflow]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.studioWorkflow === workflow));
+  });
+  if (workflow === "studio") {
+    if (document.body.classList.contains("session-gate-open")) return;
+    elements.switchSession?.click();
+    return;
+  }
+  if (document.body.classList.contains("session-gate-open") || document.body.classList.contains("session-artifacts-open")) return;
+  setView("producer");
+  if (workflow === "show") setProducerDomain("show");
+  else if (workflow === "focus-group") setProducerTool("hottie");
+  else if (workflow === "stream") setProducerDomain("broadcast");
+  else if (workflow === "post") setProducerTool("media");
 }
 
 function setView(view) {

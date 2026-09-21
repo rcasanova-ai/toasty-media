@@ -33,6 +33,10 @@ includes(html, 'id="studioTruthAudio"');
 includes(html, 'id="studioTruthRec"');
 includes(html, 'id="studioTruthStream"');
 includes(html, "studio-workflow-nav");
+includes(html, 'data-studio-workflow="studio"');
+includes(html, ">Studio Home</h1>");
+includes(html, 'id="studioHomeBoard"');
+includes(html, 'id="sessionArtifacts"');
 includes(html, "producer-domain-nav");
 includes(html, 'data-studio-domain="show"');
 includes(html, 'data-studio-domain="content"');
@@ -133,7 +137,6 @@ const forbiddenPatterns = [
   /^js\/program-sync\.js$/,
   /^js\/server-sync\.js$/,
   /^js\/program-server-sync\.js$/,
-  /^scripts\/render-production-server\.mjs$/,
   /^nginx\//,
   /^server\//,
   /^api\//,

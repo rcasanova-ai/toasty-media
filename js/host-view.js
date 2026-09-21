@@ -207,7 +207,9 @@ export class HostView {
 
   initRunOfShow() {
     const saved = loadJson("toasty.run-of-show.items");
-    if (Array.isArray(saved) && saved.length) this.session.runOfShow.load(saved);
+    if (!this.session._reusableSetupApplied?.runOfShow && Array.isArray(saved) && saved.length) {
+      this.session.runOfShow.load(saved);
+    }
     this.session.runOfShow.on(() => {
       saveJson("toasty.run-of-show.items", this.session.runOfShow.items);
       this.renderAgenda();
