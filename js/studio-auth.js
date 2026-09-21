@@ -59,9 +59,18 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("message", (event) => {
     if (event.origin !== window.location.origin) return;
     if (event.data?.type === "toasty:studio-ready") { dismissEntryCurtain(); return; }
+    if (event.data?.type === "toasty:session-cleared") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("session");
+      url.searchParams.delete("view");
+      window.history.replaceState({}, "", url);
+      return;
+    }
     if (event.data?.type !== "toasty:session-selected" || !event.data.sessionId) return;
     const url = new URL(window.location.href);
     url.searchParams.set("session", event.data.sessionId);
+    if (event.data.view) url.searchParams.set("view", event.data.view);
+    else url.searchParams.delete("view");
     window.history.replaceState({}, "", url);
   });
 

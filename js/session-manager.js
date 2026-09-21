@@ -582,11 +582,26 @@ export async function showSessionArtifacts(session) {
     gate.hidden = true;
     document.body.classList.remove("session-gate-open");
   }
-  if (!pane) return;
+  if (!pane) {
+    showHome(() => {}, session.brandId);
+    return;
+  }
   document.body.classList.add("session-artifacts-open");
   pane.hidden = false;
   const body = el("sessionArtifactsBody");
   const title = el("sessionArtifactsTitle");
+  const back = el("sessionArtifactsBack");
+  if (back) {
+    back.onclick = () => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("session");
+      url.searchParams.delete("view");
+      if (window.parent !== window) {
+        window.parent.postMessage({ type: "toasty:session-cleared" }, window.location.origin);
+      }
+      window.location.href = url.toString();
+    };
+  }
   if (title) title.textContent = session.title || "Session";
   if (body) body.textContent = "Loading artifacts…";
   const pack = await loadSessionArtifacts(session);

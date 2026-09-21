@@ -83,6 +83,7 @@ import {
   normalizeShowTone,
   normalizeAutonomy
 } from "./producer-persona.js";
+import { studioRequest } from "./studio-api.js";
 
 const USE_BACKEND_STORAGE_KEY = "toasty.ai-producer.use-backend";
 const HOST_RELATIONSHIP_STORAGE_KEY = "toasty.ai-producer.host-relationship";
@@ -1133,17 +1134,19 @@ export class LiveSession {
   // next presence/session poll — see _restartGuestListPolling's session-status check below and
   // js/guest.js's mirror-image handling of a 410 from presence/announce.
   async endDurableSession() {
-    if (!this.durableSession) return;
+    if (!this.durableSession) return false;
     try {
       await this.persistReusableSetupNow();
       await studioRequest(`/api/sessions/${this.durableSession.id}/end`, { method: "POST", body: "{}" });
     } catch (error) {
       console.error("[LiveSession] endDurableSession request failed", error);
+      return false;
     }
     this.durableSession = { ...this.durableSession, status: "ENDED" };
     this.emit("session-ended");
     this.endShow();
     this.leaveStudio();
+    return true;
   }
 
   // Real removal, not a UI-only hide: a best-effort VDO disconnect command (see VideoEngine.sendToGuest's

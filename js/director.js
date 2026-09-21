@@ -10,7 +10,7 @@ import { ProducerView } from "./producer-view.js";
 import { HostPrejoin } from "./host-prejoin.js";
 import { HostState } from "./host-state.js";
 import { BUILD_ID } from "./build-info.js";
-import { resolveSession } from "./session-manager.js";
+import { resolveSession, showSessionArtifacts } from "./session-manager.js";
 
 // Set by js/studio-auth.js's openStudio when /auth/session reports a "locked" account (a brand-locked
 // customer like Moe @ Superteam Thailand) — a UX nicety only (hides the selector, blocks the local optimistic
@@ -77,6 +77,9 @@ const elements = {
   lvProducerAutonomy: document.querySelector("#lvProducerAutonomy")
 };
 
+let viewSwitchBound = false;
+
+bindViewSwitch();
 init();
 
 // Session resolution (see js/session-manager.js's resolveSession) gates EVERYTHING below it — no VDO
@@ -87,10 +90,21 @@ init();
 // target the right room from the very first frame mount, not a throwaway one that gets swapped out later.
 async function init() {
   applySelectedBrand();
-  const durableSession = await resolveSession({ brandId: session.brandTheme });
+  const entry = await resolveSession({ brandId: session.brandTheme });
+  const durableSession = normalizeResolvedSession(entry);
+  if (!durableSession) return;
+  if (entry?.mode === "artifacts") {
+    await showSessionArtifacts(durableSession);
+    return;
+  }
   session.applyDurableSession(durableSession);
   void session.loadProfileEndCard();
   initStudio();
+}
+
+function normalizeResolvedSession(result) {
+  if (result?.session) return result.session;
+  return result || null;
 }
 
 function initStudio() {
@@ -116,17 +130,6 @@ function initStudio() {
   // first load) and trigger a second, redundant getUserMedia call.
   session.on("host-state", (state) => { if (state === HostState.LEAVING) hostPrejoin.resume(); });
 
-  new AIProductionController({
-    getBrandTheme: () => session.brandTheme,
-    onBrandChange: (brandTheme) => {
-      // Same lock this file's own selector respects — Hottie can't do via voice what the hidden dropdown
-      // can't do via click. Backend enforces this regardless either way (see isBrandLocked's own comment).
-      if (isBrandLocked && normalizeBrandTheme(brandTheme) !== session.brandTheme) return;
-      elements.brandThemeSelect.value = normalizeBrandTheme(brandTheme);
-      session.changeBrandTheme(brandTheme);
-    }
-  }).init();
-
   // Mounted before bindViewSwitch()'s initial setView("host") call, so its Producer-only broadcast
   // panel (data-lv-only="producer") exists in the DOM the first time [data-lv-only] elements are queried.
   new ToastyBroadcastController({
@@ -141,6 +144,21 @@ function initStudio() {
   bindPolicyDrawer();
   bindAiProviderDrawer();
   bindPersonaDrawer();
+
+  try {
+    new AIProductionController({
+      getBrandTheme: () => session.brandTheme,
+      onBrandChange: (brandTheme) => {
+        // Same lock this file's own selector respects — Hottie can't do via voice what the hidden dropdown
+        // can't do via click. Backend enforces this regardless either way (see isBrandLocked's own comment).
+        if (isBrandLocked && normalizeBrandTheme(brandTheme) !== session.brandTheme) return;
+        elements.brandThemeSelect.value = normalizeBrandTheme(brandTheme);
+        session.changeBrandTheme(brandTheme);
+      }
+    }).init();
+  } catch (error) {
+    console.error("[Director] AI Production init failed; Live Studio remains available", error);
+  }
 
   session.on("recording", renderRecChip);
   session.on("policy", renderPolicyChip);
@@ -176,6 +194,8 @@ async function startHostDebugMedia() {
 }
 
 function bindViewSwitch() {
+  if (viewSwitchBound) return;
+  viewSwitchBound = true;
   elements.viewButtons.forEach((button) => {
     button.addEventListener("click", () => setView(button.dataset.lvViewBtn));
   });
@@ -215,13 +235,8 @@ function bindRailControls() {
     elements.brandThemeSelect.addEventListener("change", () => session.changeBrandTheme(elements.brandThemeSelect.value));
   }
   // Full page reload, deliberately — the simplest reliable teardown of camera/VDO state before showing
-  // the Session gate again, rather than trying to hand-roll an equivalent in-JS teardown. Drops the
-  // `?session=` param so resolveSession() shows the gate instead of re-resolving the same session.
-  elements.switchSession.addEventListener("click", () => {
-    const url = new URL(window.location.href);
-    url.searchParams.delete("session");
-    window.location.href = url.toString();
-  });
+  // the Session gate again, rather than trying to hand-roll an equivalent in-JS teardown.
+  elements.switchSession.addEventListener("click", returnToStudioHome);
   elements.endSessionBtn.addEventListener("click", async () => {
     if (!session.durableSession) {
       window.alert("This room has no durable session record (it predates Session Manager) — nothing to end here.");
@@ -229,13 +244,26 @@ function bindRailControls() {
     }
     if (!window.confirm(`End "${session.durableSession.title || "this session"}" for everyone?`)) return;
     elements.endSessionBtn.disabled = true;
-    await session.endDurableSession();
+    const ended = await session.endDurableSession();
     elements.endSessionBtn.disabled = false;
+    if (ended) returnToStudioHome();
+    else window.alert("Could not end this session. Please try again; the live room is still active.");
   });
   elements.toggleScreenQuick?.addEventListener("click", () => session.toggleScreenShare());
   session.on("screenshare", (s) => {
     if (elements.toggleScreenQuick) elements.toggleScreenQuick.setAttribute("aria-pressed", String(Boolean(s?.active)));
   });
+}
+
+function returnToStudioHome() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("session");
+  url.searchParams.delete("room");
+  url.searchParams.delete("view");
+  if (window.parent !== window) {
+    window.parent.postMessage({ type: "toasty:session-cleared" }, window.location.origin);
+  }
+  window.location.href = url.toString();
 }
 
 function bindPolicyDrawer() {
