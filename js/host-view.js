@@ -70,10 +70,16 @@ export class HostView {
     this.elements.toggleScreen.addEventListener("click", () => this.session.toggleScreenShare());
     this.elements.leaveStudio.addEventListener("click", () => this.session.leaveStudio());
 
-    this.session.on("av", (av) => this.renderAv(av));
-    this.session.on("screenshare", (s) => this.renderScreenShare(s));
     this.session.on("guests", () => this.renderGuestContext());
-    this.session.on("connection", (c) => this.renderConnection(c));
+    this.session.on("av", (av) => {
+      this.renderAv(av);
+      this.renderGuestContext();
+    });
+    this.session.on("screenshare", (s) => this.renderScreenShare(s));
+    this.session.on("connection", (c) => {
+      this.renderConnection(c);
+      this.renderGuestContext();
+    });
     this.session.on("host-state", (state) => this.renderHostState(state));
     this.session.on("remote-media-state", (s) => this.renderRemoteMediaState(s));
 
@@ -154,40 +160,35 @@ export class HostView {
   }
 
   renderGuestContext() {
-    const seats = this.session.guestSeats;
-    const connected = seats.filter(Boolean);
+    const connected = this.session.guestSeats.filter(Boolean);
     this.elements.guestPanelStatus.textContent = `${connected.length} connected`;
     this.elements.guestPanelStatus.dataset.state = connected.length > 0 ? "connected" : "idle";
-    // guestStageEmpty's visibility/text is now driven by renderRemoteMediaState (see below), not just
-    // "is someone connected" — a connected guest with unconfirmed video is a real, different state (see
-    // js/remote-media-state.js) that used to be indistinguishable from "no one's here."
     this.elements.guestCount.textContent = String(connected.length);
 
-    if (!connected.length) {
-      this.elements.guestContext.replaceChildren(placeholder("No guests connected yet."));
-      return;
-    }
-
-    this.elements.guestContext.replaceChildren(...connected.map((seat) => {
-      const row = document.createElement("div");
-      row.className = "lv-guest-row";
-      row.dataset.status = seat.connectionStatus || "connected";
-      const dot = document.createElement("span");
-      dot.className = "lv-guest-dot";
-      dot.setAttribute("aria-hidden", "true");
-      const name = document.createElement("span");
-      name.className = "lv-guest-name";
-      name.textContent = seat.displayName || seat.label || "Guest";
-      row.append(dot, name);
-      const role = [seat.title, seat.company].filter(Boolean).join(", ");
-      if (role) {
-        const roleEl = document.createElement("span");
-        roleEl.className = "lv-guest-role";
-        roleEl.textContent = `· ${role}`;
-        row.appendChild(roleEl);
-      }
-      return row;
-    }));
+    const av = this.session.av || {};
+    const hostConn = this.session.connection?.status || "idle";
+    const host = this.session.hostProfile || {};
+    const rows = [
+      rosterCard({
+        name: host.displayName || "Host",
+        title: host.title || "Host",
+        company: host.company || "",
+        role: "Host",
+        micOn: !av.micMuted,
+        cameraOn: !av.cameraOff,
+        connection: hostConn === "connected" ? "connected" : (this.session.hostState || hostConn)
+      }),
+      ...connected.map((seat) => rosterCard({
+        name: seat.displayName || seat.label || "Guest",
+        title: seat.title || "",
+        company: seat.company || "",
+        role: seat.role || "Guest",
+        micOn: seat.mic !== false,
+        cameraOn: seat.camera !== false,
+        connection: seat.connectionStatus || "connected"
+      }))
+    ];
+    this.elements.guestContext.replaceChildren(...rows);
   }
 
   // See js/remote-media-state.js — presence/connection confirming a guest is a DIFFERENT fact from their
@@ -336,6 +337,19 @@ export class HostView {
     this.session.audience.on(() => this.renderAudience());
     this.session.on("demo-mode", () => this.renderAudience());
     this.elements.audienceDemoToggle.addEventListener("change", () => this.session.setDemoMode(this.elements.audienceDemoToggle.checked));
+    this.elements.publicChatReply = this.root.querySelector("#lvPublicChatReply");
+    this.elements.publicChatReplyInput = this.root.querySelector("#lvPublicChatReplyInput");
+    this.elements.publicChatReply?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const text = this.elements.publicChatReplyInput?.value?.trim();
+      if (!text) return;
+      this.elements.publicChatReplyInput.value = "";
+      this.session.audienceAdapter?.ingest?.({
+        author: this.session.hostProfile?.displayName || "Host",
+        text,
+        metadata: { hostReply: true }
+      });
+    });
     this.renderAudience();
   }
 
@@ -380,6 +394,15 @@ export class HostView {
       text.className = "lv-audience-message";
       text.textContent = message.message;
       row.append(name, text);
+      const promote = document.createElement("button");
+      promote.type = "button";
+      promote.className = "lv-feed-mini-btn";
+      promote.textContent = message.surfaced ? "On Program" : "Take to Program";
+      promote.disabled = Boolean(message.surfaced);
+      promote.addEventListener("click", () => {
+        this.session.programController?.surfaceChat?.({ messageIds: [message.id], initiator: "host" });
+      });
+      row.appendChild(promote);
       return row;
     }));
   }
@@ -545,6 +568,23 @@ function rowActionButton(glyph, title, onClick) {
   button.dataset.action = title;
   button.addEventListener("click", onClick);
   return button;
+}
+
+function rosterCard({ name, title, company, role, micOn, cameraOn, connection }) {
+  const row = document.createElement("div");
+  row.className = "lv-guest-row lv-roster-card";
+  row.dataset.status = connection || "idle";
+  const nameEl = document.createElement("span");
+  nameEl.className = "lv-guest-name";
+  nameEl.textContent = name;
+  const meta = document.createElement("span");
+  meta.className = "lv-guest-role";
+  meta.textContent = [title, company].filter(Boolean).join(" · ") || role || "";
+  const flags = document.createElement("span");
+  flags.className = "lv-roster-flags";
+  flags.textContent = `${role || "Guest"} · Mic ${micOn ? "on" : "off"} · Cam ${cameraOn ? "on" : "off"} · ${connection || "idle"}`;
+  row.append(nameEl, meta, flags);
+  return row;
 }
 
 function placeholder(text, extraClass) {
