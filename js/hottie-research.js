@@ -7,6 +7,15 @@
 
 import { ProgramAssetType, hostnameFromUrl, sanitizeBroadcastText } from "./program-asset.js";
 
+export const FLUIDVOICE_GITHUB_CANDIDATE = Object.freeze({
+  title: "altic-dev/FluidVoice",
+  sourceName: "GitHub",
+  sourceUrl: "https://github.com/altic-dev/FluidVoice",
+  excerpt: "macOS dictation app with on-device speech-to-text and a custom AI enhancement model — a local Wispr Flow alternative.",
+  type: ProgramAssetType.WEBSITE,
+  retrievedAt: Date.parse("2026-01-01T00:00:00Z")
+});
+
 export const THAILAND_DATA_CENTER_CANDIDATES = Object.freeze([
   {
     title: "AWS Launches Infrastructure Region in Thailand",
@@ -61,14 +70,25 @@ export function normalizeResearchCandidate(raw = {}) {
   };
 }
 
+function queryMatchesFluidVoice(query) {
+  return /fluidvoice/i.test(String(query || ""));
+}
+
+function looksLikeRepoQuery(query) {
+  const q = String(query || "").toLowerCase();
+  return /github|repo(sitory)?/.test(q) || queryMatchesFluidVoice(q);
+}
+
 export class SeededResearchProvider {
   constructor(candidates = THAILAND_DATA_CENTER_CANDIDATES) {
     this.candidates = candidates.map((item) => normalizeResearchCandidate(item)).filter(Boolean);
+    this.fluidVoice = normalizeResearchCandidate(FLUIDVOICE_GITHUB_CANDIDATE);
   }
 
   async search(query) {
-    if (!queryMatchesThailandDataCenters(query)) return [];
-    return this.candidates.slice();
+    if (queryMatchesThailandDataCenters(query)) return this.candidates.slice();
+    if (queryMatchesFluidVoice(query) && this.fluidVoice) return [this.fluidVoice];
+    return [];
   }
 }
 
@@ -136,13 +156,61 @@ function isRelevant(text, wanted) {
   return hit / wanted.size >= 0.3;
 }
 
+export class GitHubResearchProvider {
+  constructor({ fetchImpl } = {}) {
+    this.fetchImpl = fetchImpl || (typeof fetch === "function" ? fetch.bind(globalThis) : null);
+  }
+
+  async search(query) {
+    const fetchImpl = this.fetchImpl;
+    const q = repoQueryFrom(query);
+    if (!fetchImpl || !q) return [];
+    const url = new URL("https://api.github.com/search/repositories");
+    url.searchParams.set("q", q.slice(0, 180));
+    url.searchParams.set("per_page", "5");
+    const response = await fetchImpl(url, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": "toasty-media-hottie"
+      }
+    });
+    if (!response.ok) throw new Error("github-search-failed");
+    const payload = await response.json();
+    const items = payload?.items || [];
+    return items.map((item) => normalizeResearchCandidate({
+      title: item.full_name || item.name,
+      sourceName: "GitHub",
+      sourceUrl: item.html_url,
+      excerpt: item.description || "",
+      type: ProgramAssetType.WEBSITE,
+      attribution: "GitHub"
+    })).filter(Boolean);
+  }
+}
+
+function repoQueryFrom(query) {
+  return String(query || "")
+    .replace(/\b(github|repo(sitory)?|pull up|look up|find|article|the)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export class CompositeResearchProvider {
   constructor({ fetchImpl, seeded = new SeededResearchProvider() } = {}) {
     this.wikipedia = new WikipediaResearchProvider({ fetchImpl });
+    this.github = new GitHubResearchProvider({ fetchImpl });
     this.seeded = seeded;
   }
 
   async search(query) {
+    if (looksLikeRepoQuery(query)) {
+      try {
+        const github = await this.github.search(query);
+        if (github.length) return github;
+      } catch (_) {
+        // Fall through to Wikipedia / seeded real URLs. Never invent a repo.
+      }
+    }
     try {
       const live = await this.wikipedia.search(query);
       if (live.length) return live;

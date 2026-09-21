@@ -1,3 +1,5 @@
+import { extractEntitiesFromText } from "./hottie-context.js";
+
 const MAX_TRANSCRIPT_LINES = 400; // bounded rolling window — see class comment below.
 
 // Rolling transcript window. Deliberately bounded (not "send everything to the model forever") — once a
@@ -48,6 +50,8 @@ export class TranscriptStore {
 }
 
 const MAX_MEMORY_DIRECTIVES = 40;
+const MAX_MEMORY_ENTITIES = 80;
+const MAX_MEMORY_CLAIMS = 40;
 const LAST_TEXT_CHARS = 160;
 
 // Compact durable memory distinct from the rolling raw transcript window. Speaker stats and recent
@@ -56,6 +60,15 @@ export class ShowContextMemory {
   constructor() {
     this.speakers = new Map();
     this.directives = [];
+    this.entities = [];
+    this.urls = [];
+    this.topics = [];
+    this.claims = [];
+    this.questions = [];
+    this.assetsShown = [];
+    this.graphicsShown = [];
+    this.productionActions = [];
+    this.researchResults = [];
   }
 
   observe(line) {
@@ -76,6 +89,22 @@ export class ShowContextMemory {
     existing.lastHeardAt = line.timestamp || Date.now();
     existing.lastText = String(line.text || "").slice(0, LAST_TEXT_CHARS);
     this.speakers.set(key, existing);
+
+    const found = extractEntitiesFromText(line.text, { speaker: existing.speaker, timestamp: existing.lastHeardAt });
+    found.forEach((entity) => {
+      this.entities.push(entity);
+      if (entity.type === "url") this.urls.push(entity);
+    });
+    if (this.entities.length > MAX_MEMORY_ENTITIES) this.entities.splice(0, this.entities.length - MAX_MEMORY_ENTITIES);
+    if (this.urls.length > 40) this.urls.splice(0, this.urls.length - 40);
+
+    const text = String(line.text || "");
+    if (/\?/.test(text)) this.questions.push({ speaker: existing.speaker, text, timestamp: existing.lastHeardAt });
+    if (this.questions.length > MAX_MEMORY_CLAIMS) this.questions.shift();
+    if (/\b(is|has|have|more than|over|percent|called|named)\b/i.test(text) && text.length > 24) {
+      this.claims.push({ speaker: existing.speaker, text: text.slice(0, 240), timestamp: existing.lastHeardAt });
+      if (this.claims.length > MAX_MEMORY_CLAIMS) this.claims.shift();
+    }
   }
 
   rememberDirective(directive) {
@@ -83,10 +112,39 @@ export class ShowContextMemory {
     this.directives.push({
       id: directive.id,
       intent: directive.intent,
+      hottieIntent: directive.hottieIntent || null,
       query: directive.payload?.query || "",
       timestamp: directive.timestamp
     });
     if (this.directives.length > MAX_MEMORY_DIRECTIVES) this.directives.shift();
+  }
+
+  rememberResearch(result) {
+    if (!result) return;
+    this.researchResults.push({ ...result, timestamp: result.timestamp || Date.now() });
+    if (this.researchResults.length > 30) this.researchResults.shift();
+  }
+
+  rememberAsset(asset) {
+    if (!asset) return;
+    this.assetsShown.push({
+      id: asset.id,
+      title: asset.title,
+      sourceUrl: asset.sourceUrl,
+      timestamp: Date.now()
+    });
+    if (this.assetsShown.length > 30) this.assetsShown.shift();
+  }
+
+  rememberProductionAction(action) {
+    if (!action) return;
+    this.productionActions.push({
+      id: action.id,
+      intent: action.intent,
+      status: action.status,
+      timestamp: action.createdAt || Date.now()
+    });
+    if (this.productionActions.length > 40) this.productionActions.shift();
   }
 
   speakerStats() {
@@ -103,13 +161,41 @@ export class ShowContextMemory {
         lastHeardAt: s.lastHeardAt,
         lastText: s.lastText
       })),
-      recentDirectives: this.directives.slice(-10)
+      recentDirectives: this.directives.slice(-10),
+      entities: this.entities.slice(-20),
+      urls: this.urls.slice(-10),
+      claims: this.claims.slice(-8),
+      questions: this.questions.slice(-8),
+      researchResults: this.researchResults.slice(-8),
+      assetsShown: this.assetsShown.slice(-8),
+      productionActions: this.productionActions.slice(-10)
+    };
+  }
+
+  resolverContext(session) {
+    return {
+      transcript: session?.transcript?.recent?.(40) || [],
+      currentSpeaker: session?.transcript?.lines?.slice(-1)[0]?.speaker || "",
+      participants: session?.participants?.list?.() || [],
+      entities: this.entities,
+      researchResults: this.researchResults,
+      programAsset: session?.assets?.live?.() || null,
+      productionActions: this.productionActions
     };
   }
 
   clear() {
     this.speakers.clear();
     this.directives = [];
+    this.entities = [];
+    this.urls = [];
+    this.topics = [];
+    this.claims = [];
+    this.questions = [];
+    this.assetsShown = [];
+    this.graphicsShown = [];
+    this.productionActions = [];
+    this.researchResults = [];
   }
 }
 

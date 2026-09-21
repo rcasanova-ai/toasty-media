@@ -558,7 +558,8 @@ export function renderFeedEntry(entry, {
   onRetryResearch,
   onRemoveAsset,
   onApproveHottieProposal,
-  onDismissHottieProposal
+  onDismissHottieProposal,
+  onPreview
 } = {}) {
   const el = document.createElement("article");
   el.className = "lv-feed-entry";
@@ -647,9 +648,10 @@ export function renderFeedEntry(entry, {
     if (proposal?.live && onRemoveAsset) {
       actionRow.appendChild(feedButton("REMOVE", () => onRemoveAsset(entry.id)));
     } else if (proposal?.requiresApproval) {
+      if (onPreview) actionRow.appendChild(feedButton("PREVIEW", () => onPreview(entry.id)));
       if (onTakeLive) actionRow.appendChild(feedButton("TAKE LIVE", () => onTakeLive(entry.id), true));
       if (onFindAnother) actionRow.appendChild(feedButton("FIND ANOTHER", () => onFindAnother(entry.id)));
-      if (onDiscardProposal) actionRow.appendChild(feedButton("DISCARD", () => onDiscardProposal(entry.id)));
+      if (onDiscardProposal) actionRow.appendChild(feedButton("DISMISS", () => onDiscardProposal(entry.id)));
     } else if (onRetryResearch && (entry.retryDirectiveId || proposal?.exhausted)) {
       actionRow.appendChild(feedButton("TRY AGAIN", () => onRetryResearch(entry.id)));
     }

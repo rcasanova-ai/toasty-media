@@ -551,6 +551,87 @@
   }
 }
 
+.lv-ask-hottie {
+  cursor: pointer;
+}
+
+.lv-host-hottie-note {
+  color: var(--studio-cream-dim);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  margin: 0.35rem 0 0.75rem;
+}
+
+.lv-ask-hottie-form {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.65rem 0;
+}
+
+.lv-ask-hottie-form input {
+  flex: 1;
+  min-width: 0;
+}
+
+.lv-hottie-preview {
+  background: color-mix(in srgb, var(--studio-surface-2) 80%, transparent);
+  border: 1px solid var(--studio-line);
+  border-radius: 12px;
+  margin-bottom: 0.75rem;
+  padding: 0.7rem;
+}
+
+.lv-hottie-queues {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.lv-hottie-queue h3 {
+  color: var(--studio-muted);
+  font-family: var(--font-heading);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  margin: 0 0 0.35rem;
+  text-transform: uppercase;
+}
+
+.lv-transcript-current {
+  color: var(--studio-cream);
+  font-size: 0.85rem;
+  margin: 0.4rem 0;
+}
+
+.lv-transcript-list {
+  display: grid;
+  gap: 0.35rem;
+  max-height: 22rem;
+  overflow: auto;
+}
+
+.lv-transcript-line {
+  color: var(--studio-cream-dim);
+  font-size: 0.78rem;
+  margin: 0;
+}
+
+.lv-transcript-line time {
+  color: var(--studio-muted);
+  font-variant-numeric: tabular-nums;
+  margin-right: 0.35rem;
+}
+
+.lv-hottie-status[data-state="searching"],
+.lv-hottie-status[data-state="heard"],
+#lvHostHottieStatus[data-state="searching"],
+#lvHostHottieStatus[data-state="heard"] {
+  color: var(--studio-orange-bright);
+}
+
+.lv-hottie-status[data-state="error"],
+#lvHostHottieStatus[data-state="error"] {
+  color: var(--studio-red, #c45c5c);
+}
+
 /* Thai/regional atmosphere stays token-driven. Non-Thai brands must not pick up Superteam art. */
 .studio-shell[data-brand-theme="8alta"] .studio-chassis .lv-program-preview,
 .program-output[data-brand-theme="8alta"] .po-stage {

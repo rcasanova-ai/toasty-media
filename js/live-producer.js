@@ -9,7 +9,7 @@
 // is NOT executed here — ProgramController is the only path onto Program Output.
 
 import { ProducerEntryType } from "./ai-producer.js";
-import { detectHostDirective, DirectiveIntent, DirectiveStatus, HottieStatus, productionActionFromDirective } from "./host-directive.js";
+import { detectHostDirective, detectImplicitProductionCue, DirectiveIntent, DirectiveStatus, HottieStatus, productionActionFromDirective, ensureAddressedText } from "./host-directive.js";
 import { attributeTranscriptLine } from "./show-context.js";
 import { programAssetFromCandidate, ProgramAssetStatus, serializeProgramAsset } from "./program-asset.js";
 import { ProductionActionType } from "./production-controller.js";
@@ -17,6 +17,11 @@ import { ProgramLayout } from "./program-composition.js";
 import { createResearchProvider } from "./hottie-research.js";
 import { resolveSoundCommand } from "./soundboard.js";
 import { ProductionEventType } from "./production-timeline.js";
+import { ActionRiskLevel, HottieIntent, HottieActionBus, ProductionActionStatus, createProductionAction } from "./hottie-action.js";
+import { resolveReferences, recallTranscript } from "./hottie-context.js";
+import { createHottieVoicePlan, shouldSpeakOnProgram } from "./hottie-voice.js";
+import { createMomentMarker } from "./program-recording.js";
+import { clusterAudienceQuestions } from "./audience-message.js";
 
 export const ProducerEventType = Object.freeze({
   HOST_DIRECTIVE: "host_directive",
@@ -54,6 +59,10 @@ export class LiveProducerController {
     this._researchJobs = new Map();
     this._inflight = Promise.resolve();
     this.status = HottieStatus.LISTENING;
+    this.actions = new HottieActionBus();
+    this.momentMarkers = [];
+    this.hostCue = { state: HottieStatus.LISTENING, note: "Hottie is listening." };
+    this.voicePlan = createHottieVoicePlan();
   }
 
   onEvent(callback) {
@@ -69,26 +78,37 @@ export class LiveProducerController {
     this._notified.clear();
     this._sinceCheckpoint = 0;
     this._researchJobs.clear();
+    this.actions.clear();
+    this.momentMarkers = [];
+    this.setStatus(HottieStatus.LISTENING, { label: "LISTENING" }, "Hottie is listening.");
   }
 
   observe(line) {
+    try {
+      this._observeUnsafe(line);
+    } catch (error) {
+      console.error("[Hottie] observe failed open", error);
+      this.setStatus(HottieStatus.ERROR, { label: "ERROR" }, "Hottie hit an error. The show continues.");
+    }
+  }
+
+  _observeUnsafe(line) {
     if (!line?.text) return;
     if (!this.session.policy.canAiProcess()) return;
+
+    const implicit = detectImplicitProductionCue(line);
+    if (implicit) {
+      this._pushSuggestion(implicit);
+      this._sinceCheckpoint += 1;
+      if (this._sinceCheckpoint >= CHECKPOINT_EVERY) this.checkpoint();
+      return;
+    }
 
     const directive = detectHostDirective(line, {
       participants: this.session.participants?.list?.() || []
     });
     if (directive) {
-      this.session.hostDirectives?.push(directive);
-      this.session.showMemory?.rememberDirective(directive);
-      this._emit({ type: ProducerEventType.HOST_DIRECTIVE, directive, line });
-      if (directive.intent === DirectiveIntent.FIND) {
-        this.setStatus(HottieStatus.RESEARCHING, { label: "FIND", query: directive.payload?.query });
-        this._inflight = this.runFindDirective(directive);
-        void this._inflight;
-      } else {
-        this._handleProductionDirective(directive);
-      }
+      this._dispatchDirective(directive, line);
       this._sinceCheckpoint += 1;
       if (this._sinceCheckpoint >= CHECKPOINT_EVERY) this.checkpoint();
       return;
@@ -116,6 +136,352 @@ export class LiveProducerController {
     await this._inflight;
   }
 
+  async handleManualRequest(text) {
+    const addressed = ensureAddressedText(text);
+    if (!addressed) return null;
+    const line = {
+      participantId: "host",
+      role: "host",
+      speaker: this.session.hostProfile?.displayName || this.session.participants?.list?.()?.find((p) => p.role === "host")?.displayName || "Host",
+      text: addressed,
+      timestamp: Date.now(),
+      source: "typed"
+    };
+    ingestAttributedTranscript(this.session, line);
+    await this.ready();
+    return this.actions.now() || this.actions.items[0] || null;
+  }
+
+  _dispatchDirective(directive, line) {
+    this.session.hostDirectives?.push(directive);
+    this.session.showMemory?.rememberDirective(directive);
+    this._emit({ type: ProducerEventType.HOST_DIRECTIVE, directive, line });
+    this.setStatus(HottieStatus.HEARD, { label: "HEARD COMMAND", query: directive.payload?.query }, hostHeardNote(directive));
+    const action = this.actions.push(createProductionAction({
+      sessionId: this.session.roomId || this.session.sessionId || null,
+      intent: directive.hottieIntent,
+      payload: directive.payload,
+      requestedBy: directive.speaker || "host",
+      heardText: directive.rawText,
+      riskLevel: directive.riskLevel,
+      status: ProductionActionStatus.RECEIVED
+    }));
+    directive.actionId = action.id;
+    this.session.showMemory?.rememberProductionAction(action);
+    this.session.timeline?.record?.(ProductionEventType.HOTTIE_ACTION, {
+      actionId: action.id,
+      intent: action.intent,
+      riskLevel: action.riskLevel,
+      heardText: directive.rawText
+    });
+
+    const shouldResolve = directive.intent === DirectiveIntent.FIND
+      || directive.intent === DirectiveIntent.RECALL
+      || directive.intent === DirectiveIntent.FACT_CHECK;
+    if (shouldResolve) {
+      const resolution = resolveReferences(directive.payload?.query || directive.rawText, this.session.showMemory?.resolverContext(this.session) || {});
+      if (resolution.needsClarification) {
+        this.actions.setStatus(action.id, ProductionActionStatus.FAILED, { preview: { clarification: resolution.clarification } });
+        this._pushFeed({
+          type: ProducerEntryType.DIRECTIVE,
+          title: "Needs clarification",
+          instruction: directive.rawText,
+          summary: resolution.clarification,
+          actionId: action.id,
+          bucket: "now"
+        });
+        this.setStatus(HottieStatus.NEEDS_CLARIFICATION, { label: "NEEDS CLARIFICATION" }, resolution.clarification);
+        return;
+      }
+      if (resolution.referents?.[0]?.label && /\b(that|this|it)\b/i.test(directive.payload?.query || "")) {
+        directive.payload = { ...directive.payload, query: resolution.resolvedQuery, resolvedFrom: resolution.referents[0].label };
+        this.actions.update(action.id, { payload: directive.payload });
+      }
+    }
+
+    this.actions.setStatus(action.id, ProductionActionStatus.PROCESSING);
+    this.voicePlan = createHottieVoicePlan({
+      mode: shouldSpeakOnProgram(directive.rawText) ? "PROGRAM_AUDIO" : "TEXT_ONLY",
+      text: "",
+      requestedBy: directive.speaker
+    });
+
+    if (directive.riskLevel === ActionRiskLevel.RED) {
+      this._queueRedAction(directive, action);
+      return;
+    }
+
+    if (directive.intent === DirectiveIntent.FIND || directive.hottieIntent === HottieIntent.SEARCH_WEB || directive.hottieIntent === HottieIntent.SEARCH_IMAGE || directive.hottieIntent === HottieIntent.SHOW_URL || directive.hottieIntent === HottieIntent.SHOW_IMAGE) {
+      this.setStatus(HottieStatus.SEARCHING, { label: "SEARCHING", query: directive.payload?.query }, "Hottie is searching…");
+      this._inflight = this.runFindDirective(directive, { actionId: action.id });
+      void this._inflight;
+      return;
+    }
+    if (directive.intent === DirectiveIntent.FACT_CHECK) {
+      this.setStatus(HottieStatus.SEARCHING, { label: "SEARCHING" }, "Checking that quietly…");
+      this._inflight = this.runFactCheck(directive, action);
+      void this._inflight;
+      return;
+    }
+    if (directive.intent === DirectiveIntent.RECALL) {
+      this.runRecall(directive, action);
+      return;
+    }
+    if (directive.intent === DirectiveIntent.CLIP || directive.intent === DirectiveIntent.MARK) {
+      this.runMomentMarker(directive, action);
+      return;
+    }
+    if (directive.intent === DirectiveIntent.AUDIENCE || directive.hottieIntent === HottieIntent.READ_CHAT) {
+      this.runReadChat(directive, action);
+      return;
+    }
+    if (directive.intent === DirectiveIntent.RESPOND_CHAT) {
+      this._queueAmberChatReply(directive, action);
+      return;
+    }
+    if (directive.intent === DirectiveIntent.CHANGE_SCENE) {
+      this._queueSceneChange(directive, action);
+      return;
+    }
+    this._handleProductionDirective(directive, action);
+  }
+
+  _queueRedAction(directive, action) {
+    this.actions.setStatus(action.id, ProductionActionStatus.AWAITING_APPROVAL);
+    this._pushFeed({
+      type: ProducerEntryType.PRODUCTION_SUGGESTION,
+      title: "Needs confirmation",
+      instruction: directive.rawText,
+      summary: "This would change recording, destinations, or end the show. Confirm explicitly.",
+      proposal: {
+        type: directive.hottieIntent,
+        action: { type: directive.hottieIntent, ...directive.payload },
+        requiresApproval: true,
+        riskLevel: ActionRiskLevel.RED
+      },
+      actionId: action.id,
+      bucket: "ready"
+    });
+    this.setStatus(HottieStatus.AWAITING_APPROVAL, { label: "WAITING FOR APPROVAL" }, "Waiting for confirmation. The show continues.");
+  }
+
+  _queueSceneChange(directive, action) {
+    const scene = directive.payload?.scene;
+    if (!scene) {
+      this.actions.setStatus(action.id, ProductionActionStatus.FAILED);
+      this._pushFeed({
+        type: ProducerEntryType.ERROR,
+        title: "Couldn't resolve scene",
+        instruction: directive.rawText,
+        summary: "Say BRB, Starting Soon, Live, Ending, or Technical Difficulties.",
+        actionId: action.id
+      });
+      this.setStatus(HottieStatus.NEEDS_CLARIFICATION, { label: "NEEDS CLARIFICATION" }, "Which scene?");
+      return;
+    }
+    this.actions.setStatus(action.id, ProductionActionStatus.AWAITING_APPROVAL, { payload: { ...action.payload, scene } });
+    this._pushFeed({
+      type: ProducerEntryType.PRODUCTION_SUGGESTION,
+      title: "Scene change ready",
+      instruction: directive.rawText,
+      summary: `Change Program scene to ${scene}.`,
+      proposal: {
+        type: "SET_SCENE",
+        action: { type: "SET_SCENE", scene },
+        requiresApproval: true,
+        riskLevel: ActionRiskLevel.AMBER
+      },
+      actionId: action.id,
+      bucket: "ready"
+    });
+    this.setStatus(HottieStatus.AWAITING_APPROVAL, { label: "WAITING FOR APPROVAL", query: scene }, "Scene change is ready for Producer approval.");
+  }
+
+  _queueAmberChatReply(directive, action) {
+    this.actions.setStatus(action.id, ProductionActionStatus.AWAITING_APPROVAL);
+    this._pushFeed({
+      type: ProducerEntryType.PRODUCTION_SUGGESTION,
+      title: "Draft chat reply",
+      instruction: directive.rawText,
+      summary: "Hottie will not post to public chat until you approve.",
+      proposal: {
+        type: ProductionActionType.POST_CHAT,
+        action: { type: ProductionActionType.POST_CHAT, text: directive.payload?.query || "" },
+        requiresApproval: true,
+        riskLevel: ActionRiskLevel.AMBER
+      },
+      actionId: action.id,
+      bucket: "ready"
+    });
+    this.setStatus(HottieStatus.AWAITING_APPROVAL, { label: "WAITING FOR APPROVAL" }, "Chat reply needs Producer approval.");
+  }
+
+  _pushSuggestion(cue) {
+    this._pushFeed({
+      type: ProducerEntryType.PRODUCTION_SUGGESTION,
+      title: "Suggestion",
+      instruction: cue.rawText,
+      summary: "Possible producer request — not executed.",
+      proposal: {
+        type: cue.hottieIntent,
+        action: { type: cue.hottieIntent, ...cue.payload },
+        requiresApproval: true,
+        implicit: true
+      },
+      bucket: "suggestions"
+    });
+  }
+
+  runRecall(directive, action) {
+    const hits = recallTranscript(this.session.transcript?.lines || [], {
+      speakerName: directive.payload?.speakerName,
+      topic: directive.payload?.topic,
+      query: directive.payload?.query
+    });
+    if (!hits.length) {
+      this.actions.setStatus(action.id, ProductionActionStatus.FAILED);
+      this._pushFeed({
+        type: ProducerEntryType.CONTEXT,
+        title: "Recall",
+        instruction: directive.rawText,
+        summary: "I couldn't find that in this session's transcript.",
+        actionId: action.id
+      });
+      this.setStatus(HottieStatus.DONE, { label: "DONE" }, "Couldn't find that in the session transcript.");
+      return;
+    }
+    const summary = hits.map((line) => `${line.speaker}: ${line.text}`).join(" ");
+    this.actions.setStatus(action.id, ProductionActionStatus.COMPLETED, {
+      preview: { hits: hits.map((line) => ({ speaker: line.speaker, text: line.text, timestamp: line.timestamp })) }
+    });
+    this._pushFeed({
+      type: ProducerEntryType.CONTEXT,
+      title: "From earlier",
+      instruction: directive.rawText,
+      summary: summary.slice(0, 280),
+      items: hits.map((line) => ({ from: line.speaker, text: line.text })),
+      actionId: action.id,
+      bucket: "ready"
+    });
+    this.setStatus(HottieStatus.DONE, { label: "DONE" }, summary.slice(0, 140));
+  }
+
+  runMomentMarker(directive, action) {
+    const marker = createMomentMarker({
+      sessionId: this.session.roomId || null,
+      timestamp: Date.now(),
+      preRollSeconds: directive.payload?.preRollSeconds || 45,
+      postRollSeconds: directive.payload?.postRollSeconds || 15,
+      reason: directive.payload?.reason || directive.rawText,
+      transcriptContext: (this.session.transcript?.recent?.(6) || []).map((line) => ({
+        speaker: line.speaker,
+        text: line.text,
+        timestamp: line.timestamp
+      }))
+    });
+    this.momentMarkers.push(marker);
+    this.session.markers?.add(marker);
+    this.session.timeline?.record?.(ProductionEventType.MARKER_ADDED, {
+      markerId: marker.id,
+      markerType: marker.type,
+      label: marker.reason,
+      source: "hottie"
+    });
+    this.session.productionLog?.record?.(ProductionActionType.MARKER, {
+      markerId: marker.id,
+      kind: "moment-marker",
+      preRollSeconds: marker.preRollSeconds
+    });
+    this.actions.setStatus(action.id, ProductionActionStatus.COMPLETED, { preview: marker });
+    this._pushFeed({
+      type: ProducerEntryType.CONTEXT,
+      title: "Moment marked",
+      instruction: directive.rawText,
+      summary: `Marked the last ${marker.preRollSeconds}s for later clip extraction.`,
+      items: [{ text: `pre ${marker.preRollSeconds}s · post ${marker.postRollSeconds}s` }],
+      actionId: action.id,
+      bucket: "history"
+    });
+    this.setStatus(HottieStatus.DONE, { label: "DONE" }, "Marked that moment.");
+  }
+
+  runReadChat(directive, action) {
+    const audience = this.session.audience?.recent?.(40) || [];
+    const clusters = clusterAudienceQuestions(audience.map((item) => ({
+      id: item.id,
+      text: item.message,
+      kind: item.type,
+      author: item.displayName
+    })));
+    const top = clusters[0];
+    this.actions.setStatus(action.id, ProductionActionStatus.COMPLETED, { preview: { clusters } });
+    this._pushFeed({
+      type: ProducerEntryType.AUDIENCE_QUESTIONS,
+      title: "Chat",
+      instruction: directive.rawText,
+      summary: top ? `${top.count} viewers asked about ${top.theme}.` : "No clustered audience questions yet.",
+      items: (top?.messages || []).slice(0, 3).map((item) => ({ from: item.author, text: item.text })),
+      actionId: action.id,
+      bucket: "suggestions"
+    });
+    this.setStatus(HottieStatus.DONE, { label: "DONE" }, top ? `Chat: ${top.theme}` : "No useful chat cluster yet.");
+  }
+
+  async runFactCheck(directive, action) {
+    const query = directive.payload?.claim || directive.payload?.query;
+    this.actions.setStatus(action.id, ProductionActionStatus.PROCESSING);
+    try {
+      const provider = this.session.researchProvider || createResearchProvider({ preferSeeded: this.session.demoMode });
+      const candidates = (await provider.search(query)).filter(Boolean);
+      if (!candidates.length) {
+        this.actions.setStatus(action.id, ProductionActionStatus.FAILED);
+        this._pushFeed({
+          type: ProducerEntryType.RESEARCH,
+          title: "Fact check",
+          instruction: directive.rawText,
+          summary: "Couldn't find a reliable source.",
+          actionId: action.id
+        });
+        this.setStatus(HottieStatus.ERROR, { label: "ERROR" }, "Couldn't find a reliable source.");
+        return null;
+      }
+      const top = candidates[0];
+      this.session.showMemory?.rememberResearch({
+        query,
+        title: top.title,
+        sourceUrl: top.sourceUrl,
+        timestamp: Date.now()
+      });
+      this.actions.setStatus(action.id, ProductionActionStatus.COMPLETED, {
+        preview: { title: top.title, sourceUrl: top.sourceUrl, excerpt: top.excerpt, sources: candidates.slice(0, 3) }
+      });
+      this.actions.recordProvenance(action.id, { sources: candidates.slice(0, 3).map((item) => item.sourceUrl) });
+      this._pushFeed({
+        type: ProducerEntryType.RESEARCH,
+        title: "Fact check",
+        instruction: directive.rawText,
+        summary: top.excerpt || top.title,
+        items: candidates.slice(0, 3).map((item) => ({ text: `${item.sourceName}: ${item.title}` })),
+        sources: candidates.slice(0, 3).map((item) => item.sourceUrl),
+        actionId: action.id,
+        bucket: "ready"
+      });
+      this.setStatus(HottieStatus.DONE, { label: "DONE" }, "Fact check is private — say it yourself if you want it on air.");
+      return candidates;
+    } catch (_) {
+      this.actions.setStatus(action.id, ProductionActionStatus.FAILED);
+      this._pushFeed({
+        type: ProducerEntryType.ERROR,
+        title: "Fact check",
+        instruction: directive.rawText,
+        summary: "Search unavailable.",
+        actionId: action.id
+      });
+      this.setStatus(HottieStatus.ERROR, { label: "ERROR" }, "Search unavailable.");
+      return null;
+    }
+  }
+
   onShowAgendaChanged() {
     if (!this.session.policy.canAiProcess()) return;
     const topic = this.session.runOfShow?.current();
@@ -138,14 +504,14 @@ export class LiveProducerController {
     this.session.proposeHottieLoop?.();
   }
 
-  async runFindDirective(directive, { feedEntryId = null } = {}) {
+  async runFindDirective(directive, { feedEntryId = null, actionId = null } = {}) {
     if (!this.session.policy.canAiProcess()) return null;
     const query = directive.payload?.query || directive.rawText;
     this.session.productionLog?.record(ProductionActionType.RESEARCH_REQUEST, {
       directiveId: directive.id,
       query
     });
-    this.setStatus(HottieStatus.RESEARCHING, { label: "FIND", query });
+    this.setStatus(HottieStatus.SEARCHING, { label: "SEARCHING", query }, "Hottie is searching…");
     const working = feedEntryId
       ? this.session.aiProducerFeed.replace(feedEntryId, {
         type: ProducerEntryType.WORKING,
@@ -165,12 +531,12 @@ export class LiveProducerController {
       const provider = this.session.researchProvider || createResearchProvider({ preferSeeded: this.session.demoMode });
       const candidates = (await provider.search(query)).filter(Boolean);
       if (!candidates.length) {
-        this._failResearch(entryId, directive, query);
+        this._failResearch(entryId, directive, query, actionId || directive.actionId);
         return null;
       }
-      return this._proposeCandidate({ directive, query, candidates, index: 0, feedEntryId: entryId });
+      return this._proposeCandidate({ directive, query, candidates, index: 0, feedEntryId: entryId, actionId: actionId || directive.actionId });
     } catch (_) {
-      this._failResearch(entryId, directive, query);
+      this._failResearch(entryId, directive, query, actionId || directive.actionId);
       return null;
     }
   }
@@ -209,6 +575,7 @@ export class LiveProducerController {
     });
     this.session.aiProducerFeed.dismiss(feedEntryId);
     if (job) this._researchJobs.delete(job.directive.id);
+    if (job?.directive?.actionId) this.actions.setStatus(job.directive.actionId, ProductionActionStatus.REJECTED);
     return { ok: true };
   }
 
@@ -221,21 +588,38 @@ export class LiveProducerController {
       layout: job.suggestedLayout
     });
     if (result?.ok) {
-      this.setStatus(HottieStatus.ON_AIR, { label: "TAKE LIVE", title: serializeProgramAsset(this.session.assets.get(job.assetId))?.title });
+      const liveAsset = serializeProgramAsset(this.session.assets.get(job.assetId));
+      this.session.showMemory?.rememberAsset(liveAsset);
+      if (job.directive?.actionId) {
+        this.actions.setStatus(job.directive.actionId, ProductionActionStatus.LIVE, { preview: liveAsset });
+        this.actions.recordProvenance(job.directive.actionId, {
+          approval: { by: "producer", at: Date.now() },
+          assetSelected: liveAsset?.id,
+          result: "live"
+        });
+      }
+      const outputConnected = this.session.programOutput?.connection === "connected" || this.session.programOutput?.connected;
+      this.setStatus(
+        HottieStatus.TAKING_LIVE,
+        { label: "TAKING LIVE", title: liveAsset?.title },
+        outputConnected ? "Taking it live." : "Program Output isn't connected. Preview is ready."
+      );
       this.session.aiProducerFeed.replace(feedEntryId, {
         type: ProducerEntryType.ASSET_PROPOSAL,
         title: "On Program",
         instruction: job.directive.rawText,
-        summary: serializeProgramAsset(this.session.assets.get(job.assetId))?.title,
+        summary: liveAsset?.title,
         proposal: {
           type: "PROGRAM_ASSET_PROPOSAL",
-          asset: serializeProgramAsset(this.session.assets.get(job.assetId)),
+          asset: liveAsset,
           suggestedLayout: job.suggestedLayout,
           requiresApproval: false,
           live: true
         },
-        liveAssetId: job.assetId
+        liveAssetId: job.assetId,
+        bucket: "history"
       });
+      this.setStatus(HottieStatus.DONE, { label: "DONE", title: liveAsset?.title }, "It's on Program.");
     }
     return result;
   }
@@ -259,8 +643,17 @@ export class LiveProducerController {
       return { ok: false, reason: "missing-proposal" };
     }
     this.session.aiProducerFeed.replace(feedEntryId, { proposal: { ...entry.proposal, doing: true } });
-    const result = this.session.programController?.execute(action);
+    let result;
+    if (action.type === "SET_SCENE" && this.session.setScene) {
+      this.session.setScene(action.scene);
+      result = { ok: true, scene: action.scene };
+    } else if (entry.proposal?.riskLevel === ActionRiskLevel.RED) {
+      result = { ok: false, reason: "red-requires-explicit-studio-control" };
+    } else {
+      result = this.session.programController?.execute(action);
+    }
     if (result?.ok) {
+      if (entry.actionId) this.actions.setStatus(entry.actionId, ProductionActionStatus.COMPLETED);
       this.session.productionLog?.record(action.type, { feedEntryId, approved: true });
       this.session.timeline?.record?.(ProductionEventType.HOTTIE_ACTION, {
         feedEntryId,
@@ -296,10 +689,10 @@ export class LiveProducerController {
     return this.runFindDirective(directive, { feedEntryId });
   }
 
-  _proposeCandidate({ directive, query, candidates, index, feedEntryId }) {
+  _proposeCandidate({ directive, query, candidates, index, feedEntryId, actionId = null }) {
     const candidate = candidates[index];
     if (!candidate) {
-      this._failResearch(feedEntryId, directive, query);
+      this._failResearch(feedEntryId, directive, query, actionId);
       return null;
     }
     const asset = this.session.assets.add(programAssetFromCandidate(candidate, {
@@ -326,7 +719,8 @@ export class LiveProducerController {
       index,
       feedEntryId,
       assetId: asset.id,
-      suggestedLayout
+      suggestedLayout,
+      actionId: actionId || directive.actionId || null
     });
     if (directive.status) directive.status = DirectiveStatus.QUEUED;
     this.session.productionLog?.record(ProductionActionType.ASSET_PROPOSAL, {
@@ -341,18 +735,36 @@ export class LiveProducerController {
     });
     this.session.aiProducerFeed.replace(feedEntryId, {
       type: ProducerEntryType.ASSET_PROPOSAL,
-      title: "I found this",
+      title: "Hottie found",
       instruction: directive.rawText,
       summary: asset.title,
       proposal,
-      items: [{ text: `${asset.sourceName} · ${asset.provenance.domain}` }]
+      items: [
+        { text: `${asset.sourceName} · ${asset.provenance.domain}` },
+        asset.excerpt ? { text: asset.excerpt } : null
+      ].filter(Boolean),
+      bucket: "ready",
+      actionId: actionId || directive.actionId || null
     });
     this._emit({ type: ProducerEventType.ASSET_PROPOSED, proposal, directive });
-    this.setStatus(HottieStatus.FOUND, { label: "FOUND", title: asset.title });
+    const foundLabel = candidates.length > 1 ? `FOUND ${candidates.length} RESULTS` : "FOUND";
+    if (actionId || directive.actionId) {
+      this.actions.setStatus(actionId || directive.actionId, ProductionActionStatus.AWAITING_APPROVAL, {
+        preview: serializeProgramAsset(asset)
+      });
+      this.actions.recordProvenance(actionId || directive.actionId, { sources: candidates.map((item) => item.sourceUrl) });
+    }
+    this.session.showMemory?.rememberResearch({
+      query,
+      title: asset.title,
+      sourceUrl: asset.sourceUrl,
+      timestamp: Date.now()
+    });
+    this.setStatus(HottieStatus.AWAITING_APPROVAL, { label: foundLabel, title: asset.title }, "Found it. Producer has the preview.");
     return proposal;
   }
 
-  _failResearch(feedEntryId, directive, query) {
+  _failResearch(feedEntryId, directive, query, actionId = null) {
     if (directive) {
       this._researchJobs.set(directive.id, {
         directive,
@@ -372,6 +784,8 @@ export class LiveProducerController {
       items: [{ text: query }],
       retryDirectiveId: directive?.id
     });
+    if (actionId || directive?.actionId) this.actions.setStatus(actionId || directive.actionId, ProductionActionStatus.FAILED);
+    this.setStatus(HottieStatus.ERROR, { label: "ERROR" }, "Couldn't find a reliable source.");
   }
 
   _noticeQuietParticipants() {
@@ -464,19 +878,25 @@ export class LiveProducerController {
     });
   }
 
-  setStatus(state, proposal = null) {
-    this.status = Object.values(HottieStatus).includes(state) ? state : HottieStatus.LISTENING;
+  setStatus(state, proposal = null, hostNote = null) {
+    const allowed = new Set(Object.values(HottieStatus));
+    this.status = allowed.has(state) ? state : HottieStatus.LISTENING;
     this.proposal = proposal;
-    this.session.hottieStatus = { state: this.status, proposal };
+    this.hostCue = {
+      state: this.status,
+      note: hostNote || hostNoteFromStatus(this.status, proposal)
+    };
+    this.session.hottieStatus = { state: this.status, proposal, hostCue: this.hostCue };
     this.session.emit?.("hottie", this.session.hottieStatus);
   }
 
-  _handleProductionDirective(directive) {
-    this.setStatus(HottieStatus.THINKING, { label: intentFeedLabel(directive.intent), query: directive.payload?.query });
+  _handleProductionDirective(directive, busAction = null) {
+    this.setStatus(HottieStatus.HEARD, { label: intentFeedLabel(directive.intent), query: directive.payload?.query }, hostHeardNote(directive));
     const action = productionActionFromDirective(directive);
     if (!action) {
       this._pushDirective(directive);
-      this.setStatus(HottieStatus.LISTENING);
+      if (busAction) this.actions.setStatus(busAction.id, ProductionActionStatus.COMPLETED);
+      this.setStatus(HottieStatus.DONE, { label: "DONE" }, "Heard that. Nothing to put on Program.");
       return;
     }
     if (action.type === ProductionActionType.PLAY_AUDIO) {
@@ -492,7 +912,7 @@ export class LiveProducerController {
             : "I don’t have a catalogue cue that matches that.",
           items: [{ text: action.query || directive.rawText }]
         });
-        this.setStatus(HottieStatus.READY, { label: "SOUND", query: action.query });
+        this.setStatus(HottieStatus.READY, { label: "SOUND", query: action.query }, "Couldn't play that cue.");
         return;
       }
       action.assetId = cue.id;
@@ -503,6 +923,9 @@ export class LiveProducerController {
     }
     const result = this.session.programController?.execute({ ...action, initiator: "host" });
     const summary = productionSummary(action, result);
+    if (busAction) {
+      this.actions.setStatus(busAction.id, result?.ok ? ProductionActionStatus.COMPLETED : ProductionActionStatus.FAILED);
+    }
     this._pushFeed({
       type: ProducerEntryType.PRODUCTION_SUGGESTION,
       title: summary.title,
@@ -511,10 +934,10 @@ export class LiveProducerController {
       proposal: { type: action.type, ...action, result },
       items: [{ text: `${action.type} executed by ProgramController.` }]
     });
-    this.setStatus(result?.ok === false ? HottieStatus.READY : HottieStatus.ON_AIR, {
+    this.setStatus(result?.ok === false ? HottieStatus.READY : HottieStatus.DONE, {
       label: action.type,
       query: directive.payload?.query
-    });
+    }, summary.line);
     if (directive.status) directive.status = result?.ok === false ? DirectiveStatus.RECOGNIZED : DirectiveStatus.COMPLETED;
   }
 
@@ -555,6 +978,23 @@ function productionSummary(action, result) {
   if (action.type === ProductionActionType.TAKE_ASSET) return { title: "TAKE LIVE", line: result?.ok ? "Asset is on Program." : "No approved asset to take live." };
   if (action.type === ProductionActionType.REMOVE_ASSET) return { title: "REMOVE ASSET", line: result?.ok ? "Asset removed from Program." : "Nothing live to remove." };
   return { title: action.type, line: result?.ok ? "Executed." : result?.reason || "Not executed." };
+}
+
+function hostHeardNote(directive) {
+  const query = directive?.payload?.query;
+  return query ? `Heard: ${query}` : "Heard command.";
+}
+
+function hostNoteFromStatus(state, proposal) {
+  if (state === HottieStatus.LISTENING) return "Hottie is listening.";
+  if (state === HottieStatus.HEARD) return "Heard command.";
+  if (state === HottieStatus.SEARCHING || state === HottieStatus.RESEARCHING) return "Hottie is searching…";
+  if (state === HottieStatus.FOUND) return "Found it. Producer has the preview.";
+  if (state === HottieStatus.AWAITING_APPROVAL) return "Found it. Producer has the preview.";
+  if (state === HottieStatus.NEEDS_CLARIFICATION) return "Couldn't identify which one you meant.";
+  if (state === HottieStatus.ERROR) return "Couldn't complete that. The show continues.";
+  if (state === HottieStatus.DONE) return proposal?.title ? `Done · ${proposal.title}` : "Done.";
+  return proposal?.label || "Hottie is listening.";
 }
 
 function tokenize(text) {

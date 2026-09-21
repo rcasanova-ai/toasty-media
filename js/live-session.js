@@ -354,7 +354,13 @@ export class LiveSession {
   }
 
   sendToProducer(instructionText, options) {
-    return this.aiProducerService.handleInstruction(instructionText, options);
+    try {
+      return this.liveProducer.handleManualRequest(instructionText, options);
+    } catch (error) {
+      console.error("[Hottie] request failed open", error);
+      this.liveProducer.setStatus("error", { label: "ERROR" }, "Couldn't complete that. The show continues.");
+      return null;
+    }
   }
 
   // ---- Transcription (policy-gated) ----
