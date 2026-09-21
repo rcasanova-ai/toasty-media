@@ -9,6 +9,7 @@ import {
   duplicateSessionConfig,
   emptyHomeOverlay,
   isTerminalSession,
+  isLiveNowSession,
   mapSessionLifecycle,
   moveSessionToCollection,
   organizeStudioHome,
@@ -39,21 +40,42 @@ console.log("Lifecycle mapping");
   assert(isTerminalSession(ended), "ENDED is terminal");
   assert(!canOpenLiveStudio(ended), "ended cannot open live studio");
   assert(canOpenLiveStudio(live), "active can open live studio");
-  assertEqual(primaryHomeAction(live), StudioHomeAction.OPEN_STUDIO, "active primary is Open Studio");
+  assertEqual(primaryHomeAction(live), StudioHomeAction.RESUME_LIVE_SESSION, "active primary is Resume Live Session");
+  assertEqual(primaryHomeAction(draft), StudioHomeAction.OPEN_STUDIO, "draft primary is Open Studio");
   assertEqual(primaryHomeAction(ended), StudioHomeAction.VIEW_SESSION, "ended primary is View Session");
+  assert(isLiveNowSession(live), "LIVE status is LIVE NOW");
+  assert(isLiveNowSession({ ...live, status: "ACTIVE" }), "ACTIVE status is LIVE NOW");
+  assert(isLiveNowSession({ ...draft, startedAt: "2026-09-21T08:00:00Z" }), "OPEN with startedAt is LIVE NOW");
+  assert(!isLiveNowSession(draft), "DRAFT is not LIVE NOW");
+  assert(!isLiveNowSession(ended), "ENDED is not LIVE NOW");
+  assert(!isLiveNowSession({ ...draft, lastActiveAt: "2026-09-21T12:00:00Z" }), "recency does not make a draft LIVE NOW");
+  const archivedOverlay = { ...emptyHomeOverlay(), archived: { ls_live: true } };
+  assert(!isLiveNowSession(live, archivedOverlay), "ARCHIVED is not LIVE NOW");
 }
 
 console.log("Home organization");
 {
   const home = organizeStudioHome([live, draft, ended], emptyHomeOverlay());
+  assert(home.liveNow.some((item) => item.session.id === "ls_live"), "LIVE NOW contains live session");
+  assert(!home.liveNow.some((item) => item.session.id === "ls_draft"), "draft is not in LIVE NOW");
+  assert(!home.liveNow.some((item) => item.session.id === "ls_ended"), "ended is not in LIVE NOW");
   assert(home.active.some((item) => item.session.id === "ls_live"), "active contains live session");
   assert(!home.active.some((item) => item.session.id === "ls_ended"), "ended is not in Active");
+  assert(!home.recent.some((item) => item.session.id === "ls_live"), "live session is not duplicated in Recent");
+  assert(home.recent.length <= 3, "Recent still respects Rule of 3");
   assert(home.collections.find((item) => item.id === "shows").items.length >= 1, "unassigned sessions land in Shows");
   assert(home.collections.find((item) => item.id === "archive").hidden, "empty Archive is hidden by default");
   const archived = moveSessionToCollection(emptyHomeOverlay(), ended.id, "archive");
   const after = organizeStudioHome([live, ended], archived);
   assertEqual(after.items.find((item) => item.session.id === ended.id).lifecycle, StudioLifecycle.ARCHIVED, "moved to archive");
   assertEqual(primaryHomeAction(ended, archived), StudioHomeAction.VIEW_SESSION, "archived ended still views");
+  const scheduledOverlay = { ...emptyHomeOverlay(), scheduledAt: { ls_live: "2099-01-01T00:00:00Z" } };
+  assert(!isLiveNowSession(live, scheduledOverlay, Date.parse("2026-09-21T08:00:00Z")), "SCHEDULED is not LIVE NOW");
+  const extras = [1, 2, 3, 4].map((n) => ({ id: `ls_d${n}`, title: `Draft ${n}`, status: "OPEN", createdAt: "2026-09-21", lastActiveAt: `2026-09-21T0${n}:00:00Z`, roomId: `tmd${n}` }));
+  const crowded = organizeStudioHome([live, ...extras], emptyHomeOverlay());
+  assertEqual(crowded.liveNow.length, 1, "LIVE NOW is separate from Recent");
+  assertEqual(crowded.recent.length, 3, "LIVE NOW does not consume a Recent slot");
+  assert(!crowded.recent.some((item) => item.session.id === "ls_live"), "crowded Recent still excludes the live session");
 }
 
 console.log("Duplicate copies setup only");
@@ -132,6 +154,15 @@ console.log("Director surfaces");
   assert(manager.includes("/duplicate"), "duplicate hits the session duplicate API");
   assert(manager.includes("/title"), "rename hits the session title API");
   assert(manager.includes("/delete"), "delete hits the session delete API");
+  assert(manager.includes("Resume Live Session"), "live card resumes existing session");
+  assert(manager.includes("End Session"), "live card can end session");
+  assert(manager.includes("The live room will close"), "end confirm explains the room closes");
+  assert(manager.includes("/api/sessions/${sessionId}/end") || manager.includes("/end"), "end uses existing end API");
+  assert(manager.includes("You already have a live session"), "new session warns when live exists");
+  assert(manager.includes("End & Create New"), "conflict offers end and create");
+  assert(manager.includes("studio-home-live-now"), "LIVE NOW section exists");
+  assert(manager.includes("confirmEndSession"), "end uses Cancel / End Session confirm");
+  assert(!manager.includes("Open Studio") || manager.includes("Resume Live Session"), "resume copy is not Open Studio");
   assert(!manager.includes("This hides the card here"), "delete is not overlay-only");
   assert(!director.includes("RoomPresence ="), "director does not rewrite RoomPresence");
 }
