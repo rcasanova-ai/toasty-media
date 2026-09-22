@@ -40,8 +40,8 @@ export class LocalIsolatedRecorder {
     this.stoppedAt = null;
     const audioOnly = this.mode === "audio";
     this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: deviceConstraint(audioDeviceId),
-      video: audioOnly ? false : deviceConstraint(videoDeviceId)
+      audio: audioDeviceConstraint(audioDeviceId),
+      video: audioOnly ? false : videoDeviceConstraint(videoDeviceId)
     });
 
     const audioTracks = this.stream.getAudioTracks();
@@ -140,7 +140,17 @@ function stopRecorder(recorder) {
   });
 }
 
-function deviceConstraint(deviceId) {
+function audioDeviceConstraint(deviceId) {
+  const audio = {
+    echoCancellation: { ideal: true },
+    noiseSuppression: { ideal: true },
+    autoGainControl: { ideal: true }
+  };
+  if (deviceId) audio.deviceId = { exact: deviceId };
+  return audio;
+}
+
+function videoDeviceConstraint(deviceId) {
   return deviceId ? { deviceId: { exact: deviceId } } : true;
 }
 

@@ -1832,7 +1832,7 @@ export class LiveSession {
       return this.recording.last;
     }
     this._setRecording({ ...this.recording, status: "saving" });
-    this.emit("recording-status", "SAVING RECORDING…");
+    this.emit("recording-status", "Saving recording...");
     const captureResult = await recorder.stop();
     const { startedAt, stoppedAt } = captureResult;
     const { manifest: sourceManifest } = assembleMasterPackage({
@@ -1862,76 +1862,128 @@ export class LiveSession {
       },
       isolatedTracks: []
     });
-    let masterBlob = null;
     let manifest = sourceManifest;
-    let finalizationError = null;
-    try {
-      const finalized = await finalizeMasterRecordingMp4({
-        sourceBlob: captureResult.blob,
-        manifest: sourceManifest,
-        onProgress: (message) => this.emit("recording-status", message)
-      });
-      masterBlob = finalized.blob;
-      manifest = finalizedMasterManifest(sourceManifest, {
-        masterBlob,
-        sourceBlob: captureResult.blob
-      });
-    } catch (error) {
-      finalizationError = error;
-      manifest = finalizedMasterManifest(sourceManifest, {
-        sourceBlob: captureResult.blob,
-        error: error?.message || "MP4 finalization failed."
-      });
-      this.emit("recording-status", "MP4 finalization failed. Source WebM is preserved for retry.");
-    }
-    let persisted = false;
     try {
       await persistMasterRecording({
         recordingId: captureResult.recordingId,
         sourceBlob: captureResult.blob,
-        masterBlob,
         manifest
       });
       rememberLastMasterRecording(this.roomId, captureResult.recordingId);
-      persisted = true;
     } catch (error) {
-      this.emit("recording-status", "Recording saved in this tab. Download it now.");
+      console.error("[LiveSession] recording source persist failed", error);
+      this.emit("recording-status", "Recording saved in this tab only. Download it before leaving.");
     }
     if (this.recording.last?.objectUrl && this.recording.last.objectUrl !== captureResult.objectUrl) {
       try { URL.revokeObjectURL(this.recording.last.objectUrl); } catch (_) {}
     }
+    const sourcePersisted = Boolean(recalledMasterRecordingId(this.roomId) === captureResult.recordingId);
     const last = {
       kind: RecordingKind.MASTER,
       recordingId: captureResult.recordingId,
       startedAt,
       stoppedAt,
       durationSeconds: manifest.durationSeconds,
-      blob: masterBlob || captureResult.blob,
-      masterBlob,
+      blob: captureResult.blob,
+      masterBlob: null,
       sourceBlob: captureResult.blob,
-      objectUrl: masterBlob ? URL.createObjectURL(masterBlob) : "",
+      objectUrl: URL.createObjectURL(captureResult.blob),
+      sourceObjectUrl: "",objectUrl: "",
       sourceObjectUrl: URL.createObjectURL(captureResult.blob),
-      mimeType: masterBlob?.type || captureResult.mimeType,
+      mimeType: captureResult.mimeType,
       sourceMimeType: captureResult.mimeType,
-      masterMimeType: masterBlob?.type || "video/mp4",
-      bytes: masterBlob?.size || captureResult.bytes,
+      masterMimeType: "video/mp4",
+      bytes: captureResult.bytes,
       sourceBytes: captureResult.bytes,
       manifest,
-      persisted,
-      finalizationStatus: manifest.media?.finalizationStatus || (masterBlob ? "finalized" : "failed"),
-      finalizationError: finalizationError?.message || null
+      persisted: sourcePersisted,
+      finalizationStatus: sourcePersisted ? (manifest.media?.finalizationStatus || "pending-finalization") : "local-only",
+      finalizationError: sourcePersisted ? null : "Browser storage failed before MP4 processing."
     };
     this._setRecording(idleRecordingState(last));
     this.timeline.record(ProductionEventType.RECORDING_STOPPED, {
       recordingId: captureResult.recordingId,
       mode: captureResult.mode || this._masterRecorder?.mode || null,
       durationSeconds: manifest.durationSeconds,
-      persisted
+      persisted: sourcePersisted
     });
     this._publishControlNow();
-    this.emit("recording-status", persisted ? "RECORDING SAVED" : "Recording saved in this tab. Download it now.");
-    if (finalizationError) this.emit("recording-status", "Source WebM saved. MP4 master failed and can be retried.");
+    if (sourcePersisted) {
+      this.emit("recording-status", "Recording saved · Preparing MP4...");
+      this._finalizeRecordingInBackground({ sourceManifest, sourceBlob: captureResult.blob });
+    }
     return last;
+  }
+
+  async _finalizeRecordingInBackground({ sourceManifest, sourceBlob }) {
+    try {
+      const finalized = await finalizeMasterRecordingMp4({
+        sourceBlob,
+        manifest: sourceManifest,
+        onProgress: () => this.emit("recording-status", "Recording saved · Preparing MP4...")
+      });
+      const masterBlob = finalized.blob;
+      const manifest = finalizedMasterManifest(sourceManifest, { masterBlob, sourceBlob });
+      await persistMasterRecording({
+        recordingId: sourceManifest.recordingId,
+        sourceBlob,
+        masterBlob,
+        manifest
+      });
+      const current = this.recording.last?.recordingId === sourceManifest.recordingId ? this.recording.last : null;
+      if (current?.objectUrl) {
+        try { URL.revokeObjectURL(current.objectUrl); } catch (_) {}
+      }
+      const last = {
+        ...(current || {}),
+        kind: RecordingKind.MASTER,
+        recordingId: sourceManifest.recordingId,
+        startedAt: Date.parse(manifest.startedAt),
+        stoppedAt: Date.parse(manifest.stoppedAt),
+        durationSeconds: manifest.durationSeconds,
+        blob: masterBlob,
+        masterBlob,
+        sourceBlob,
+        objectUrl: URL.createObjectURL(masterBlob),
+        sourceObjectUrl: current?.sourceObjectUrl || URL.createObjectURL(sourceBlob),
+        mimeType: masterBlob.type || "video/mp4",
+        sourceMimeType: sourceBlob.type || "video/webm",
+        masterMimeType: masterBlob.type || "video/mp4",
+        bytes: masterBlob.size,
+        sourceBytes: sourceBlob.size,
+        manifest,
+        persisted: true,
+        finalizationStatus: "finalized",
+        finalizationError: null
+      };
+      this._setRecording(idleRecordingState(last));
+      this.emit("recording-status", "Recording ready");
+    } catch (error) {
+      console.error("[LiveSession] MP4 finalization failed", error);
+      const manifest = finalizedMasterManifest(sourceManifest, {
+        sourceBlob,
+        error: error?.message || "MP4 processing failed."
+      });
+      try {
+        await persistMasterRecording({
+          recordingId: sourceManifest.recordingId,
+          sourceBlob,
+          manifest
+        });
+      } catch (persistError) {
+        console.error("[LiveSession] recording failure manifest persist failed", persistError);
+      }
+      const current = this.recording.last?.recordingId === sourceManifest.recordingId ? this.recording.last : null;
+      if (current) {
+        this._setRecording(idleRecordingState({
+          ...current,
+          manifest,
+          finalizationStatus: "failed",
+          finalizationError: error?.message || "MP4 processing failed."
+        }));
+      }
+      this.emit("recording-status", "Recording saved · MP4 processing failed. Recording can be retried.");
+    }
   }
 
   noteProductionMarker(type, label, source = "producer") {

@@ -525,15 +525,20 @@ export class ProducerView {
   renderRecording(recording) {
     const active = Boolean(recording.active);
     const saving = recording.status === "saving";
+    const processing = !active && !saving && recording.last?.finalizationStatus === "pending-finalization";
     this.elements.recordToggle.setAttribute("aria-pressed", String(active && !saving));
-    this.elements.recordToggle.textContent = saving ? "SAVING RECORDING…" : active ? "STOP RECORDING" : "RECORD PROGRAM";
+    this.elements.recordToggle.textContent = saving ? "SAVING RECORDING..." : active ? "STOP RECORDING" : "RECORD PROGRAM";
     this.elements.recordTimer.hidden = !active && !saving;
     if (this.elements.recordStatus) {
-      if (saving) this.elements.recordStatus.textContent = "SAVING RECORDING…";
+      if (saving) this.elements.recordStatus.textContent = "Saving recording...";
+      else if (processing) this.elements.recordStatus.textContent = "Recording saved · Preparing MP4...";
       else if (active && recording.startedAt) {
         const elapsed = Math.floor((Date.now() - recording.startedAt) / 1000);
         this.elements.recordStatus.textContent = `RECORDING · ${formatClock(elapsed)}`;
-      } else if (recording.last) this.elements.recordStatus.textContent = "RECORDING SAVED";
+      } else if (recording.last?.finalizationStatus === "finalized") this.elements.recordStatus.textContent = "Recording ready";
+      else if (recording.last?.finalizationStatus === "failed") this.elements.recordStatus.textContent = "Recording saved";
+      else if (recording.last?.finalizationStatus === "local-only") this.elements.recordStatus.textContent = "Recording saved in this tab only";
+      else if (recording.last) this.elements.recordStatus.textContent = "Recording saved";
       else this.elements.recordStatus.textContent = "Idle";
     }
     if (this.elements.recordMarker) this.elements.recordMarker.hidden = !active || saving;
@@ -550,20 +555,31 @@ export class ProducerView {
 
   renderMasterPlayback(last) {
     if (!this.elements.masterPlayback) return;
-    if (!last?.masterBlob || !last?.objectUrl) {
-      this.elements.masterPlayback.hidden = true;
-      if (this.elements.masterManifestNote && last?.finalizationStatus === "failed") {
-        this.elements.masterManifestNote.textContent = "MP4 master failed to finalize. Source WebM is preserved for retry.";
+    if (!last?.blob || !last?.objectUrl) {
+      this.elements.masterPlayback.hidden = !last;
+      if (this.elements.masterVideo) this.elements.masterVideo.removeAttribute("src");
+      if (this.elements.masterDownload) this.elements.masterDownload.disabled = true;
+      if (this.elements.masterPlay) this.elements.masterPlay.disabled = true;
+      if (this.elements.masterManifest) this.elements.masterManifest.disabled = !last?.manifest;
+      if (this.elements.masterManifestNote && last?.finalizationStatus === "pending-finalization") {
+        this.elements.masterManifestNote.textContent = "Recording saved · Preparing MP4...";
+      } else if (this.elements.masterManifestNote && last?.finalizationStatus === "failed") {
+        this.elements.masterManifestNote.textContent = "Recording saved. MP4 processing failed and can be retried.";
+      } else if (this.elements.masterManifestNote && last?.finalizationStatus === "local-only") {
+        this.elements.masterManifestNote.textContent = "Recording is only available in this tab. Keep this page open and download details before leaving.";
       }
       return;
     }
     this.elements.masterPlayback.hidden = false;
+    if (this.elements.masterDownload) this.elements.masterDownload.disabled = false;
+    if (this.elements.masterPlay) this.elements.masterPlay.disabled = false;
+    if (this.elements.masterManifest) this.elements.masterManifest.disabled = !last?.manifest;
     if (this.elements.masterVideo && this.elements.masterVideo.src !== last.objectUrl) {
       this.elements.masterVideo.src = last.objectUrl;
     }
     if (this.elements.masterManifestNote) {
       const duration = formatClock(Math.round(last.durationSeconds || 0));
-      this.elements.masterManifestNote.textContent = `${duration}. MP4 master. Play to confirm Host, Guest, lower thirds, TAKE LIVE, speech, and soundboard.`;
+      this.elements.masterManifestNote.textContent = `${duration}. MP4 recording. Play to confirm Host, Guest, lower thirds, TAKE LIVE, speech, and soundboard.`;
     }
   }
 
@@ -574,10 +590,14 @@ export class ProducerView {
   }
 
   downloadMaster() {
-    const last = this.session.recording.last;
-    if (!last?.masterBlob) return;
-    downloadFile(last.masterBlob, `${last.recordingId}.mp4`);
-  }
+  const last = this.session.recording.last;
+  if (!last?.blob) return;
+
+  const isMp4 = Boolean(last.masterBlob);
+  const extension = isMp4 ? "mp4" : "webm";
+
+  downloadFile(last.blob, `${last.recordingId}.${extension}`);
+}
 
   downloadManifest() {
     const last = this.session.recording.last;
