@@ -5297,3 +5297,49 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
   position: absolute;
   right: 6px;
 }
+
+
+/* Live room header: one identity, one role switch, one action group. */
+.lv-topbar--clean {
+  align-items: center;
+  display: grid;
+  gap: .75rem 1rem;
+  grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr);
+}
+.lv-session-identity,
+.lv-session-actions {
+  align-items: center;
+  display: flex;
+  gap: .55rem;
+  min-width: 0;
+}
+.lv-session-identity strong {
+  color: var(--studio-cream);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lv-session-state {
+  align-items: center;
+  color: var(--studio-muted);
+  display: inline-flex;
+  font-size: .7rem;
+  font-weight: 800;
+  gap: .35rem;
+  white-space: nowrap;
+}
+.lv-session-state-dot {
+  background: currentColor;
+  border-radius: 50%;
+  height: .45rem;
+  width: .45rem;
+}
+.lv-session-state[data-state="live"],
+.lv-session-state[data-state="ready"] { color: var(--studio-green); }
+.lv-session-state[data-state="error"] { color: var(--studio-red-bright); }
+.lv-session-actions { justify-content: flex-end; }
+.lv-header-danger { color: var(--studio-red-bright) !important; }
+@media (max-width: 900px) {
+  .lv-topbar--clean { grid-template-columns: 1fr auto; }
+  .lv-topbar--clean .lv-view-switch { grid-column: 1 / -1; grid-row: 2; justify-self: start; }
+}
