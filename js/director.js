@@ -10,7 +10,7 @@ import { ProducerView } from "./producer-view.js";
 import { HostPrejoin } from "./host-prejoin.js";
 import { HostState } from "./host-state.js";
 import { BUILD_ID } from "./build-info.js";
-import { resolveSession } from "./session-manager.js";
+import { resolveSession, showSessionArtifacts } from "./session-manager.js";
 
 // Set by js/studio-auth.js's openStudio when /auth/session reports a "locked" account (a brand-locked
 // customer like Moe @ Superteam Thailand) — a UX nicety only (hides the selector, blocks the local optimistic
@@ -91,11 +91,23 @@ init();
 // target the right room from the very first frame mount, not a throwaway one that gets swapped out later.
 async function init() {
   applySelectedBrand();
-  const durableSession = await resolveSession({ brandId: session.brandTheme });
+  const resolved = await resolveSession({ brandId: session.brandTheme });
+  const durableSession = resolved?.session || resolved;
+  if (!durableSession?.id) throw new Error("Studio session resolution returned no session.");
+  if (resolved?.mode === "artifacts") {
+    await showSessionArtifacts(durableSession);
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: "toasty:studio-ready", surface: "artifacts" }, window.location.origin);
+    }
+    return;
+  }
   session.applyDurableSession(durableSession);
-  if (elements.sessionTitle) elements.sessionTitle.textContent = durableSession?.title || "Live Session";
+  if (elements.sessionTitle) elements.sessionTitle.textContent = durableSession.title || "Live Session";
   void session.loadProfileEndCard();
   initStudio();
+  if (window.parent !== window) {
+    window.parent.postMessage({ type: "toasty:studio-ready", surface: "live" }, window.location.origin);
+  }
 }
 
 function initStudio() {
