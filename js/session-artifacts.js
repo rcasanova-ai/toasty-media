@@ -8,7 +8,7 @@ export const ArtifactSectionId = Object.freeze({
   RECORDINGS: "recordings",
   CLIPS: "clips",
   TRANSCRIPT: "transcript",
-  HOTTIE: "hottie",
+  MOXIE: "hottie",
   AUDIENCE: "audience",
   NOTES: "notes",
   SHOW_ASSETS: "show-assets",
@@ -100,8 +100,8 @@ export async function loadSessionArtifacts(session, { loadRecording = loadMaster
   }
   if (hottieResearch.length) {
     sections.push({
-      id: ArtifactSectionId.HOTTIE,
-      title: "Hottie / Research",
+      id: ArtifactSectionId.MOXIE,
+      title: "Moxie / Research",
       available: true,
       data: hottieResearch
     });
@@ -154,7 +154,7 @@ export function deferredArtifactReport({ hasRecording, manifest } = {}) {
     { artifact: "clips", persistedToday: false, where: "not generated/stored", sessionLinkage: "none", viewableToday: false, deferredIfMissing: true },
     { artifact: "MomentMarkers", persistedToday: Boolean(manifest?.markers?.length), where: "master recording manifest in IndexedDB", sessionLinkage: "manifest.sessionId / roomId", viewableToday: Boolean(manifest?.markers?.length), deferredIfMissing: !manifest?.markers?.length },
     { artifact: "transcript", persistedToday: Boolean(manifest?.transcript), where: "optional field on master manifest (usually empty)", sessionLinkage: "manifest", viewableToday: Boolean(manifest?.transcript), deferredIfMissing: !manifest?.transcript },
-    { artifact: "Hottie research", persistedToday: false, where: "in-memory ShowContext during live session only", sessionLinkage: "none after reload", viewableToday: false, deferredIfMissing: true },
+    { artifact: "Moxie research", persistedToday: false, where: "in-memory ShowContext during live session only", sessionLinkage: "none after reload", viewableToday: false, deferredIfMissing: true },
     { artifact: "source provenance", persistedToday: Boolean(manifest?.assetsUsed?.length), where: "master manifest assetsUsed when a recording exists", sessionLinkage: "manifest", viewableToday: Boolean(manifest?.assetsUsed?.length), deferredIfMissing: !manifest?.assetsUsed?.length },
     { artifact: "audience chat", persistedToday: Boolean(manifest?.chat), where: "optional master manifest chatRef (usually empty)", sessionLinkage: "manifest", viewableToday: Boolean(manifest?.chat), deferredIfMissing: !manifest?.chat },
     { artifact: "notes / summary / documents", persistedToday: false, where: "post-production markdown is downloaded, not stored per session", sessionLinkage: "none", viewableToday: false, deferredIfMissing: true },

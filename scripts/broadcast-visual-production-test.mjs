@@ -263,7 +263,7 @@ console.log("\n15. Environmental motif is theme-driven");
   assertEqual(Boolean(toasty.environmentalMotif), false, "Toasty has no customer temple motif");
 }
 
-console.log("\n16–18. Hottie structured production directives, guests blocked");
+console.log("\n16–18. Moxie structured production directives, guests blocked");
 {
   const session = fixtureSession();
   const spotlight = detectHostDirective({
@@ -388,7 +388,7 @@ console.log("\nDo-not-regress: camera share must not use VDO screenshare replace
   assert(!guest.includes("setGuestScreenShare("), "Guest share does not replace the camera publisher");
   assert(guest.includes("mountScreenPublisher"), "Guest screen is a separate publisher");
   const renderer = readFileSync(join(ROOT, "js/program-renderer.js"), "utf8");
-  assert(renderer.includes("Hottie · AI Producer"), "Hottie attribution exists on research cards");
+  assert(renderer.includes("Moxie · AI Producer"), "Moxie attribution exists on research cards");
 }
 
 console.log("\nAll broadcast visual production tests passed.");

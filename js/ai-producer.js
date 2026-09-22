@@ -557,8 +557,8 @@ export function renderFeedEntry(entry, {
   onDiscardProposal,
   onRetryResearch,
   onRemoveAsset,
-  onApproveHottieProposal,
-  onDismissHottieProposal,
+  onApproveMoxieProposal,
+  onDismissMoxieProposal,
   onPreview
 } = {}) {
   const el = document.createElement("article");
@@ -662,11 +662,11 @@ export function renderFeedEntry(entry, {
     if (actionRow.childNodes.length) el.appendChild(actionRow);
   }
 
-  // Hottie's own structured proposals (js/hottie-show-runner.js) — SEPARATE from the ASSET_PROPOSAL row
-  // above (a Hottie proposal's action is already a complete ProgramController action, not a research
+  // Moxie's own structured proposals (js/hottie-show-runner.js) — SEPARATE from the ASSET_PROPOSAL row
+  // above (a Moxie proposal's action is already a complete ProgramController action, not a research
   // candidate). AUDIT REPAIR: this branch didn't exist before — PRODUCTION_SUGGESTION entries rendered
   // with no action row at all, so requiresApproval could never actually be satisfied by anything a
-  // Producer could click. See js/live-producer.js's approveHottieProposal for the execute() call this
+  // Producer could click. See js/live-producer.js's approveMoxieProposal for the execute() call this
   // triggers.
   if (entry.type === ProducerEntryType.PRODUCTION_SUGGESTION && proposal?.requiresApproval && !proposal?.executed) {
     const actionRow = document.createElement("div");
@@ -677,8 +677,8 @@ export function renderFeedEntry(entry, {
       pending.textContent = "Applying…";
       actionRow.appendChild(pending);
     } else {
-      if (onApproveHottieProposal) actionRow.appendChild(feedButton("APPROVE", () => onApproveHottieProposal(entry.id), true));
-      if (onDismissHottieProposal) actionRow.appendChild(feedButton("DISMISS", () => onDismissHottieProposal(entry.id)));
+      if (onApproveMoxieProposal) actionRow.appendChild(feedButton("APPROVE", () => onApproveMoxieProposal(entry.id), true));
+      if (onDismissMoxieProposal) actionRow.appendChild(feedButton("DISMISS", () => onDismissMoxieProposal(entry.id)));
     }
     if (actionRow.childNodes.length) el.appendChild(actionRow);
   }

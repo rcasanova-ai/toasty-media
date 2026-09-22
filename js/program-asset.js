@@ -1,6 +1,6 @@
 // Shared ProgramAsset / MediaSource model.
 //
-// This is the ONE production-source abstraction for anything Hottie, Producer, or later the Asset
+// This is the ONE production-source abstraction for anything Moxie, Producer, or later the Asset
 // Catalogue can put on Program. Web/article/image ship in this slice. The type enum already names
 // the later catalogue (B-roll, video, Hot Box, sound, music, stinger) so Soundboard real audio files
 // join this model instead of growing a second isolated system.

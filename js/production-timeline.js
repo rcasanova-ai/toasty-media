@@ -14,8 +14,8 @@ export const ProductionEventType = Object.freeze({
   AUDIO_PLAYED: "audio-played",
   AUDIO_STOPPED: "audio-stopped",
   MARKER_ADDED: "marker-added",
-  HOTTIE_PROPOSAL: "hottie-proposal",
-  HOTTIE_ACTION: "hottie-action",
+  MOXIE_PROPOSAL: "hottie-proposal",
+  MOXIE_ACTION: "hottie-action",
   CHAT_SURFACED: "chat-surfaced",
   RECORDING_STARTED: "recording-started",
   RECORDING_STOPPED: "recording-stopped"

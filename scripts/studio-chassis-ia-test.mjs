@@ -106,7 +106,7 @@ includes(html, "Streaming Destinations");
 includes(html, "Transcription");
 includes(html, "Media / Assets");
 includes(html, "lv-hottie-workspace");
-includes(html, "Ask Hottie");
+includes(html, "Ask Moxie");
 
 includes(director, 'setView("host")');
 includes(director, "function setProducerTool");

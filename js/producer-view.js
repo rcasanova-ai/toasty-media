@@ -18,8 +18,8 @@ export class ProducerView {
       layoutModeChip: root.querySelector("#lvLayoutModeChip"),
       shareGroup: root.querySelector("#lvShareGroup"),
       shareModeChip: root.querySelector("#lvShareModeChip"),
-      hottieStatus: root.querySelector("#lvHottieStatus"),
-      hottieProposal: root.querySelector("#lvHottieProposal"),
+      hottieStatus: root.querySelector("#lvMoxieStatus"),
+      hottieProposal: root.querySelector("#lvMoxieProposal"),
       programPreview: root.querySelector("#lvProgramPreviewStage"),
       poTopic: root.querySelector("#lvPoTopic"),
       poSceneGroup: root.querySelector("#lvPoSceneGroup"),
@@ -127,7 +127,7 @@ export class ProducerView {
       if (role === "screen" || role === "asset") return;
       this.session.setSpotlight(tile.dataset.participantId);
     });
-    this.session.on("hottie", (status) => this.renderHottie(status));
+    this.session.on("hottie", (status) => this.renderMoxie(status));
 
     this.elements.poTopic.addEventListener("input", () => this.session.setTopic(this.elements.poTopic.value));
     this.elements.poTickerEnabled.addEventListener("change", () => {
@@ -212,7 +212,7 @@ export class ProducerView {
 
     this.renderGuests();
     this.renderProgram(this.session.program);
-    this.renderHottie(this.session.hottieStatus);
+    this.renderMoxie(this.session.hottieStatus);
     this.renderRecording(this.session.recording);
     this.renderProgramOutputStatus();
     this.renderRecordingGate();
@@ -393,8 +393,8 @@ export class ProducerView {
       onDiscardProposal: (id) => this.session.liveProducer.discardProposal(id),
       onRetryResearch: (id) => this.session.liveProducer.retryResearch(id),
       onRemoveAsset: (id) => this.session.liveProducer.removeLiveAsset(id),
-      onApproveHottieProposal: (id) => this.session.liveProducer.approveHottieProposal(id),
-      onDismissHottieProposal: (id) => this.session.liveProducer.dismissHottieProposal(id)
+      onApproveMoxieProposal: (id) => this.session.liveProducer.approveMoxieProposal(id),
+      onDismissMoxieProposal: (id) => this.session.liveProducer.dismissMoxieProposal(id)
     })));
   }
 
@@ -473,7 +473,7 @@ export class ProducerView {
     });
   }
 
-  renderHottie(status = this.session.hottieStatus || {}) {
+  renderMoxie(status = this.session.hottieStatus || {}) {
     const state = status.state || "listening";
     if (this.elements.hottieStatus) {
       this.elements.hottieStatus.dataset.state = state;
@@ -550,8 +550,11 @@ export class ProducerView {
 
   renderMasterPlayback(last) {
     if (!this.elements.masterPlayback) return;
-    if (!last?.objectUrl) {
+    if (!last?.masterBlob || !last?.objectUrl) {
       this.elements.masterPlayback.hidden = true;
+      if (this.elements.masterManifestNote && last?.finalizationStatus === "failed") {
+        this.elements.masterManifestNote.textContent = "MP4 master failed to finalize. Source WebM is preserved for retry.";
+      }
       return;
     }
     this.elements.masterPlayback.hidden = false;
@@ -560,7 +563,7 @@ export class ProducerView {
     }
     if (this.elements.masterManifestNote) {
       const duration = formatClock(Math.round(last.durationSeconds || 0));
-      this.elements.masterManifestNote.textContent = `${duration}. Play to confirm Host, Guest, lower thirds, TAKE LIVE, speech, and soundboard.`;
+      this.elements.masterManifestNote.textContent = `${duration}. MP4 master. Play to confirm Host, Guest, lower thirds, TAKE LIVE, speech, and soundboard.`;
     }
   }
 
@@ -572,8 +575,8 @@ export class ProducerView {
 
   downloadMaster() {
     const last = this.session.recording.last;
-    if (!last?.blob) return;
-    downloadFile(last.blob, `${last.recordingId}.webm`);
+    if (!last?.masterBlob) return;
+    downloadFile(last.masterBlob, `${last.recordingId}.mp4`);
   }
 
   downloadManifest() {

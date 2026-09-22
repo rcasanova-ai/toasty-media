@@ -18,6 +18,7 @@ import {
   RecordingKind,
   nextRecordingId,
   assembleMasterPackage,
+  finalizedMasterManifest,
   persistMasterRecording,
   loadMasterRecording,
   idleRecordingState,
@@ -27,6 +28,7 @@ import {
   recalledMasterRecordingId,
   PROGRAM_OUTPUT_PICKER_INSTRUCTION
 } from "./program-recording.js";
+import { finalizeMasterRecordingMp4 } from "./render-client.js";
 import { ProgramSync } from "./program-sync.js";
 import { normalizeTickerSpeed } from "./program-ticker.js";
 import { studioRequest } from "./studio-api.js";
@@ -51,7 +53,7 @@ import { createScreenShareSource, serializeScreenShareSource, screenShareFromPre
 import { createAudioActivityMeter, serializeAudioActivity, activityFromVdoDetailedState } from "./audio-activity.js";
 import { ActiveSpeakerController } from "./active-speaker.js";
 import { ParticipantTranscriptionUplink, createTranscriptEvent } from "./transcript-event.js";
-import { collectHottieContext, proposeHottieActions, formatHottieProposalFeed } from "./hottie-show-runner.js";
+import { collectMoxieContext, proposeMoxieActions, formatMoxieProposalFeed } from "./hottie-show-runner.js";
 import { attachFocusGroupToSession } from "./focus-group-studio.js";
 import { createResearchProvider } from "./hottie-research.js";
 import { ParticipantRegistry, createParticipant, ParticipantRole, ConnectionStatus, SourceKind } from "./participant-registry.js";
@@ -165,7 +167,7 @@ export class LiveSession {
     this.engine = new VideoEngine();
     this.policy = new SessionPolicy();
     // Optional client-private research brief used by focus groups / research interviews / panels.
-    // Hottie reads this through buildShowContext(); it is session-scoped and is never a participant Dub.
+    // Moxie reads this through buildShowContext(); it is session-scoped and is never a participant Dub.
     this.researchContext = null;
 
     this.av = { micMuted: false, cameraOff: false };
@@ -213,7 +215,7 @@ export class LiveSession {
     this.presence = null;
     // Explicit Host lifecycle state — see js/host-state.js. js/host-prejoin.js drives PREJOIN_LOADING/
     // PREJOIN_READY/JOINING; joinAsHost below confirms IN_STUDIO; leaveStudio drives LEAVING. Every
-    // control that should only appear once the Host has actually joined (Leave Studio, Talk to Hottie)
+    // control that should only appear once the Host has actually joined (Leave Studio, Talk to Moxie)
     // reads this, not incidental DOM/session existence — see js/host-view.js's renderHostState.
     this.hostState = HostState.PREJOIN_LOADING;
 
@@ -365,7 +367,7 @@ export class LiveSession {
     try {
       return this.liveProducer.handleManualRequest(instructionText, options);
     } catch (error) {
-      console.error("[Hottie] request failed open", error);
+      console.error("[Moxie] request failed open", error);
       this.liveProducer.setStatus("error", { label: "ERROR" }, "Couldn't complete that. The show continues.");
       return null;
     }
@@ -1833,7 +1835,7 @@ export class LiveSession {
     this.emit("recording-status", "SAVING RECORDING…");
     const captureResult = await recorder.stop();
     const { startedAt, stoppedAt } = captureResult;
-    const { manifest } = assembleMasterPackage({
+    const { manifest: sourceManifest } = assembleMasterPackage({
       sessionId: this.durableSession?.id || this.roomId,
       roomId: this.roomId,
       recordingId: captureResult.recordingId,
@@ -1856,15 +1858,38 @@ export class LiveSession {
         kind: "audience-chat",
         available: this.audience.messages.length > 0,
         messageCount: this.audience.messages.length,
-        note: "Unified audience + Hottie chat is a later slice. This is the current audience store."
+        note: "Unified audience + Moxie chat is a later slice. This is the current audience store."
       },
       isolatedTracks: []
     });
+    let masterBlob = null;
+    let manifest = sourceManifest;
+    let finalizationError = null;
+    try {
+      const finalized = await finalizeMasterRecordingMp4({
+        sourceBlob: captureResult.blob,
+        manifest: sourceManifest,
+        onProgress: (message) => this.emit("recording-status", message)
+      });
+      masterBlob = finalized.blob;
+      manifest = finalizedMasterManifest(sourceManifest, {
+        masterBlob,
+        sourceBlob: captureResult.blob
+      });
+    } catch (error) {
+      finalizationError = error;
+      manifest = finalizedMasterManifest(sourceManifest, {
+        sourceBlob: captureResult.blob,
+        error: error?.message || "MP4 finalization failed."
+      });
+      this.emit("recording-status", "MP4 finalization failed. Source WebM is preserved for retry.");
+    }
     let persisted = false;
     try {
       await persistMasterRecording({
         recordingId: captureResult.recordingId,
-        blob: captureResult.blob,
+        sourceBlob: captureResult.blob,
+        masterBlob,
         manifest
       });
       rememberLastMasterRecording(this.roomId, captureResult.recordingId);
@@ -1881,12 +1906,20 @@ export class LiveSession {
       startedAt,
       stoppedAt,
       durationSeconds: manifest.durationSeconds,
-      blob: captureResult.blob,
-      objectUrl: URL.createObjectURL(captureResult.blob),
-      mimeType: captureResult.mimeType,
-      bytes: captureResult.bytes,
+      blob: masterBlob || captureResult.blob,
+      masterBlob,
+      sourceBlob: captureResult.blob,
+      objectUrl: masterBlob ? URL.createObjectURL(masterBlob) : "",
+      sourceObjectUrl: URL.createObjectURL(captureResult.blob),
+      mimeType: masterBlob?.type || captureResult.mimeType,
+      sourceMimeType: captureResult.mimeType,
+      masterMimeType: masterBlob?.type || "video/mp4",
+      bytes: masterBlob?.size || captureResult.bytes,
+      sourceBytes: captureResult.bytes,
       manifest,
-      persisted
+      persisted,
+      finalizationStatus: manifest.media?.finalizationStatus || (masterBlob ? "finalized" : "failed"),
+      finalizationError: finalizationError?.message || null
     };
     this._setRecording(idleRecordingState(last));
     this.timeline.record(ProductionEventType.RECORDING_STOPPED, {
@@ -1897,6 +1930,7 @@ export class LiveSession {
     });
     this._publishControlNow();
     this.emit("recording-status", persisted ? "RECORDING SAVED" : "Recording saved in this tab. Download it now.");
+    if (finalizationError) this.emit("recording-status", "Source WebM saved. MP4 master failed and can be retried.");
     return last;
   }
 
@@ -1940,12 +1974,19 @@ export class LiveSession {
         startedAt: Date.parse(loaded.manifest.startedAt),
         stoppedAt: Date.parse(loaded.manifest.stoppedAt),
         durationSeconds: loaded.manifest.durationSeconds,
-        blob: loaded.blob,
-        objectUrl: URL.createObjectURL(loaded.blob),
-        mimeType: loaded.blob.type,
-        bytes: loaded.blob.size,
+        blob: loaded.masterBlob || loaded.blob,
+        masterBlob: loaded.masterBlob || (loaded.manifest.media?.finalizationStatus === "finalized" ? loaded.blob : null),
+        sourceBlob: loaded.sourceBlob || null,
+        objectUrl: (loaded.masterBlob || loaded.blob) ? URL.createObjectURL(loaded.masterBlob || loaded.blob) : "",
+        sourceObjectUrl: loaded.sourceBlob ? URL.createObjectURL(loaded.sourceBlob) : "",
+        mimeType: (loaded.masterBlob || loaded.blob)?.type || loaded.manifest.media?.masterMimeType || "video/mp4",
+        sourceMimeType: loaded.sourceBlob?.type || loaded.manifest.media?.sourceMimeType || "video/webm",
+        bytes: (loaded.masterBlob || loaded.blob)?.size || loaded.manifest.media?.masterBytes || 0,
+        sourceBytes: loaded.sourceBlob?.size || loaded.manifest.media?.sourceBytes || 0,
         manifest: loaded.manifest,
-        persisted: true
+        persisted: true,
+        finalizationStatus: loaded.manifest.media?.finalizationStatus || "finalized",
+        finalizationError: loaded.manifest.media?.finalizationError || null
       };
       this._setRecording(idleRecordingState(last));
       return last;
@@ -2070,15 +2111,15 @@ export class LiveSession {
     const normalized = normalizeAudienceMessage(message, { sessionId: this.durableSession?.id || this.roomId });
     if (normalized?.id) this.audience.markSurfaced([normalized.id]);
     this.timeline.record(ProductionEventType.CHAT_SURFACED, { id: normalized?.id, text: normalized?.text });
-    this.proposeHottieLoop();
+    this.proposeMoxieLoop();
     return normalized;
   }
 
-  proposeHottieLoop() {
-    const proposals = proposeHottieActions(collectHottieContext(this));
+  proposeMoxieLoop() {
+    const proposals = proposeMoxieActions(collectMoxieContext(this));
     proposals.slice(0, 2).forEach((proposal) => {
-      this.timeline.record(ProductionEventType.HOTTIE_PROPOSAL, { type: proposal.type });
-      this.aiProducerFeed?.push({ action: "private", ...formatHottieProposalFeed(proposal) });
+      this.timeline.record(ProductionEventType.MOXIE_PROPOSAL, { type: proposal.type });
+      this.aiProducerFeed?.push({ action: "private", ...formatMoxieProposalFeed(proposal) });
     });
     return proposals;
   }

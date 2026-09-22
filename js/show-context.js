@@ -274,7 +274,7 @@ export function buildShowContext(session) {
     audienceMessages: session.audience.recent(200),
     producerHistory: session.aiProducerFeed.recent(10).map((entry) => ({ type: entry.type, title: entry.title, summary: entry.summary, instruction: entry.instruction, sources: entry.sources })),
     // Research sessions (focus groups, customer interviews, expert panels) can attach a bounded research
-    // context to the same Producer/Hottie pipeline. This keeps the AI aware of the client objective and
+    // context to the same Producer/Moxie pipeline. This keeps the AI aware of the client objective and
     // questions without mixing client-private session content into reusable participant profiles.
     researchContext: session.researchContext ? {
       id: session.researchContext.id || null,

@@ -136,7 +136,7 @@ console.log("Artifacts only from real persistence");
   assert(!pack.sections.some((section) => section.id === "transcript"), "no fake transcript section");
   const report = deferredArtifactReport();
   assert(report.find((row) => row.artifact === "session metadata").persistedToday, "metadata persisted on live_sessions");
-  assert(!report.find((row) => row.artifact === "Hottie research").persistedToday, "Hottie research is deferred after reload");
+  assert(!report.find((row) => row.artifact === "Moxie research").persistedToday, "Moxie research is deferred after reload");
 }
 
 console.log("Director surfaces");

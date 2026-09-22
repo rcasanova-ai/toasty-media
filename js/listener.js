@@ -17,7 +17,7 @@ import {
   countFeedHealth,
   normalizeScene
 } from "./session-control.js";
-import { speakHottieVoiceOnProgram, cancelHottieVoice } from "./hottie-voice.js";
+import { speakMoxieVoiceOnProgram, cancelMoxieVoice } from "./hottie-voice.js";
 
 // Toasty Studio Program Output — the finished, audience-facing broadcast canvas.
 // This page contains ONLY the composited show: no director/guest/camera/scene controls of any kind.
@@ -44,7 +44,7 @@ let audioError = null;
 const programAudio = new ProgramAudioBus({ role: "program" });
 const programMixer = new ProgramAudioMixer({ bus: programAudio, role: "program" });
 let lastAudioPlayId = null;
-let lastHottieUtteranceId = null;
+let lastMoxieUtteranceId = null;
 let statusTimerId = null;
 let serverSync = null;
 let lastServerBundle = null;
@@ -218,7 +218,7 @@ async function unlockAudio() {
   failures.push(...playFailures);
   try {
     syncProgramAudio(lastProgramState);
-    syncHottieVoice(lastProgramState);
+    syncMoxieVoice(lastProgramState);
   } catch (error) {
     failures.push(`ProgramAudioBus: ${String(error?.message || error)}`);
   }
@@ -234,7 +234,7 @@ async function unlockAudio() {
   audioError = null;
   if (!previous && normalizeScene(lastProgramState?.scene) === SceneId.LIVE) renderLiveStage(lastProgramState);
   syncProgramAudio(lastProgramState);
-  syncHottieVoice(lastProgramState);
+  syncMoxieVoice(lastProgramState);
   reportOutputStatus(true);
 }
 
@@ -318,7 +318,7 @@ function render(programState, source = "unknown") {
   }
   if (scene === SceneId.ENDING) renderEndCard(programState.endCard);
   syncProgramAudio(programState);
-  syncHottieVoice(programState);
+  syncMoxieVoice(programState);
   reportOutputStatus();
 }
 
@@ -552,19 +552,19 @@ function syncProgramAudio(programState) {
   });
 }
 
-function syncHottieVoice(programState) {
+function syncMoxieVoice(programState) {
   const voice = programState?.hottieVoice;
   if (!voice?.speak || !String(voice.text || "").trim()) {
-    if (lastHottieUtteranceId) {
-      cancelHottieVoice();
-      lastHottieUtteranceId = null;
+    if (lastMoxieUtteranceId) {
+      cancelMoxieVoice();
+      lastMoxieUtteranceId = null;
     }
     return;
   }
   if (!audioUnlocked) return;
-  if (voice.utteranceId && voice.utteranceId === lastHottieUtteranceId) return;
-  lastHottieUtteranceId = voice.utteranceId || voice.text;
-  speakHottieVoiceOnProgram(voice);
+  if (voice.utteranceId && voice.utteranceId === lastMoxieUtteranceId) return;
+  lastMoxieUtteranceId = voice.utteranceId || voice.text;
+  speakMoxieVoiceOnProgram(voice);
 }
 
 function applyBrand(themeId) {

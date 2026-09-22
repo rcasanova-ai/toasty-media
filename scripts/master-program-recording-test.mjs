@@ -351,8 +351,12 @@ console.log("\nRecording manifest, production actions, assets-used, markers");
   assertEqual(manifest.recordingId, "rec-1", "recordingId");
   assertEqual(manifest.brandTheme, "toasty", "brand/theme");
   assertEqual(manifest.participants.length, 2, "participants");
-  assertEqual(manifest.files.master, "session/master/rec-1.webm", "master filename");
-  assertEqual(manifest.media.masterMediaId, masterMediaId("rec-1"), "media id");
+  assertEqual(manifest.files.source, "session/source/rec-1.webm", "source filename");
+  assertEqual(manifest.files.master, "session/master/rec-1.mp4", "master filename");
+  assertEqual(manifest.media.sourceMimeType, "video/webm", "source is original browser WebM");
+  assertEqual(manifest.media.masterMimeType, "video/mp4", "master is finalized MP4");
+  assertEqual(manifest.media.finalizationStatus, "pending-finalization", "manifest marks MP4 finalization pending before backend transcode");
+  assertEqual(manifest.media.masterMediaId, masterMediaId("rec-1"), "master media id");
   assertEqual(masterManifestId("rec-1"), "master-recording:rec-1:manifest", "manifest id");
   assert(manifest.transcript, "transcript reference exists even when empty");
   assert(manifest.chat, "chat reference exists even when empty");
@@ -365,9 +369,43 @@ console.log("\nRecording manifest, production actions, assets-used, markers");
   assertEqual(manifest.markers.length, 3, "markers during the window");
   assertEqual(manifest.markers[2].type, MarkerType.MANUAL, "manual marker type");
   assertEqual(markerTypeFromProduction("take-live"), MarkerType.TAKE_LIVE, "TAKE LIVE maps to marker type");
-  const marker = createMarker({ type: MarkerType.HOTTIE, label: "topic change", source: "hottie" });
+  const marker = createMarker({ type: MarkerType.MOXIE, label: "topic change", source: "hottie" });
   assert(marker.id.startsWith("mrk-"), "marker id");
   assertEqual(marker.source, "hottie", "marker source");
+}
+
+console.log("\nMP4 finalization manifest preserves source WebM and marks MP4 master");
+{
+  const recording = await import("../js/program-recording.js");
+  const sourceBlob = new Blob(["webm"], { type: "video/webm" });
+  const masterBlob = new Blob(["mp4"], { type: "video/mp4" });
+  const manifest = recording.buildMasterManifest({
+    recordingId: "rec-final",
+    roomId: "room-final",
+    source: {
+      filename: "session/source/rec-final.webm",
+      mediaId: recording.sourceMediaId("rec-final"),
+      mimeType: "video/webm",
+      bytes: sourceBlob.size
+    },
+    master: {
+      filename: "session/master/rec-final.mp4",
+      mediaId: recording.masterMediaId("rec-final"),
+      mimeType: "video/mp4",
+      bytes: 0,
+      status: "pending-finalization"
+    }
+  });
+  const finalized = recording.finalizedMasterManifest(manifest, { sourceBlob, masterBlob });
+  assertEqual(finalized.files.source, "session/source/rec-final.webm", "manifest keeps SOURCE WebM path");
+  assertEqual(finalized.files.master, "session/master/rec-final.mp4", "manifest keeps MASTER MP4 path");
+  assertEqual(finalized.media.sourceBytes, sourceBlob.size, "manifest records source bytes");
+  assertEqual(finalized.media.masterBytes, masterBlob.size, "manifest records master bytes");
+  assertEqual(finalized.media.finalizationStatus, "finalized", "finalization success is marked");
+  const failed = recording.finalizedMasterManifest(manifest, { sourceBlob, error: "ffmpeg failed" });
+  assertEqual(failed.media.finalizationStatus, "failed", "finalization failure is retryable");
+  assertEqual(failed.media.sourceBytes, sourceBlob.size, "failure still preserves source bytes");
+  assert(failed.media.finalizationError.includes("ffmpeg failed"), "failure reason is retained");
 }
 
 console.log("\nAlready-live assets at record start are not dropped");
@@ -428,6 +466,9 @@ console.log("\nProducer controls are Producer-only; Program Output has no REC ch
   assert(director.includes("lvRecordMarker"), "manual marker control exists");
   assert(producer.includes("STOP RECORDING"), "STOP RECORDING control");
   assert(producer.includes("RECORD PROGRAM"), "RECORD PROGRAM control");
+  assert(producer.includes("last.masterBlob"), "Download Master requires finalized MP4 blob");
+  assert(producer.includes("`${last.recordingId}.mp4`"), "Download Master downloads .mp4");
+  assert(!producer.includes("`${last.recordingId}.webm`"), "Download Master no longer downloads WebM");
   assert(director.includes("Share tab audio ON"), "recording UX explicitly tells producer to enable tab audio");
   assert(producer.includes("RECORDING ·"), "RECORDING timer status");
   assert(producer.includes("SAVING RECORDING"), "SAVING RECORDING status");

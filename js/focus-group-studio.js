@@ -2,7 +2,7 @@
 
 import { createFocusGroupContext, defaultFocusGroupAgenda, analyzeFocusGroupTranscript, buildFocusGroupDeliveryPack } from "./focus-group.js";
 import { ArtifactType, createSessionArtifact } from "./session-artifact.js";
-import { HottieProposalType } from "./hottie-show-runner.js";
+import { MoxieProposalType } from "./hottie-show-runner.js";
 
 export function attachFocusGroupToSession(session, overrides = {}) {
   const context = createFocusGroupContext(overrides);
@@ -37,7 +37,7 @@ export function focusGroupUsesStudioPrimitives() {
     audio: "ProgramAudioMixer",
     recording: "MasterRecorder",
     transcript: "TranscriptStore",
-    hottie: "HottieShowRunner",
+    hottie: "MoxieShowRunner",
     artifacts: "SessionArtifactStore"
   };
 }
@@ -61,16 +61,16 @@ export function buildFocusGroupInsightArtifact(session) {
   });
 }
 
-export function focusGroupHottieProposals(session) {
+export function focusGroupMoxieProposals(session) {
   const context = session?.focusGroupContext;
   if (!context) return [];
   return [
-    { type: HottieProposalType.ASK_FOLLOW_UP, question: context.researchQuestions?.[0] || "" },
-    { type: HottieProposalType.BRING_QUIET_PARTICIPANT },
-    { type: HottieProposalType.MOVE_TOPIC },
-    { type: HottieProposalType.FLAG_DISAGREEMENT },
-    { type: HottieProposalType.MARK_INSIGHT },
-    { type: HottieProposalType.MARK_QUOTE },
-    { type: HottieProposalType.MARK_MOMENT }
+    { type: MoxieProposalType.ASK_FOLLOW_UP, question: context.researchQuestions?.[0] || "" },
+    { type: MoxieProposalType.BRING_QUIET_PARTICIPANT },
+    { type: MoxieProposalType.MOVE_TOPIC },
+    { type: MoxieProposalType.FLAG_DISAGREEMENT },
+    { type: MoxieProposalType.MARK_INSIGHT },
+    { type: MoxieProposalType.MARK_QUOTE },
+    { type: MoxieProposalType.MARK_MOMENT }
   ];
 }

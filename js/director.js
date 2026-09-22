@@ -133,7 +133,7 @@ function initStudio() {
   new AIProductionController({
     getBrandTheme: () => session.brandTheme,
     onBrandChange: (brandTheme) => {
-      // Same lock this file's own selector respects — Hottie can't do via voice what the hidden dropdown
+      // Same lock this file's own selector respects — Moxie can't do via voice what the hidden dropdown
       // can't do via click. Backend enforces this regardless either way (see isBrandLocked's own comment).
       if (isBrandLocked && normalizeBrandTheme(brandTheme) !== session.brandTheme) return;
       elements.brandThemeSelect.value = normalizeBrandTheme(brandTheme);
@@ -244,7 +244,7 @@ function bindRailControls() {
   if (isBrandLocked) {
     // hidden, not removed: ai-production.js's own #aiBrandProfile selector (below) is queried and used
     // directly with no null-guard (addEventListener/replaceChildren/.value= all assume it exists) — that
-    // module is Hottie's, not touched here, so this can't risk removing an element it depends on.
+    // module is Moxie's, not touched here, so this can't risk removing an element it depends on.
     // Both the hidden ATTRIBUTE and an explicit inline style: css/studio.css's own .brand-switcher rule
     // sets display:grid directly on this class, which beats the [hidden] UA-stylesheet rule the attribute
     // alone relies on (author CSS always wins over UA styles at equal specificity, and a class selector's

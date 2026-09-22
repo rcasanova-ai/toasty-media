@@ -104,10 +104,10 @@ export const DEMO_TRANSCRIPT_SCRIPT = [
   { participantId: "host", role: "host", speaker: "Ricardo", text: "Fair enough. Let's take a couple of audience questions on that before we move on." }
 ];
 
-// Solo/Hottie producer fixture — Host + guests, a real Host "Toasty, …" directive, a guest mentioning
+// Solo/Moxie producer fixture — Host + guests, a real Host "Toasty, …" directive, a guest mentioning
 // Toasty without commanding, disagreement, an uncovered research question (never spoken), and a quiet
 // participant (Sarah) who exists in the registry but never speaks. Used by tests and optional demo.
-export const HOTTIE_LIVE_PRODUCER_SCRIPT = [
+export const MOXIE_LIVE_PRODUCER_SCRIPT = [
   { participantId: "host", role: "host", speaker: "Ricardo", text: "Welcome back. Thailand data-center announcements have been everywhere this week." },
   { participantId: "g-tukta", role: "guest", speaker: "Tukta", text: "The pipeline looks real, but Toasty is interesting as a distribution layer, not as a data-center play." },
   { participantId: "g-pat", role: "guest", speaker: "Pat", text: "I disagree — I wouldn't use this in a regulated industry without a lot more control." },
@@ -117,9 +117,9 @@ export const HOTTIE_LIVE_PRODUCER_SCRIPT = [
   { participantId: "host", role: "host", speaker: "Ricardo", text: "Toasty, remind me what Tukta said about pricing." }
 ];
 
-export const HOTTIE_LIVE_PRODUCER_RESEARCH = Object.freeze({
+export const MOXIE_LIVE_PRODUCER_RESEARCH = Object.freeze({
   id: "fixture-hottie-live",
-  title: "Hottie live producer fixture",
+  title: "Moxie live producer fixture",
   objective: "Exercise transcript attribution, Host directives, and private producer intelligence.",
   researchQuestions: ["What would stop you from using this?"],
   cohort: { label: "Fixture" },

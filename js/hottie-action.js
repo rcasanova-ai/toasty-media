@@ -1,4 +1,4 @@
-// Hottie production action bus.
+// Moxie production action bus.
 // LLM / speech never mutates Studio. Structured intents become ProductionActions here,
 // then a validated handler (ProgramController or a GREEN private worker) may run.
 
@@ -29,7 +29,7 @@ export const ResponseAudience = Object.freeze({
   NONE: "NONE"
 });
 
-export const HottieIntent = Object.freeze({
+export const MoxieIntent = Object.freeze({
   SEARCH_WEB: "SEARCH_WEB",
   SEARCH_IMAGE: "SEARCH_IMAGE",
   FACT_CHECK: "FACT_CHECK",
@@ -56,16 +56,16 @@ export const HottieIntent = Object.freeze({
 });
 
 const GREEN_INTENTS = new Set([
-  HottieIntent.SEARCH_WEB,
-  HottieIntent.SEARCH_IMAGE,
-  HottieIntent.FACT_CHECK,
-  HottieIntent.RECALL_TRANSCRIPT,
-  HottieIntent.DEFINE,
-  HottieIntent.EXPLAIN,
-  HottieIntent.CLIP_MOMENT,
-  HottieIntent.MARK_MOMENT,
-  HottieIntent.READ_CHAT,
-  HottieIntent.CREW_ADVICE
+  MoxieIntent.SEARCH_WEB,
+  MoxieIntent.SEARCH_IMAGE,
+  MoxieIntent.FACT_CHECK,
+  MoxieIntent.RECALL_TRANSCRIPT,
+  MoxieIntent.DEFINE,
+  MoxieIntent.EXPLAIN,
+  MoxieIntent.CLIP_MOMENT,
+  MoxieIntent.MARK_MOMENT,
+  MoxieIntent.READ_CHAT,
+  MoxieIntent.CREW_ADVICE
 ]);
 
 const RED_INTENTS = new Set([
@@ -95,7 +95,7 @@ export function requiresApproval(riskLevel) {
 export function createProductionAction({
   id,
   sessionId = null,
-  intent = HottieIntent.UNKNOWN,
+  intent = MoxieIntent.UNKNOWN,
   payload = {},
   requestedBy = "host",
   createdAt = Date.now(),
@@ -135,7 +135,7 @@ export function createProductionAction({
   };
 }
 
-export class HottieActionBus {
+export class MoxieActionBus {
   constructor() {
     this.items = [];
     this._listeners = new Set();

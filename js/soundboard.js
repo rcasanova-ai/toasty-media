@@ -23,7 +23,7 @@ function normalize(value) {
 export function resolveSoundCommand(text, items = []) {
   const input = normalize(text);
   if (!input) return null;
-  const commandLike = /\b(play|give me|hit me with|hit the|drop|cue|sound|trigger|run|hottie|stop)\b/.test(input);
+  const commandLike = /\b(play|give me|hit me with|hit the|drop|cue|sound|trigger|run|moxie|hottie|stop)\b/.test(input);
   if (!commandLike) return null;
   if (/\bstop\b/.test(input) && /\b(sound|audio|music|sting)/.test(input)) {
     return { id: "__stop__", displayName: "Stop", action: ProductionActionType.STOP_AUDIO };

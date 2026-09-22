@@ -2,6 +2,8 @@ import { collectRenderMedia, mediaReferenceForAsset } from "./media-store.js";
 
 const LOCAL_RENDER_ENDPOINT = "http://127.0.0.1:4174/render";
 const PRODUCTION_RENDER_ENDPOINT = "https://render.toasty.media/render";
+const LOCAL_RECORDING_FINALIZE_ENDPOINT = "http://127.0.0.1:4174/api/recordings/finalize";
+const PRODUCTION_RECORDING_FINALIZE_ENDPOINT = "https://render.toasty.media/api/recordings/finalize";
 
 export function buildTimeline({ project, productionSpec, brandProfile }) {
   const narrationDuration = project.audio?.duration || 0;
@@ -109,12 +111,53 @@ export async function renderProductionMp4({ project, productionSpec, brandProfil
   };
 }
 
+export async function finalizeMasterRecordingMp4({ sourceBlob, manifest, onProgress = () => {} }) {
+  if (!sourceBlob?.size) throw new Error("Source WebM recording is missing.");
+  if (!manifest?.recordingId) throw new Error("Recording manifest is missing.");
+  onProgress("Finalizing MP4 master...");
+  const form = new FormData();
+  form.set("manifest", JSON.stringify(manifest));
+  form.append("source", sourceBlob, `${manifest.recordingId}.webm`);
+  const response = await fetch(getRecordingFinalizeEndpoint(), {
+    method: "POST",
+    headers: { "X-Toasty-CSRF": "1" },
+    credentials: "include",
+    body: form
+  });
+  if (!response.ok) {
+    let message = "MP4 finalization failed. Source WebM is preserved.";
+    try {
+      const payload = await response.json();
+      if (payload?.error) message = payload.error;
+    } catch {
+      // Keep a retryable recording error short.
+    }
+    throw new Error(message);
+  }
+  const blob = await response.blob();
+  onProgress("MP4 master ready.");
+  return {
+    blob,
+    fileName: `${manifest.recordingId}.mp4`,
+    mimeType: blob.type || "video/mp4",
+    bytes: blob.size
+  };
+}
+
 function getRenderEndpoint() {
   const host = window.location.hostname;
   if (host === "localhost" || host === "127.0.0.1" || host === "") {
     return LOCAL_RENDER_ENDPOINT;
   }
   return PRODUCTION_RENDER_ENDPOINT;
+}
+
+function getRecordingFinalizeEndpoint() {
+  const host = window.location.hostname;
+  if (host === "localhost" || host === "127.0.0.1" || host === "") {
+    return LOCAL_RECORDING_FINALIZE_ENDPOINT;
+  }
+  return PRODUCTION_RECORDING_FINALIZE_ENDPOINT;
 }
 
 export function renderReadiness({ project, consistency }) {

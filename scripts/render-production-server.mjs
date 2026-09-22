@@ -241,6 +241,19 @@ const server = createServer(async (req, res) => {
     await handleTranscribe(req, res);
     return;
   }
+  if (req.method === "POST" && req.url === "/api/recordings/finalize") {
+    if (!requireCsrf(req, res) || !limit(req, res, "recording-finalize", 20, 15 * 60 * 1000)) return;
+    if (!(await isAuthorized(req))) {
+      sendJson(req, res, 401, { error: "Sign in to finalize recording masters." });
+      return;
+    }
+    if (Number(req.headers["content-length"] || 0) > MAX_UPLOAD_BYTES) {
+      sendJson(req, res, 413, { error: "Recording upload is too large." });
+      return;
+    }
+    await handleRecordingFinalize(req, res);
+    return;
+  }
   // Room presence — see handlePresenceAnnounce's own comment. Deliberately unauthenticated like
   // /api/agent/find-experts above: a Guest has no Toasty account (see studio/guest.html's "No account
   // required"), so this can't require a session the way /media-assets etc. do. Rate-limited per IP instead.
@@ -619,8 +632,49 @@ async function handleTranscribe(req, res) {
   }
 }
 
+async function handleRecordingFinalize(req, res) {
+  let workDir;
+  try {
+    workDir = await mkdtemp(join(tmpdir(), "toasty-master-"));
+    const request = new Request(`http://${HOST}:${PORT}/api/recordings/finalize`, {
+      method: "POST",
+      headers: req.headers,
+      body: Readable.toWeb(req),
+      duplex: "half"
+    });
+    const form = await request.formData();
+    const manifestPart = form.get("manifest");
+    const manifest = JSON.parse(typeof manifestPart === "string" ? manifestPart : await manifestPart.text());
+    validateRecordingFinalizeManifest(manifest);
+    const source = form.get("source");
+    if (!source?.name || typeof source.arrayBuffer !== "function" || source.size < 1) {
+      throw httpError(400, "Source WebM recording is missing.");
+    }
+    if (source.size > MAX_FILE_BYTES) throw httpError(413, "Source WebM recording is too large.");
+    const sourcePath = join(workDir, `${safeFileName(manifest.recordingId)}-source.webm`);
+    const outputPath = join(workDir, `${safeFileName(manifest.recordingId)}-master.mp4`);
+    await writeFile(sourcePath, Buffer.from(await source.arrayBuffer()));
+    await transcodeWebmMasterToMp4({ sourcePath, outputPath });
+    const output = await readFile(outputPath);
+    setCors(req, res);
+    res.writeHead(200, {
+      "Content-Type": "video/mp4",
+      "Content-Disposition": `attachment; filename="${safeFileName(manifest.recordingId)}.mp4"`,
+      "Content-Length": output.length,
+      "X-Toasty-Source-Recording": `${safeFileName(manifest.recordingId)}.webm`,
+      "X-Toasty-Master-Recording": `${safeFileName(manifest.recordingId)}.mp4`
+    });
+    res.end(output);
+  } catch (error) {
+    console.error(error);
+    sendJson(req, res, error.statusCode || 500, { error: creatorError(error) });
+  } finally {
+    if (workDir) await rm(workDir, { recursive: true, force: true });
+  }
+}
+
 // Extension point, NOT implemented this pass: continuous "show listening" (rolling background transcript
-// of program audio, feeding ShowContext so Hottie knows what's been discussed without a PTT hold) would
+// of program audio, feeding ShowContext so Moxie knows what's been discussed without a PTT hold) would
 // reuse this exact pipeline — same ffmpeg conversion, same whisper-cli invocation, same WHISPER_CLI_PATH/
 // WHISPER_MODEL_PATH config — but through its OWN queue lane, not withTranscribeSlot above. PTT is a
 // human actively waiting on a result; background show-audio chunks can tolerate being 10-30s behind and
@@ -2314,6 +2368,27 @@ function validateManifest(manifest) {
     if (asset.id && !SAFE_ID.test(asset.id)) throw httpError(400, "Invalid asset id.");
     if (asset.mediaId && !SAFE_ID.test(asset.mediaId)) throw httpError(400, "Invalid media id.");
   });
+}
+
+function validateRecordingFinalizeManifest(manifest) {
+  if (!manifest || typeof manifest !== "object") throw httpError(400, "Invalid recording manifest.");
+  if (!SAFE_ID.test(manifest.recordingId || "")) throw httpError(400, "Invalid recording id.");
+  if (manifest.kind && manifest.kind !== "master-program") throw httpError(400, "Invalid recording kind.");
+}
+
+async function transcodeWebmMasterToMp4({ sourcePath, outputPath }) {
+  await run(FFMPEG, [
+    "-y",
+    "-i", sourcePath,
+    "-c:v", "libx264",
+    "-preset", "medium",
+    "-crf", "18",
+    "-c:a", "aac",
+    "-b:a", "192k",
+    "-pix_fmt", "yuv420p",
+    "-movflags", "+faststart",
+    outputPath
+  ]);
 }
 
 async function renderScene({ segment, scene, assetPath, avatarPath, brollPath, audioSourcePath, manifest, width, height, output }) {

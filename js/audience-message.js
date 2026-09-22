@@ -1,5 +1,5 @@
 // Unified audience chat. Adapters normalize vendor payloads into AudienceMessage.
-// Hottie consumes this model. Public AI replies MUST identify as Hottie · Toasty Producer.
+// Moxie consumes this model. Public AI replies MUST identify as Moxie · Toasty Producer.
 
 export const AudienceSource = Object.freeze({
   TOASTY: "TOASTY",
@@ -15,7 +15,7 @@ export const AudienceKind = Object.freeze({
   HAND: "hand"
 });
 
-export const HOTTIE_PUBLIC_IDENTITY = "Hottie · Toasty Producer";
+export const MOXIE_PUBLIC_IDENTITY = "Moxie · Toasty Producer";
 
 let seq = 0;
 function nextAudienceId() {
@@ -116,10 +116,10 @@ export function hottiePublicReply({ text, inReplyTo = null, sessionId = null } =
   return createAudienceMessage({
     sessionId,
     source: AudienceSource.TOASTY,
-    author: HOTTIE_PUBLIC_IDENTITY,
+    author: MOXIE_PUBLIC_IDENTITY,
     text,
     kind: AudienceKind.COMMENT,
-    metadata: { inReplyTo, identity: HOTTIE_PUBLIC_IDENTITY, impersonatesHost: false }
+    metadata: { inReplyTo, identity: MOXIE_PUBLIC_IDENTITY, impersonatesHost: false }
   });
 }
 
