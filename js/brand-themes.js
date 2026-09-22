@@ -82,6 +82,48 @@ export const BRAND_THEMES = Object.freeze({
       "--studio-canvas":"#07111f","--studio-canvas-2":"#0b1625","--studio-surface":"#111d2d","--studio-surface-2":"#172334","--studio-surface-raised":"#1d2a3c","--studio-line":"rgba(216, 222, 230, 0.12)","--studio-line-strong":"rgba(200, 164, 93, 0.34)","--studio-line-warm":"rgba(200, 164, 93, 0.42)","--studio-cream":"#f5f1e8","--studio-cream-dim":"#d8dee6","--studio-muted":"#95a2b2","--studio-orange":"#c8a45d","--studio-orange-bright":"#d8c17e","--studio-amber":"#ead99d","--studio-burnt":"#8a6a2f","--studio-brown":"#172334","--studio-green":"#75b798","--studio-client-glow":"rgba(200, 164, 93, 0.16)","--studio-button-text":"#07111f","--studio-button-shadow":"rgba(200, 164, 93, 0.20)","--studio-button-shadow-hover":"rgba(200, 164, 93, 0.30)","--studio-atmosphere-stroke":"rgba(200, 164, 93, 0.08)","--studio-atmosphere-stroke-2":"rgba(245, 241, 232, 0.045)","--studio-mark-opacity":"0.055"
     })
   }),
+  zenify: Object.freeze({
+    id: "zenify", label: "Zenify", showPoweredBy: true,
+    homeUrl: "https://zenifybkk.com",
+    textLogo: "ZENIFY", atmosphereBrand: "ZENIFY", atmosphereProduct: "PRIVATE ADVISORY",
+    copy: Object.freeze({
+      studioName: "Zenify Studio",
+      publicHeroTitle: "Private conversations. Carefully produced.",
+      publicHeroSupport: "A restrained production workspace for private advisory conversations, interviews, briefings, and member education.",
+      publicHeroTagline: "Private advisory intelligence, professionally produced.",
+      quickLabel: "Production",
+      quickTitle: "Bring the source. Keep the signal clear.",
+      quickBody: "Turn raw recordings and source material into precise, discreet Zenify productions with restrained graphics and export-ready formats.",
+      liveBody: "Host private conversations, manage guests, and record in a calm Zenify production environment.",
+      aiBody: "Shape source material into clear, considered productions without losing context.",
+      memoryBody: "Keep Zenify typography, presentation, lower thirds, and advisory tone consistent across every production.",
+      guestLede: "Set your name and devices before entering the Zenify Studio.",
+      productionTitle: "Private advisory, clearly produced.",
+      productionSubtitle: "A quiet production environment for considered conversations and trusted information.",
+      preparedTitle: "Your Zenify production is prepared.",
+      conciergePrefix: "Zenify Studio suggests:"
+    }),
+    artwork: Object.freeze({
+      surfaceGradient: "radial-gradient(900px 520px at 82% 8%, rgba(164, 148, 126, 0.08), transparent 64%), linear-gradient(160deg, rgba(247,245,240,0.98), rgba(237,233,225,0.96))",
+      accentGradient: "linear-gradient(135deg, #2f3b38, #66736e)",
+      decorativeOpacity: 0.02,
+      watermarkOpacity: 0,
+      silhouetteOpacity: 0,
+      titleCardFill: "rgba(245, 242, 235, 0.94)",
+      grainBlend: "multiply",
+      identityStripe: "linear-gradient(90deg, transparent, rgba(47,59,56,.42), transparent)",
+      identityStripeWidth: "1px",
+      grainOpacity: 0.012,
+      cardRadius: "4px",
+      lowerThirdTreatment: "solid-accent-bar",
+      introTreatment: "quiet-editorial",
+      outroTreatment: "quiet-editorial-close"
+    }),
+    vars: Object.freeze({
+      "--brand-primary":"#2f3b38","--brand-secondary":"#f4f1ea","--brand-accent":"#8d8170","--brand-background":"#eeebe4","--brand-surface":"#f8f6f1","--brand-surface-alt":"#e7e3da","--brand-text":"#202725","--brand-text-muted":"#6f7773","--brand-border":"rgba(32,39,37,0.14)","--brand-button":"#2f3b38","--brand-button-text":"#ffffff","--brand-focus":"#66736e","--brand-gradient":"linear-gradient(135deg, #2f3b38, #66736e)","--brand-heading-font":"Inter, system-ui, sans-serif","--brand-body-font":"Inter, system-ui, -apple-system, sans-serif",
+      "--studio-canvas":"#eeebe4","--studio-canvas-2":"#e5e1d8","--studio-surface":"#f8f6f1","--studio-surface-2":"#e7e3da","--studio-surface-raised":"#ffffff","--studio-line":"rgba(32,39,37,0.12)","--studio-line-strong":"rgba(47,59,56,0.30)","--studio-line-warm":"rgba(141,129,112,0.32)","--studio-cream":"#202725","--studio-cream-dim":"#46504c","--studio-muted":"#747c78","--studio-orange":"#2f3b38","--studio-orange-bright":"#566560","--studio-amber":"#8d8170","--studio-burnt":"#222b28","--studio-brown":"#d8d2c7","--studio-green":"#496b5e","--studio-client-glow":"rgba(47,59,56,0.10)","--studio-button-text":"#ffffff","--studio-button-shadow":"rgba(47,59,56,0.14)","--studio-button-shadow-hover":"rgba(47,59,56,0.22)","--studio-atmosphere-stroke":"rgba(47,59,56,0.055)","--studio-atmosphere-stroke-2":"rgba(141,129,112,0.045)","--studio-mark-opacity":"0"
+    })
+  }),
   santati: Object.freeze({
     id: "santati", label: "Santati", showPoweredBy: true,
     logoSrc: "https://www.santaticrm.com/assets/santati-logo-only-white.png", logoAlt: "Santati",

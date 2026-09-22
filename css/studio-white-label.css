@@ -267,3 +267,38 @@ body[data-brand-theme]:not([data-brand-theme="toasty"]) {
 .expert-powered-by {
   margin-left: auto;
 }
+
+
+/* Zenify: quiet, editorial private-advisory treatment. */
+.studio-shell[data-brand-theme="zenify"] .mode-card,
+.studio-shell[data-brand-theme="zenify"] .btn,
+.studio-shell[data-brand-theme="zenify"] .quick-drop-zone,
+.studio-shell[data-brand-theme="zenify"] .workflow-stage,
+.studio-shell[data-brand-theme="zenify"] .video-panel,
+.program-output[data-brand-theme="zenify"] .po-tile,
+.program-output[data-brand-theme="zenify"] .po-waitingroom-slot {
+  border-radius: 4px;
+}
+.studio-shell[data-brand-theme="zenify"] .brand-text-lockup {
+  color: var(--brand-text);
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 1.05rem;
+  font-weight: 500;
+  letter-spacing: .28em;
+}
+.studio-shell[data-brand-theme="zenify"] .btn-primary,
+.studio-public-shell[data-brand-theme="zenify"] .public-button {
+  box-shadow: none;
+  letter-spacing: .035em;
+}
+.studio-shell[data-brand-theme="zenify"] .lv-panel,
+.studio-shell[data-brand-theme="zenify"] .panel-section,
+.studio-shell[data-brand-theme="zenify"] .session-gate-card {
+  box-shadow: 0 10px 30px rgba(32,39,37,.045);
+}
+.program-output[data-brand-theme="zenify"] .po-scene-screen {
+  background:
+    linear-gradient(120deg, rgba(141,129,112,.045), transparent 34%),
+    radial-gradient(80% 90% at 70% 25%, rgba(47,59,56,.055), transparent 60%),
+    var(--studio-canvas);
+}
