@@ -59,33 +59,6 @@
       </div>
     </section>
 
-    <header class="studio-global-nav" aria-label="Studio navigation">
-      <div class="ai-studio-masthead" id="aiStudioMasthead" hidden>
-        <img
-          src="../shared/brand/toasty-media/ToastyMediaStudio.png"
-          alt="Studio"
-          data-brand-logo
-        >
-      </div>
-
-      <section class="studio-mode-switcher" aria-label="Studio mode">
-        <button class="mode-card" type="button" data-studio-mode="live" aria-pressed="true">
-          <span class="mode-icon mode-icon--live" aria-hidden="true"></span>
-          <strong>Live Studio</strong>
-        </button>
-        <button class="mode-card" type="button" data-studio-mode="ai" aria-pressed="false">
-          <span class="mode-icon mode-icon--ai" aria-hidden="true"></span>
-          <strong>AI Production</strong>
-        </button>
-      </section>
-
-      <div class="on-air-sign on-air-sign--compact" id="connectionChip" data-state="offline">
-        <span class="on-air-bulb" aria-hidden="true"></span>
-        <span class="on-air-text" aria-hidden="true">OFFLINE</span>
-        <span id="connectionState" class="sr-only">Ready</span>
-      </div>
-    </header>
-
     <div class="studio-grid">
       <aside class="rail rail-left" aria-label="Studio session rail">
         <div class="brand-block">
@@ -385,18 +358,28 @@
         </section>
 
         <section class="live-console live-studio-panel" id="liveConsole" data-lv-view="host" aria-label="Live Studio console">
-          <header class="lv-topbar">
+          <header class="lv-topbar lv-topbar--clean">
+            <div class="lv-session-identity">
+              <strong id="lvSessionTitle">Live Session</strong>
+              <span class="lv-session-state" id="connectionChip" data-state="offline">
+                <span class="lv-session-state-dot" aria-hidden="true"></span>
+                <span id="connectionState">Ready</span>
+              </span>
+            </div>
             <nav class="lv-view-switch" aria-label="Studio view">
               <button type="button" class="lv-view-btn" data-lv-view-btn="host" aria-pressed="true">Host</button>
               <button type="button" class="lv-view-btn" data-lv-view-btn="producer" aria-pressed="false">Producer</button>
             </nav>
-            <div class="lv-topbar-status">
+            <div class="lv-session-actions">
               <span class="lv-rec-chip" id="lvRecChip" hidden>
                 <span class="lv-rec-dot" aria-hidden="true"></span>
-                <span>MASTER</span>
+                <span>REC</span>
                 <span id="lvRecChipTime">00:00:00</span>
               </span>
               <span class="lv-policy-chip" id="lvPolicyChip" hidden></span>
+              <button id="lvHeaderProgramOutput" class="btn btn-ghost btn-small" type="button">Program Output</button>
+              <button id="lvHeaderSettings" class="btn btn-ghost btn-small" type="button">Settings</button>
+              <button id="lvHeaderEndSession" class="btn btn-ghost btn-small lv-header-danger" type="button">End Session</button>
             </div>
           </header>
 
