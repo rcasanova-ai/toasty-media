@@ -64,6 +64,10 @@ const elements = {
   atmosphereMark: document.querySelector(".atmosphere-mark"),
   switchSession: document.querySelector("#switchSession"),
   endSessionBtn: document.querySelector("#endSessionBtn"),
+  headerProgramOutput: document.querySelector("#lvHeaderProgramOutput"),
+  headerSettings: document.querySelector("#lvHeaderSettings"),
+  headerEndSession: document.querySelector("#lvHeaderEndSession"),
+  sessionTitle: document.querySelector("#lvSessionTitle"),
   toggleScreenQuick: document.querySelector("#toggleScreenQuick"),
   lvSessionType: document.querySelector("#lvSessionType"),
   lvJamPolicyFields: document.querySelector("#lvJamPolicyFields"),
@@ -89,6 +93,7 @@ async function init() {
   applySelectedBrand();
   const durableSession = await resolveSession({ brandId: session.brandTheme });
   session.applyDurableSession(durableSession);
+  if (elements.sessionTitle) elements.sessionTitle.textContent = durableSession?.title || "Live Session";
   void session.loadProfileEndCard();
   initStudio();
 }
@@ -138,6 +143,7 @@ function initStudio() {
 
   bindViewSwitch();
   bindRailControls();
+  bindCleanHeaderControls();
   bindPolicyDrawer();
   bindAiProviderDrawer();
   bindPersonaDrawer();
@@ -188,6 +194,18 @@ function setView(view) {
   // Queried live (not cached at init time) so panels mounted later by other controllers — e.g. the
   // Producer-only broadcast card injected into .rail-right — are still gated correctly.
   document.querySelectorAll("[data-lv-only]").forEach((panel) => { panel.hidden = panel.dataset.lvOnly !== view; });
+}
+
+function bindCleanHeaderControls() {
+  elements.headerProgramOutput?.addEventListener("click", () => {
+    const existing = document.querySelector("#lvOpenProgramOutput");
+    if (existing) existing.click();
+  });
+  elements.headerSettings?.addEventListener("click", () => {
+    elements.lvSessionType?.focus();
+    document.querySelector(".rail-right")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  elements.headerEndSession?.addEventListener("click", () => elements.endSessionBtn?.click());
 }
 
 function bindRailControls() {
