@@ -36,26 +36,31 @@
       <div class="session-gate-inner">
         <header class="session-gate-header">
           <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="" class="session-gate-logo" data-brand-logo>
-          <h1>Live Studio Sessions</h1>
-          <p class="session-gate-sub">Open an existing session or start a new one.</p>
+          <h1>Studio Home</h1>
+          <p class="session-gate-sub">Active work, recent sessions, and collections. Ended sessions open as a record, not a live room.</p>
         </header>
 
         <div class="session-gate-new">
-          <input type="text" id="sessionGateTitle" placeholder="Session title (optional)">
+          <input type="text" id="sessionGateTitle" placeholder="New session title (optional)">
           <button type="button" id="sessionGateCreate" class="btn btn-primary">+ New Session</button>
         </div>
 
         <p class="session-gate-status" id="sessionGateStatus"></p>
+        <div id="studioHomeBoard" class="studio-home-board"></div>
+      </div>
+    </section>
 
-        <div class="session-gate-section">
-          <p class="session-gate-label">Active</p>
-          <div id="sessionGateActiveList" class="session-gate-list"></div>
-        </div>
-
-        <div class="session-gate-section">
-          <p class="session-gate-label">Ended</p>
-          <div id="sessionGateEndedList" class="session-gate-list"></div>
-        </div>
+    <section class="session-artifacts" id="sessionArtifacts" hidden aria-label="Session artifacts">
+      <div class="session-artifacts-inner">
+        <header class="session-gate-header">
+          <p class="session-gate-label">Historical record</p>
+          <h1 id="sessionArtifactsTitle">Session</h1>
+          <p class="session-gate-sub">Read-only artifacts. This does not reopen a live Studio room.</p>
+          <div class="session-gate-new">
+            <button type="button" class="btn btn-primary" id="sessionArtifactsHome">Back to Studio Home</button>
+          </div>
+        </header>
+        <div id="sessionArtifactsBody" class="session-artifacts-body"></div>
       </div>
     </section>
 
