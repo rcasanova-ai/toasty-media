@@ -359,3 +359,7 @@ a {
     border-bottom: 1px solid var(--public-line);
   }
 }
+
+
+/* Authenticated Studio owns account actions inside Settings; never overlay the live console. */
+.studio-app-shell .studio-logout { display: none !important; }
