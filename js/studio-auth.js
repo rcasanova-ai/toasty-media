@@ -16,9 +16,6 @@ const els = {};
 
 function dismissEntryCurtain() { const el = document.getElementById("studioEntryCurtain"); if (!el || el.classList.contains("is-leaving")) return; el.classList.add("is-leaving"); window.setTimeout(() => el.remove(), 320); }
 
-// The curtain is presentation, never a boot lock. If the embedded Studio fails before
-// posting its ready event, reveal the underlying app so the actual error/recovery UI is usable.
-window.setTimeout(() => dismissEntryCurtain(), 5000);
 
 document.addEventListener("DOMContentLoaded", () => {
   [
@@ -168,6 +165,11 @@ function openStudio(branding = { mode: "flexible", brandId: null }) {
     } else {
       query.delete("brandLocked");
     }
+    els.studioAppFrame.addEventListener("load", () => {
+      // The shell is ready when the authenticated Studio document itself is rendered.
+      // Child initialization may continue afterward, but it must never hold the shell hostage.
+      dismissEntryCurtain();
+    }, { once: true });
     els.studioAppFrame.src = `./director.html?${query}`;
     state.appLoaded = true;
   }
