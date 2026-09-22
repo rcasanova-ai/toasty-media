@@ -16,6 +16,10 @@ const els = {};
 
 function dismissEntryCurtain() { const el = document.getElementById("studioEntryCurtain"); if (!el || el.classList.contains("is-leaving")) return; el.classList.add("is-leaving"); window.setTimeout(() => el.remove(), 320); }
 
+// The curtain is presentation, never a boot lock. If the embedded Studio fails before
+// posting its ready event, reveal the underlying app so the actual error/recovery UI is usable.
+window.setTimeout(() => dismissEntryCurtain(), 5000);
+
 document.addEventListener("DOMContentLoaded", () => {
   [
     "studioPublicPage",
