@@ -45,6 +45,7 @@ export class ProducerView {
       masterPlayback: root.querySelector("#lvMasterPlayback"),
       masterVideo: root.querySelector("#lvMasterVideo"),
       masterDownload: root.querySelector("#lvMasterDownload"),
+      masterDownloadWebm: root.querySelector("#lvMasterDownloadWebm"),
       masterPlay: root.querySelector("#lvMasterPlay"),
       masterManifest: root.querySelector("#lvMasterManifest"),
       masterManifestNote: root.querySelector("#lvMasterManifestNote"),
@@ -160,6 +161,7 @@ export class ProducerView {
     });
     this.elements.masterPlay?.addEventListener("click", () => this.playMaster());
     this.elements.masterDownload?.addEventListener("click", () => this.downloadMaster());
+    this.elements.masterDownloadWebm?.addEventListener("click", () => this.downloadSourceWebm());
     this.elements.masterManifest?.addEventListener("click", () => this.downloadManifest());
     this.elements.openProgramOutput.addEventListener("click", () => {
       this.session.noteProgramOutputOpening?.();
@@ -556,6 +558,13 @@ export class ProducerView {
 
   renderMasterPlayback(last) {
     if (!this.elements.masterPlayback) return;
+    // ROOT CAUSE (MP4 finalization incident follow-up): last.sourceBlob is retained regardless of MP4
+    // finalization outcome (see live-session.js's post-stop state and its finalization-failure catch,
+    // which only ever adds fields, never clears sourceBlob) — but this method used to gate EVERY button,
+    // including a WebM download, on last.blob/.objectUrl (the MP4-or-webm-fallback pair), so a producer
+    // whose MP4 failed had no visible, dedicated way to get the WebM Toasty already saved for them. This
+    // button is gated on sourceBlob alone, independent of MP4 status, in both branches below.
+    if (this.elements.masterDownloadWebm) this.elements.masterDownloadWebm.disabled = !last?.sourceBlob;
     if (!last?.blob || !last?.objectUrl) {
       this.elements.masterPlayback.hidden = !last;
       if (this.elements.masterVideo) this.elements.masterVideo.removeAttribute("src");
@@ -599,6 +608,15 @@ export class ProducerView {
 
   downloadFile(last.blob, `${last.recordingId}.${extension}`);
 }
+
+  // Explicit, dedicated WebM download — always the original tab-capture source, never the MP4, and
+  // available whether or not MP4 finalization ever succeeded. Distinct from downloadMaster() above,
+  // which downloads whichever of the two is currently "the" recording depending on finalization state.
+  downloadSourceWebm() {
+    const last = this.session.recording.last;
+    if (!last?.sourceBlob) return;
+    downloadFile(last.sourceBlob, `${last.recordingId}-source.webm`);
+  }
 
   downloadManifest() {
     const last = this.session.recording.last;
