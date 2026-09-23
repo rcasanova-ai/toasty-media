@@ -366,9 +366,14 @@ export function startMasterMediaRecorder(Rec, stream, mimeType, { onRecorder } =
   }), lastOperation);
 }
 
+// ROOT CAUSE (recording-quality audit): no width/height was ever requested here, so the captured
+// resolution was whatever the Program Output tab/window happened to be sized to at share time — a
+// producer sharing a small or restored-down window silently got a low-res master, with nothing in the
+// UI to warn them. `ideal` (not min/exact) asks Chrome to scale the actual shared surface toward 1080p
+// without failing the picker for a differently-shaped or smaller source.
 export function programOutputDisplayConstraints() {
   return {
-    video: { frameRate: { ideal: 30, max: 30 } },
+    video: { frameRate: { ideal: 30, max: 30 }, width: { ideal: 1920 }, height: { ideal: 1080 } },
     audio: true,
     preferCurrentTab: false,
     selfBrowserSurface: "exclude",
