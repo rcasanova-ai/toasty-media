@@ -125,10 +125,18 @@ console.log("\nProgram Renderer capture source is Program Output, not a second c
   const renderer = read("js/program-renderer.js");
   assert(recording.includes("getDisplayMedia"), "master uses getDisplayMedia of Program Output");
   assert(recording.includes("program-output-tab"), "capture visual is the Program Output tab");
-  assert(recording.includes("original getDisplayMedia stream"), "InvalidStateError fix records original capture stream");
+  assert(recording.includes("InvalidStateError"), "InvalidStateError incident is documented for future readers");
   const startBody = recording.slice(recording.indexOf("async start("), recording.indexOf("async stop("));
   assert(!startBody.includes("composeMasterMediaStream"), "start does not wrap capture tracks in a new MediaStream");
-  assert(startBody.includes("this.masterStream = capture"), "start assigns the original capture stream");
+  // A limiter (buildLimitedRecordingStream) now sits between capture and MediaRecorder — the actual
+  // safety property from the original incident (never re-wrap the SAME getDisplayMedia video+audio
+  // tracks together into a new MediaStream) still holds: only the video track is reused as-is, and the
+  // recorded audio track is always a genuinely new one from a MediaStreamAudioDestinationNode.
+  const limiterBody = recording.slice(recording.indexOf("function buildLimitedRecordingStream"), recording.indexOf("export class MasterProgramRecorder"));
+  assert(limiterBody.includes("capture.getVideoTracks()"), "limiter stream reuses the original video track");
+  assert(!limiterBody.includes("capture.getAudioTracks()") || !limiterBody.includes("new MediaStream([...capture.getVideoTracks(), ...capture.getAudioTracks()"), "limiter never re-wraps both original capture tracks together");
+  assert(limiterBody.includes("createDynamicsCompressor"), "recording audio passes through a limiter before MediaRecorder");
+  assert(startBody.includes("startMasterMediaRecorder(Rec, this.masterStream"), "start records the (video-original, audio-limited) stream, not the raw capture");
   assert(startBody.includes("inspectMasterCapture"), "start validates live video and audio tracks before MediaRecorder");
   assert(startBody.includes("startMasterMediaRecorder"), "start uses the fallback MediaRecorder lifecycle");
   assert(recording.includes("ONE") || recording.includes("second compositor") || recording.includes("second visual truth"), "forbids a second visual truth");

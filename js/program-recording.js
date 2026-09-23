@@ -683,6 +683,61 @@ export async function loadMasterRecording(recordingId) {
   };
 }
 
+// ROOT CAUSE (recording-quality audit, round 2 — real measured master): true peaks hit +0.3 dBFS with
+// visible waveform clipping even though overall loudness (-19.8 LUFS) was reasonable. The captured tab
+// audio (VDO participant speech + ProgramAudioBus destination, summed by the browser's own tab-audio
+// mixer) was reaching MediaRecorder's Opus encoder already exceeding 0 dBFS at peaks, and PCM
+// quantization at that boundary hard-clips anything past 1.0 — a static volume reduction can't undo
+// that, it would just make an already-clipped signal quieter. A DynamicsCompressorNode inserted between
+// the captured audio track and MediaRecorder operates on full-precision float samples BEFORE that
+// quantization step, so it can genuinely prevent the clipping: it only pulls gain down on loud peaks,
+// leaving normal speech level alone. Threshold sits well below the -1 dBFS target because
+// DynamicsCompressorNode's max ratio (20:1) is not a true brick wall — fast attack + a hard knee keep
+// transient overshoot small at that margin.
+//
+// Only the video track is reused as-is; the recorded audio track is a NEW one from a
+// MediaStreamAudioDestinationNode, never a re-wrapped capture track. That's a different case from the
+// composeMasterMediaStream() incident documented elsewhere in this file: that bug was re-wrapping the
+// SAME getDisplayMedia video+audio tracks together into a new MediaStream (BUILD 2026.09.20-masterrec,
+// InvalidStateError). Here the video track is the identical object the whole way through; the only new
+// track is a genuinely synthesized one from the Web Audio graph, which is the standard, broadly-relied-on
+// browser pattern for processing audio before MediaRecorder.
+function buildLimitedRecordingStream(capture) {
+  const Ctx = globalThis.AudioContext || globalThis.webkitAudioContext;
+  const audioTracks = capture.getAudioTracks();
+  if (!Ctx || !audioTracks.length) return { stream: capture, cleanup: () => {} };
+  let ctx;
+  try {
+    ctx = new Ctx();
+    const source = ctx.createMediaStreamSource(capture);
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -10;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.15;
+    const destination = ctx.createMediaStreamDestination();
+    source.connect(limiter).connect(destination);
+    void ctx.resume?.().catch?.(() => {});
+    const stream = new MediaStream([...capture.getVideoTracks(), ...destination.stream.getAudioTracks()]);
+    return {
+      stream,
+      cleanup: () => {
+        try { source.disconnect(); } catch (_) {}
+        try { limiter.disconnect(); } catch (_) {}
+        audioTracks.forEach((track) => track.stop());
+        try { ctx.close(); } catch (_) {}
+      }
+    };
+  } catch (error) {
+    // Recording the raw capture unlimited is still strictly better than failing the recording outright —
+    // this only degrades back to the pre-limiter behavior, it never blocks capture.
+    try { console.error("[MasterProgramRecorder] audio limiter setup failed, recording unlimited", error); } catch (_) {}
+    try { ctx?.close?.(); } catch (_) {}
+    return { stream: capture, cleanup: () => {} };
+  }
+}
+
 export class MasterProgramRecorder {
   constructor({ status, displayMedia, MediaRecorderImpl } = {}) {
     this.status = status;
@@ -737,14 +792,17 @@ export class MasterProgramRecorder {
     if (inspection.looksLikeProgramOutput === false) {
       this.status?.("That share does not look like Program Output. Stop and select “Toasty Studio — Program Output”.");
     }
-    // Record the original getDisplayMedia stream. Do not wrap tracks in a new MediaStream —
-    // that reconstructed stream made MediaRecorder.start() throw InvalidStateError.
-    this.masterStream = capture;
+    // Video track is the original getDisplayMedia one, untouched. Audio is passed through a limiter
+    // first — see buildLimitedRecordingStream's own comment for why this is safe (only the video track
+    // is reused as-is; the audio track is genuinely new, not a re-wrapped capture track).
+    const limited = buildLimitedRecordingStream(capture);
+    this.masterStream = limited.stream;
+    this._releaseLimiter = limited.cleanup;
     capture.getVideoTracks()[0]?.addEventListener?.("ended", () => {
       if (this.recorder?.state === "recording") this.stop().catch(() => {});
     });
     this.mimeType = MASTER_MIME.find((type) => Rec.isTypeSupported?.(type)) || "";
-    const started = startMasterMediaRecorder(Rec, capture, this.mimeType, {
+    const started = startMasterMediaRecorder(Rec, this.masterStream, this.mimeType, {
       onRecorder: (recorder) => {
         recorder.addEventListener("dataavailable", (event) => {
           if (event.data?.size) this.chunks.push(event.data);
@@ -762,7 +820,7 @@ export class MasterProgramRecorder {
       surfaceLabel: this.surfaceLabel,
       diagnostics: describeRecorderDiagnostics({
         recorder: this.recorder,
-        capture,
+        capture: this.masterStream,
         mimeType: this.mimeType,
         operation: `MediaRecorder.start (${started.attempt})`,
         attempt: started.attempt
@@ -784,6 +842,8 @@ export class MasterProgramRecorder {
     return new Promise((resolve, reject) => {
       const finish = () => {
         this.stoppedAt = Date.now();
+        this._releaseLimiter?.();
+        this._releaseLimiter = null;
         this.captureStream?.getTracks().forEach((track) => track.stop());
         const blob = new Blob(this.chunks, { type: this.recorder.mimeType || this.mimeType || "video/webm" });
         const result = {
