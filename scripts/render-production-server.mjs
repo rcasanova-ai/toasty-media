@@ -56,6 +56,7 @@ const MAX_FILE_BYTES = Number(process.env.TOASTY_RENDER_MAX_FILE_BYTES || 150 * 
 const MAX_TOTAL_DURATION = Number(process.env.TOASTY_RENDER_MAX_DURATION || 180);
 const MAX_SCENES = Number(process.env.TOASTY_RENDER_MAX_SCENES || 40);
 const FFMPEG_TIMEOUT_MS = Number(process.env.TOASTY_RENDER_FFMPEG_TIMEOUT_MS || 120000);
+const RECORDING_FFMPEG_TIMEOUT_MS = Number(process.env.TOASTY_RECORDING_FFMPEG_TIMEOUT_MS || 900000);
 const GOOGLE_DOWNLOAD_LIMIT_BYTES = Number(process.env.TOASTY_DRIVE_MAX_DOWNLOAD_BYTES || MAX_FILE_BYTES);
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const ANTHROPIC_MODEL = process.env.TOASTY_AI_PRODUCER_MODEL || "claude-sonnet-5";
@@ -2388,7 +2389,7 @@ async function transcodeWebmMasterToMp4({ sourcePath, outputPath }) {
     "-pix_fmt", "yuv420p",
     "-movflags", "+faststart",
     outputPath
-  ]);
+  ], { timeoutMs: RECORDING_FFMPEG_TIMEOUT_MS });
 }
 
 async function renderScene({ segment, scene, assetPath, avatarPath, brollPath, audioSourcePath, manifest, width, height, output }) {
@@ -2694,13 +2695,13 @@ function runJson(command, args, input) {
   });
 }
 
-function run(command, args) {
+function run(command, args, { timeoutMs = FFMPEG_TIMEOUT_MS } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] });
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new Error(`${command} timed out`));
-    }, FFMPEG_TIMEOUT_MS);
+    }, timeoutMs);
     let stderr = "";
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
