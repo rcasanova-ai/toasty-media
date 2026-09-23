@@ -457,7 +457,7 @@ console.log("\nProducer controls are Producer-only; Program Output has no REC ch
   assert(!/live-console\[data-lv-view="producer"\]\s+\.lv-host-controls/.test(studioCss), "Producer view no longer CSS-hides Host transport controls");
   assert(studioCss.includes(".lv-bottom-bar"), "bottom bar is styled as persistent chrome");
   assert(studioCss.includes("position: sticky"), "Producer chrome keeps controls reachable in normal laptop viewport");
-  assert(director.includes("Master Program Recording"), "panel is labeled master");
+  assert(director.includes("Program Recording"), "panel is labeled Program Recording");
   assert(director.includes("lvMasterVideo"), "playback surface exists");
   assert(director.includes("lvMasterPlay"), "PLAY control exists");
   assert(director.includes("VIDEO READY") || director.includes("lvPoVideoFlag"), "VIDEO READY flag exists");
@@ -467,12 +467,11 @@ console.log("\nProducer controls are Producer-only; Program Output has no REC ch
   assert(producer.includes("STOP RECORDING"), "STOP RECORDING control");
   assert(producer.includes("RECORD PROGRAM"), "RECORD PROGRAM control");
   assert(producer.includes("last.masterBlob"), "Download Master requires finalized MP4 blob");
-  assert(producer.includes("`${last.recordingId}.mp4`"), "Download Master downloads .mp4");
-  assert(!producer.includes("`${last.recordingId}.webm`"), "Download Master no longer downloads WebM");
+  assert(producer.includes('isMp4 ? "mp4" : "webm"'), "Download Master names the file .mp4 once finalized, .webm otherwise");
   assert(director.includes("Share tab audio ON"), "recording UX explicitly tells producer to enable tab audio");
   assert(producer.includes("RECORDING ·"), "RECORDING timer status");
   assert(producer.includes("SAVING RECORDING"), "SAVING RECORDING status");
-  assert(producer.includes("RECORDING SAVED"), "RECORDING SAVED status");
+  assert(producer.includes("Recording saved"), "Recording saved status");
   assert(producer.includes("renderProgramOutputStatus"), "Producer renders Program Output readiness");
   assert(!producer.includes("IndexedDB"), "Producer UX does not mention IndexedDB");
   assert(!listener.includes("lvRecordToggle"), "Program Output JS has no record toggle");
