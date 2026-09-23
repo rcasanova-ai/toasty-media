@@ -37,7 +37,7 @@ export const MarkerType = Object.freeze({
   PLAY_AUDIO: "play-audio",
   STOP_AUDIO: "stop-audio",
   TOPIC: "topic",
-  HOTTIE: "hottie",
+  MOXIE: "hottie",
   AUDIENCE: "audience",
   FOCUS_GROUP: "focus-group"
 });
@@ -49,7 +49,7 @@ export const MARKER_FROM_ACTION = Object.freeze({
   "remove-asset": MarkerType.REMOVE_ASSET,
   manual: MarkerType.MANUAL,
   topic: MarkerType.TOPIC,
-  hottie: MarkerType.HOTTIE,
+  hottie: MarkerType.MOXIE,
   audience: MarkerType.AUDIENCE,
   "focus-group": MarkerType.FOCUS_GROUP
 });
@@ -101,7 +101,7 @@ export function createMomentMarker({
 } = {}) {
   const marker = createMarker({
     timestamp,
-    type: MarkerType.HOTTIE,
+    type: MarkerType.MOXIE,
     label: reason || "Moment",
     source: "hottie"
   });
@@ -195,7 +195,7 @@ export function assetsUsedFromTimeline(timeline = [], assets = []) {
 }
 
 export const PROGRAM_OUTPUT_PICKER_INSTRUCTION =
-  "Select:\n“Toasty Studio — Program Output”\nMake sure:\n“Share tab audio” is ON.";
+  "SELECT THE TOASTY PROGRAM OUTPUT TAB\nENABLE “SHARE TAB AUDIO”\nTHEN CLICK SHARE";
 
 function trackReadyState(track) {
   if (!track) return "missing";
@@ -264,7 +264,7 @@ export function composeMasterMediaStream(tracks) {
 
 export function captureFailureMessage(reason) {
   if (reason === "missing-audio" || reason === "audio-not-live") {
-    return "Program Output audio was not shared. Start again and enable Share tab audio.";
+    return "Recording needs Program Output audio. Select the Toasty Program Output tab and enable Share tab audio.";
   }
   if (reason === "missing-video" || reason === "video-not-live") {
     return "Program Output video capture is unavailable.";
@@ -481,11 +481,18 @@ export function assembleMasterPackage({
     stoppedAt,
     brandTheme,
     participants,
-    master: {
-      filename: `session/master/${recordingId}.webm`,
-      mediaId: masterMediaId(recordingId),
-      mimeType: captureResult.mimeType,
+    source: {
+      filename: `session/source/${recordingId}.webm`,
+      mediaId: sourceMediaId(recordingId),
+      mimeType: captureResult.mimeType || "video/webm",
       bytes: captureResult.bytes || captureResult.blob?.size || 0
+    },
+    master: {
+      filename: `session/master/${recordingId}.mp4`,
+      mediaId: masterMediaId(recordingId),
+      mimeType: "video/mp4",
+      bytes: 0,
+      status: "pending-finalization"
     },
     isolatedTracks,
     transcriptRef: transcript,
@@ -518,6 +525,7 @@ export function buildMasterManifest({
   stoppedAt,
   brandTheme = "",
   participants = [],
+  source = {},
   master = {},
   isolatedTracks = [],
   transcriptRef = null,
@@ -549,14 +557,22 @@ export function buildMasterManifest({
       company: p.company || ""
     })),
     files: {
-      master: master.filename || "session/master/program.webm",
+      source: source.filename || `session/source/${recordingId || "program"}.webm`,
+      master: master.filename || `session/master/${recordingId || "program"}.mp4`,
       manifest: "session/master/manifest.json",
       isolated: isolatedTracks
     },
     media: {
+      sourceMediaId: source.mediaId || null,
       masterMediaId: master.mediaId || null,
-      mimeType: master.mimeType || "video/webm",
-      bytes: master.bytes || 0
+      sourceMimeType: source.mimeType || "video/webm",
+      masterMimeType: master.mimeType || "video/mp4",
+      sourceBytes: source.bytes || 0,
+      masterBytes: master.bytes || 0,
+      mimeType: master.mimeType || "video/mp4",
+      bytes: master.bytes || 0,
+      finalizationStatus: master.status || (master.bytes ? "finalized" : "pending-finalization"),
+      finalizationError: master.error || null
     },
     isolatedTracks,
     transcript: transcriptRef,
@@ -580,6 +596,14 @@ export function buildMasterManifest({
 }
 
 export function masterMediaId(recordingId) {
+  return `master-recording:${recordingId}:master-mp4`;
+}
+
+export function sourceMediaId(recordingId) {
+  return `master-recording:${recordingId}:source-webm`;
+}
+
+export function legacyMasterWebmMediaId(recordingId) {
   return `master-recording:${recordingId}:webm`;
 }
 
@@ -587,25 +611,71 @@ export function masterManifestId(recordingId) {
   return `master-recording:${recordingId}:manifest`;
 }
 
-export async function persistMasterRecording({ recordingId, blob, manifest }) {
+export function finalizedMasterManifest(manifest, { masterBlob, sourceBlob, error = "" } = {}) {
+  const ok = Boolean(masterBlob?.size);
+  return {
+    ...manifest,
+    files: {
+      ...(manifest.files || {}),
+      source: manifest.files?.source || `session/source/${manifest.recordingId || "program"}.webm`,
+      master: manifest.files?.master || `session/master/${manifest.recordingId || "program"}.mp4`
+    },
+    media: {
+      ...(manifest.media || {}),
+      sourceMediaId: manifest.media?.sourceMediaId || sourceMediaId(manifest.recordingId),
+      masterMediaId: manifest.media?.masterMediaId || masterMediaId(manifest.recordingId),
+      sourceMimeType: sourceBlob?.type || manifest.media?.sourceMimeType || "video/webm",
+      masterMimeType: "video/mp4",
+      sourceBytes: sourceBlob?.size || manifest.media?.sourceBytes || 0,
+      masterBytes: masterBlob?.size || 0,
+      mimeType: "video/mp4",
+      bytes: masterBlob?.size || 0,
+      finalizationStatus: ok ? "finalized" : "failed",
+      finalizationError: ok ? null : String(error || "MP4 finalization failed.")
+    }
+  };
+}
+
+export async function persistMasterRecording({ recordingId, sourceBlob, masterBlob = null, manifest }) {
+  const source = sourceBlob || null;
+  if (!source) throw new Error("Source WebM recording is required.");
   await saveMediaBlob({
-    id: masterMediaId(recordingId),
-    blob,
-    metadata: { kind: RecordingKind.MASTER, recordingId, mimeType: blob.type }
+    id: sourceMediaId(recordingId),
+    blob: source,
+    metadata: { kind: `${RecordingKind.MASTER}:source`, recordingId, mimeType: source.type || "video/webm" }
   });
+  if (masterBlob) {
+    await saveMediaBlob({
+      id: masterMediaId(recordingId),
+      blob: masterBlob,
+      metadata: { kind: `${RecordingKind.MASTER}:master`, recordingId, mimeType: masterBlob.type || "video/mp4" }
+    });
+  }
   await saveMediaBlob({
     id: masterManifestId(recordingId),
     blob: new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" }),
     metadata: { kind: "master-manifest", recordingId }
   });
-  return { recordingId, mediaId: masterMediaId(recordingId), manifestId: masterManifestId(recordingId) };
+  return {
+    recordingId,
+    sourceMediaId: sourceMediaId(recordingId),
+    masterMediaId: masterBlob ? masterMediaId(recordingId) : null,
+    manifestId: masterManifestId(recordingId)
+  };
 }
 
 export async function loadMasterRecording(recordingId) {
-  const blob = await getMediaBlob(masterMediaId(recordingId));
+  const masterBlob = await getMediaBlob(masterMediaId(recordingId));
+  const sourceBlob = await getMediaBlob(sourceMediaId(recordingId));
+  const legacyBlob = !masterBlob && !sourceBlob ? await getMediaBlob(legacyMasterWebmMediaId(recordingId)) : null;
   const manifestBlob = await getMediaBlob(masterManifestId(recordingId));
   const manifest = manifestBlob ? JSON.parse(await manifestBlob.text()) : null;
-  return { blob, manifest };
+  return {
+    blob: masterBlob || legacyBlob || sourceBlob,
+    masterBlob: masterBlob || null,
+    sourceBlob: sourceBlob || legacyBlob || null,
+    manifest
+  };
 }
 
 export class MasterProgramRecorder {

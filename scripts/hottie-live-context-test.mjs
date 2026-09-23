@@ -15,7 +15,7 @@ import {
   HostDirectiveLog
 } from "../js/host-directive.js";
 import { LiveProducerController, ingestAttributedTranscript, ProducerEventType } from "../js/live-producer.js";
-import { createTranscriptionProvider, HOTTIE_LIVE_PRODUCER_SCRIPT, HOTTIE_LIVE_PRODUCER_RESEARCH } from "../js/transcription.js";
+import { createTranscriptionProvider, MOXIE_LIVE_PRODUCER_SCRIPT, MOXIE_LIVE_PRODUCER_RESEARCH } from "../js/transcription.js";
 import { ProgramAssetCatalog } from "../js/program-asset.js";
 import { ProgramController, ProductionActionLog } from "../js/production-controller.js";
 import { SeededResearchProvider } from "../js/hottie-research.js";
@@ -56,7 +56,7 @@ function fixtureSession({ policy, researchContext } = {}) {
     aiProducerFeed: new ProducerFeed(),
     runOfShow: new RunOfShow(),
     audience: new AudienceStore(),
-    researchContext: researchContext || { ...HOTTIE_LIVE_PRODUCER_RESEARCH },
+    researchContext: researchContext || { ...MOXIE_LIVE_PRODUCER_RESEARCH },
     guestSeats: [],
     elapsedMs: () => 0,
     assets: new ProgramAssetCatalog(),
@@ -140,16 +140,16 @@ console.log("\nSpeaker attribution uses ParticipantRegistry");
   assertEqual(line.participantId, "g-tukta", "canonical participantId");
 }
 
-console.log("\nSeeded Hottie producer sequence");
+console.log("\nSeeded Moxie producer sequence");
 {
   const session = fixtureSession();
   const events = [];
   session.liveProducer.onEvent((event) => events.push(event));
-  HOTTIE_LIVE_PRODUCER_SCRIPT.forEach((line) => ingestAttributedTranscript(session, line));
+  MOXIE_LIVE_PRODUCER_SCRIPT.forEach((line) => ingestAttributedTranscript(session, line));
   await session.liveProducer.ready();
   session.liveProducer.checkpoint();
 
-  assertEqual(session.transcript.lines.length, HOTTIE_LIVE_PRODUCER_SCRIPT.length, "all fixture lines stored");
+  assertEqual(session.transcript.lines.length, MOXIE_LIVE_PRODUCER_SCRIPT.length, "all fixture lines stored");
   assert(session.transcript.lines.every((l) => l.participantId && l.role && l.speaker && l.text), "every line is attributed");
   assert(session.transcript.lines.some((l) => l.participantId === "host" && l.role === "host"), "Host turns retained");
   assert(session.transcript.lines.some((l) => l.participantId === "g-tukta"), "Tukta turns retained");
@@ -174,13 +174,13 @@ console.log("\nSeeded Hottie producer sequence");
   assert(events.some((e) => e.type === ProducerEventType.PARTICIPANT_QUIET && e.participantId === "g-sarah"), "PARTICIPANT_QUIET event for Sarah");
 
   const context = buildShowContext(session);
-  assertEqual(context.researchContext.objective, HOTTIE_LIVE_PRODUCER_RESEARCH.objective, "focus-group research context still on ShowContext");
+  assertEqual(context.researchContext.objective, MOXIE_LIVE_PRODUCER_RESEARCH.objective, "focus-group research context still on ShowContext");
   assert(context.memory.speakers.some((s) => s.participantId === "g-pat" && s.turnCount > 0), "compact memory has Pat’s turns");
   assert(context.hostDirectives.length === 2, "ShowContext carries structured Host directives");
-  assert(!JSON.stringify(context.transcript).includes(HOTTIE_LIVE_PRODUCER_RESEARCH.objective), "research objective is not copied into transcript lines");
+  assert(!JSON.stringify(context.transcript).includes(MOXIE_LIVE_PRODUCER_RESEARCH.objective), "research objective is not copied into transcript lines");
 }
 
-console.log("\nSessionPolicy still gates transcription and Hottie");
+console.log("\nSessionPolicy still gates transcription and Moxie");
 {
   const jam = new SessionPolicy({ sessionType: SessionType.JAM });
   assert(!jam.canTranscribe(), "jam default forbids transcription");
@@ -188,20 +188,20 @@ console.log("\nSessionPolicy still gates transcription and Hottie");
   assertEqual(createTranscriptionProvider({ policy: jam, preferDemo: true }), null, "no hidden demo transcription under jam");
 
   const session = fixtureSession({ policy: jam });
-  const line = ingestAttributedTranscript(session, HOTTIE_LIVE_PRODUCER_SCRIPT[0]);
+  const line = ingestAttributedTranscript(session, MOXIE_LIVE_PRODUCER_SCRIPT[0]);
   assertEqual(line, null, "ingest refuses when transcription is forbidden");
   assertEqual(session.transcript.lines.length, 0, "transcript stays empty");
-  assertEqual(session.aiProducerFeed.entries.length, 0, "no Hottie feed entries");
+  assertEqual(session.aiProducerFeed.entries.length, 0, "no Moxie feed entries");
 
   const liveNoAi = new SessionPolicy();
   liveNoAi.set({ aiProcessingAllowed: false });
   assert(liveNoAi.canTranscribe(), "transcript still allowed");
   assert(!liveNoAi.canAiProcess(), "AI processing off");
   const session2 = fixtureSession({ policy: liveNoAi });
-  ingestAttributedTranscript(session2, HOTTIE_LIVE_PRODUCER_SCRIPT[5]);
+  ingestAttributedTranscript(session2, MOXIE_LIVE_PRODUCER_SCRIPT[5]);
   assertEqual(session2.transcript.lines.length, 1, "transcript still accumulates");
-  assertEqual(session2.hostDirectives.items.length, 0, "Hottie does not take Host directives when AI is forbidden");
-  assertEqual(session2.aiProducerFeed.entries.length, 0, "Hottie feed stays empty when AI is forbidden");
+  assertEqual(session2.hostDirectives.items.length, 0, "Moxie does not take Host directives when AI is forbidden");
+  assertEqual(session2.aiProducerFeed.entries.length, 0, "Moxie feed stays empty when AI is forbidden");
 }
 
 console.log("\nLive path does not fake demo transcript; renderer/publisher stay frozen");
@@ -226,4 +226,4 @@ console.log("\nLive path does not fake demo transcript; renderer/publisher stay 
   assert(!listener.includes("mountProgramFrame"), "listener still has no scene=0 mixer");
 }
 
-console.log("\nALL PASSED — Hottie live context is attributed, Host-only, private, and policy-gated.");
+console.log("\nALL PASSED — Moxie live context is attributed, Host-only, private, and policy-gated.");

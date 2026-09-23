@@ -3,6 +3,7 @@ import { renderFeedEntry } from "./ai-producer.js";
 import { attachFocusGroupToSession, buildFocusGroupInsightArtifact } from "./focus-group-studio.js";
 import { buildSessionDeliverables, buildWeeklyUpdatePackage, formatDeliverableMarkdown } from "./post-production.js";
 import { sanitizeEndCard, readImageFileAsDataUrl } from "./end-card.js";
+import { PROGRAM_OUTPUT_PICKER_INSTRUCTION } from "./program-recording.js";
 
 // ProducerView: the dense control surface for making the show. Same LiveSession as HostView — this
 // file only adds DOM bindings for producer-only actions (per-guest control, layout, graphics, show
@@ -18,8 +19,8 @@ export class ProducerView {
       layoutModeChip: root.querySelector("#lvLayoutModeChip"),
       shareGroup: root.querySelector("#lvShareGroup"),
       shareModeChip: root.querySelector("#lvShareModeChip"),
-      hottieStatus: root.querySelector("#lvHottieStatus"),
-      hottieProposal: root.querySelector("#lvHottieProposal"),
+      hottieStatus: root.querySelector("#lvMoxieStatus"),
+      hottieProposal: root.querySelector("#lvMoxieProposal"),
       programPreview: root.querySelector("#lvProgramPreviewStage"),
       poTopic: root.querySelector("#lvPoTopic"),
       poSceneGroup: root.querySelector("#lvPoSceneGroup"),
@@ -127,7 +128,7 @@ export class ProducerView {
       if (role === "screen" || role === "asset") return;
       this.session.setSpotlight(tile.dataset.participantId);
     });
-    this.session.on("hottie", (status) => this.renderHottie(status));
+    this.session.on("hottie", (status) => this.renderMoxie(status));
 
     this.elements.poTopic.addEventListener("input", () => this.session.setTopic(this.elements.poTopic.value));
     this.elements.poTickerEnabled.addEventListener("change", () => {
@@ -212,7 +213,7 @@ export class ProducerView {
 
     this.renderGuests();
     this.renderProgram(this.session.program);
-    this.renderHottie(this.session.hottieStatus);
+    this.renderMoxie(this.session.hottieStatus);
     this.renderRecording(this.session.recording);
     this.renderProgramOutputStatus();
     this.renderRecordingGate();
@@ -393,8 +394,8 @@ export class ProducerView {
       onDiscardProposal: (id) => this.session.liveProducer.discardProposal(id),
       onRetryResearch: (id) => this.session.liveProducer.retryResearch(id),
       onRemoveAsset: (id) => this.session.liveProducer.removeLiveAsset(id),
-      onApproveHottieProposal: (id) => this.session.liveProducer.approveHottieProposal(id),
-      onDismissHottieProposal: (id) => this.session.liveProducer.dismissHottieProposal(id)
+      onApproveMoxieProposal: (id) => this.session.liveProducer.approveMoxieProposal(id),
+      onDismissMoxieProposal: (id) => this.session.liveProducer.dismissMoxieProposal(id)
     })));
   }
 
@@ -473,7 +474,7 @@ export class ProducerView {
     });
   }
 
-  renderHottie(status = this.session.hottieStatus || {}) {
+  renderMoxie(status = this.session.hottieStatus || {}) {
     const state = status.state || "listening";
     if (this.elements.hottieStatus) {
       this.elements.hottieStatus.dataset.state = state;
@@ -525,15 +526,20 @@ export class ProducerView {
   renderRecording(recording) {
     const active = Boolean(recording.active);
     const saving = recording.status === "saving";
+    const processing = !active && !saving && recording.last?.finalizationStatus === "pending-finalization";
     this.elements.recordToggle.setAttribute("aria-pressed", String(active && !saving));
-    this.elements.recordToggle.textContent = saving ? "SAVING RECORDING…" : active ? "STOP RECORDING" : "RECORD PROGRAM";
+    this.elements.recordToggle.textContent = saving ? "SAVING RECORDING..." : active ? "STOP RECORDING" : "RECORD PROGRAM";
     this.elements.recordTimer.hidden = !active && !saving;
     if (this.elements.recordStatus) {
-      if (saving) this.elements.recordStatus.textContent = "SAVING RECORDING…";
+      if (saving) this.elements.recordStatus.textContent = "Saving recording...";
+      else if (processing) this.elements.recordStatus.textContent = "Recording saved · Preparing MP4...";
       else if (active && recording.startedAt) {
         const elapsed = Math.floor((Date.now() - recording.startedAt) / 1000);
         this.elements.recordStatus.textContent = `RECORDING · ${formatClock(elapsed)}`;
-      } else if (recording.last) this.elements.recordStatus.textContent = "RECORDING SAVED";
+      } else if (recording.last?.finalizationStatus === "finalized") this.elements.recordStatus.textContent = "Recording ready";
+      else if (recording.last?.finalizationStatus === "failed") this.elements.recordStatus.textContent = "Recording saved";
+      else if (recording.last?.finalizationStatus === "local-only") this.elements.recordStatus.textContent = "Recording saved in this tab only";
+      else if (recording.last) this.elements.recordStatus.textContent = "Recording saved";
       else this.elements.recordStatus.textContent = "Idle";
     }
     if (this.elements.recordMarker) this.elements.recordMarker.hidden = !active || saving;
@@ -550,17 +556,31 @@ export class ProducerView {
 
   renderMasterPlayback(last) {
     if (!this.elements.masterPlayback) return;
-    if (!last?.objectUrl) {
-      this.elements.masterPlayback.hidden = true;
+    if (!last?.blob || !last?.objectUrl) {
+      this.elements.masterPlayback.hidden = !last;
+      if (this.elements.masterVideo) this.elements.masterVideo.removeAttribute("src");
+      if (this.elements.masterDownload) this.elements.masterDownload.disabled = true;
+      if (this.elements.masterPlay) this.elements.masterPlay.disabled = true;
+      if (this.elements.masterManifest) this.elements.masterManifest.disabled = !last?.manifest;
+      if (this.elements.masterManifestNote && last?.finalizationStatus === "pending-finalization") {
+        this.elements.masterManifestNote.textContent = "Recording saved · Preparing MP4...";
+      } else if (this.elements.masterManifestNote && last?.finalizationStatus === "failed") {
+        this.elements.masterManifestNote.textContent = "Recording saved. MP4 processing failed and can be retried.";
+      } else if (this.elements.masterManifestNote && last?.finalizationStatus === "local-only") {
+        this.elements.masterManifestNote.textContent = "Recording is only available in this tab. Keep this page open and download details before leaving.";
+      }
       return;
     }
     this.elements.masterPlayback.hidden = false;
+    if (this.elements.masterDownload) this.elements.masterDownload.disabled = false;
+    if (this.elements.masterPlay) this.elements.masterPlay.disabled = false;
+    if (this.elements.masterManifest) this.elements.masterManifest.disabled = !last?.manifest;
     if (this.elements.masterVideo && this.elements.masterVideo.src !== last.objectUrl) {
       this.elements.masterVideo.src = last.objectUrl;
     }
     if (this.elements.masterManifestNote) {
       const duration = formatClock(Math.round(last.durationSeconds || 0));
-      this.elements.masterManifestNote.textContent = `${duration}. Play to confirm Host, Guest, lower thirds, TAKE LIVE, speech, and soundboard.`;
+      this.elements.masterManifestNote.textContent = `${duration}. MP4 recording. Play to confirm Host, Guest, lower thirds, TAKE LIVE, speech, and soundboard.`;
     }
   }
 
@@ -571,10 +591,14 @@ export class ProducerView {
   }
 
   downloadMaster() {
-    const last = this.session.recording.last;
-    if (!last?.blob) return;
-    downloadFile(last.blob, `${last.recordingId}.webm`);
-  }
+  const last = this.session.recording.last;
+  if (!last?.blob) return;
+
+  const isMp4 = Boolean(last.masterBlob);
+  const extension = isMp4 ? "mp4" : "webm";
+
+  downloadFile(last.blob, `${last.recordingId}.${extension}`);
+}
 
   downloadManifest() {
     const last = this.session.recording.last;
@@ -597,7 +621,25 @@ export class ProducerView {
     this.elements.recordNote.textContent = "Program Output is ready. Click RECORD PROGRAM, select the Program Output tab, and turn Share tab audio ON.";
   }
 
+  // ROOT CAUSE of "recording only starts when Share tab audio enabled" landing as a confusing,
+  // easy-to-miss failure: startRecording() used to fire getDisplayMedia's native browser picker
+  // almost immediately after emitting the instruction text — that text lands in #lvRecordNote, but
+  // the OS-level picker dialog steals focus before most people read it, and "Share tab audio" is
+  // OFF by default in Chrome's own picker. There is no way to pre-check that box from JS — it is a
+  // deliberate, non-scriptable browser security control — so the only lever here is making sure the
+  // instruction is actually read and acknowledged before the picker ever appears, and making a
+  // failed attempt obviously retryable rather than a silent/confusing dead end.
   async toggleRecording() {
+    if (!this.session.recording.active) {
+      const proceed = window.confirm(
+        `${PROGRAM_OUTPUT_PICKER_INSTRUCTION}\n\nClick OK, then in the browser's share dialog pick "Toasty Studio — Program Output" and turn Share tab audio ON before confirming.`
+      );
+      if (!proceed) {
+        this.elements.recordNote.textContent = "Recording canceled. Click RECORD PROGRAM when you're ready to select Program Output with Share tab audio ON.";
+        this.elements.recordNote.dataset.error = "false";
+        return;
+      }
+    }
     try {
       this.elements.recordToggle.disabled = true;
       this.elements.recordNote.dataset.error = "false";
@@ -607,7 +649,7 @@ export class ProducerView {
         await this.session.startRecording();
       }
     } catch (error) {
-      this.elements.recordNote.textContent = humanizeError(error);
+      this.elements.recordNote.textContent = `${humanizeError(error)} Click RECORD PROGRAM to try again.`;
       this.elements.recordNote.dataset.error = "true";
     } finally {
       this.elements.recordToggle.disabled = this.session.recording.status === "saving" || (!this.session.canRecord() && !this.session.recording.active);
@@ -630,7 +672,7 @@ function formatClock(totalSeconds) {
 function humanizeError(error) {
   if (error?.userMessage) return error.userMessage;
   if (error?.reason === "missing-audio" || error?.reason === "audio-not-live") {
-    return "Program Output audio was not shared. Start again and enable Share tab audio.";
+    return "Recording needs Program Output audio. Select the Toasty Program Output tab and enable Share tab audio.";
   }
   if (error?.reason === "missing-video" || error?.reason === "video-not-live") {
     return "Program Output video capture is unavailable.";

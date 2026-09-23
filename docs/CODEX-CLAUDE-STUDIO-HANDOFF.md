@@ -48,19 +48,19 @@ VDO.Ninja is transport only. BroadcastChannel is same-browser acceleration only.
 | P4 Soundboard | Unchanged PLAY_AUDIO → ProgramController → ProgramAudioBus → mixer → PO. Missing Cholo still missing. | **WIRED** through mixer. No new toys. |
 | P5 MasterRecorder V2 | `MasterRecorder` prefers composed video+mixer audio. Honest fail → existing tab-capture `MasterProgramRecorder`. | **BUILT**. Composed path **BLOCKED** by cross-origin VDO iframes. Fallback **WIRED**. **NEEDS REAL DEVICE TEST**. |
 | P6 Multi-participant STT | `TranscriptEvent` + `ParticipantTranscriptionUplink`. Guest local Web Speech stamped with Guest identity. Host ingest of guest `transcriptEvent` via presence. Guest “Toasty, find…” does not execute. | **BUILT + WIRED**. Chrome Web Speech **cannot bind a MediaStream** → **BLOCKED BY BROWSER** for true per-track STT. Attribution is deterministic by browser identity. Demo/seeded path still exists and **must not reach production**. |
-| P7 Hottie show loop | `hottie-show-runner.js` proposes SET_SPOTLIGHT / SURFACE_CHAT / RETURN_TO_PARTICIPANTS / focus-group probes. ProgramController gained SURFACE_CHAT, POST_CHAT, SHOW_RESEARCH, RETURN_TO_PARTICIPANTS. | **BUILT**. Proposals **WIRED** into LiveProducer checkpoint. Approval policy still required for public post. **NEEDS INTEGRATION REPAIR** (feed UX, autonomy auto-exec). |
-| P8 Audience chat | `AudienceMessage` + adapters + Hottie public identity. Existing AudienceStore still used. | **BUILT**. TOASTY adapter **WIRED**. YouTube/X/Telegram adapters **SCAFFOLDED ONLY**. |
+| P7 Moxie show loop | `hottie-show-runner.js` proposes SET_SPOTLIGHT / SURFACE_CHAT / RETURN_TO_PARTICIPANTS / focus-group probes. ProgramController gained SURFACE_CHAT, POST_CHAT, SHOW_RESEARCH, RETURN_TO_PARTICIPANTS. | **BUILT**. Proposals **WIRED** into LiveProducer checkpoint. Approval policy still required for public post. **NEEDS INTEGRATION REPAIR** (feed UX, autonomy auto-exec). |
+| P8 Audience chat | `AudienceMessage` + adapters + Moxie public identity. Existing AudienceStore still used. | **BUILT**. TOASTY adapter **WIRED**. YouTube/X/Telegram adapters **SCAFFOLDED ONLY**. |
 | P9 Session artifacts | `SessionArtifact` schema + store + default plan including FULL_EPISODE / SUMMARY / FOCUS_GROUP_INSIGHTS. | **BUILT**. Persistence/workers **SCAFFOLDED ONLY**. |
-| P10 Focus Group | `attachFocusGroupToSession` uses LiveSession, ProgramComposition, TranscriptStore, Hottie, artifacts. | **BUILT + WIRED** as attach API. No separate AV stack. **NEEDS INTEGRATION REPAIR** with `studio/focus-group-demo.html`. |
+| P10 Focus Group | `attachFocusGroupToSession` uses LiveSession, ProgramComposition, TranscriptStore, Moxie, artifacts. | **BUILT + WIRED** as attach API. No separate AV stack. **NEEDS INTEGRATION REPAIR** with `studio/focus-group-demo.html`. |
 | P11 Destinations / sources | `ProgramDestinationRouter`, `ParticipantSource`, `ScreenShareSource`. | **BUILT**. Third-party live push **SCAFFOLDED ONLY** (fails closed, not faked). |
-| P12 Production timeline | `ProductionTimeline` events recorded for join/share/spotlight/chat/recording/Hottie proposal. | **BUILT + PARTIALLY WIRED**. Not every historical call site emits yet. **NEEDS INTEGRATION REPAIR**. |
+| P12 Production timeline | `ProductionTimeline` events recorded for join/share/spotlight/chat/recording/Moxie proposal. | **BUILT + PARTIALLY WIRED**. Not every historical call site emits yet. **NEEDS INTEGRATION REPAIR**. |
 
 ## 4. Unfinished wires
 
 1. Host Program Preview of remote screen uses VDO `&view=` of the screen push (no local `getDisplayMedia`). Confirm the publisher can view its own push on real hardware.
 2. Guest activity: video tracks released at join; audio tracks kept. If a phone fails VDO audio because the parent still holds the mic, drop the analyser and rely on VDO detailedState only — do **not** call getUserMedia again.
 3. `noteAudioLevel` maps Guest presence id → seat.id (VDO transport id). Confirm Active Speaker featured slot matches `composeProgram` participantIds (`seat.id`, not `guest-…` presence id).
-4. Hottie proposals are private feed entries; Producer approval → `ProgramController.execute` is not a full UI loop yet.
+4. Moxie proposals are private feed entries; Producer approval → `ProgramController.execute` is not a full UI loop yet.
 5. Master recording still requires selecting the Program Output tab unless/until a server compositor exists.
 6. Guest STT uses Web Speech default mic (browser API). Do not claim stream-bound STT.
 7. `focus-group-demo.html` is not yet routed through `attachFocusGroupToSession`.
@@ -105,7 +105,7 @@ Any failure after this handoff belongs in this section. Do not delete a failing 
 
 ## 8. Demo / seed / fallback paths that must NOT reach production
 
-- `DemoTranscriptionProvider` / `HOTTIE_LIVE_PRODUCER_SCRIPT` / `DEMO_TRANSCRIPT_SCRIPT`
+- `DemoTranscriptionProvider` / `MOXIE_LIVE_PRODUCER_SCRIPT` / `DEMO_TRANSCRIPT_SCRIPT`
 - `DemoAudienceFeed` / `DEMO_AUDIENCE_SCRIPT`
 - `session.demoMode` seeded inputs
 - Missing catalogue item `cholo-whistle-01` (`missing: true`) — do not synthesize
@@ -131,7 +131,7 @@ Any failure after this handoff belongs in this section. Do not delete a failing 
 | Soundboard | `js/soundboard.js` → ProgramController PLAY_AUDIO |
 | Master recording | `js/master-recorder.js` + existing `js/program-recording.js` |
 | TranscriptEvent | `js/transcript-event.js` + `js/transcription.js` + `js/show-context.js` |
-| Hottie loop | `js/hottie-show-runner.js` + `js/live-producer.js` + `js/production-controller.js` |
+| Moxie loop | `js/hottie-show-runner.js` + `js/live-producer.js` + `js/production-controller.js` |
 | Audience | `js/audience-message.js` + `js/audience.js` |
 | Artifacts | `js/session-artifact.js` |
 | Focus group attach | `js/focus-group-studio.js` + `js/focus-group.js` |
@@ -177,7 +177,7 @@ Only after this: `VISUAL PRODUCTION BASELINE = FROZEN`.
 1. Real-device Host screen share on a second machine (P1). If PO is black, inspect screen push id in presence vs VDO guest list vs `mountParticipantView`.
 2. Confirm Guest activity ids match composition participantIds (P2).
 3. If Guest VDO audio fails, stop keeping parent audio tracks; keep VDO-level path only.
-4. Wire Hottie proposal buttons to `ProgramController.execute` without DOM mutation (P7).
+4. Wire Moxie proposal buttons to `ProgramController.execute` without DOM mutation (P7).
 5. Attach focus-group demo page to `attachFocusGroupToSession` (P10).
 6. Persist SessionArtifact + ProductionTimeline on the presence/session backend (P9/P12).
 7. Do **not** start Program Audio mixing of VDO tracks in-browser. Next real mixer is server-side (FFmpeg/GStreamer) or a first-party SFU.
@@ -201,10 +201,10 @@ Only after this: `VISUAL PRODUCTION BASELINE = FROZEN`.
 | Soundboard in Program Audio | WIRED via bus/mixer |
 | master recording | V2 abstraction + tab-capture fallback |
 | real multi-speaker STT | EVENT MODEL + guest uplink; Web Speech constraint |
-| Hottie conversation awareness | EXISTING + show-runner proposals |
+| Moxie conversation awareness | EXISTING + show-runner proposals |
 | research / TAKE LIVE | frozen from #25 |
 | audience chat | MODEL BUILT; TOASTY wired; vendors scaffolded |
-| Hottie public participation | identity enforced; POST_CHAT requires approval |
+| Moxie public participation | identity enforced; POST_CHAT requires approval |
 | production timeline | MODEL + partial wiring |
 | recording / post / focus-group artifacts | SCHEMA BUILT; workers not built |
 | customer brand lock | untouched |

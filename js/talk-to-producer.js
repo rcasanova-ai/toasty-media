@@ -96,7 +96,13 @@ export class PushToTalkCapture {
     this._restartAttempts = 0;
     log("requesting microphone…");
     try {
-      this._micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      this._micStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: { ideal: true },
+          noiseSuppression: { ideal: true },
+          autoGainControl: { ideal: true }
+        }
+      });
       log("getUserMedia OK, tracks:", this._micStream.getAudioTracks().map((t) => ({ label: t.label, readyState: t.readyState, muted: t.muted })));
     } catch (error) {
       this._held = false;

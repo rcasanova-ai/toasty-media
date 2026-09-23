@@ -1,4 +1,4 @@
-// Hottie structured production loop. Proposes; ProgramController executes.
+// Moxie structured production loop. Proposes; ProgramController executes.
 // Never edits Program Output DOM. Guest speech is context, never control.
 
 import { ProductionActionType } from "./production-controller.js";
@@ -6,7 +6,7 @@ import { CompositionMode } from "./program-composition.js";
 import { clusterAudienceQuestions, analyzeAudienceMessage, hottiePublicReply } from "./audience-message.js";
 import { ProducerEntryType } from "./ai-producer.js";
 
-export const HottieProposalType = Object.freeze({
+export const MoxieProposalType = Object.freeze({
   SET_SPOTLIGHT: ProductionActionType.SET_SPOTLIGHT,
   CLEAR_SPOTLIGHT: ProductionActionType.CLEAR_SPOTLIGHT,
   SET_LAYOUT: ProductionActionType.SET_LAYOUT,
@@ -29,7 +29,7 @@ export const HottieProposalType = Object.freeze({
   MARK_MOMENT: "MARK_MOMENT"
 });
 
-export function collectHottieContext(session) {
+export function collectMoxieContext(session) {
   const participants = session?.participants?.list?.() || [];
   const composition = {
     mode: session?.program?.compositionMode || CompositionMode.BALANCED,
@@ -59,7 +59,7 @@ export function collectHottieContext(session) {
   };
 }
 
-export function proposeHottieActions(context = {}) {
+export function proposeMoxieActions(context = {}) {
   const proposals = [];
   const composition = context.composition || {};
   const guests = (context.participants || []).filter((item) => item.role === "guest");
@@ -70,7 +70,7 @@ export function proposeHottieActions(context = {}) {
     if (spoken.has(guest.participantId) || spoken.has(guest.displayName)) return;
     if (stats.length < 2) return;
     proposals.push({
-      type: HottieProposalType.BRING_QUIET_PARTICIPANT,
+      type: MoxieProposalType.BRING_QUIET_PARTICIPANT,
       noticed: `${guest.displayName || "Guest"} has not spoken.`,
       recommends: `Spotlight ${guest.displayName || "the quiet guest"} for a beat.`,
       action: { type: ProductionActionType.SET_SPOTLIGHT, participantId: guest.participantId },
@@ -82,7 +82,7 @@ export function proposeHottieActions(context = {}) {
   if (clusters[0]?.count >= 2) {
     const top = clusters[0];
     proposals.push({
-      type: HottieProposalType.SURFACE_CHAT,
+      type: MoxieProposalType.SURFACE_CHAT,
       noticed: `${top.count} viewers asked about ${top.theme}.`,
       recommends: "Surface the clustered audience question.",
       action: { type: ProductionActionType.SURFACE_CHAT, theme: top.theme, messageIds: top.messages.map((item) => item.id) },
@@ -92,7 +92,7 @@ export function proposeHottieActions(context = {}) {
 
   if (composition.assetId) {
     proposals.push({
-      type: HottieProposalType.RETURN_TO_PARTICIPANTS,
+      type: MoxieProposalType.RETURN_TO_PARTICIPANTS,
       noticed: "A Program Asset is live.",
       recommends: "Return to participants when the beat is done.",
       action: { type: ProductionActionType.REMOVE_ASSET, assetId: composition.assetId },
@@ -103,10 +103,10 @@ export function proposeHottieActions(context = {}) {
   const focus = context.focusGroup;
   if (focus?.researchQuestions?.length) {
     proposals.push({
-      type: HottieProposalType.ASK_FOLLOW_UP,
+      type: MoxieProposalType.ASK_FOLLOW_UP,
       noticed: "Focus group research question still in play.",
       recommends: `Ask: ${focus.researchQuestions[0]}`,
-      action: { type: HottieProposalType.ASK_FOLLOW_UP, question: focus.researchQuestions[0] },
+      action: { type: MoxieProposalType.ASK_FOLLOW_UP, question: focus.researchQuestions[0] },
       requiresApproval: true
     });
   }
@@ -114,7 +114,7 @@ export function proposeHottieActions(context = {}) {
   return proposals.slice(0, 6);
 }
 
-export function formatHottieProposalFeed(proposal) {
+export function formatMoxieProposalFeed(proposal) {
   return {
     type: ProducerEntryType.PRODUCTION_SUGGESTION,
     title: proposal.recommends || proposal.type,

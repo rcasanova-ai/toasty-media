@@ -6,7 +6,7 @@
 //
 // Drives session.hostState (see js/host-state.js) through PREJOIN_LOADING -> PREJOIN_READY -> JOINING;
 // LiveSession.joinAsHost confirms IN_STUDIO. Every control that should only exist once the Host has
-// actually joined (Leave Studio, Talk to Hottie — see js/host-view.js's renderHostState) reads THAT
+// actually joined (Leave Studio, Talk to Moxie — see js/host-view.js's renderHostState) reads THAT
 // state, not whether this class happens to exist or whether the page has loaded.
 import { startDevicePreview } from "./device-picker.js";
 import { HostState } from "./host-state.js";

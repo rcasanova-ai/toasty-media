@@ -136,7 +136,7 @@ console.log("Artifacts only from real persistence");
   assert(!pack.sections.some((section) => section.id === "transcript"), "no fake transcript section");
   const report = deferredArtifactReport();
   assert(report.find((row) => row.artifact === "session metadata").persistedToday, "metadata persisted on live_sessions");
-  assert(!report.find((row) => row.artifact === "Hottie research").persistedToday, "Hottie research is deferred after reload");
+  assert(!report.find((row) => row.artifact === "Moxie research").persistedToday, "Moxie research is deferred after reload");
 }
 
 console.log("Director surfaces");
@@ -145,12 +145,18 @@ console.log("Director surfaces");
   const html = readFileSync(join(root, "studio/director.html"), "utf8");
   const manager = readFileSync(join(root, "js/session-manager.js"), "utf8");
   const director = readFileSync(join(root, "js/director.js"), "utf8");
+  const liveSession = readFileSync(join(root, "js/live-session.js"), "utf8");
   assert(html.includes("Studio Home"), "gate heading is Studio Home");
   assert(!html.includes("Live Studio Sessions"), "legacy Live Studio Sessions heading is gone");
+  assert(html.includes("studioHomeBoard"), "Studio Home board render target exists");
   assert(html.includes("sessionArtifacts"), "artifacts surface exists");
   assert(manager.includes('mode: "artifacts"'), "ended URL resolves to artifacts");
   assert(manager.includes("canOpenLiveStudio"), "live open is gated");
-  assert(director.includes('entry?.mode === "artifacts"'), "director does not boot live studio for artifacts");
+  assert(director.includes('resolved?.mode === "artifacts"'), "director does not boot live studio for artifacts");
+  assert(director.includes('resolved?.mode === "artifacts"'), "director branches on resolved session mode");
+  assert(director.includes("session.applyDurableSession(durableSession)"), "director passes durable session record into LiveSession");
+  assert(liveSession.includes('from "./studio-api.js"'), "LiveSession imports studio API helper");
+  assert(liveSession.includes("studioRequest"), "LiveSession can call authenticated Studio APIs after New Session");
   assert(manager.includes("/duplicate"), "duplicate hits the session duplicate API");
   assert(manager.includes("/title"), "rename hits the session title API");
   assert(manager.includes("/delete"), "delete hits the session delete API");

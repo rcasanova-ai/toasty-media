@@ -4,7 +4,7 @@
 
 **Goal:** run a real 30-minute focus group for another hackathon team with **1 host + 5 participants**, from recruitment through finished research deliverables.
 
-This milestone is the priority path because it proves the complete Toasty system: Peeps recruits the right humans, Studio runs the conversation, Hottie helps the moderator, Dubs compound participant context, Dough supports compensation, and post-production turns the session into useful research assets.
+This milestone is the priority path because it proves the complete Toasty system: Peeps recruits the right humans, Studio runs the conversation, Moxie helps the moderator, Dubs compound participant context, Dough supports compensation, and post-production turns the session into useful research assets.
 
 ### Gate 1: Six-Person Live Session Reliability
 
@@ -39,12 +39,12 @@ Required:
 
 **Exit criteria:** a host can open a recruited Peeps cohort directly in Studio and run the session without manually reconstructing the research brief or participant context.
 
-### Gate 3: Hottie as a Real Focus Group Moderator Copilot
+### Gate 3: Moxie as a Real Focus Group Moderator Copilot
 
-Hottie must become useful during a live group, not merely a command box.
+Moxie must become useful during a live group, not merely a command box.
 
 Required:
-- Feed Hottie the research objective, run-of-show and approved participant context before the session.
+- Feed Moxie the research objective, run-of-show and approved participant context before the session.
 - Ingest live transcript with speaker identity.
 - Detect unanswered research questions.
 - Identify when multiple participants show the same confusion or reaction.
@@ -58,9 +58,9 @@ Required:
   - “Who disagreed with that?”
   - “What should I ask next?”
   - “Which concept is landing best?”
-- Never expose private Hottie prompts to participants unless the host explicitly sends something to Program.
+- Never expose private Moxie prompts to participants unless the host explicitly sends something to Program.
 
-**Exit criteria:** during a real focus group, Hottie produces multiple relevant moderator prompts that materially improve the conversation without disrupting it.
+**Exit criteria:** during a real focus group, Moxie produces multiple relevant moderator prompts that materially improve the conversation without disrupting it.
 
 ### Gate 4: Reliable Capture and Recording
 
@@ -135,7 +135,7 @@ Pilot deliverables:
 - Participant consent records.
 - Session recording.
 - Transcript.
-- Hottie moderator activity.
+- Moxie moderator activity.
 - Focus Group Intelligence Pack.
 - Highlight clips.
 - Participant payouts/compensation record if applicable.

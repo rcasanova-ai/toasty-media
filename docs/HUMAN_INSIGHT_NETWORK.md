@@ -2,7 +2,7 @@
 
 ## Product thesis
 
-Toasty is infrastructure for high-value human conversations. Peeps is the permissioned human participation network; Studio is the live conversation environment; Dubs are portable participant representations; Hottie helps prepare and run sessions; Dough handles compensation; Jams are durable engagement records.
+Toasty is infrastructure for high-value human conversations. Peeps is the permissioned human participation network; Studio is the live conversation environment; Dubs are portable participant representations; Moxie helps prepare and run sessions; Dough handles compensation; Jams are durable engagement records.
 
 Peeps is not limited to experts. A useful participant may be valuable because of professional expertise, lived experience, demographics, ownership, behavior, interests, geography, or a combination of those attributes.
 
@@ -22,7 +22,7 @@ The buyer defines who needs to be in the room, why, cohort size and consent-safe
 
 1. A participant may enter a session without first creating a full Peeps profile.
 2. Toasty may prepare a bounded Pre-Dub from participant-supplied or appropriately sourced information.
-3. During the session, approved context can help Hottie support the moderator or host.
+3. During the session, approved context can help Moxie support the moderator or host.
 4. After the session, the participant can claim or enrich their Dub.
 5. Reusable attributes only enter the participant profile according to participant permission.
 6. The participant can export their Dub as JSON.

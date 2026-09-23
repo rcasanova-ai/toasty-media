@@ -90,7 +90,7 @@ async function main() {
   const pyCatalog = db("user_set_branding", { id: "nobody", mode: "locked", brandId: "not-a-real-brand" });
   assert(pyCatalog.error === "invalid_brand", "Python rejects a brand that is not in the catalog");
   const listed = [...BRAND_THEME_IDS].sort().join(",");
-  assert(listed === "8alta,optimai,peeps,santati,superteam,tangem,toasty", "JS catalog is the canonical Studio brand set");
+  assert(listed === "8alta,optimai,peeps,santati,superteam,tangem,toasty,zenify", "JS catalog is the canonical Studio brand set");
   const knownMatch = renderSrc.match(/KNOWN_BRAND_IDS = new Set\(\[([^\]]+)\]\)/);
   assert(Boolean(knownMatch), "render server inlines KNOWN_BRAND_IDS");
   const renderListed = knownMatch[1].split(",").map((entry) => entry.trim().replace(/['"]/g, "")).filter(Boolean).sort().join(",");

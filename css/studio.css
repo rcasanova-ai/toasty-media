@@ -3680,6 +3680,9 @@
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
+  max-height: calc(100vh - 2rem);
+  min-height: min(860px, calc(100vh - 2rem));
+  min-width: 0;
 }
 
 /* Every lv-* panel/chip sets its own `display` (flex/grid) for layout, which — because author rules
@@ -3693,8 +3696,71 @@
 
 .lv-topbar {
   align-items: center;
+  background: color-mix(in srgb, var(--studio-surface) 94%, transparent);
+  border: 1px solid var(--studio-line);
+  border-radius: 10px;
   display: flex;
+  gap: 0.75rem;
   justify-content: space-between;
+  min-width: 0;
+  padding: 0.55rem 0.65rem;
+  position: sticky;
+  top: 0;
+  z-index: 8;
+}
+
+.lv-topbar-left,
+.lv-topbar-status {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.lv-topbar-left {
+  flex: 1 1 280px;
+}
+
+.lv-brand-chip,
+.lv-live-state,
+.lv-health-chip,
+.lv-identity-chip {
+  background: var(--studio-surface-2);
+  border: 1px solid var(--studio-line);
+  border-radius: 999px;
+  color: var(--studio-cream-dim);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  max-width: 180px;
+  overflow: hidden;
+  padding: 0.28em 0.7em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.lv-session-name {
+  color: var(--studio-cream);
+  font-family: var(--font-heading);
+  font-size: 0.86rem;
+  max-width: min(26vw, 320px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lv-live-state[data-state="live"] {
+  background: rgba(229, 56, 44, 0.14);
+  border-color: rgba(229, 56, 44, 0.45);
+  color: var(--studio-red-bright);
+}
+
+.lv-live-state[data-state="holding"],
+.lv-live-state[data-state="brb"],
+.lv-live-state[data-state="technical-difficulties"],
+.lv-live-state[data-state="ending"] {
+  color: var(--studio-orange-bright);
 }
 
 .lv-view-switch {
@@ -3724,12 +3790,6 @@
 .lv-view-btn[aria-pressed="true"] {
   background: var(--studio-orange);
   color: var(--studio-button-text);
-}
-
-.lv-topbar-status {
-  align-items: center;
-  display: flex;
-  gap: 0.5rem;
 }
 
 .lv-rec-chip {
@@ -3770,6 +3830,9 @@
   display: grid;
   gap: 0.55rem;
   grid-template-columns: 1.6fr 1fr;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 0.15rem;
 }
 
 /* No card border by design — a production cockpit reads as monitors in a grid, not stacked SaaS
@@ -3823,8 +3886,7 @@
 /* Host view shows Participant Stage; Producer view shows Program Preview. Park the inactive
    surface off-screen (same trick as .lv-hidden-transport) instead of display:none so already-
    mounted VDO views keep encoding when the operator switches Host ↔ Producer. */
-.live-console[data-lv-view="producer"] #lvParticipantStage,
-.live-console[data-lv-view="producer"] .lv-host-controls {
+.live-console[data-lv-view="producer"] #lvParticipantStage {
   height: 2px;
   left: -9999px;
   overflow: hidden;
@@ -4226,8 +4288,10 @@
 }
 
 .lv-host-controls {
+  align-items: center;
   display: flex;
   gap: 0.4rem;
+  min-width: 0;
 }
 
 .lv-icon-btn {
@@ -4259,6 +4323,59 @@
 
 .lv-icon-btn-danger:hover {
   border-color: var(--studio-red);
+}
+
+.lv-bottom-bar {
+  align-items: center;
+  background: color-mix(in srgb, var(--studio-surface) 96%, transparent);
+  border: 1px solid var(--studio-line);
+  border-radius: 10px;
+  bottom: 0;
+  box-shadow: 0 -14px 34px rgba(0, 0, 0, 0.22);
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: minmax(0, auto) auto minmax(0, 1fr);
+  padding: 0.55rem 0.65rem;
+  position: sticky;
+  z-index: 9;
+}
+
+.lv-bottom-record {
+  min-height: 38px;
+  padding: 0.5rem 0.9rem;
+  white-space: nowrap;
+}
+
+.lv-bottom-nav {
+  align-items: center;
+  display: flex;
+  gap: 0.4rem;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.lv-bottom-nav-btn {
+  background: var(--studio-surface-2);
+  border: 1px solid var(--studio-line);
+  border-radius: 8px;
+  color: var(--studio-cream);
+  cursor: pointer;
+  font-family: var(--font-heading);
+  font-size: 0.72rem;
+  font-weight: 800;
+  min-height: 36px;
+  padding: 0.45rem 0.75rem;
+  white-space: nowrap;
+}
+
+.lv-bottom-nav-btn:hover,
+.lv-mini-btn:hover {
+  border-color: var(--studio-line-warm);
+}
+
+.lv-bottom-nav-btn[aria-pressed="true"] {
+  border-color: var(--studio-orange);
+  color: var(--studio-orange-bright);
 }
 
 .lv-placeholder {
@@ -4370,6 +4487,11 @@
   color: var(--studio-red-bright);
 }
 
+.lv-mini-btn-danger,
+.lv-mini-btn.lv-mini-btn-danger {
+  color: var(--studio-red-bright);
+}
+
 .lv-mini-btn--program[aria-pressed="true"] {
   border-color: var(--studio-orange);
   color: var(--studio-orange-bright);
@@ -4401,6 +4523,19 @@
 }
 
 @media (max-width: 900px) {
+  .live-console {
+    max-height: none;
+  }
+
+  .lv-topbar,
+  .lv-topbar-status {
+    flex-wrap: wrap;
+  }
+
+  .lv-topbar-left {
+    flex-basis: 100%;
+  }
+
   .lv-body {
     grid-template-columns: 1fr;
   }
@@ -4412,6 +4547,15 @@
 
   .lv-video-row {
     flex-direction: column;
+  }
+
+  .lv-bottom-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .lv-bottom-nav,
+  .lv-host-controls {
+    justify-content: center;
   }
 }
 
@@ -4965,6 +5109,41 @@
   gap: 0.6rem;
 }
 
+.studio-home-board,
+.studio-home-section,
+.studio-home-grid,
+.studio-home-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.studio-home-board {
+  max-height: min(58vh, 520px);
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.studio-home-section-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.studio-home-collapse,
+.studio-home-more {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.studio-home-more {
+  color: var(--studio-orange-bright);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
 .session-gate-empty {
   color: var(--studio-cream-dim);
   font-size: 0.8rem;
@@ -4972,6 +5151,7 @@
   padding: 0.75rem;
 }
 
+.session-card,
 .session-row {
   background: var(--studio-surface);
   border: 1px solid var(--studio-line);
@@ -4983,31 +5163,108 @@
   padding: 0.85rem 1rem;
 }
 
+.session-card[data-lifecycle="ENDED"],
 .session-row--ended {
   opacity: 0.75;
 }
 
+.session-card-main,
 .session-row-main {
   min-width: 200px;
 }
 
+.session-card-title,
 .session-row-title {
   color: var(--studio-cream);
   font-weight: 700;
   margin: 0 0 0.2rem;
 }
 
+.session-card-kicker,
+.session-card-meta,
 .session-row-meta {
   color: var(--studio-cream-dim);
   font-size: 0.72rem;
   margin: 0;
 }
 
+.session-card-kicker {
+  color: var(--studio-orange);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.session-card-actions,
 .session-row-actions {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
+}
+
+.session-card-menu {
+  position: relative;
+}
+
+.session-card-menu summary {
+  color: var(--studio-cream-dim);
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.session-card-menu button {
+  background: var(--studio-surface-2);
+  border: 1px solid var(--studio-line);
+  color: var(--studio-cream);
+  display: block;
+  font-size: 0.75rem;
+  padding: 0.45rem 0.6rem;
+  width: 100%;
+}
+
+/* ROOT CAUSE (reconciliation verification pass) found by loading a real ended session end-to-end:
+   unlike its sibling .session-gate (position: fixed; inset: 0; z-index: 500 — see above), this had only
+   position: relative + a low z-index, so showing it (pane.hidden = false in showSessionArtifacts())
+   never actually covered #liveConsole — the live console's topbar, RECORD PROGRAM button, and bottom bar
+   all rendered visible behind/below the artifacts card. Matches .session-gate's own overlay treatment. */
+.session-artifacts {
+  align-items: flex-start;
+  background: var(--studio-bg, #0c0908);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 3rem 1.5rem;
+  position: fixed;
+  z-index: 500;
+}
+
+.session-artifacts[hidden] { display: none; }
+
+.session-artifacts-inner {
+  background: rgba(14, 8, 5, 0.92);
+  border: 1px solid var(--studio-line);
+  border-radius: 16px;
+  box-shadow: var(--studio-shadow);
+  max-width: 980px;
+  width: 100%;
+  display: grid;
+  gap: 1rem;
+  padding: 1.5rem;
+}
+
+.session-artifact-section {
+  background: var(--studio-surface);
+  border: 1px solid var(--studio-line);
+  border-radius: 10px;
+  padding: 1rem;
+}
+
+.session-artifact-json {
+  color: var(--studio-cream);
+  overflow: auto;
+  white-space: pre-wrap;
 }
 
 .lv-mini-btn--danger {
@@ -5342,4 +5599,35 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
 @media (max-width: 900px) {
   .lv-topbar--clean { grid-template-columns: 1fr auto; }
   .lv-topbar--clean .lv-view-switch { grid-column: 1 / -1; grid-row: 2; justify-self: start; }
+}
+
+/* PHASE C reconciliation fix: fatal init-failure overlay (see studio/director.html #studioFatalError,
+   js/director.js renderFatalInitError). Self-contained, deliberately not dependent on any brand theme
+   having applied yet — a failure this early may happen before applyBrandTheme ever ran. */
+.studio-fatal-error {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 8, 6, 0.92);
+  padding: 1.5rem;
+}
+.studio-fatal-error[hidden] { display: none; }
+.studio-fatal-error-inner {
+  max-width: 30rem;
+  background: var(--studio-canvas, #1a1512);
+  color: var(--studio-cream, #f5ede4);
+  border: 1px solid var(--studio-line, rgba(255, 255, 255, 0.14));
+  border-radius: 12px;
+  padding: 1.75rem;
+  text-align: center;
+}
+.studio-fatal-error-inner h1 { font-size: 1.15rem; margin: 0 0 0.5rem; }
+.studio-fatal-error-detail {
+  font-size: 0.85rem;
+  opacity: 0.75;
+  margin: 0 0 1.25rem;
+  word-break: break-word;
 }

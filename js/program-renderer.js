@@ -409,7 +409,7 @@ export function buildProgramAssetCard(asset) {
   const hottie = asset.createdBy === "hottie" ? document.createElement("p") : null;
   if (hottie) {
     hottie.className = "po-asset-hottie";
-    hottie.textContent = "Hottie · AI Producer";
+    hottie.textContent = "Moxie · AI Producer";
   }
   const imageUrl = allowlistedImageUrl(asset.preview?.imageUrl || asset.media?.src);
   if (imageUrl) {

@@ -2,7 +2,7 @@
 //
 //   Participant audio tracks (first-party MediaStreams this page owns)
 //     + ProgramAudioBus catalogue/soundboard
-//     + future Hottie / media assets
+//     + future Moxie / media assets
 //        → ProgramAudioMixer
 //        → Program Master Audio (MediaStream)
 //        → Program Output speakers
@@ -19,7 +19,7 @@ export const ProgramAudioSourceKind = Object.freeze({
   PARTICIPANT: "participant",
   BUS: "bus",
   ASSET: "asset",
-  HOTTIE: "hottie",
+  MOXIE: "hottie",
   MEDIA: "media"
 });
 

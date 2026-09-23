@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Hottie AI Producer V1 · Rehearsal</title>
+  <title>Moxie AI Producer V1 · Rehearsal</title>
   <link rel="stylesheet" href="../css/studio.css">
   <link rel="stylesheet" href="../css/studio-chassis.css">
   <style>
@@ -17,20 +17,20 @@
 </head>
 <body>
   <p class="eyebrow">Does not touch RoomPresence / ProgramSync / live Studio</p>
-  <h1>Hottie AI Producer V1 rehearsal</h1>
-  <p>Host speech → wake → research → Producer approval → existing TAKE LIVE. Typed Ask Hottie uses the same pipeline.</p>
+  <h1>Moxie AI Producer V1 rehearsal</h1>
+  <p>Host speech → wake → research → Producer approval → existing TAKE LIVE. Typed Ask Moxie uses the same pipeline.</p>
   <div class="row">
     <button id="runSlice" class="btn btn-primary" type="button">Run acceptance slice</button>
-    <button id="askTyped" class="btn btn-ghost" type="button">Ask Hottie (typed)</button>
+    <button id="askTyped" class="btn btn-ghost" type="button">Ask Moxie (typed)</button>
   </div>
   <div class="grid">
     <section class="card">
       <h2>Host</h2>
       <p id="hostStatus">LISTENING</p>
-      <p id="hostNote">Hottie is listening.</p>
+      <p id="hostNote">Moxie is listening.</p>
     </section>
     <section class="card">
-      <h2>Producer · Hottie</h2>
+      <h2>Producer · Moxie</h2>
       <p id="producerStatus">LISTENING</p>
       <div id="ready"></div>
       <div class="row">
@@ -115,8 +115,8 @@
       logEl.textContent = "";
       say("Anders: Pricing only works if FluidVoice stays on-device.");
       ingestAttributedTranscript(session, { participantId: "g-anders", role: "guest", speaker: "Anders", text: "Pricing only works if FluidVoice stays on-device." });
-      say('Host: Hottie, look up FluidVoice and pull up the GitHub repo.');
-      ingestAttributedTranscript(session, { participantId: "host", role: "host", speaker: "Ricardo", text: "Hottie, look up FluidVoice and pull up the GitHub repo." });
+      say('Host: Moxie, look up FluidVoice and pull up the GitHub repo.');
+      ingestAttributedTranscript(session, { participantId: "host", role: "host", speaker: "Ricardo", text: "Moxie, look up FluidVoice and pull up the GitHub repo." });
       await session.liveProducer.ready();
       paint();
       say("Status: " + session.liveProducer.status);

@@ -123,7 +123,7 @@ export function buildCanonicalState({
       speak: Boolean(hottieVoice.speak),
       source: hottieVoice.source || "hottie-voice",
       provider: hottieVoice.provider || "browser-speech",
-      speaker: hottieVoice.speaker || "Hottie",
+      speaker: hottieVoice.speaker || "Moxie",
       mode: hottieVoice.mode || "PROGRAM_AUDIO",
       startedAt: Number(hottieVoice.startedAt) || Date.now()
     } : null,
