@@ -3,6 +3,7 @@ import { renderFeedEntry } from "./ai-producer.js";
 import { attachFocusGroupToSession, buildFocusGroupInsightArtifact } from "./focus-group-studio.js";
 import { buildSessionDeliverables, buildWeeklyUpdatePackage, formatDeliverableMarkdown } from "./post-production.js";
 import { sanitizeEndCard, readImageFileAsDataUrl } from "./end-card.js";
+import { PROGRAM_OUTPUT_PICKER_INSTRUCTION } from "./program-recording.js";
 
 // ProducerView: the dense control surface for making the show. Same LiveSession as HostView — this
 // file only adds DOM bindings for producer-only actions (per-guest control, layout, graphics, show
@@ -620,7 +621,25 @@ export class ProducerView {
     this.elements.recordNote.textContent = "Program Output is ready. Click RECORD PROGRAM, select the Program Output tab, and turn Share tab audio ON.";
   }
 
+  // ROOT CAUSE of "recording only starts when Share tab audio enabled" landing as a confusing,
+  // easy-to-miss failure: startRecording() used to fire getDisplayMedia's native browser picker
+  // almost immediately after emitting the instruction text — that text lands in #lvRecordNote, but
+  // the OS-level picker dialog steals focus before most people read it, and "Share tab audio" is
+  // OFF by default in Chrome's own picker. There is no way to pre-check that box from JS — it is a
+  // deliberate, non-scriptable browser security control — so the only lever here is making sure the
+  // instruction is actually read and acknowledged before the picker ever appears, and making a
+  // failed attempt obviously retryable rather than a silent/confusing dead end.
   async toggleRecording() {
+    if (!this.session.recording.active) {
+      const proceed = window.confirm(
+        `${PROGRAM_OUTPUT_PICKER_INSTRUCTION}\n\nClick OK, then in the browser's share dialog pick "Toasty Studio — Program Output" and turn Share tab audio ON before confirming.`
+      );
+      if (!proceed) {
+        this.elements.recordNote.textContent = "Recording canceled. Click RECORD PROGRAM when you're ready to select Program Output with Share tab audio ON.";
+        this.elements.recordNote.dataset.error = "false";
+        return;
+      }
+    }
     try {
       this.elements.recordToggle.disabled = true;
       this.elements.recordNote.dataset.error = "false";
@@ -630,7 +649,7 @@ export class ProducerView {
         await this.session.startRecording();
       }
     } catch (error) {
-      this.elements.recordNote.textContent = humanizeError(error);
+      this.elements.recordNote.textContent = `${humanizeError(error)} Click RECORD PROGRAM to try again.`;
       this.elements.recordNote.dataset.error = "true";
     } finally {
       this.elements.recordToggle.disabled = this.session.recording.status === "saving" || (!this.session.canRecord() && !this.session.recording.active);
