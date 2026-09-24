@@ -169,7 +169,11 @@ function featuredFirst(ordered, featuredId) {
 
 function screenSourceFrom(options) {
   const share = options.screenShare;
-  if (share && (share.active || share.stream || share.transportSourceId)) {
+  // Gate on share.active (now only true once VDO.Ninja confirms the publish — see
+  // js/screen-share-source.js), NOT on bare transportSourceId: that id exists the instant a share is
+  // requested, well before any real connection, which used to switch Program layout to a screen
+  // composition even when the picker was cancelled or the publish never connected.
+  if (share && (share.active || share.stream)) {
     return {
       participantId: share.participantId ? `screen-${share.participantId}` : "screen",
       role: "screen",

@@ -66,14 +66,15 @@ export class HostView {
     this.elements.toggleMic.addEventListener("click", () => this.session.toggleMic());
     this.elements.toggleCamera.addEventListener("click", () => this.session.toggleCamera());
     this.elements.toggleScreen.addEventListener("click", async () => {
-      this.elements.toggleScreen.disabled = true;
+      // Disabled state while connecting is owned by renderScreenShare (driven by session.screenShare's
+      // real state), not this handler — startScreenShare resolves as soon as the publisher is mounted
+      // and pending, well before VDO.Ninja confirms anything, so re-enabling here on promise resolution
+      // would flip the button back on mid-connect.
       try {
         await this.session.toggleScreenShare();
       } catch (error) {
         console.error("[Toasty Host] Screen share failed", error);
         window.alert(String(error?.message || "Screen share could not start."));
-      } finally {
-        this.elements.toggleScreen.disabled = false;
       }
     });
     this.elements.leaveStudio.addEventListener("click", () => this.session.leaveStudio());
@@ -104,7 +105,18 @@ export class HostView {
   }
 
   renderScreenShare(screenShare) {
-    updatePressed(this.elements.toggleScreen, Boolean(screenShare?.active), "Share screen", "Stop sharing");
+    const state = screenShare?.state || "inactive";
+    const connecting = state === "binding" || state === "expected";
+    const label = connecting ? "Connecting…" : (screenShare?.active ? "Stop sharing" : "Share screen");
+    updatePressed(this.elements.toggleScreen, Boolean(screenShare?.active), "Share screen", label);
+    this.elements.toggleScreen.dataset.shareState = state;
+    this.elements.toggleScreen.disabled = connecting;
+    if (state === "failed" && this._lastScreenShareReason !== screenShare.reason) {
+      this._lastScreenShareReason = screenShare.reason;
+      window.alert(screenShare.reason || "Screen share could not connect.");
+    } else if (state !== "failed") {
+      this._lastScreenShareReason = null;
+    }
   }
 
   renderConnection(connection) {

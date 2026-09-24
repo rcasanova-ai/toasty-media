@@ -754,6 +754,8 @@ function toggleScreen() {
   startGuestScreenShare();
 }
 
+const GUEST_SCREEN_SHARE_CONNECT_TIMEOUT_MS = 15000;
+
 function startGuestScreenShare() {
   const cameraStreamId = state.streamId;
   const screenId = createScreenStreamId(state.roomId);
@@ -771,27 +773,77 @@ function startGuestScreenShare() {
     streamId: screenId,
     label: `${state.selfLabel || "Guest"} screen`
   });
-  state.screenSharing = true;
+  // Pending, not active — same fix as js/live-session.js's startScreenShare: don't tell presence/Program
+  // this is live until VDO.Ninja actually confirms the publish (push-connection:true), so a cancelled
+  // picker or a publish that never connects doesn't read as an active share forever.
+  state.screenSharing = false;
   state.screenShare = createScreenShareSource({
     ownerParticipantId: state.participantId,
     transportSourceId: screenId,
     state: ScreenShareState.BINDING,
-    active: true,
+    active: false,
     displayName: `${state.selfLabel || "Guest"} screen`
   });
   state.presence?.setScreenShare({
-    active: true,
+    active: false,
     participantId: state.participantId,
     transportSourceId: screenId,
     state: ScreenShareState.BINDING
   });
   state.presence?.publishNow?.();
   if (state.streamId !== cameraStreamId) state.streamId = cameraStreamId;
+  updatePressed(elements.guestToggleScreen, false, "Share screen", "Connecting…");
+  elements.guestToggleScreen.disabled = true;
+  elements.guestToggleScreen.dataset.shareState = ScreenShareState.BINDING;
+  clearTimeout(state.screenShareConnectTimer);
+  state.screenShareConnectTimer = setTimeout(() => {
+    if (state.screenShare?.state === ScreenShareState.BINDING) {
+      failGuestScreenShare("No response from the screen source — the share may have been cancelled or blocked.");
+    }
+  }, GUEST_SCREEN_SHARE_CONNECT_TIMEOUT_MS);
+}
+
+function confirmGuestScreenShare() {
+  if (state.screenShare?.state !== ScreenShareState.BINDING) return;
+  clearTimeout(state.screenShareConnectTimer);
+  state.screenSharing = true;
+  state.screenShare = createScreenShareSource({
+    ownerParticipantId: state.participantId,
+    transportSourceId: state.screenShare.transportSourceId,
+    state: ScreenShareState.BOUND,
+    active: true,
+    displayName: state.screenShare.displayName
+  });
+  state.presence?.setScreenShare({
+    active: true,
+    participantId: state.participantId,
+    transportSourceId: state.screenShare.transportSourceId,
+    state: ScreenShareState.BOUND
+  });
+  state.presence?.publishNow?.();
   updatePressed(elements.guestToggleScreen, true, "Share screen", "Stop sharing");
+  elements.guestToggleScreen.disabled = false;
+  elements.guestToggleScreen.dataset.shareState = ScreenShareState.BOUND;
+}
+
+function failGuestScreenShare(reason) {
+  clearTimeout(state.screenShareConnectTimer);
+  engine.unmountFrame(elements.guestScreenTransport, "screen-push", "");
+  engine.send("screen-push", { hangup: true });
+  state.screenSharing = false;
+  state.screenStreamId = null;
+  state.screenShare = createScreenShareSource({ ownerParticipantId: state.participantId, state: ScreenShareState.FAILED, active: false, reason });
+  state.presence?.setScreenShare({ active: false, participantId: state.participantId, transportSourceId: null, state: ScreenShareState.FAILED });
+  state.presence?.publishNow?.();
+  updatePressed(elements.guestToggleScreen, false, "Share screen", "Share screen");
+  elements.guestToggleScreen.disabled = false;
+  elements.guestToggleScreen.dataset.shareState = ScreenShareState.FAILED;
+  window.alert(reason || "Screen share could not connect.");
 }
 
 function stopGuestScreenShare() {
   const cameraStreamId = state.streamId;
+  clearTimeout(state.screenShareConnectTimer);
   engine.unmountFrame(elements.guestScreenTransport, "screen-push", "");
   engine.send("screen-push", { hangup: true });
   state.screenSharing = false;
@@ -801,6 +853,8 @@ function stopGuestScreenShare() {
   state.presence?.publishNow?.();
   if (cameraStreamId) state.streamId = cameraStreamId;
   updatePressed(elements.guestToggleScreen, false, "Share screen", "Stop sharing");
+  elements.guestToggleScreen.disabled = false;
+  elements.guestToggleScreen.dataset.shareState = ScreenShareState.ENDED;
 }
 
 // Mirrors the Host's Leave Studio: stop local tracks, destroy the transport, return cleanly to PREJOIN
@@ -808,7 +862,7 @@ function stopGuestScreenShare() {
 async function leaveSession() {
   setLifecycle(GuestLifecycle.LEAVING);
   stopPublisherWatch({ reset: true });
-  if (state.screenSharing) stopGuestScreenShare();
+  if (state.screenSharing || state.screenShare?.state === ScreenShareState.BINDING) stopGuestScreenShare();
   state.transcriptUplink?.stop?.();
   state.transcriptUplink = null;
   state.activityMeter?.stop?.();
@@ -983,8 +1037,16 @@ function handleVdoMessage(message, source) {
   if (!message) return;
   const fromPublisher = Boolean(source && source === engine.getFrameWindow("guest"));
   const fromScreen = Boolean(source && source === engine.getFrameWindow("screen-push"));
+  if (fromScreen && state.screenShare?.state === ScreenShareState.BINDING && screenPublisherEndedMessage(message)) {
+    failGuestScreenShare("The screen source disconnected before it could start.");
+    return;
+  }
   if (fromScreen && state.screenSharing && screenPublisherEndedMessage(message)) {
     stopGuestScreenShare();
+    return;
+  }
+  if (fromScreen && message.action === "push-connection" && message.value === true && state.screenShare?.state === ScreenShareState.BINDING) {
+    confirmGuestScreenShare();
     return;
   }
   if (fromPublisher && message.action === "push-connection") {

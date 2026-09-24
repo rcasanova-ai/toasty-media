@@ -119,6 +119,11 @@ function parseGuestLabel(label) {
 }
 
 const GUEST_SEAT_COUNT = 3;
+// How long to wait for VDO.Ninja to confirm a screen-share publish (push-connection:true) before giving
+// up. Covers the case a real device test surfaced: the user cancels the OS display picker or the publish
+// silently never connects, and VDO never sends ANY message back — with no timeout that left the share
+// reading as active/BINDING forever.
+const SCREEN_SHARE_CONNECT_TIMEOUT_MS = 15000;
 const PROGRAM_OUTPUT_STALE_MS = 6000;
 
 function idleProgramOutputState() {
@@ -1364,7 +1369,10 @@ export class LiveSession {
   }
 
   _applyRosterScreenShare(roster = []) {
-    if (this.screenShare?.stream || (this.screenShare?.active && this.screenShare.ownerParticipantId === "host" && this.engine.frames.has("screen-push"))) {
+    const hostOwnsPendingOrLiveShare = this.screenShare?.ownerParticipantId === "host"
+      && (this.screenShare.active || this.screenShare.state === ScreenShareState.BINDING)
+      && this.engine.frames.has("screen-push");
+    if (this.screenShare?.stream || hostOwnsPendingOrLiveShare) {
       return;
     }
     const sharedEntry = (roster || []).find((entry) => entry?.screenShare?.active && entry.screenShare.transportSourceId);
@@ -1565,8 +1573,7 @@ export class LiveSession {
 
   async startScreenShare() {
     if (this.screenShare?.active && this.screenShare.transportSourceId) return this.screenShare;
-    const camera = this._hostPreviewStream;
-    const cameraFrame = this.engine.frames.get("host");
+    if (this.screenShare?.state === ScreenShareState.BINDING) return this.screenShare;
     const screenId = createScreenStreamId(this.roomId);
     const container = this._ensureHostScreenTransport();
     this._preShareComposition = {
@@ -1580,17 +1587,57 @@ export class LiveSession {
       streamId: screenId,
       label: `${this.hostProfile?.displayName || "Host"} screen`
     });
+    // Pending, NOT active yet: VDO.Ninja/getDisplayMedia haven't confirmed anything at this point — the
+    // iframe was just told to ask the browser for a display picker. Program composition, presence, and
+    // every other consumer of this.screenShare must not treat a share as live until _confirmScreenShare
+    // fires from a real push-connection:true (see _handleVdoMessage). If the user cancels the OS picker
+    // or the publish never connects, _screenShareConnectTimer below fails it out instead of leaving this
+    // stuck at "active" forever.
     this.screenShare = createScreenShareSource({
       ownerParticipantId: "host",
       transportSourceId: screenId,
       state: ScreenShareState.BINDING,
-      active: true,
+      active: false,
       displayName: `${this.hostProfile?.displayName || "Host"} screen`
+    });
+    this.presence?.setScreenShare({
+      active: false,
+      participantId: "host",
+      transportSourceId: screenId,
+      state: ScreenShareState.BINDING
+    });
+    this.presence?.publishNow?.();
+    clearTimeout(this._screenShareConnectTimer);
+    this._screenShareConnectTimer = setTimeout(() => {
+      if (this.screenShare?.state === ScreenShareState.BINDING) {
+        this._failScreenShare("No response from the screen source — the share may have been cancelled or blocked.");
+      }
+    }, SCREEN_SHARE_CONNECT_TIMEOUT_MS);
+    this.emit("screenshare", this.screenShare);
+    return this.screenShare;
+  }
+
+  // Fires only once VDO.Ninja confirms the screen publisher actually connected (push-connection:true
+  // from the screen-push frame while we're still BINDING) — see _handleVdoMessage. This is the sole
+  // place a share becomes active:true / gets composed into Program, and the sole place other
+  // participants learn about it via presence.
+  _confirmScreenShare() {
+    if (!this.screenShare || this.screenShare.state !== ScreenShareState.BINDING) return;
+    clearTimeout(this._screenShareConnectTimer);
+    const camera = this._hostPreviewStream;
+    const cameraFrame = this.engine.frames.get("host");
+    this.screenShare = createScreenShareSource({
+      ownerParticipantId: this.screenShare.ownerParticipantId,
+      transportSourceId: this.screenShare.transportSourceId,
+      state: ScreenShareState.BOUND,
+      active: true,
+      displayName: this.screenShare.displayName
     });
     this.presence?.setScreenShare({
       active: true,
       participantId: "host",
-      transportSourceId: screenId
+      transportSourceId: this.screenShare.transportSourceId,
+      state: ScreenShareState.BOUND
     });
     this.presence?.publishNow?.();
     this.program.shareLayout = this.program.shareLayout || ShareLayout.SCREEN_SPEAKER;
@@ -1598,15 +1645,34 @@ export class LiveSession {
     this.exposeProgramSources();
     if (this._hostPreviewStream !== camera) this._hostPreviewStream = camera;
     if (cameraFrame && this.engine.frames.get("host") !== cameraFrame) this.engine.frames.set("host", cameraFrame);
-    this.timeline.record(ProductionEventType.SHARE_STARTED, { transportSourceId: screenId }, { participantId: "host" });
+    this.timeline.record(ProductionEventType.SHARE_STARTED, { transportSourceId: this.screenShare.transportSourceId }, { participantId: "host" });
     this._publishControlNow();
     this.emit("screenshare", this.screenShare);
     this.emit("program", this.program);
     this._syncProgramPreview();
-    return this.screenShare;
+  }
+
+  // A share that never connected (picker cancelled, permission denied, timed out) — distinct from
+  // stopScreenShare (a share that WAS live and the Host/Guest deliberately ended). Tears down the same
+  // transport, but lands on FAILED with a reason so the UI can tell the two apart instead of both just
+  // silently going back to the share button's resting state.
+  _failScreenShare(reason) {
+    clearTimeout(this._screenShareConnectTimer);
+    const ownerParticipantId = this.screenShare?.ownerParticipantId || "host";
+    if (ownerParticipantId === "host") {
+      this.engine.send("screen-push", { hangup: true });
+      if (this._containers?.hostScreenTransport) this.engine.unmountFrame(this._containers.hostScreenTransport, "screen-push", "");
+      this.presence?.setScreenShare({ active: false, participantId: "host", transportSourceId: null, state: ScreenShareState.FAILED });
+      this.presence?.publishNow?.();
+    }
+    this.screenShare = createScreenShareSource({ ownerParticipantId, state: ScreenShareState.FAILED, active: false, reason });
+    this._preShareComposition = null;
+    this.timeline.record(ProductionEventType.SHARE_STOPPED, { failed: true, reason }, { participantId: ownerParticipantId });
+    this.emit("screenshare", this.screenShare);
   }
 
   async stopScreenShare() {
+    clearTimeout(this._screenShareConnectTimer);
     const previousShare = this.screenShare;
     const ownerParticipantId = previousShare?.ownerParticipantId || previousShare?.participantId || "host";
     const isHostShare = ownerParticipantId === "host";
@@ -2132,12 +2198,19 @@ export class LiveSession {
   _handleVdoMessage(message, source) {
     if (!message) return;
     const fromScreen = Boolean(source && source === this.engine.getFrameWindow("screen-push"));
+    if (fromScreen && this.screenShare?.state === ScreenShareState.BINDING && screenPublisherEndedMessage(message)) {
+      // Failed/declined before ever confirming — e.g. VDO reports push-connection:false because the
+      // display picker was cancelled. Distinct from the "was live, now ended" case below: this never
+      // reached active, so it's a failure, not a stop.
+      this._failScreenShare("The screen source disconnected before it could start.");
+      return;
+    }
     if (fromScreen && this.screenShare?.active && screenPublisherEndedMessage(message)) {
       this.stopScreenShare();
       return;
     }
-    if (fromScreen && message.action === "push-connection" && message.value === true && this.screenShare?.active) {
-      this.screenShare = { ...this.screenShare, state: ScreenShareState.BOUND };
+    if (fromScreen && message.action === "push-connection" && message.value === true && this.screenShare?.state === ScreenShareState.BINDING) {
+      this._confirmScreenShare();
     }
     const fromHost = Boolean(source && source === this.engine.getFrameWindow("host"));
     if (fromHost && (message.detailedState || message.getDetailedState)) {

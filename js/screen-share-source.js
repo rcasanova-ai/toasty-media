@@ -24,12 +24,17 @@ export function createScreenShareSource({
   displayName = "Screen",
   reason = ""
 } = {}) {
-  const live = Boolean(active && (transportSourceId || stream));
+  // `active` is trusted as given, NOT re-derived from transportSourceId: that id is generated locally
+  // the instant a share is requested, long before VDO.Ninja/getDisplayMedia confirm anything, so treating
+  // its mere existence as "live" is what let a cancelled/failed share read as active everywhere
+  // (presence, Program composition) that consumed this object. Callers now pass active:true only once a
+  // real confirmation (push-connection:true) has arrived — see js/live-session.js's startScreenShare.
+  const live = Boolean(active);
   return {
     ownerParticipantId: ownerParticipantId || "host",
     participantId: ownerParticipantId || "host",
     transportSourceId: transportSourceId || null,
-    state: live ? (state === ScreenShareState.INACTIVE ? ScreenShareState.EXPECTED : state) : ScreenShareState.INACTIVE,
+    state: (live && state === ScreenShareState.INACTIVE) ? ScreenShareState.EXPECTED : state,
     active: live,
     stream: stream || null,
     displayName: displayName || "Screen",
@@ -58,11 +63,16 @@ export function isScreenShareAvailable(share) {
 
 export function screenShareFromPresence(entry) {
   const share = entry?.screenShare;
-  if (!share?.active || !share.transportSourceId) return createScreenShareSource({ ownerParticipantId: entry?.participantId || "host" });
+  if (!share?.active || !share.transportSourceId) {
+    return createScreenShareSource({
+      ownerParticipantId: entry?.participantId || "host",
+      state: share?.state && share.state !== "inactive" ? share.state : ScreenShareState.INACTIVE
+    });
+  }
   return createScreenShareSource({
     ownerParticipantId: share.participantId || entry.participantId || "host",
     transportSourceId: share.transportSourceId,
-    state: ScreenShareState.EXPECTED,
+    state: share.state || ScreenShareState.EXPECTED,
     active: true,
     displayName: `${entry?.displayName || share.participantId || "Participant"} screen`
   });

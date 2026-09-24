@@ -346,22 +346,30 @@ function bindRailControls() {
     elements.endSessionBtn.disabled = false;
   });
   elements.toggleScreenQuick?.addEventListener("click", async () => {
-    elements.toggleScreenQuick.disabled = true;
+    // Disabled state while connecting is driven by the "screenshare" listener below (real share state),
+    // not here — see js/host-view.js's identical comment for why re-enabling on promise resolution would
+    // be wrong (startScreenShare resolves as soon as the publisher is mounted, before VDO confirms it).
     try {
       await session.toggleScreenShare();
     } catch (error) {
       console.error("[Toasty Studio] Screen share failed", error);
       window.alert(String(error?.message || "Screen share could not start."));
-    } finally {
-      elements.toggleScreenQuick.disabled = false;
     }
   });
+  // No alert() here on failure — js/host-view.js's HostView (always instantiated alongside this, see
+  // its constructor call above) already surfaces failures once, and this page runs both simultaneously
+  // regardless of which view (Host/Producer) is currently shown, so a second alert here would just be a
+  // duplicate popup for the same failure.
   session.on("screenshare", (s) => {
     if (elements.toggleScreenQuick) {
+      const state = s?.state || "inactive";
+      const connecting = state === "binding" || state === "expected";
       const active = Boolean(s?.active);
       elements.toggleScreenQuick.setAttribute("aria-pressed", String(active));
+      elements.toggleScreenQuick.disabled = connecting;
+      elements.toggleScreenQuick.dataset.shareState = state;
       const label = elements.toggleScreenQuick.querySelector(".dock-label");
-      if (label) label.textContent = active ? "Stop Sharing" : "Share Screen";
+      if (label) label.textContent = connecting ? "Connecting…" : (active ? "Stop Sharing" : "Share Screen");
     }
   });
 }
