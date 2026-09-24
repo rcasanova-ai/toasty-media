@@ -54,6 +54,7 @@ const elements = {
   topSettings: document.querySelector("#lvTopSettings"),
   topEndSession: document.querySelector("#lvTopEndSession"),
   bottomNavButtons: [...document.querySelectorAll("[data-producer-jump]")],
+  producerWorkspaceButtons: [...document.querySelectorAll("[data-producer-workspace]")],
   sessionDate: document.querySelector("#sessionDate"),
   sessionTime: document.querySelector("#sessionTime"),
   buildId: document.querySelector("#buildId"),
@@ -207,6 +208,7 @@ function initStudio() {
   bindAiProviderDrawer();
   bindPersonaDrawer();
   bindProducerChrome();
+  bindProducerWorkspaces();
 
   session.on("recording", renderRecChip);
   session.on("policy", renderPolicyChip);
@@ -259,6 +261,19 @@ function setView(view) {
   // Queried live (not cached at init time) so panels mounted later by other controllers — e.g. the
   // Producer-only broadcast card injected into .rail-right — are still gated correctly.
   document.querySelectorAll("[data-lv-only]").forEach((panel) => { panel.hidden = panel.dataset.lvOnly !== view; });
+}
+
+function bindProducerWorkspaces() {
+  const buttons = elements.producerWorkspaceButtons || [];
+  const setWorkspace = (workspace = "production") => {
+    elements.liveConsole.dataset.producerWorkspace = workspace;
+    buttons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.producerWorkspace === workspace)));
+  };
+  buttons.forEach((button) => button.addEventListener("click", () => {
+    setView("producer");
+    setWorkspace(button.dataset.producerWorkspace);
+  }));
+  setWorkspace("production");
 }
 
 function bindProducerChrome() {
@@ -330,9 +345,24 @@ function bindRailControls() {
     await session.endDurableSession();
     elements.endSessionBtn.disabled = false;
   });
-  elements.toggleScreenQuick?.addEventListener("click", () => session.toggleScreenShare());
+  elements.toggleScreenQuick?.addEventListener("click", async () => {
+    elements.toggleScreenQuick.disabled = true;
+    try {
+      await session.toggleScreenShare();
+    } catch (error) {
+      console.error("[Toasty Studio] Screen share failed", error);
+      window.alert(String(error?.message || "Screen share could not start."));
+    } finally {
+      elements.toggleScreenQuick.disabled = false;
+    }
+  });
   session.on("screenshare", (s) => {
-    if (elements.toggleScreenQuick) elements.toggleScreenQuick.setAttribute("aria-pressed", String(Boolean(s?.active)));
+    if (elements.toggleScreenQuick) {
+      const active = Boolean(s?.active);
+      elements.toggleScreenQuick.setAttribute("aria-pressed", String(active));
+      const label = elements.toggleScreenQuick.querySelector(".dock-label");
+      if (label) label.textContent = active ? "Stop Sharing" : "Share Screen";
+    }
   });
 }
 
