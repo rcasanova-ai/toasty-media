@@ -1,7 +1,51 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 360" role="img" aria-label="Bangkok skyline silhouette">
-  <g fill="#3d2415">
-    <path opacity=".95" d="M0 322h88v-104h50v104h34V176h22v-26h22v26h22v146h42v-76h48v76h40V202h70v120h26V132h24v-42h18v42h24v190h38v-156h52v156h42V112h22V76h16V112h22v210h36v-92h70v92h28V164h28v-54h20V72h14v38h20v54h28v158h34v-120h62v120h32v-78h52v78h28v-176h24v-34h16v34h24v176h42v-106h68v106h32V188h26v-40h18v40h26v134h34v-84h72v84h54V214h58v108h88v38H0z"/>
-    <path opacity=".78" d="M590 322v-58h18v-32h15v-28h13v-25h11l7-34 7 34h11v25h13v28h15v32h18v58h-14v-43h-84v43zm12-55h92l-8-10h-76zm12-22h68l-7-10h-44zm10-22h48l-5-9h-38z"/>
-    <path opacity=".62" d="M1038 322v-42h12v-25h10v-18h8v-19h7l6-30 6 30h7v19h8v18h10v25h12v42h-12v-30h-62v30zm10-47h42l-5-8h-32zm8-20h26l-4-7h-18z"/>
+  <defs>
+    <linearGradient id="peepsSkylineFar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7a4a2a"/>
+      <stop offset="1" stop-color="#5a3018"/>
+    </linearGradient>
+    <linearGradient id="peepsSkylineNear" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c1650f"/>
+      <stop offset=".45" stop-color="#8a3f18"/>
+      <stop offset="1" stop-color="#3d2010"/>
+    </linearGradient>
+    <linearGradient id="peepsWindowGlow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd98a"/>
+      <stop offset="1" stop-color="#ff9a3d"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Far background row: shorter, cooler, lower-opacity towers for depth (classic skyline parallax). -->
+  <g fill="url(#peepsSkylineFar)" opacity=".42">
+    <path d="M0 322h46v-58h30v58h24v-84h20v84h60v-46h18v46h52v-70h16v70h44v-96h22v96h58v-40h14v40h50v-64h20v64h56v-88h18v88h48v-52h16v52h60v-72h22v72h46v-46h14v46h58v-96h20v96h50v-56h16v56h48v-40h14v40h56v-78h20v78h44v-52h18v52h50v38H0z"/>
+  </g>
+
+  <!-- Midground: the main dense downtown row, warmed by a gradient instead of a flat fill. -->
+  <g fill="url(#peepsSkylineNear)">
+    <path opacity=".97" d="M0 322h88v-104h50v104h34V176h22v-26h22v26h22v146h42v-76h48v76h40V202h70v120h26V132h24v-42h18v42h24v190h38v-156h52v156h42V112h22V76h16V112h22v210h36v-92h70v92h28V164h28v-54h20V72h14v38h20v54h28v158h34v-120h62v120h32v-78h52v78h28v-176h24v-34h16v34h24v176h42v-106h68v106h32V188h26v-40h18v40h26v134h34v-84h72v84h54V214h58v108h88v38H0z"/>
+    <!-- Small temple/spire accents: tiered, stepped rooflines among the modern towers — Peeps keeps this
+         minor; Superteam Thailand owns the temple-forward treatment. -->
+    <path opacity=".8" d="M590 322v-58h18v-32h15v-28h13v-25h11l7-34 7 34h11v25h13v28h15v32h18v58h-14v-43h-84v43zm12-55h92l-8-10h-76zm12-22h68l-7-10h-44zm10-22h48l-5-9h-38z"/>
+    <path opacity=".64" d="M1038 322v-42h12v-25h10v-18h8v-19h7l6-30 6 30h7v19h8v18h10v25h12v42h-12v-30h-62v30zm10-47h42l-5-8h-32zm8-20h26l-4-7h-18z"/>
+    <!-- A stepped, set-back landmark tower (a nod to MahaNakhon-style downtown towers) as a focal point. -->
+    <path opacity=".9" d="M780 322V186h30v-30h26v168h-26v-76h-30v76z"/>
+    <rect opacity=".9" x="810" y="156" width="26" height="30"/>
+  </g>
+
+  <!-- Warm window lights on the tallest near-ground towers — a little human warmth without turning the
+       whole silhouette into a lit-up cartoon. Deliberately sparse. -->
+  <g fill="url(#peepsWindowGlow)" opacity=".55">
+    <rect x="836" y="160" width="6" height="9"/>
+    <rect x="852" y="176" width="6" height="9"/>
+    <rect x="836" y="192" width="6" height="9"/>
+    <rect x="410" y="146" width="6" height="9"/>
+    <rect x="426" y="162" width="6" height="9"/>
+    <rect x="410" y="178" width="6" height="9"/>
+    <rect x="426" y="194" width="6" height="9"/>
+    <rect x="1204" y="130" width="6" height="9"/>
+    <rect x="1220" y="146" width="6" height="9"/>
+    <rect x="1204" y="162" width="6" height="9"/>
+    <rect x="1220" y="178" width="6" height="9"/>
+    <rect x="1204" y="194" width="6" height="9"/>
   </g>
 </svg>
