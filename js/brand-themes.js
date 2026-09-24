@@ -235,7 +235,7 @@ export const BRAND_THEMES = Object.freeze({
     }),
     artwork: Object.freeze({
       backgroundWatermark: "../shared/brand/clients/superteam-thailand/watermark-elephant.png",
-      backgroundSilhouette: "../shared/brand/toasty-peeps/bangkok-skyline.svg",
+      backgroundSilhouette: "../shared/brand/clients/superteam-thailand/silhouette-skyline.png",
       brandPattern: "",
       backgroundArtwork: "",
       surfaceGradient: "radial-gradient(920px 480px at 100% -8%, rgba(196, 30, 90, 0.11), transparent 58%), linear-gradient(165deg, rgba(165, 25, 49, 0.07) 0%, transparent 26%, rgba(8, 16, 48, 0.55) 100%)",
@@ -291,11 +291,7 @@ export const BRAND_THEMES = Object.freeze({
     artwork: Object.freeze({
       backgroundArtwork: "",
       backgroundWatermark: "../shared/brand/toasty-peeps/watermark-mascot.png",
-      // Toasty Peeps is presented under the Superteam Thailand / Colosseum banner — reuses the SAME
-      // restrained temple-skyline silhouette already established for the superteam theme below (real
-      // asset, not a new one) so the Thai visual language is consistent between the two, without
-      // replacing Peeps' own watermark mascot (that stays Peeps' own character, not the elephant).
-      backgroundSilhouette: "../shared/brand/clients/superteam-thailand/silhouette-skyline.png",
+      // Bangkok-first identity: downtown towers dominate, with only a small temple cue. Superteam keeps the temple-forward skyline.\n      backgroundSilhouette: "../shared/brand/toasty-peeps/bangkok-skyline.svg",
       brandPattern: "",
       surfaceGradient: "radial-gradient(900px 440px at 82% -8%, rgba(255, 197, 61, 0.18), transparent 58%), linear-gradient(165deg, rgba(61, 36, 21, 0.08) 0%, rgba(255, 249, 241, 0.78) 38%, rgba(255, 122, 41, 0.12) 100%)",
       titleCardFill: "rgba(61, 36, 21, 0.86)",
