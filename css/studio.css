@@ -4133,6 +4133,92 @@
   margin: 0;
 }
 
+/* Moxie workspace, split into Current State / Live Context / Recommendations & Research instead of a
+   bare status line over an empty feed list — see studio/director.html's .lv-ai-producer-pane. Reuses the
+   same section pattern as .lv-focus-section (Focus Group workspace). */
+.lv-ai-producer-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.lv-moxie-section {
+  background: color-mix(in srgb, var(--studio-surface-2) 55%, transparent);
+  border: 1px solid var(--studio-line);
+  border-radius: 10px;
+  padding: 0.75rem 0.85rem;
+}
+
+.lv-moxie-section-head {
+  color: var(--studio-cream-dim);
+  font-family: var(--font-heading);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  margin: 0 0 0.55rem;
+  text-transform: uppercase;
+}
+
+.lv-moxie-section .lv-hottie-rail,
+.lv-moxie-section .lv-ai-diagnostics {
+  margin: 0;
+}
+
+.lv-moxie-section .lv-ai-diagnostics {
+  margin-top: 0.55rem;
+}
+
+.lv-moxie-context {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.lv-moxie-context-row {
+  display: grid;
+  font-size: 0.68rem;
+  gap: 0.25rem;
+}
+
+.lv-moxie-context-row > span {
+  color: var(--studio-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.lv-moxie-context-row > strong {
+  color: var(--studio-cream);
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lv-moxie-context-row > p {
+  color: var(--studio-cream-dim);
+  font-size: 0.74rem;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.lv-moxie-context-row--wide {
+  grid-column: 1 / -1;
+}
+
+.lv-moxie-section--feed {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.lv-moxie-section--feed .lv-feed-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
 .lv-panel-head--sub {
   margin-top: 0.85rem;
 }

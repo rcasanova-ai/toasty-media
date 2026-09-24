@@ -21,6 +21,11 @@ export class ProducerView {
       shareModeChip: root.querySelector("#lvShareModeChip"),
       hottieStatus: root.querySelector("#lvMoxieStatus"),
       hottieProposal: root.querySelector("#lvMoxieProposal"),
+      moxieCurrentSpeaker: root.querySelector("#lvMoxieCurrentSpeaker"),
+      moxieCurrentTopic: root.querySelector("#lvMoxieCurrentTopic"),
+      moxieRunOfShowPosition: root.querySelector("#lvMoxieRunOfShowPosition"),
+      moxieRecentHeard: root.querySelector("#lvMoxieRecentHeard"),
+      moxieAudienceSignals: root.querySelector("#lvMoxieAudienceSignals"),
       programPreview: root.querySelector("#lvProgramPreviewStage"),
       poTopic: root.querySelector("#lvPoTopic"),
       poSceneGroup: root.querySelector("#lvPoSceneGroup"),
@@ -201,6 +206,8 @@ export class ProducerView {
     this.session.on("transcription", () => {
       clearTimeout(this._focusIntelligenceDebounce);
       this._focusIntelligenceDebounce = setTimeout(() => this.renderFocusIntelligence(), 1500);
+      clearTimeout(this._moxieContextDebounce);
+      this._moxieContextDebounce = setTimeout(() => this.renderMoxieLiveContext(), 1500);
     });
     [this.elements.focusStatus, this.elements.focusTarget, this.elements.focusMatched, this.elements.focusConfirmed].forEach((el) => {
       el?.addEventListener("input", () => this.renderFocusRecruitment());
@@ -216,7 +223,7 @@ export class ProducerView {
 
     this.session.on("guests", () => this.renderGuests());
     this.session.on("av", () => this.renderGuests());
-    this.session.on("program", (program) => this.renderProgram(program));
+    this.session.on("program", (program) => { this.renderProgram(program); this.renderMoxieLiveContext(); });
     this.session.on("session-control-rejected", (rejection) => this.renderSessionControlRejected(rejection));
     if (this.session.sessionControlRejected) this.renderSessionControlRejected(this.session.sessionControlRejected);
     this.session.on("recording", (recording) => this.renderRecording(recording));
@@ -234,6 +241,7 @@ export class ProducerView {
     this.renderGuests();
     this.renderProgram(this.session.program);
     this.renderMoxie(this.session.hottieStatus);
+    this.renderMoxieLiveContext();
     this.renderRecording(this.session.recording);
     this.renderProgramOutputStatus();
     this.renderRecordingGate();
@@ -549,6 +557,42 @@ export class ProducerView {
       this.elements.hottieProposal.textContent = proposal?.label
         ? [proposal.label, proposal.query || proposal.title].filter(Boolean).join(" · ")
         : "Waiting for a Host production cue.";
+    }
+  }
+
+  // Moxie's "Live Context" — what it's actually seeing right now, pulled from state that already exists
+  // elsewhere in the session (Run of Show, program spotlight, transcript, audience feed) rather than any
+  // new tracking of its own. Every field degrades to an em dash / "Nothing yet." instead of guessing.
+  renderMoxieLiveContext() {
+    if (this.elements.moxieCurrentTopic) {
+      const current = this.session.runOfShow?.current?.();
+      this.elements.moxieCurrentTopic.textContent = current?.title || "—";
+    }
+    if (this.elements.moxieRunOfShowPosition) {
+      const items = this.session.runOfShow?.items || [];
+      const index = items.findIndex((item) => item.status === "current");
+      this.elements.moxieRunOfShowPosition.textContent = items.length
+        ? `${index >= 0 ? index + 1 : "—"} of ${items.length}`
+        : "—";
+    }
+    if (this.elements.moxieCurrentSpeaker) {
+      const spotlightId = this.session.program?.spotlightParticipantId;
+      let name = "—";
+      if (spotlightId === "host") name = this.session.hostProfile?.displayName || "Host";
+      else if (spotlightId) name = this.session.participants?.list?.().find((p) => p.participantId === spotlightId)?.displayName || spotlightId;
+      this.elements.moxieCurrentSpeaker.textContent = name;
+    }
+    if (this.elements.moxieRecentHeard) {
+      const recent = (this.session.transcript?.lines || []).slice(-3);
+      this.elements.moxieRecentHeard.textContent = recent.length
+        ? recent.map((line) => `${line.speaker}: ${line.text}`).join(" · ")
+        : "Nothing yet.";
+    }
+    if (this.elements.moxieAudienceSignals) {
+      const recent = (this.session.audience?.recent?.(3) || []).filter((m) => m?.text);
+      this.elements.moxieAudienceSignals.textContent = recent.length
+        ? recent.map((m) => `${m.author ? `${m.author}: ` : ""}${m.text}`).join(" · ")
+        : "Nothing yet.";
     }
   }
 

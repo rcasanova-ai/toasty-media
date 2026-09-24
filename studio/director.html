@@ -596,18 +596,37 @@
 
             <aside class="lv-panel lv-ai-producer-pane" data-lv-only="producer" data-producer-workspace="moxie" hidden aria-label="Moxie producer intelligence">
               <div class="lv-panel-head"><span>Moxie</span><span class="lv-chip">Production Intelligence</span></div>
-              <div class="lv-hottie-rail" id="lvMoxieRail" aria-label="Moxie status">
-                <span class="lv-hottie-status" id="lvMoxieStatus" data-state="listening">LISTENING</span>
-                <p class="lv-hottie-proposal" id="lvMoxieProposal">Waiting for a Host production cue.</p>
+
+              <div class="lv-moxie-section" aria-label="Current state">
+                <h4 class="lv-moxie-section-head">Current State</h4>
+                <div class="lv-hottie-rail" id="lvMoxieRail" aria-label="Moxie status">
+                  <span class="lv-hottie-status" id="lvMoxieStatus" data-state="listening">LISTENING</span>
+                  <p class="lv-hottie-proposal" id="lvMoxieProposal">Waiting for a Host production cue.</p>
+                </div>
+                <div class="lv-ai-diagnostics" id="lvAiDiagnostics" aria-label="AI cost diagnostics">
+                  <span id="lvAiDiagRequests">0 requests</span>
+                  <span id="lvAiDiagTokens">0 tokens</span>
+                  <span id="lvAiDiagCost">$0.0000</span>
+                  <span id="lvAiDiagProvider" class="lv-ai-diag-provider"></span>
+                </div>
               </div>
-              <div class="lv-ai-diagnostics" id="lvAiDiagnostics" aria-label="AI cost diagnostics">
-                <span id="lvAiDiagRequests">0 requests</span>
-                <span id="lvAiDiagTokens">0 tokens</span>
-                <span id="lvAiDiagCost">$0.0000</span>
-                <span id="lvAiDiagProvider" class="lv-ai-diag-provider"></span>
+
+              <div class="lv-moxie-section" aria-label="Live context">
+                <h4 class="lv-moxie-section-head">Live Context</h4>
+                <div class="lv-moxie-context" id="lvMoxieLiveContext">
+                  <div class="lv-moxie-context-row"><span>Current speaker</span><strong id="lvMoxieCurrentSpeaker">—</strong></div>
+                  <div class="lv-moxie-context-row"><span>Current topic</span><strong id="lvMoxieCurrentTopic">—</strong></div>
+                  <div class="lv-moxie-context-row"><span>Run of show</span><strong id="lvMoxieRunOfShowPosition">—</strong></div>
+                  <div class="lv-moxie-context-row lv-moxie-context-row--wide"><span>Recently heard</span><p id="lvMoxieRecentHeard" class="lv-placeholder">Nothing yet.</p></div>
+                  <div class="lv-moxie-context-row lv-moxie-context-row--wide"><span>Audience signals</span><p id="lvMoxieAudienceSignals" class="lv-placeholder">Nothing yet.</p></div>
+                </div>
               </div>
-              <div class="lv-feed-list" id="lvFeedListProducer">
-                <p class="lv-placeholder">Host requests will appear here.</p>
+
+              <div class="lv-moxie-section lv-moxie-section--feed" aria-label="Recommendations and research">
+                <h4 class="lv-moxie-section-head">Recommendations &amp; Research</h4>
+                <div class="lv-feed-list" id="lvFeedListProducer">
+                  <p class="lv-placeholder">Host requests will appear here.</p>
+                </div>
               </div>
             </aside>
 
