@@ -722,41 +722,77 @@
 
             <section class="lv-panel lv-focus-brief" data-lv-only="producer" data-producer-workspace="focus" hidden aria-label="Focus group workspace">
               <div class="lv-panel-head"><span>Focus Group Workspace</span><span class="lv-chip" id="lvFocusRecruitmentStatus">NEEDS PARTICIPANTS</span></div>
-              <input id="lvFocusProject" type="text" placeholder="Project">
-              <textarea id="lvFocusObjective" rows="3" placeholder="Research objective"></textarea>
-              <input id="lvFocusProfile" type="text" placeholder="Target participant profile">
-              <div class="lv-focus-grid">
-                <input id="lvFocusDesired" type="number" min="1" value="5" aria-label="Desired participant count">
-                <input id="lvFocusMinimum" type="number" min="1" value="3" aria-label="Minimum participant count">
-                <input id="lvFocusDuration" type="number" min="15" value="45" aria-label="Session duration">
+
+              <div class="lv-focus-section" aria-label="Brief">
+                <h4 class="lv-focus-section-head">Brief</h4>
+                <input id="lvFocusProject" type="text" placeholder="Project">
+                <textarea id="lvFocusObjective" rows="3" placeholder="Research objective"></textarea>
+                <input id="lvFocusProfile" type="text" placeholder="Target participant profile">
               </div>
-              <textarea id="lvFocusTopics" rows="3" placeholder="Discussion topics, one per line"></textarea>
-              <textarea id="lvFocusQuestions" rows="4" placeholder="Key questions, one per line"></textarea>
-              <select id="lvFocusStatus">
-                <option>NEEDS PARTICIPANTS</option>
-                <option>RECRUITING</option>
-                <option>READY</option>
-                <option>COMPLETED</option>
-              </select>
-              <div class="lv-focus-grid">
-                <input id="lvFocusTarget" type="number" min="0" value="5" aria-label="Recruitment target">
-                <input id="lvFocusMatched" type="number" min="0" value="0" aria-label="Matched participants">
-                <input id="lvFocusConfirmed" type="number" min="0" value="0" aria-label="Confirmed participants">
+
+              <div class="lv-focus-section" aria-label="Cohort">
+                <h4 class="lv-focus-section-head">Cohort</h4>
+                <div class="lv-focus-grid">
+                  <label class="lv-focus-field"><span>Desired</span><input id="lvFocusDesired" type="number" min="1" value="5"></label>
+                  <label class="lv-focus-field"><span>Minimum</span><input id="lvFocusMinimum" type="number" min="1" value="3"></label>
+                  <label class="lv-focus-field"><span>Duration (min)</span><input id="lvFocusDuration" type="number" min="15" value="45"></label>
+                </div>
+                <label class="lv-focus-field"><span>Recruitment status</span>
+                  <select id="lvFocusStatus">
+                    <option>NEEDS PARTICIPANTS</option>
+                    <option>RECRUITING</option>
+                    <option>READY</option>
+                    <option>COMPLETED</option>
+                  </select>
+                </label>
+                <div class="lv-focus-grid">
+                  <label class="lv-focus-field"><span>Target</span><input id="lvFocusTarget" type="number" min="0" value="5"></label>
+                  <label class="lv-focus-field"><span>Matched</span><input id="lvFocusMatched" type="number" min="0" value="0"></label>
+                  <label class="lv-focus-field"><span>Confirmed</span><input id="lvFocusConfirmed" type="number" min="0" value="0"></label>
+                </div>
+                <p class="control-note" id="lvFocusSummary">Target 5 · matched 0 · confirmed 0 · remaining 5</p>
               </div>
-              <select id="lvFocusFallback">
-                <option value="">Fallback if exact cohort fails</option>
-                <option>EXTEND RECRUITMENT</option>
-                <option>BROADEN CRITERIA</option>
-                <option>CLIENT PROVIDES PARTICIPANTS</option>
-                <option>RUN SMALLER COHORT</option>
-                <option>POSTPONE/CANCEL</option>
-              </select>
-              <label class="po-field po-ticker-toggle">
-                <input id="lvFocusClientApproval" type="checkbox">
-                Client approved demographic relaxation
-              </label>
-              <button id="lvApplyFocusBrief" class="btn btn-primary btn-small" type="button">Create Focus Group Run of Show</button>
-              <p class="control-note" id="lvFocusSummary">Target 5 · matched 0 · confirmed 0 · remaining 5</p>
+
+              <div class="lv-focus-section" aria-label="Discussion design">
+                <h4 class="lv-focus-section-head">Discussion Design</h4>
+                <textarea id="lvFocusTopics" rows="3" placeholder="Discussion topics, one per line"></textarea>
+                <textarea id="lvFocusQuestions" rows="4" placeholder="Key questions, one per line"></textarea>
+              </div>
+
+              <div class="lv-focus-section" aria-label="Recruitment fallback">
+                <h4 class="lv-focus-section-head">Recruitment / Fallback</h4>
+                <select id="lvFocusFallback">
+                  <option value="">Fallback if exact cohort fails</option>
+                  <option>EXTEND RECRUITMENT</option>
+                  <option>BROADEN CRITERIA</option>
+                  <option>CLIENT PROVIDES PARTICIPANTS</option>
+                  <option>RUN SMALLER COHORT</option>
+                  <option>POSTPONE/CANCEL</option>
+                </select>
+                <label class="po-field po-ticker-toggle">
+                  <input id="lvFocusClientApproval" type="checkbox">
+                  Client approved demographic relaxation
+                </label>
+              </div>
+
+              <div class="lv-focus-section" aria-label="Run of show">
+                <h4 class="lv-focus-section-head">Run of Show</h4>
+                <button id="lvApplyFocusBrief" class="btn btn-primary btn-small" type="button">Create Focus Group Run of Show</button>
+                <p class="control-note">Builds this session's Run of Show panel from the topics and questions above.</p>
+              </div>
+
+              <div class="lv-focus-section" aria-label="Session intelligence">
+                <h4 class="lv-focus-section-head"><span>Session Intelligence</span><button id="lvFocusRefreshInsights" class="btn btn-ghost btn-small" type="button">Refresh</button></h4>
+                <div id="lvFocusIntelligence" class="lv-focus-intelligence">
+                  <p class="lv-placeholder">No transcript yet — themes, quotes, and follow-up questions will appear here once the discussion starts.</p>
+                </div>
+              </div>
+
+              <div class="lv-focus-section" aria-label="Post session">
+                <h4 class="lv-focus-section-head">Post Session</h4>
+                <button id="lvFocusInsightPack" class="btn btn-primary btn-small" type="button">Generate Focus Group Insight Pack</button>
+                <textarea id="lvFocusInsightPackOutput" rows="10" readonly placeholder="The full focus group insight pack will appear here."></textarea>
+              </div>
             </section>
 
             <section class="lv-panel lv-end-card" data-lv-only="producer" hidden aria-label="End card">

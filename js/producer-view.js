@@ -68,6 +68,10 @@ export class ProducerView {
       postSession: root.querySelector("#lvGeneratePostPack"),
       postFocus: root.querySelector("#lvGenerateFocusInsights"),
       postOutput: root.querySelector("#lvPostProductionOutput"),
+      focusIntelligence: root.querySelector("#lvFocusIntelligence"),
+      focusRefreshInsights: root.querySelector("#lvFocusRefreshInsights"),
+      focusInsightPack: root.querySelector("#lvFocusInsightPack"),
+      focusInsightPackOutput: root.querySelector("#lvFocusInsightPackOutput"),
       focusProject: root.querySelector("#lvFocusProject"),
       focusObjective: root.querySelector("#lvFocusObjective"),
       focusProfile: root.querySelector("#lvFocusProfile"),
@@ -184,6 +188,20 @@ export class ProducerView {
     this.elements.postSession?.addEventListener("click", () => this.renderPostOutput(buildSessionDeliverables(this.session)));
     this.elements.postFocus?.addEventListener("click", () => this.renderPostOutput(buildFocusGroupInsightArtifact(this.session)?.payload || { note: "No focus group transcript available yet." }));
     this.elements.focusApply?.addEventListener("click", () => this.applyFocusBrief());
+    this.elements.focusRefreshInsights?.addEventListener("click", () => this.renderFocusIntelligence());
+    this.elements.focusInsightPack?.addEventListener("click", () => {
+      const pack = buildFocusGroupInsightArtifact(this.session)?.payload;
+      if (this.elements.focusInsightPackOutput) {
+        this.elements.focusInsightPackOutput.value = pack ? formatDeliverableMarkdown(pack) : "No focus group transcript available yet.";
+      }
+    });
+    // Transcription events can fire several times a second while someone is talking — debounce the
+    // (re)analysis instead of recomputing analyzeFocusGroupTranscript over the whole transcript on every
+    // partial update.
+    this.session.on("transcription", () => {
+      clearTimeout(this._focusIntelligenceDebounce);
+      this._focusIntelligenceDebounce = setTimeout(() => this.renderFocusIntelligence(), 1500);
+    });
     [this.elements.focusStatus, this.elements.focusTarget, this.elements.focusMatched, this.elements.focusConfirmed].forEach((el) => {
       el?.addEventListener("input", () => this.renderFocusRecruitment());
       el?.addEventListener("change", () => this.renderFocusRecruitment());
@@ -222,6 +240,7 @@ export class ProducerView {
     this.renderFeedMirror();
     this.renderAiDiagnostics(this.session.aiProducerService.sessionTotals());
     this.renderFocusRecruitment();
+    this.renderFocusIntelligence();
   }
 
   renderPostOutput(pack) {
@@ -351,6 +370,49 @@ export class ProducerView {
     if (this.elements.focusSummary) {
       this.elements.focusSummary.textContent = `Target ${state.target} · matched ${state.matched} · confirmed ${state.confirmed} · remaining ${state.remaining}`;
     }
+  }
+
+  // Live "Session Intelligence" — themes/quotes/contradictions/follow-ups pulled from the SAME
+  // deterministic transcript analysis the post-session Insight Pack uses (buildFocusGroupInsightArtifact
+  // -> js/focus-group.js's analyzeFocusGroupTranscript/buildFocusGroupDeliveryPack), just rendered live
+  // instead of only at the end. Never invents anything: with no transcript yet it says so, matching
+  // scripts/focus-group-honesty-test.mjs's "no transcript -> no fabricated findings" contract.
+  renderFocusIntelligence() {
+    const host = this.elements.focusIntelligence;
+    if (!host) return;
+    const pack = buildFocusGroupInsightArtifact(this.session)?.payload?.pack;
+    host.replaceChildren();
+    if (!pack || !pack.transcriptAvailable) {
+      const placeholder = document.createElement("p");
+      placeholder.className = "lv-placeholder";
+      placeholder.textContent = "No transcript yet — themes, quotes, and follow-up questions will appear here once the discussion starts.";
+      host.appendChild(placeholder);
+      return;
+    }
+    const themesGroup = document.createElement("div");
+    themesGroup.className = "lv-focus-intel-group";
+    const themesHead = document.createElement("h5");
+    themesHead.textContent = "Themes";
+    themesGroup.appendChild(themesHead);
+    if (pack.majorThemes?.length) {
+      const chips = document.createElement("div");
+      chips.className = "lv-focus-theme-chips";
+      pack.majorThemes.slice(0, 8).forEach((theme) => {
+        const chip = document.createElement("span");
+        chip.className = "lv-chip";
+        chip.textContent = `${theme.theme} · ${theme.count}`;
+        chips.appendChild(chip);
+      });
+      themesGroup.appendChild(chips);
+    } else {
+      themesGroup.appendChild(focusIntelEmpty("No themes detected yet."));
+    }
+    host.appendChild(themesGroup);
+
+    host.appendChild(focusIntelList("Notable Quotes", pack.evidence, (item) => `${item.speaker}: “${item.quote}”`, "No quotes captured yet."));
+    host.appendChild(focusIntelList("Points of Disagreement", pack.pointsOfDisagreement, (item) => `${item.speaker}: “${item.text}”`, "No disagreement detected yet."));
+    const followUps = pack.moderatorPrompts?.length ? pack.moderatorPrompts.map((p) => p.text) : pack.recommendedFollowUpResearch || [];
+    host.appendChild(focusIntelList("Follow-up Questions", followUps, (item) => item, "Nothing to follow up on yet."));
   }
 
   // Producer-only, deliberately: cost/token telemetry is exactly the "debug information" that must
@@ -719,6 +781,33 @@ function downloadFile(blob, name) {
 
 function splitLines(value = "") {
   return String(value || "").split(/\n/g).map((line) => line.trim()).filter(Boolean);
+}
+
+function focusIntelEmpty(text) {
+  const p = document.createElement("p");
+  p.className = "lv-placeholder";
+  p.textContent = text;
+  return p;
+}
+
+function focusIntelList(label, items, formatItem, emptyText) {
+  const group = document.createElement("div");
+  group.className = "lv-focus-intel-group";
+  const head = document.createElement("h5");
+  head.textContent = label;
+  group.appendChild(head);
+  if (!items?.length) {
+    group.appendChild(focusIntelEmpty(emptyText));
+    return group;
+  }
+  const list = document.createElement("ul");
+  items.slice(0, 6).forEach((item) => {
+    const li = document.createElement("li");
+    li.textContent = formatItem(item);
+    list.appendChild(li);
+  });
+  group.appendChild(list);
+  return group;
 }
 
 function escapeHtml(value) {

@@ -1352,15 +1352,11 @@ body.studio-public-shell[data-brand-theme] {
 .live-console[data-lv-view="producer"][data-producer-workspace="moxie"] .lv-ai-producer-pane {
   display: flex !important; grid-column: 1 / -1; min-height: min(66vh, 680px); overflow: auto; padding: clamp(.8rem, 1.4vw, 1.2rem);
 }
+/* Sections (.lv-focus-section) now do the grouping that a 2-column masonry grid used to fake — a single
+   readable column of labeled sections instead of individual fields scattered across two columns. */
 .live-console[data-lv-view="producer"][data-producer-workspace="focus"] .lv-focus-brief {
-  align-content: start; display: grid !important; gap: .8rem; grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start; display: grid !important; gap: .8rem; grid-template-columns: minmax(0, 760px); justify-content: start;
 }
-.live-console[data-lv-view="producer"][data-producer-workspace="focus"] .lv-focus-brief .lv-panel-head,
-.live-console[data-lv-view="producer"][data-producer-workspace="focus"] .lv-focus-brief #lvFocusObjective,
-.live-console[data-lv-view="producer"][data-producer-workspace="focus"] .lv-focus-brief #lvFocusTopics,
-.live-console[data-lv-view="producer"][data-producer-workspace="focus"] .lv-focus-brief #lvFocusQuestions,
-.live-console[data-lv-view="producer"][data-producer-workspace="focus"] .lv-focus-brief #lvFocusSummary,
-.live-console[data-lv-view="producer"][data-producer-workspace="focus"] .lv-focus-brief #lvApplyFocusBrief { grid-column: 1 / -1; }
 .live-console[data-lv-view="producer"][data-producer-workspace="moxie"] .lv-ai-producer-pane .lv-feed-list {
   flex: 1 1 auto; max-height: none; min-height: 360px;
 }
@@ -1373,11 +1369,26 @@ body.studio-public-shell[data-brand-theme] {
   background-size: min(1500px, 98vw) auto; bottom: 0; content: ""; height: 44%; left: 0;
   opacity: var(--studio-silhouette-opacity, .16); pointer-events: none; position: fixed; right: 0;
 }
+/* Once a Live Studio session's own topbar is on screen, #lvTopLiveState already carries the
+   live/starting/recording state — #connectionChip (the global-nav on-air sign) becomes a second,
+   redundant LIVE indicator showing the same thing. Only suppress it in Live Studio mode; AI Production
+   and Expertise still rely on it as their sole connection indicator. */
+.studio-shell[data-production-mode="live"] #connectionChip { display: none; }
+
+/* 901-1360px (common 13"/14" laptop widths): .studio-grid is still 3 columns here (the 2-column
+   breakpoint is 1120px, but .stage-main is already narrow well above that), and .lv-topbar had no wrap
+   until 900px — between the two, the session-name/state group, Host/Producer switch, and status/action
+   chips could overlap or truncate. Let the topbar break onto two rows instead, well short of the 900px
+   breakpoint's much bigger single-column body restructuring. */
+@media (max-width: 1360px) and (min-width: 901px) {
+  .live-console .lv-topbar { flex-wrap: wrap; row-gap: .4rem; }
+  .live-console .lv-topbar-left { flex-basis: 100%; }
+  .live-console .lv-topbar-status { flex: 1 1 auto; flex-wrap: wrap; justify-content: flex-end; }
+}
+
 @media (max-width: 820px) {
   .studio-shell[data-brand-theme] .studio-mode-switcher { max-width: 100%; width: 100%; }
   .studio-shell[data-brand-theme] .mode-card { flex: 1 1 0; justify-content: center; }
   .live-console .lv-topbar { align-items: flex-start; flex-wrap: wrap; }
   .live-console .lv-topbar-status { margin-left: auto; }
-  .live-console[data-lv-view="producer"][data-producer-workspace="focus"] .lv-focus-brief { grid-template-columns: 1fr; }
-  .live-console[data-lv-view="producer"][data-producer-workspace="focus"] .lv-focus-brief > * { grid-column: 1 !important; }
 }
