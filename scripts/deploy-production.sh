@@ -6,13 +6,15 @@ PROD_ROOT="/home/fmxgijyvpq/toasty.media"
 EXPECTED_LOCAL_ROOT="/Users/ricardocasanova/Projects/toasty-media"
 MODE="dry-run"
 SCOPE="full"
+ONLY_PATH=""
 
 for arg in "$@"; do
   case "$arg" in
     --execute) MODE="execute" ;;
     --dry-run) MODE="dry-run" ;;
     --expertise) SCOPE="expertise" ;;
-    *) echo "Usage: scripts/deploy-production.sh [--dry-run|--execute] [--expertise]" >&2; exit 64 ;;
+    --only=*) ONLY_PATH="${arg#--only=}" ;;
+    *) echo "Usage: scripts/deploy-production.sh [--dry-run|--execute] [--expertise] [--only=<managed-path>]" >&2; exit 64 ;;
   esac
 done
 
@@ -55,6 +57,28 @@ if [[ "$SCOPE" == "expertise" ]]; then
   MANAGED_PATHS=("${EXPERTISE_PATHS[@]}")
 else
   MANAGED_PATHS=("${FULL_PATHS[@]}")
+fi
+
+# --only restricts this run to one already-managed path, still going through the same backup +
+# git-archive-over-ssh-tar mechanism below — added because a single combined tar of the full ~110MB
+# managed set (mostly shared/'s brand assets) reliably hit a mid-stream "Unexpected EOF in archive" on
+# this shared host (deploy-production.sh runs twice observed dying at the same point, right after the
+# large shared/ directory, before ever reaching studio/) — most likely a host-side time/resource limit
+# on the SSH session, not a network fluke. Deploying one managed path per invocation keeps each transfer
+# short enough to finish inside whatever that limit is, without inventing a new deployment mechanism.
+if [[ -n "$ONLY_PATH" ]]; then
+  found=0
+  for path in "${MANAGED_PATHS[@]}"; do
+    # Exact match (shared) or a subpath of a managed directory (shared/brand/toasty-media/Ricardo) —
+    # the latter needed because even shared/ ALONE (102MB) still hit the same mid-stream timeout;
+    # chunking has to go one directory level deeper than the top-level managed-path list for it.
+    if [[ "$path" == "$ONLY_PATH" || "$ONLY_PATH" == "$path/"* ]]; then found=1; fi
+  done
+  if [[ "$found" -ne 1 ]]; then
+    echo "--only='$ONLY_PATH' is not one of this scope's managed paths (or a subpath of one)" >&2
+    exit 1
+  fi
+  MANAGED_PATHS=("$ONLY_PATH")
 fi
 
 for path in "${MANAGED_PATHS[@]}"; do

@@ -12,11 +12,20 @@ export async function getUserMediaWithFallback(constraints) {
     // in use by another app permission flow, etc). Retry with the loosest possible request so the caller
     // still gets a preview and a populated, permission-unlocked device list instead of a black box and
     // empty dropdowns.
-    return navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    return navigator.mediaDevices.getUserMedia({ video: true, audio: deviceConstraint("", "audio") });
   }
 }
 
 export function deviceConstraint(deviceId, kind) {
+  if (kind === "audio") {
+    const audio = {
+      echoCancellation: { ideal: true },
+      noiseSuppression: { ideal: true },
+      autoGainControl: { ideal: true }
+    };
+    if (deviceId) audio.deviceId = { exact: deviceId };
+    return audio;
+  }
   if (deviceId) return { deviceId: { exact: deviceId } };
   // Before device enumeration has populated the dropdown, there's no deviceId yet — for video, ask for
   // the front/selfie camera explicitly (facingMode is video-only, meaningless for audio) rather than

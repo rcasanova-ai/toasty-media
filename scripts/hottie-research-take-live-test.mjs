@@ -226,7 +226,7 @@ console.log("\nFULL ASSET layout and guest cannot trigger research");
   assertEqual(pip.slots[0].participantId, "host", "pip still features host");
 }
 
-console.log("\nSessionPolicy still blocks research; Hottie cannot execute DOM/actions directly");
+console.log("\nSessionPolicy still blocks research; Moxie cannot execute DOM/actions directly");
 {
   const jam = fixtureSession({ policy: new SessionPolicy({ sessionType: SessionType.JAM }) });
   ingestAttributedTranscript(jam, {

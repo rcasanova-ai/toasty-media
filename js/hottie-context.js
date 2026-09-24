@@ -33,7 +33,7 @@ export function extractEntitiesFromText(text, { speaker = "", timestamp = Date.n
   });
   const proper = raw.match(/\b[A-Z][A-Za-z0-9.+-]{2,}(?:\s+[A-Z][A-Za-z0-9.+-]{2,}){0,3}\b/g) || [];
   proper.forEach((value) => {
-    if (/^(Hottie|Toasty|Host|I|We)$/i.test(value)) return;
+    if (/^(Moxie|Toasty|Host|I|We)$/i.test(value)) return;
     entities.push({ type: "name", value, label: value, timestamp, speaker, confidence: 0.55 });
   });
   return entities;

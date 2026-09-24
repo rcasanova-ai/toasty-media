@@ -1,5 +1,5 @@
 // Structured research for Host FIND directives.
-// Returns candidates Hottie can propose as ProgramAssets. Never fabricates sources. Never takes
+// Returns candidates Moxie can propose as ProgramAssets. Never fabricates sources. Never takes
 // anything live — ProgramController.takeAsset is the only approval path.
 //
 // Live path uses Wikipedia's CORS-open APIs (Toasty-controlled card afterwards, not an iframe).

@@ -1148,3 +1148,124 @@ body.program-output[data-scene="ending"] .po-scene-screen {
   position: absolute;
   right: 6px;
 }
+
+
+/* 2026-09-23 broadcast polish pass
+   Presentation-only overrides inspired by modern split-screen news/interview output.
+   Deliberately CSS-only: no ProgramSync, RoomPresence, VDO, audio, recording, scene, or session logic. */
+
+:root {
+  --po-frame-gap: clamp(4px, 0.55vw, 9px);
+  --po-frame-inset: clamp(7px, 1.15vw, 18px);
+  --po-frame-radius: clamp(3px, 0.35vw, 6px);
+}
+
+/* Let the branded canvas read around the feeds instead of wrapping every participant in UI chrome. */
+.po-stage {
+  gap: var(--po-frame-gap);
+  padding: 0 var(--po-frame-inset) var(--po-frame-inset);
+}
+
+.po-tile {
+  border-color: color-mix(in srgb, var(--studio-line) 72%, transparent);
+  border-radius: var(--po-frame-radius);
+  box-shadow: 0 10px 30px color-mix(in srgb, #000 20%, transparent);
+}
+
+/* Two-person interviews should feel like a composed broadcast split, not two dashboard cards. */
+.po-stage[data-layout="2"] {
+  align-items: stretch;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.po-stage[data-layout="2"] .po-tile {
+  width: 100%;
+}
+
+/* Cleaner, more television-like masthead. Branding remains skin-driven. */
+.po-chrome-top {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--studio-orange-bright) 9%, transparent), transparent 28%),
+    linear-gradient(180deg, color-mix(in srgb, var(--po-surface) 68%, transparent), transparent 100%);
+  border-bottom-color: color-mix(in srgb, var(--studio-line) 38%, transparent);
+  box-shadow: none;
+}
+
+.po-brand img {
+  height: clamp(20px, 2.7vw, 32px);
+}
+
+/* Lower thirds become compact broadcast plates: accent-led name, quieter role line. */
+.lv-lower-third,
+.lv-lower-third--broadcast {
+  bottom: 3.5%;
+  left: 2.2%;
+  max-width: min(48%, calc(100% - 4.4%));
+}
+
+.lv-lower-third-name {
+  background: var(--lower-third-accent);
+  color: var(--studio-canvas, #0b0908);
+  font-size: clamp(0.64rem, 1.15cqi, 0.86rem);
+  padding: 0.26rem 0.72rem 0.22rem 0.5rem;
+}
+
+.lv-lower-third-role {
+  background: color-mix(in srgb, #090807 82%, transparent);
+  color: var(--po-video-text);
+  margin-left: 0;
+  padding: 0.16rem 0.7rem 0.18rem 0.5rem;
+}
+
+/* Portrait output is a first-class composition. On a phone-shaped Program Output, speakers stack
+   vertically rather than inheriting a squeezed desktop split. */
+@media (max-aspect-ratio: 3 / 4) {
+  .po-chrome {
+    padding-left: clamp(0.7rem, 3vw, 1rem);
+    padding-right: clamp(0.7rem, 3vw, 1rem);
+  }
+
+  .po-stage {
+    gap: clamp(4px, 1vw, 8px);
+    padding-left: clamp(6px, 1.8vw, 12px);
+    padding-right: clamp(6px, 1.8vw, 12px);
+  }
+
+  .po-stage[data-layout="2"],
+  .po-stage[data-layout="3"],
+  .po-stage[data-layout="4"] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .po-stage[data-layout="2"] {
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+  }
+
+  .po-stage[data-layout="3"] {
+    grid-template-rows: repeat(3, minmax(0, 1fr));
+  }
+
+  .po-stage[data-layout="3"] .po-tile:nth-child(3) {
+    grid-column: auto;
+    justify-self: stretch;
+    max-width: none;
+  }
+
+  .po-stage[data-layout="4"] {
+    grid-template-rows: repeat(4, minmax(0, 1fr));
+  }
+
+  .lv-lower-third,
+  .lv-lower-third--broadcast {
+    max-width: calc(100% - 8%);
+  }
+
+  .lv-lower-third-name {
+    font-size: clamp(0.58rem, 2.4vw, 0.8rem);
+  }
+
+  .lv-lower-third-role {
+    font-size: clamp(0.48rem, 1.9vw, 0.66rem);
+  }
+}

@@ -52,7 +52,7 @@
 
 body:not(.session-gate-open):not(.session-artifacts-open) .studio-mode-switcher,
 body:not(.session-gate-open):not(.session-artifacts-open) .studio-workflow-nav,
-body:not(.session-gate-open):not(.session-artifacts-open) #lvAskHottieHeader,
+body:not(.session-gate-open):not(.session-artifacts-open) #lvAskMoxieHeader,
 body:not(.session-gate-open):not(.session-artifacts-open) .producer-domain-nav,
 body:not(.session-gate-open):not(.session-artifacts-open) .quick-actions,
 body:not(.session-gate-open):not(.session-artifacts-open) .brand-block,
@@ -722,14 +722,14 @@ body.studio-settings-open .studio-mode-switcher {
 .lv-hottie-status[data-state="searching"],
 .lv-hottie-status[data-state="heard"],
 .lv-hottie-status[data-state="speaking"],
-#lvHostHottieStatus[data-state="searching"],
-#lvHostHottieStatus[data-state="heard"],
-#lvHostHottieStatus[data-state="speaking"] {
+#lvHostMoxieStatus[data-state="searching"],
+#lvHostMoxieStatus[data-state="heard"],
+#lvHostMoxieStatus[data-state="speaking"] {
   color: var(--studio-orange-bright);
 }
 
 .lv-hottie-status[data-state="error"],
-#lvHostHottieStatus[data-state="error"] {
+#lvHostMoxieStatus[data-state="error"] {
   color: var(--studio-red, #c45c5c);
 }
 

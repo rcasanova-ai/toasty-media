@@ -125,10 +125,18 @@ console.log("\nProgram Renderer capture source is Program Output, not a second c
   const renderer = read("js/program-renderer.js");
   assert(recording.includes("getDisplayMedia"), "master uses getDisplayMedia of Program Output");
   assert(recording.includes("program-output-tab"), "capture visual is the Program Output tab");
-  assert(recording.includes("original getDisplayMedia stream"), "InvalidStateError fix records original capture stream");
+  assert(recording.includes("InvalidStateError"), "InvalidStateError incident is documented for future readers");
   const startBody = recording.slice(recording.indexOf("async start("), recording.indexOf("async stop("));
   assert(!startBody.includes("composeMasterMediaStream"), "start does not wrap capture tracks in a new MediaStream");
-  assert(startBody.includes("this.masterStream = capture"), "start assigns the original capture stream");
+  // A limiter (buildLimitedRecordingStream) now sits between capture and MediaRecorder — the actual
+  // safety property from the original incident (never re-wrap the SAME getDisplayMedia video+audio
+  // tracks together into a new MediaStream) still holds: only the video track is reused as-is, and the
+  // recorded audio track is always a genuinely new one from a MediaStreamAudioDestinationNode.
+  const limiterBody = recording.slice(recording.indexOf("function buildLimitedRecordingStream"), recording.indexOf("export class MasterProgramRecorder"));
+  assert(limiterBody.includes("capture.getVideoTracks()"), "limiter stream reuses the original video track");
+  assert(!limiterBody.includes("capture.getAudioTracks()") || !limiterBody.includes("new MediaStream([...capture.getVideoTracks(), ...capture.getAudioTracks()"), "limiter never re-wraps both original capture tracks together");
+  assert(limiterBody.includes("createDynamicsCompressor"), "recording audio passes through a limiter before MediaRecorder");
+  assert(startBody.includes("startMasterMediaRecorder(Rec, this.masterStream"), "start records the (video-original, audio-limited) stream, not the raw capture");
   assert(startBody.includes("inspectMasterCapture"), "start validates live video and audio tracks before MediaRecorder");
   assert(startBody.includes("startMasterMediaRecorder"), "start uses the fallback MediaRecorder lifecycle");
   assert(recording.includes("ONE") || recording.includes("second compositor") || recording.includes("second visual truth"), "forbids a second visual truth");
@@ -169,7 +177,7 @@ console.log("\nMaster MediaStream composition and missing-track failure");
   const composed = composeMasterMediaStream({ videoTracks: [{ id: "v" }], audioTracks: [{ id: "a" }] });
   assert(composed.ok !== false, "compose does not throw when tracks exist");
   assert(captureFailureMessage("missing-audio").includes("Share tab audio"), "missing-audio message tells the operator to enable tab audio");
-  assertEqual(captureFailureMessage("missing-audio"), "Program Output audio was not shared. Start again and enable Share tab audio.", "exact missing-audio copy");
+  assertEqual(captureFailureMessage("missing-audio"), "Recording needs Program Output audio. Select the Toasty Program Output tab and enable Share tab audio.", "exact missing-audio copy");
   assertEqual(captureFailureMessage("missing-video"), "Program Output video capture is unavailable.", "exact missing-video copy");
   const endedVideo = assertMasterTracks({ videoTracks: [fakeTrack("video", "Program Output", { readyState: "ended" })], audioTracks: [fakeTrack("audio")] });
   assertEqual(endedVideo.ok, false, "ended video fails");
@@ -216,7 +224,7 @@ console.log("\nMediaRecorder start/stop lifecycle");
   }
   assert(failed, "missing tab audio throws");
   assertEqual(failed.reason, "missing-audio", "does not silently substitute host-mic + catalogue");
-  assertEqual(failed.message, "Program Output audio was not shared. Start again and enable Share tab audio.", "missing audio is human-readable");
+  assertEqual(failed.message, "Recording needs Program Output audio. Select the Toasty Program Output tab and enable Share tab audio.", "missing audio is human-readable");
 
   const noVideo = new MasterProgramRecorder({
     displayMedia: async () => fakeCapture({ audio: true, video: false }),
@@ -256,7 +264,7 @@ console.log("\nMediaRecorder start/stop lifecycle");
   assert(!/^invalid state$/i.test(invalidFailed.message), "user-facing message is not raw 'invalid state'");
   assert(invalidFailed.diagnostics?.videoReadyState === "live", "diagnostics include live video track state");
   assert(invalidFailed.diagnostics?.audioReadyState === "live", "diagnostics include live audio track state");
-  assert(PROGRAM_OUTPUT_PICKER_INSTRUCTION.includes("Share tab audio"), "picker instruction names Share tab audio");
+  assert(/share tab audio/i.test(PROGRAM_OUTPUT_PICKER_INSTRUCTION), "picker instruction names Share tab audio");
 
   let recoveredAttempts = 0;
   class RecoveringRecorder extends FakeMediaRecorder {
@@ -351,8 +359,12 @@ console.log("\nRecording manifest, production actions, assets-used, markers");
   assertEqual(manifest.recordingId, "rec-1", "recordingId");
   assertEqual(manifest.brandTheme, "toasty", "brand/theme");
   assertEqual(manifest.participants.length, 2, "participants");
-  assertEqual(manifest.files.master, "session/master/rec-1.webm", "master filename");
-  assertEqual(manifest.media.masterMediaId, masterMediaId("rec-1"), "media id");
+  assertEqual(manifest.files.source, "session/source/rec-1.webm", "source filename");
+  assertEqual(manifest.files.master, "session/master/rec-1.mp4", "master filename");
+  assertEqual(manifest.media.sourceMimeType, "video/webm", "source is original browser WebM");
+  assertEqual(manifest.media.masterMimeType, "video/mp4", "master is finalized MP4");
+  assertEqual(manifest.media.finalizationStatus, "pending-finalization", "manifest marks MP4 finalization pending before backend transcode");
+  assertEqual(manifest.media.masterMediaId, masterMediaId("rec-1"), "master media id");
   assertEqual(masterManifestId("rec-1"), "master-recording:rec-1:manifest", "manifest id");
   assert(manifest.transcript, "transcript reference exists even when empty");
   assert(manifest.chat, "chat reference exists even when empty");
@@ -365,9 +377,43 @@ console.log("\nRecording manifest, production actions, assets-used, markers");
   assertEqual(manifest.markers.length, 3, "markers during the window");
   assertEqual(manifest.markers[2].type, MarkerType.MANUAL, "manual marker type");
   assertEqual(markerTypeFromProduction("take-live"), MarkerType.TAKE_LIVE, "TAKE LIVE maps to marker type");
-  const marker = createMarker({ type: MarkerType.HOTTIE, label: "topic change", source: "hottie" });
+  const marker = createMarker({ type: MarkerType.MOXIE, label: "topic change", source: "hottie" });
   assert(marker.id.startsWith("mrk-"), "marker id");
   assertEqual(marker.source, "hottie", "marker source");
+}
+
+console.log("\nMP4 finalization manifest preserves source WebM and marks MP4 master");
+{
+  const recording = await import("../js/program-recording.js");
+  const sourceBlob = new Blob(["webm"], { type: "video/webm" });
+  const masterBlob = new Blob(["mp4"], { type: "video/mp4" });
+  const manifest = recording.buildMasterManifest({
+    recordingId: "rec-final",
+    roomId: "room-final",
+    source: {
+      filename: "session/source/rec-final.webm",
+      mediaId: recording.sourceMediaId("rec-final"),
+      mimeType: "video/webm",
+      bytes: sourceBlob.size
+    },
+    master: {
+      filename: "session/master/rec-final.mp4",
+      mediaId: recording.masterMediaId("rec-final"),
+      mimeType: "video/mp4",
+      bytes: 0,
+      status: "pending-finalization"
+    }
+  });
+  const finalized = recording.finalizedMasterManifest(manifest, { sourceBlob, masterBlob });
+  assertEqual(finalized.files.source, "session/source/rec-final.webm", "manifest keeps SOURCE WebM path");
+  assertEqual(finalized.files.master, "session/master/rec-final.mp4", "manifest keeps MASTER MP4 path");
+  assertEqual(finalized.media.sourceBytes, sourceBlob.size, "manifest records source bytes");
+  assertEqual(finalized.media.masterBytes, masterBlob.size, "manifest records master bytes");
+  assertEqual(finalized.media.finalizationStatus, "finalized", "finalization success is marked");
+  const failed = recording.finalizedMasterManifest(manifest, { sourceBlob, error: "ffmpeg failed" });
+  assertEqual(failed.media.finalizationStatus, "failed", "finalization failure is retryable");
+  assertEqual(failed.media.sourceBytes, sourceBlob.size, "failure still preserves source bytes");
+  assert(failed.media.finalizationError.includes("ffmpeg failed"), "failure reason is retained");
 }
 
 console.log("\nAlready-live assets at record start are not dropped");
@@ -394,11 +440,32 @@ console.log("\nAlready-live assets at record start are not dropped");
 console.log("\nProducer controls are Producer-only; Program Output has no REC chrome");
 {
   const director = read("studio/director.html");
+  const studioCss = read("css/studio.css");
   const producer = read("js/producer-view.js");
   const listener = read("js/listener.js");
   const listenerHtml = read("studio/listener.html");
   assert(director.includes("data-lv-only=\"producer\""), "recording panel is producer-only");
-  assert(director.includes("Master Program Recording"), "panel is labeled master");
+  assert(director.includes("id=\"lvTopBrand\""), "Producer top bar shows active skin");
+  assert(director.includes("id=\"lvTopSessionName\""), "Producer top bar shows session name");
+  assert(director.includes("id=\"lvTopLiveState\""), "Producer top bar shows LIVE/scene state");
+  assert(director.includes("id=\"lvTopHealth\""), "Producer top bar shows connection/session health");
+  assert(director.includes("id=\"lvTopHost\""), "Producer top bar shows Host identity");
+  assert(director.includes("id=\"lvTopProducer\""), "Producer top bar shows Producer identity");
+  assert(director.includes("id=\"lvTopProgramOutput\""), "Producer top bar has Program Output action");
+  assert(director.includes("id=\"lvTopSettings\""), "Producer top bar has Settings action");
+  assert(director.includes("id=\"lvTopEndSession\""), "Producer top bar has End Session action");
+  assert(director.includes("class=\"lv-bottom-bar\""), "persistent bottom control bar exists");
+  assert(director.includes("id=\"lvToggleMic\""), "bottom bar restores real Mic control");
+  assert(director.includes("id=\"lvToggleCamera\""), "bottom bar restores real Camera control");
+  assert(director.includes("id=\"lvToggleScreen\""), "bottom bar restores real Screen Share control");
+  assert(director.includes("id=\"lvRecordToggle\""), "bottom bar restores real Record control");
+  assert(director.includes("data-producer-jump=\"participants\""), "bottom bar includes Participants navigation");
+  assert(director.includes("data-producer-jump=\"chat\""), "bottom bar includes Chat navigation");
+  assert(director.includes("data-producer-jump=\"assets\""), "bottom bar includes Assets / Media navigation");
+  assert(!/live-console\[data-lv-view="producer"\]\s+\.lv-host-controls/.test(studioCss), "Producer view no longer CSS-hides Host transport controls");
+  assert(studioCss.includes(".lv-bottom-bar"), "bottom bar is styled as persistent chrome");
+  assert(studioCss.includes("position: sticky"), "Producer chrome keeps controls reachable in normal laptop viewport");
+  assert(director.includes("Program Recording"), "panel is labeled Program Recording");
   assert(director.includes("lvMasterVideo"), "playback surface exists");
   assert(director.includes("lvMasterPlay"), "PLAY control exists");
   assert(director.includes("VIDEO READY") || director.includes("lvPoVideoFlag"), "VIDEO READY flag exists");
@@ -407,10 +474,12 @@ console.log("\nProducer controls are Producer-only; Program Output has no REC ch
   assert(director.includes("lvRecordMarker"), "manual marker control exists");
   assert(producer.includes("STOP RECORDING"), "STOP RECORDING control");
   assert(producer.includes("RECORD PROGRAM"), "RECORD PROGRAM control");
+  assert(producer.includes("last.masterBlob"), "Download Master requires finalized MP4 blob");
+  assert(producer.includes('isMp4 ? "mp4" : "webm"'), "Download Master names the file .mp4 once finalized, .webm otherwise");
   assert(director.includes("Share tab audio ON"), "recording UX explicitly tells producer to enable tab audio");
   assert(producer.includes("RECORDING ·"), "RECORDING timer status");
   assert(producer.includes("SAVING RECORDING"), "SAVING RECORDING status");
-  assert(producer.includes("RECORDING SAVED"), "RECORDING SAVED status");
+  assert(producer.includes("Recording saved"), "Recording saved status");
   assert(producer.includes("renderProgramOutputStatus"), "Producer renders Program Output readiness");
   assert(!producer.includes("IndexedDB"), "Producer UX does not mention IndexedDB");
   assert(!listener.includes("lvRecordToggle"), "Program Output JS has no record toggle");

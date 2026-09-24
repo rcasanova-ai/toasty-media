@@ -44,6 +44,16 @@ const elements = {
   recChip: document.querySelector("#lvRecChip"),
   recChipTime: document.querySelector("#lvRecChipTime"),
   policyChip: document.querySelector("#lvPolicyChip"),
+  topBrand: document.querySelector("#lvTopBrand"),
+  topSessionName: document.querySelector("#lvTopSessionName"),
+  topLiveState: document.querySelector("#lvTopLiveState"),
+  topHealth: document.querySelector("#lvTopHealth"),
+  topHost: document.querySelector("#lvTopHost"),
+  topProducer: document.querySelector("#lvTopProducer"),
+  topProgramOutput: document.querySelector("#lvTopProgramOutput"),
+  topSettings: document.querySelector("#lvTopSettings"),
+  topEndSession: document.querySelector("#lvTopEndSession"),
+  bottomNavButtons: [...document.querySelectorAll("[data-producer-jump]")],
   sessionDate: document.querySelector("#sessionDate"),
   sessionTime: document.querySelector("#sessionTime"),
   buildId: document.querySelector("#buildId"),
@@ -64,10 +74,7 @@ const elements = {
   atmosphereMark: document.querySelector(".atmosphere-mark"),
   switchSession: document.querySelector("#switchSession"),
   endSessionBtn: document.querySelector("#endSessionBtn"),
-  headerProgramOutput: document.querySelector("#lvHeaderProgramOutput"),
-  headerSettings: document.querySelector("#lvHeaderSettings"),
-  headerEndSession: document.querySelector("#lvHeaderEndSession"),
-  sessionTitle: document.querySelector("#lvSessionTitle"),
+  sessionArtifactsHome: document.querySelector("#sessionArtifactsHome"),
   toggleScreenQuick: document.querySelector("#toggleScreenQuick"),
   lvSessionType: document.querySelector("#lvSessionType"),
   lvJamPolicyFields: document.querySelector("#lvJamPolicyFields"),
@@ -81,7 +88,28 @@ const elements = {
   lvProducerAutonomy: document.querySelector("#lvProducerAutonomy")
 };
 
-init();
+// Bound unconditionally (not inside bindRailControls/initStudio, which artifacts mode never reaches) —
+// same full-reload-drop-?session= recovery as elements.switchSession below, so "Back to Studio Home" from
+// a read-only artifacts view works whether or not a live session was ever started this load.
+elements.sessionArtifactsHome?.addEventListener("click", () => {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("session");
+  window.location.href = url.toString();
+});
+
+// PHASE C reconciliation fix: init() used to be a fire-and-forget top-level call with no .catch() and no
+// app-wide unhandledrejection/window.onerror net anywhere in Studio. Since resolveSession() itself never
+// rejects (see session-manager.js), the only realistic way to LAND here is a throw somewhere AFTER
+// resolution succeeds (showSessionArtifacts, applyDurableSession, loadProfileEndCard, or any controller
+// initStudio() constructs) — by which point the entry curtain has already been dismissed by the iframe
+// load event, leaving a half-rendered shell with no visible error and no way to recover but reloading
+// blind. renderFatalInitError() gives that failure an explicit, logged, retryable state instead of a
+// silent one — deliberately narrow (this ONE promise only), not a global trap that would swallow
+// unrelated runtime errors or risk looping.
+init().catch((error) => {
+  console.error("[Toasty Studio] Fatal init() failure", error);
+  renderFatalInitError(error);
+});
 
 // Session resolution (see js/session-manager.js's resolveSession) gates EVERYTHING below it — no VDO
 // frame mounts, no camera prompt, nothing — until a durable session is actually chosen. Replaces the old
@@ -96,18 +124,38 @@ async function init() {
   if (!durableSession?.id) throw new Error("Studio session resolution returned no session.");
   if (resolved?.mode === "artifacts") {
     await showSessionArtifacts(durableSession);
+    // ROOT CAUSE (reconciliation pass): this postMessage was missing on one merged branch entirely — the
+    // artifacts-mode boot path never told the parent shell Studio was ready, so js/studio-auth.js's
+    // "toasty:studio-ready" listener never fired for it and the loading curtain never dismissed for any
+    // ended/historical session opened this way. Both other boot paths (home, live) already send it.
     if (window.parent !== window) {
       window.parent.postMessage({ type: "toasty:studio-ready", surface: "artifacts" }, window.location.origin);
     }
     return;
   }
   session.applyDurableSession(durableSession);
-  if (elements.sessionTitle) elements.sessionTitle.textContent = durableSession.title || "Live Session";
   void session.loadProfileEndCard();
   initStudio();
   if (window.parent !== window) {
     window.parent.postMessage({ type: "toasty:studio-ready", surface: "live" }, window.location.origin);
   }
+}
+
+// Deliberately narrow: catches only init()'s own rejection, renders a fixed overlay that exists
+// unconditionally in the DOM (see studio/director.html #studioFatalError) regardless of which panel
+// (session gate, artifacts, live console) was on screen when the failure happened, and offers the same
+// full-reload recovery already used elsewhere in this file (see elements.switchSession's click handler)
+// rather than inventing a second, untested teardown path.
+function renderFatalInitError(error) {
+  const overlay = document.querySelector("#studioFatalError");
+  if (!overlay) {
+    window.alert("Toasty Studio failed to load. Please reload the page.");
+    return;
+  }
+  overlay.hidden = false;
+  const detail = overlay.querySelector("#studioFatalErrorDetail");
+  if (detail) detail.textContent = String(error?.message || error || "Unknown error");
+  overlay.querySelector("#studioFatalErrorRetry")?.addEventListener("click", () => window.location.reload(), { once: true });
 }
 
 function initStudio() {
@@ -136,7 +184,7 @@ function initStudio() {
   new AIProductionController({
     getBrandTheme: () => session.brandTheme,
     onBrandChange: (brandTheme) => {
-      // Same lock this file's own selector respects — Hottie can't do via voice what the hidden dropdown
+      // Same lock this file's own selector respects — Moxie can't do via voice what the hidden dropdown
       // can't do via click. Backend enforces this regardless either way (see isBrandLocked's own comment).
       if (isBrandLocked && normalizeBrandTheme(brandTheme) !== session.brandTheme) return;
       elements.brandThemeSelect.value = normalizeBrandTheme(brandTheme);
@@ -155,21 +203,26 @@ function initStudio() {
 
   bindViewSwitch();
   bindRailControls();
-  bindCleanHeaderControls();
   bindPolicyDrawer();
   bindAiProviderDrawer();
   bindPersonaDrawer();
+  bindProducerChrome();
 
   session.on("recording", renderRecChip);
   session.on("policy", renderPolicyChip);
-  session.on("connection", renderBroadcastChip);
-  session.on("program", renderBroadcastChip);
-  session.on("brand", () => { applySelectedBrand(); updateInviteFields(); });
-  session.on("room", updateInviteFields);
+  session.on("connection", () => { renderBroadcastChip(); renderProducerChrome(); });
+  session.on("program", () => { renderBroadcastChip(); renderProducerChrome(); });
+  session.on("program-output", renderProducerChrome);
+  session.on("recording", renderProducerChrome);
+  session.on("host-profile", renderProducerChrome);
+  session.on("host-state", renderProducerChrome);
+  session.on("brand", () => { applySelectedBrand(); updateInviteFields(); renderProducerChrome(); });
+  session.on("room", () => { updateInviteFields(); renderProducerChrome(); });
 
   renderRecChip(session.recording);
   renderPolicyChip(session.policy);
   renderBroadcastChip();
+  renderProducerChrome();
   updateInviteFields();
   mountTimeOfDay();
   void startHostDebugMedia();
@@ -208,16 +261,31 @@ function setView(view) {
   document.querySelectorAll("[data-lv-only]").forEach((panel) => { panel.hidden = panel.dataset.lvOnly !== view; });
 }
 
-function bindCleanHeaderControls() {
-  elements.headerProgramOutput?.addEventListener("click", () => {
-    const existing = document.querySelector("#lvOpenProgramOutput");
-    if (existing) existing.click();
+function bindProducerChrome() {
+  elements.topProgramOutput?.addEventListener("click", () => document.querySelector("#lvOpenProgramOutput")?.click());
+  elements.topSettings?.addEventListener("click", () => {
+    const drawer = document.querySelector(".lv-advanced-drawer");
+    if (drawer) drawer.open = true;
+    drawer?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
   });
-  elements.headerSettings?.addEventListener("click", () => {
-    elements.lvSessionType?.focus();
-    document.querySelector(".rail-right")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  elements.topEndSession?.addEventListener("click", () => elements.endSessionBtn?.click());
+  elements.bottomNavButtons.forEach((button) => {
+    button.addEventListener("click", () => jumpProducerPanel(button.dataset.producerJump));
   });
-  elements.headerEndSession?.addEventListener("click", () => elements.endSessionBtn?.click());
+}
+
+function jumpProducerPanel(target) {
+  setView("producer");
+  elements.bottomNavButtons.forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.producerJump === target));
+  });
+  const panel = {
+    participants: document.querySelector(".lv-sources"),
+    chat: document.querySelector(".lv-ai-producer-pane"),
+    assets: document.querySelector(".lv-graphics") || document.querySelector(".lv-audio")
+  }[target] || null;
+  panel?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  panel?.focus?.({ preventScroll: true });
 }
 
 function bindRailControls() {
@@ -227,7 +295,7 @@ function bindRailControls() {
   if (isBrandLocked) {
     // hidden, not removed: ai-production.js's own #aiBrandProfile selector (below) is queried and used
     // directly with no null-guard (addEventListener/replaceChildren/.value= all assume it exists) — that
-    // module is Hottie's, not touched here, so this can't risk removing an element it depends on.
+    // module is Moxie's, not touched here, so this can't risk removing an element it depends on.
     // Both the hidden ATTRIBUTE and an explicit inline style: css/studio.css's own .brand-switcher rule
     // sets display:grid directly on this class, which beats the [hidden] UA-stylesheet rule the attribute
     // alone relies on (author CSS always wins over UA styles at equal specificity, and a class selector's
@@ -333,6 +401,40 @@ function renderPolicyChip(policy) {
   if (summary) elements.policyChip.textContent = `${summary.icon} ${summary.label} · ${summary.detail}`;
 }
 
+function renderProducerChrome() {
+  if (elements.topBrand) {
+    const selected = elements.brandThemeSelect?.selectedOptions?.[0]?.textContent?.trim();
+    elements.topBrand.textContent = selected || brandLabel(session.brandTheme);
+  }
+  if (elements.topSessionName) {
+    elements.topSessionName.textContent = session.durableSession?.title || "Live Studio";
+  }
+  if (elements.topLiveState) {
+    const scene = session.program?.scene || "holding";
+    elements.topLiveState.dataset.state = scene;
+    elements.topLiveState.textContent = sceneLabel(scene);
+  }
+  if (elements.topHealth) {
+    const output = session.programOutput || {};
+    const connection = output.connected ? "Output connected" : session.connection?.status === "connected" ? "Studio ready" : session.connection?.label || "Offline";
+    const ready = output.readyToRecord ? " · Ready to record" : "";
+    elements.topHealth.textContent = `${connection}${ready}`;
+  }
+  if (elements.topHost) {
+    const hostName = session.hostProfile?.displayName || "Not joined";
+    const state = session.hostState === HostState.IN_STUDIO ? "Live" : "Waiting";
+    elements.topHost.textContent = `Host: ${hostName} · ${state}`;
+  }
+  if (elements.topProducer) {
+    elements.topProducer.textContent = "Producer: Local";
+  }
+  if (elements.topProgramOutput) {
+    const connected = Boolean(session.programOutput?.connected);
+    elements.topProgramOutput.dataset.state = connected ? "connected" : "disconnected";
+    elements.topProgramOutput.textContent = connected ? "Program Output Connected" : "Program Output";
+  }
+}
+
 // Real broadcast state, not a VDO.Ninja room-connection ping: session.connection tracks whether the
 // Studio room itself is up (distinguishes OFFLINE from READY); session.program.live is the actual RTMP
 // broadcast flag set by ToastyBroadcastController via session.setLive() (distinguishes READY from ON
@@ -384,6 +486,28 @@ function setLabel(button, text) {
   const label = button.querySelector(".btn-label");
   if (label) label.textContent = text;
   else button.textContent = text;
+}
+
+function brandLabel(brandTheme) {
+  return {
+    toasty: "Toasty Media",
+    "8alta": "8ALTA",
+    santati: "Santati",
+    optimai: "OptimAI Network",
+    tangem: "Tangem",
+    superteam: "Superteam Thailand",
+    peeps: "Toasty Peeps"
+  }[brandTheme] || "Toasty Media";
+}
+
+function sceneLabel(scene) {
+  return {
+    holding: "STARTING SOON",
+    live: "LIVE",
+    brb: "BRB",
+    "technical-difficulties": "TECH DIFFICULTIES",
+    ending: "ENDING"
+  }[scene] || String(scene || "holding").toUpperCase();
 }
 
 function updateInviteFields() {

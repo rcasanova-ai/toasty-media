@@ -102,7 +102,7 @@ export class HostView {
     this.elements.hostPanelStatus.dataset.state = connection.status;
   }
 
-  // The single place Leave Studio's and Talk to Hottie's visibility are decided — driven ONLY by
+  // The single place Leave Studio's and Talk to Moxie's visibility are decided — driven ONLY by
   // session.hostState (see js/host-state.js), never by whether this page happens to be open or whether a
   // form was submitted. Before this existed neither control was gated on anything at all: both were plain
   // always-visible/always-enabled markup, which is exactly why a real-device test caught "Leave Studio"
@@ -421,8 +421,8 @@ export class HostView {
     this.elements.talkBtn.textContent = {
       listening: "🔴 LISTENING — release to send",
       transcribing: "⏳ Transcribing…",
-      thinking: "🔥 Hottie is thinking…"
-    }[state] || "🎙 Talk to Hottie";
+      thinking: "🔥 Moxie is thinking…"
+    }[state] || "🎙 Talk to Moxie";
     this.elements.talkState.textContent = note || {
       listening: "Listening…",
       transcribing: "Transcribing…",
@@ -475,8 +475,8 @@ export class HostView {
       onDiscardProposal: (id) => this.session.liveProducer.discardProposal(id),
       onRetryResearch: (id) => this.session.liveProducer.retryResearch(id),
       onRemoveAsset: (id) => this.session.liveProducer.removeLiveAsset(id),
-      onApproveHottieProposal: (id) => this.session.liveProducer.approveHottieProposal(id),
-      onDismissHottieProposal: (id) => this.session.liveProducer.dismissHottieProposal(id)
+      onApproveMoxieProposal: (id) => this.session.liveProducer.approveMoxieProposal(id),
+      onDismissMoxieProposal: (id) => this.session.liveProducer.dismissMoxieProposal(id)
     })));
     if (isFreshResult) {
       const newestEl = this.elements.feedList.firstElementChild;

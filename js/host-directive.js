@@ -1,14 +1,14 @@
 // Deterministic Host-directive recognition. Transcript-level, not audio wake-word DSP.
-// Only HOST speech addressed TO Hottie (or legacy "Toasty") becomes a production command.
-// A guest saying "Hottie is interesting" is conversation, never a directive.
+// Only HOST speech addressed TO Moxie (or legacy "Toasty") becomes a production command.
+// A guest saying "Moxie is interesting" is conversation, never a directive.
 //
 // Routing (intent family + payload) is string matching, not an LLM. Downstream actions
 // are NOT executed here — this module only recognizes and structures.
 
-import { HottieIntent, ActionRiskLevel, ResponseAudience, riskForIntent } from "./hottie-action.js";
+import { MoxieIntent, ActionRiskLevel, ResponseAudience, riskForIntent } from "./hottie-action.js";
 
-export const DEFAULT_WAKE_WORD = "hottie";
-export const WAKE_WORDS = Object.freeze(["hottie", "toasty"]);
+export const DEFAULT_WAKE_WORD = "moxie";
+export const WAKE_WORDS = Object.freeze(["moxie", "hottie", "toasty"]);
 
 export const DirectiveIntent = Object.freeze({
   FIND: "find",
@@ -38,7 +38,7 @@ export const DirectiveIntent = Object.freeze({
   GENERIC: "generic"
 });
 
-export const HottieStatus = Object.freeze({
+export const MoxieStatus = Object.freeze({
   LISTENING: "listening",
   HEARD: "heard",
   THINKING: "thinking",
@@ -101,7 +101,7 @@ export function extractAddressedCommand(text, wakeWord = DEFAULT_WAKE_WORD) {
 }
 
 export function commandBody(text) {
-  return foldText(text).replace(/^(?:hey\s+)?(hottie|toasty)\s*[,:—\-]?\s*/i, "").trim();
+  return foldText(text).replace(/^(?:hey\s+)?(moxie|hottie|toasty)\s*[,:—\-]?\s*/i, "").trim();
 }
 
 export function wantsProgramVisual(utterance) {
@@ -248,31 +248,31 @@ export function classifyDirectiveIntent(rest) {
 export function hottieIntentFromDirective(intent, rest = "") {
   const text = foldText(rest).toLowerCase();
   if (intent === DirectiveIntent.ANSWER) {
-    if (/\bdefine\b/.test(text)) return HottieIntent.DEFINE;
-    if (/\bexplain\b/.test(text)) return HottieIntent.EXPLAIN;
-    return HottieIntent.SEARCH_WEB;
+    if (/\bdefine\b/.test(text)) return MoxieIntent.DEFINE;
+    if (/\bexplain\b/.test(text)) return MoxieIntent.EXPLAIN;
+    return MoxieIntent.SEARCH_WEB;
   }
   if (intent === DirectiveIntent.FIND) {
-    if (/\b(picture|photo|image)\b/.test(text)) return wantsProgramVisual(text) ? HottieIntent.SHOW_IMAGE : HottieIntent.SEARCH_IMAGE;
-    if (wantsProgramVisual(text) || /\b(pull (that|it|this)?\s*up|show|put (it|that) on)\b/.test(text)) return HottieIntent.SHOW_URL;
-    return HottieIntent.SEARCH_WEB;
+    if (/\b(picture|photo|image)\b/.test(text)) return wantsProgramVisual(text) ? MoxieIntent.SHOW_IMAGE : MoxieIntent.SEARCH_IMAGE;
+    if (wantsProgramVisual(text) || /\b(pull (that|it|this)?\s*up|show|put (it|that) on)\b/.test(text)) return MoxieIntent.SHOW_URL;
+    return MoxieIntent.SEARCH_WEB;
   }
-  if (intent === DirectiveIntent.RECALL) return HottieIntent.RECALL_TRANSCRIPT;
-  if (intent === DirectiveIntent.FACT_CHECK) return HottieIntent.FACT_CHECK;
-  if (intent === DirectiveIntent.CLIP) return HottieIntent.CLIP_MOMENT;
-  if (intent === DirectiveIntent.MARK) return HottieIntent.MARK_MOMENT;
-  if (intent === DirectiveIntent.CHANGE_SCENE) return HottieIntent.CHANGE_SCENE;
+  if (intent === DirectiveIntent.RECALL) return MoxieIntent.RECALL_TRANSCRIPT;
+  if (intent === DirectiveIntent.FACT_CHECK) return MoxieIntent.FACT_CHECK;
+  if (intent === DirectiveIntent.CLIP) return MoxieIntent.CLIP_MOMENT;
+  if (intent === DirectiveIntent.MARK) return MoxieIntent.MARK_MOMENT;
+  if (intent === DirectiveIntent.CHANGE_SCENE) return MoxieIntent.CHANGE_SCENE;
   if (intent === DirectiveIntent.SET_LAYOUT || intent === DirectiveIntent.CLEAR_SPOTLIGHT || intent === DirectiveIntent.SET_ACTIVE_SPEAKER_MODE || intent === DirectiveIntent.SET_SHARE_LAYOUT) {
-    return HottieIntent.CHANGE_LAYOUT;
+    return MoxieIntent.CHANGE_LAYOUT;
   }
-  if (intent === DirectiveIntent.SET_SPOTLIGHT) return HottieIntent.SPOTLIGHT_PERSON;
-  if (intent === DirectiveIntent.PLAY_AUDIO) return HottieIntent.PLAY_SOUND;
-  if (intent === DirectiveIntent.TAKE_ASSET) return HottieIntent.SHOW_ASSET;
-  if (intent === DirectiveIntent.AUDIENCE || intent === DirectiveIntent.READ_CHAT) return HottieIntent.READ_CHAT;
-  if (intent === DirectiveIntent.RESPOND_CHAT) return HottieIntent.RESPOND_CHAT;
-  if (intent === DirectiveIntent.CREW) return HottieIntent.CREW_ADVICE;
+  if (intent === DirectiveIntent.SET_SPOTLIGHT) return MoxieIntent.SPOTLIGHT_PERSON;
+  if (intent === DirectiveIntent.PLAY_AUDIO) return MoxieIntent.PLAY_SOUND;
+  if (intent === DirectiveIntent.TAKE_ASSET) return MoxieIntent.SHOW_ASSET;
+  if (intent === DirectiveIntent.AUDIENCE || intent === DirectiveIntent.READ_CHAT) return MoxieIntent.READ_CHAT;
+  if (intent === DirectiveIntent.RESPOND_CHAT) return MoxieIntent.RESPOND_CHAT;
+  if (intent === DirectiveIntent.CREW) return MoxieIntent.CREW_ADVICE;
   if (intent === DirectiveIntent.END_SHOW || intent === DirectiveIntent.RECORDING) return intent === DirectiveIntent.END_SHOW ? "END_SHOW" : "START_RECORDING";
-  return HottieIntent.UNKNOWN;
+  return MoxieIntent.UNKNOWN;
 }
 
 export function resolveParticipantId(query, participants = []) {
@@ -383,7 +383,7 @@ export function detectHostDirective(line, { wakeWord = DEFAULT_WAKE_WORD, partic
   if (!line?.text || !isHostSpeaker(line)) return null;
   const pendingApproval = isPendingAssetApproval(commandBody(line.text)) || isPendingAssetApproval(line.text);
   const addressed = alreadyAddressed
-    ? { wakeWord: DEFAULT_WAKE_WORD, rest: foldText(line.text).replace(/^(?:hey\s+)?(hottie|toasty)\s*[,:—\-]?\s*/i, "") }
+    ? { wakeWord: DEFAULT_WAKE_WORD, rest: foldText(line.text).replace(/^(?:hey\s+)?(moxie|hottie|toasty)\s*[,:—\-]?\s*/i, "") }
     : extractAddressedCommand(line.text, wakeWord) || (pendingApproval ? { wakeWord: DEFAULT_WAKE_WORD, rest: commandBody(line.text) } : null);
   if (!addressed?.rest) return null;
   const intent = classifyDirectiveIntent(addressed.rest);
@@ -438,7 +438,7 @@ export function ensureAddressedText(text) {
   const raw = foldText(text);
   if (!raw) return "";
   if (extractAddressedCommand(raw)) return raw;
-  return `Hottie, ${raw}`;
+  return `Moxie, ${raw}`;
 }
 
 export function productionActionFromDirective(directive) {
@@ -490,4 +490,4 @@ export class HostDirectiveLog {
   }
 }
 
-export { HottieIntent, ActionRiskLevel, ResponseAudience };
+export { MoxieIntent, ActionRiskLevel, ResponseAudience };

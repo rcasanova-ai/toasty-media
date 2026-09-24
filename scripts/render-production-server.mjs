@@ -15,7 +15,7 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 // Inlined from js/brand-themes.js BRAND_THEME_IDS. This process is deployed to the render host as a
 // self-contained file (see js/producer-persona.js) — a relative import of ../js/brand-themes.js would
 // crash Node on that host if the static js/ tree is not sitting next to this script.
-const KNOWN_BRAND_IDS = new Set(["toasty", "8alta", "santati", "optimai", "tangem", "superteam", "peeps"]);
+const KNOWN_BRAND_IDS = new Set(["toasty", "8alta", "santati", "optimai", "tangem", "superteam", "peeps", "zenify"]);
 function isKnownBrandId(themeId) {
   return KNOWN_BRAND_IDS.has(themeId);
 }
@@ -56,6 +56,7 @@ const MAX_FILE_BYTES = Number(process.env.TOASTY_RENDER_MAX_FILE_BYTES || 150 * 
 const MAX_TOTAL_DURATION = Number(process.env.TOASTY_RENDER_MAX_DURATION || 180);
 const MAX_SCENES = Number(process.env.TOASTY_RENDER_MAX_SCENES || 40);
 const FFMPEG_TIMEOUT_MS = Number(process.env.TOASTY_RENDER_FFMPEG_TIMEOUT_MS || 120000);
+const RECORDING_FFMPEG_TIMEOUT_MS = Number(process.env.TOASTY_RECORDING_FFMPEG_TIMEOUT_MS || 900000);
 const GOOGLE_DOWNLOAD_LIMIT_BYTES = Number(process.env.TOASTY_DRIVE_MAX_DOWNLOAD_BYTES || MAX_FILE_BYTES);
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const ANTHROPIC_MODEL = process.env.TOASTY_AI_PRODUCER_MODEL || "claude-sonnet-5";
@@ -239,6 +240,19 @@ const server = createServer(async (req, res) => {
   if (req.method === "POST" && req.url === "/api/transcribe") {
     if (!limit(req, res, "transcribe", 30, 5 * 60 * 1000)) return;
     await handleTranscribe(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/recordings/finalize") {
+    if (!requireCsrf(req, res) || !limit(req, res, "recording-finalize", 20, 15 * 60 * 1000)) return;
+    if (!(await isAuthorized(req))) {
+      sendJson(req, res, 401, { error: "Sign in to finalize recording masters." });
+      return;
+    }
+    if (Number(req.headers["content-length"] || 0) > MAX_UPLOAD_BYTES) {
+      sendJson(req, res, 413, { error: "Recording upload is too large." });
+      return;
+    }
+    await handleRecordingFinalize(req, res);
     return;
   }
   // Room presence — see handlePresenceAnnounce's own comment. Deliberately unauthenticated like
@@ -619,8 +633,49 @@ async function handleTranscribe(req, res) {
   }
 }
 
+async function handleRecordingFinalize(req, res) {
+  let workDir;
+  try {
+    workDir = await mkdtemp(join(tmpdir(), "toasty-master-"));
+    const request = new Request(`http://${HOST}:${PORT}/api/recordings/finalize`, {
+      method: "POST",
+      headers: req.headers,
+      body: Readable.toWeb(req),
+      duplex: "half"
+    });
+    const form = await request.formData();
+    const manifestPart = form.get("manifest");
+    const manifest = JSON.parse(typeof manifestPart === "string" ? manifestPart : await manifestPart.text());
+    validateRecordingFinalizeManifest(manifest);
+    const source = form.get("source");
+    if (!source?.name || typeof source.arrayBuffer !== "function" || source.size < 1) {
+      throw httpError(400, "Source WebM recording is missing.");
+    }
+    if (source.size > MAX_FILE_BYTES) throw httpError(413, "Source WebM recording is too large.");
+    const sourcePath = join(workDir, `${safeFileName(manifest.recordingId)}-source.webm`);
+    const outputPath = join(workDir, `${safeFileName(manifest.recordingId)}-master.mp4`);
+    await writeFile(sourcePath, Buffer.from(await source.arrayBuffer()));
+    await transcodeWebmMasterToMp4({ sourcePath, outputPath });
+    const output = await readFile(outputPath);
+    setCors(req, res);
+    res.writeHead(200, {
+      "Content-Type": "video/mp4",
+      "Content-Disposition": `attachment; filename="${safeFileName(manifest.recordingId)}.mp4"`,
+      "Content-Length": output.length,
+      "X-Toasty-Source-Recording": `${safeFileName(manifest.recordingId)}.webm`,
+      "X-Toasty-Master-Recording": `${safeFileName(manifest.recordingId)}.mp4`
+    });
+    res.end(output);
+  } catch (error) {
+    console.error(error);
+    sendJson(req, res, error.statusCode || 500, { error: creatorError(error) });
+  } finally {
+    if (workDir) await rm(workDir, { recursive: true, force: true });
+  }
+}
+
 // Extension point, NOT implemented this pass: continuous "show listening" (rolling background transcript
-// of program audio, feeding ShowContext so Hottie knows what's been discussed without a PTT hold) would
+// of program audio, feeding ShowContext so Moxie knows what's been discussed without a PTT hold) would
 // reuse this exact pipeline — same ffmpeg conversion, same whisper-cli invocation, same WHISPER_CLI_PATH/
 // WHISPER_MODEL_PATH config — but through its OWN queue lane, not withTranscribeSlot above. PTT is a
 // human actively waiting on a result; background show-audio chunks can tolerate being 10-30s behind and
@@ -2316,6 +2371,27 @@ function validateManifest(manifest) {
   });
 }
 
+function validateRecordingFinalizeManifest(manifest) {
+  if (!manifest || typeof manifest !== "object") throw httpError(400, "Invalid recording manifest.");
+  if (!SAFE_ID.test(manifest.recordingId || "")) throw httpError(400, "Invalid recording id.");
+  if (manifest.kind && manifest.kind !== "master-program") throw httpError(400, "Invalid recording kind.");
+}
+
+async function transcodeWebmMasterToMp4({ sourcePath, outputPath }) {
+  await run(FFMPEG, [
+    "-y",
+    "-i", sourcePath,
+    "-c:v", "libx264",
+    "-preset", "medium",
+    "-crf", "18",
+    "-c:a", "aac",
+    "-b:a", "192k",
+    "-pix_fmt", "yuv420p",
+    "-movflags", "+faststart",
+    outputPath
+  ], { timeoutMs: RECORDING_FFMPEG_TIMEOUT_MS });
+}
+
 async function renderScene({ segment, scene, assetPath, avatarPath, brollPath, audioSourcePath, manifest, width, height, output }) {
   const duration = Math.max(1, Number(segment.duration) || 3);
   const caption = segment.caption || scene?.captionText || "";
@@ -2619,13 +2695,13 @@ function runJson(command, args, input) {
   });
 }
 
-function run(command, args) {
+function run(command, args, { timeoutMs = FFMPEG_TIMEOUT_MS } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ["ignore", "ignore", "pipe"] });
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new Error(`${command} timed out`));
-    }, FFMPEG_TIMEOUT_MS);
+    }, timeoutMs);
     let stderr = "";
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();

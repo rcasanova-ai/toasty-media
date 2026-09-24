@@ -27,6 +27,18 @@
       <span class="atmosphere-grain"></span>
     </div>
 
+    <!-- PHASE C reconciliation fix: fixed, unconditional fatal-init-failure state (see js/director.js's
+         renderFatalInitError). Lives outside session-gate/session-artifacts/live-console so it can show
+         regardless of which of those was on screen when init() rejected, instead of a silent blank/stuck
+         shell. Hidden by default; only js/director.js ever un-hides it. -->
+    <div class="studio-fatal-error" id="studioFatalError" role="alertdialog" aria-live="assertive" hidden>
+      <div class="studio-fatal-error-inner">
+        <h1>Toasty Studio couldn't finish loading</h1>
+        <p class="studio-fatal-error-detail" id="studioFatalErrorDetail"></p>
+        <button type="button" class="btn btn-primary" id="studioFatalErrorRetry">Retry</button>
+      </div>
+    </div>
+
     <!-- The Session Manager gate — see js/session-manager.js's resolveSession(), which director.js's
          init() awaits BEFORE ever mounting a VDO frame or touching the camera. Shown only when there's no
          `?session=` in the URL (a fresh Studio open with no session picked yet) or that id turned out to
@@ -46,7 +58,7 @@
         </div>
 
         <p class="session-gate-status" id="sessionGateStatus"></p>
-        <div id="studioHomeBoard" class="studio-home-board"></div>
+        <div id="studioHomeBoard" class="studio-home-board" aria-label="Studio Home sessions"></div>
       </div>
     </section>
 
@@ -63,6 +75,37 @@
         <div id="sessionArtifactsBody" class="session-artifacts-body"></div>
       </div>
     </section>
+
+    <!-- Reconciliation note: the "header simplification" branch deleted this whole header, but
+         js/ai-production.js's AIProductionController (#aiStudioMasthead, [data-studio-mode]) and
+         js/brand-themes.js's module-visibility logic (.studio-mode-switcher) both actively query it —
+         removing it silently broke Live Studio / AI Production mode switching. Restored verbatim. -->
+    <header class="studio-global-nav" aria-label="Studio navigation">
+      <div class="ai-studio-masthead" id="aiStudioMasthead" hidden>
+        <img
+          src="../shared/brand/toasty-media/ToastyMediaStudio.png"
+          alt="Studio"
+          data-brand-logo
+        >
+      </div>
+
+      <section class="studio-mode-switcher" aria-label="Studio mode">
+        <button class="mode-card" type="button" data-studio-mode="live" aria-pressed="true">
+          <span class="mode-icon mode-icon--live" aria-hidden="true"></span>
+          <strong>Live Studio</strong>
+        </button>
+        <button class="mode-card" type="button" data-studio-mode="ai" aria-pressed="false">
+          <span class="mode-icon mode-icon--ai" aria-hidden="true"></span>
+          <strong>AI Production</strong>
+        </button>
+      </section>
+
+      <div class="on-air-sign on-air-sign--compact" id="connectionChip" data-state="offline">
+        <span class="on-air-bulb" aria-hidden="true"></span>
+        <span class="on-air-text" aria-hidden="true">OFFLINE</span>
+        <span id="connectionState" class="sr-only">Ready</span>
+      </div>
+    </header>
 
     <div class="studio-grid">
       <aside class="rail rail-left" aria-label="Studio session rail">
@@ -364,28 +407,29 @@
         </section>
 
         <section class="live-console live-studio-panel" id="liveConsole" data-lv-view="host" aria-label="Live Studio console">
-          <header class="lv-topbar lv-topbar--clean">
-            <div class="lv-session-identity">
-              <strong id="lvSessionTitle">Live Session</strong>
-              <span class="lv-session-state" id="connectionChip" data-state="offline">
-                <span class="lv-session-state-dot" aria-hidden="true"></span>
-                <span id="connectionState">Ready</span>
-              </span>
+          <header class="lv-topbar" aria-label="Producer status">
+            <div class="lv-topbar-left">
+              <span class="lv-brand-chip" id="lvTopBrand">Toasty Media</span>
+              <strong class="lv-session-name" id="lvTopSessionName">Live Studio</strong>
+              <span class="lv-live-state" id="lvTopLiveState" data-state="holding">STARTING SOON</span>
             </div>
             <nav class="lv-view-switch" aria-label="Studio view">
               <button type="button" class="lv-view-btn" data-lv-view-btn="host" aria-pressed="true">Host</button>
               <button type="button" class="lv-view-btn" data-lv-view-btn="producer" aria-pressed="false">Producer</button>
             </nav>
-            <div class="lv-session-actions">
+            <div class="lv-topbar-status">
               <span class="lv-rec-chip" id="lvRecChip" hidden>
                 <span class="lv-rec-dot" aria-hidden="true"></span>
                 <span>REC</span>
                 <span id="lvRecChipTime">00:00:00</span>
               </span>
               <span class="lv-policy-chip" id="lvPolicyChip" hidden></span>
-              <button id="lvHeaderProgramOutput" class="btn btn-ghost btn-small" type="button">Program Output</button>
-              <button id="lvHeaderSettings" class="btn btn-ghost btn-small" type="button">Settings</button>
-              <button id="lvHeaderEndSession" class="btn btn-ghost btn-small lv-header-danger" type="button">End Session</button>
+              <span class="lv-health-chip" id="lvTopHealth">Offline</span>
+              <span class="lv-identity-chip" id="lvTopHost">Host: Not joined</span>
+              <span class="lv-identity-chip" id="lvTopProducer">Producer: Local</span>
+              <button type="button" class="lv-mini-btn" id="lvTopProgramOutput">Program Output</button>
+              <button type="button" class="lv-mini-btn" id="lvTopSettings">Settings</button>
+              <button type="button" class="lv-mini-btn lv-mini-btn-danger" id="lvTopEndSession">End Session</button>
             </div>
           </header>
 
@@ -450,12 +494,6 @@
                    Muted here. Parked off-screen in Host view (never display:none) so switching to
                    Producer does not remount. -->
               <div class="lv-program-preview po-stage" id="lvProgramPreviewStage"></div>
-              <div class="lv-host-controls" data-lv-only="host">
-                <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
-                <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>
-                <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Share screen">Screen</button>
-                <button id="lvLeaveStudio" class="lv-icon-btn lv-icon-btn-danger" type="button" title="Leave Studio" hidden>Leave Studio</button>
-              </div>
             </section>
 
             <!-- HOST-only panels -->
@@ -466,7 +504,7 @@
                 <p class="lv-placeholder lv-placeholder-sub">No producer requests yet.</p>
               </div>
               <div class="lv-talk-row" hidden>
-                <button id="lvTalkBtn" class="lv-talk-btn" type="button" data-state="ready" disabled>🎙 Talk to Hottie</button>
+                <button id="lvTalkBtn" class="lv-talk-btn" type="button" data-state="ready" disabled>🎙 Talk to Moxie</button>
                 <span class="lv-talk-state" id="lvTalkState">Ready</span>
               </div>
               <p class="lv-talk-live" id="lvTalkLive" hidden></p>
@@ -552,9 +590,9 @@
 
             <aside class="lv-panel lv-ai-producer-pane" data-lv-only="producer" hidden aria-label="AI Producer">
               <div class="lv-panel-head"><span>AI Producer</span></div>
-              <div class="lv-hottie-rail" id="lvHottieRail" aria-label="Hottie status">
-                <span class="lv-hottie-status" id="lvHottieStatus" data-state="listening">LISTENING</span>
-                <p class="lv-hottie-proposal" id="lvHottieProposal">Waiting for a Host production cue.</p>
+              <div class="lv-hottie-rail" id="lvMoxieRail" aria-label="Moxie status">
+                <span class="lv-hottie-status" id="lvMoxieStatus" data-state="listening">LISTENING</span>
+                <p class="lv-hottie-proposal" id="lvMoxieProposal">Waiting for a Host production cue.</p>
               </div>
               <div class="lv-ai-diagnostics" id="lvAiDiagnostics" aria-label="AI cost diagnostics">
                 <span id="lvAiDiagRequests">0 requests</span>
@@ -605,9 +643,9 @@
               </div>
             </section>
 
-            <section class="lv-panel lv-record" data-lv-only="producer" hidden aria-label="Master Program Recording">
+            <section class="lv-panel lv-record" data-lv-only="producer" hidden aria-label="Program Recording">
               <div class="lv-panel-head">
-                <span>Master Program Recording</span>
+                <span>Program Recording</span>
                 <span class="lv-chip" id="lvRecordStatus">Idle</span>
               </div>
               <p class="recording-purpose" id="lvRecordPurpose">Records the audience picture and sound from Program Output.</p>
@@ -617,7 +655,7 @@
               </p>
               <div class="recording-actions">
                 <strong id="lvRecordTimer" class="recording-timer" hidden>00:00</strong>
-                <button id="lvRecordToggle" class="rec-toggle" type="button" aria-pressed="false" disabled>START RECORDING</button>
+                <p class="control-note">Use the persistent Record control in the bottom bar.</p>
                 <button id="lvRecordMarker" class="btn btn-ghost btn-small" type="button" hidden>Mark</button>
               </div>
               <p class="control-note" id="lvRecordNote">Open Program Output first. Wait until VIDEO READY and AUDIO READY, then start recording.</p>
@@ -627,12 +665,13 @@
                 <li>Turn Share tab audio ON.</li>
               </ol>
               <div class="master-playback" id="lvMasterPlayback" hidden>
-                <p class="rail-card-title">Last master</p>
+                <p class="rail-card-title">Last recording</p>
                 <video id="lvMasterVideo" class="master-playback-video" controls playsinline></video>
                 <div class="recording-actions">
                   <button id="lvMasterPlay" class="btn btn-ghost btn-small" type="button">Play</button>
-                  <button id="lvMasterDownload" class="btn btn-ghost btn-small" type="button">Download master</button>
-                  <button id="lvMasterManifest" class="btn btn-ghost btn-small" type="button">Download manifest</button>
+                  <button id="lvMasterDownload" class="btn btn-ghost btn-small" type="button">Download Recording</button>
+                  <button id="lvMasterDownloadWebm" class="btn btn-ghost btn-small" type="button">Download WebM</button>
+                  <button id="lvMasterManifest" class="btn btn-ghost btn-small" type="button">Recording Details</button>
                 </div>
                 <p class="control-note" id="lvMasterManifestNote"></p>
               </div>
@@ -745,6 +784,21 @@
               <p class="control-note" id="lvEndCardStatus"></p>
             </section>
           </div>
+
+          <footer class="lv-bottom-bar" aria-label="Studio controls">
+            <div class="lv-host-controls">
+              <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
+              <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>
+              <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Share screen">Screen</button>
+              <button id="lvLeaveStudio" class="lv-icon-btn lv-icon-btn-danger" type="button" title="Leave Studio" hidden>Leave Studio</button>
+            </div>
+            <button id="lvRecordToggle" class="rec-toggle lv-bottom-record" type="button" aria-pressed="false" disabled>RECORD PROGRAM</button>
+            <nav class="lv-bottom-nav" aria-label="Producer navigation">
+              <button type="button" class="lv-bottom-nav-btn" data-producer-jump="participants">Participants</button>
+              <button type="button" class="lv-bottom-nav-btn" data-producer-jump="chat">Chat</button>
+              <button type="button" class="lv-bottom-nav-btn" data-producer-jump="assets">Assets / Media</button>
+            </nav>
+          </footer>
         </section>
       </section>
 

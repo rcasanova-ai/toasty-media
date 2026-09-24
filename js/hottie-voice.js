@@ -1,21 +1,21 @@
-// Hottie Program Audio voice.
+// Moxie Program Audio voice.
 // V1 uses the browser Speech Synthesis API (free, already in the page). The provider boundary is
 // the only place a later ElevenLabs (or other) TTS implementation should plug in.
 
 import { ResponseAudience } from "./hottie-action.js";
 
-export const HottieVoiceMode = Object.freeze({
+export const MoxieVoiceMode = Object.freeze({
   TEXT_ONLY: "TEXT_ONLY",
   PRIVATE_HOST_AUDIO: "PRIVATE_HOST_AUDIO",
   PROGRAM_AUDIO: "PROGRAM_AUDIO"
 });
 
-export const HottieTtsProviderId = Object.freeze({
+export const MoxieTtsProviderId = Object.freeze({
   BROWSER_SPEECH: "browser-speech",
   TEXT_ONLY: "text-only"
 });
 
-const HOTTIE_VOICE_SOURCE = "hottie-voice";
+const MOXIE_VOICE_SOURCE = "hottie-voice";
 let utteranceSeq = 0;
 
 function nextUtteranceId() {
@@ -34,21 +34,21 @@ export function conciseSpokenText(text, limit = 220) {
   return `${(atWord > 40 ? cut.slice(0, atWord) : cut).trim()}…`;
 }
 
-export function serializeHottieVoice(plan = null) {
+export function serializeMoxieVoice(plan = null) {
   if (!plan || !plan.speak || !plan.text) return null;
   return {
     utteranceId: plan.utteranceId,
     text: conciseSpokenText(plan.text),
     speak: true,
-    source: HOTTIE_VOICE_SOURCE,
-    provider: plan.provider || HottieTtsProviderId.BROWSER_SPEECH,
-    speaker: "Hottie",
-    mode: HottieVoiceMode.PROGRAM_AUDIO,
+    source: MOXIE_VOICE_SOURCE,
+    provider: plan.provider || MoxieTtsProviderId.BROWSER_SPEECH,
+    speaker: "Moxie",
+    mode: MoxieVoiceMode.PROGRAM_AUDIO,
     startedAt: plan.startedAt || Date.now()
   };
 }
 
-export function createHottieVoicePlan({
+export function createMoxieVoicePlan({
   mode,
   text = "",
   requestedBy = "host",
@@ -60,8 +60,8 @@ export function createHottieVoicePlan({
     : ResponseAudience.PRIVATE_PRODUCER;
   const speak = audience === ResponseAudience.PROGRAM && Boolean(String(text || "").trim());
   const allowedMode = speak
-    ? HottieVoiceMode.PROGRAM_AUDIO
-    : (Object.values(HottieVoiceMode).includes(mode) ? mode : HottieVoiceMode.TEXT_ONLY);
+    ? MoxieVoiceMode.PROGRAM_AUDIO
+    : (Object.values(MoxieVoiceMode).includes(mode) ? mode : MoxieVoiceMode.TEXT_ONLY);
   const spoken = conciseSpokenText(text);
   return {
     mode: allowedMode,
@@ -70,12 +70,12 @@ export function createHottieVoicePlan({
     requestedBy,
     speak,
     utteranceId: speak ? nextUtteranceId() : null,
-    source: HOTTIE_VOICE_SOURCE,
-    speaker: "Hottie",
-    provider: provider || (speak ? HottieTtsProviderId.BROWSER_SPEECH : HottieTtsProviderId.TEXT_ONLY),
+    source: MOXIE_VOICE_SOURCE,
+    speaker: "Moxie",
+    provider: provider || (speak ? MoxieTtsProviderId.BROWSER_SPEECH : MoxieTtsProviderId.TEXT_ONLY),
     startedAt: speak ? Date.now() : null,
     reason: speak
-      ? "Host asked Hottie publicly; answer goes out on Program Audio."
+      ? "Host asked Moxie publicly; answer goes out on Program Audio."
       : "Private crew/producer copy. Not spoken on Program Audio."
   };
 }
@@ -86,10 +86,10 @@ export function shouldSpeakOnProgram(utterance, responseAudience = null) {
   return /\b(tell (everyone|the audience|them)|say it (out loud|on (air|program))|announce)\b/i.test(String(utterance || ""));
 }
 
-export function isHottieSelfEcho(line, { speaking = false, lastSpoken = "", lastHeardCommand = "", spokenAt = 0, now = Date.now() } = {}) {
+export function isMoxieSelfEcho(line, { speaking = false, lastSpoken = "", lastHeardCommand = "", spokenAt = 0, now = Date.now() } = {}) {
   if (!line) return false;
-  if (line.source === HOTTIE_VOICE_SOURCE || line.participantId === "hottie") return true;
-  if (/^hottie$/i.test(String(line.speaker || ""))) return true;
+  if (line.source === MOXIE_VOICE_SOURCE || line.participantId === "hottie") return true;
+  if (/^(moxie|hottie)$/i.test(String(line.speaker || ""))) return true;
   const heard = String(line.text || "").trim().toLowerCase();
   if (!heard) return false;
   const spoken = String(lastSpoken || "").trim().toLowerCase();
@@ -105,7 +105,7 @@ export function isHottieSelfEcho(line, { speaking = false, lastSpoken = "", last
 
 export class TextOnlyTtsProvider {
   constructor() {
-    this.id = HottieTtsProviderId.TEXT_ONLY;
+    this.id = MoxieTtsProviderId.TEXT_ONLY;
     this.speaking = false;
     this._currentId = null;
   }
@@ -132,7 +132,7 @@ export class BrowserSpeechTtsProvider {
   }
 
   constructor() {
-    this.id = HottieTtsProviderId.BROWSER_SPEECH;
+    this.id = MoxieTtsProviderId.BROWSER_SPEECH;
     this.speaking = false;
     this._currentId = null;
     this._utterance = null;
@@ -182,22 +182,22 @@ export class BrowserSpeechTtsProvider {
   }
 }
 
-export function createHottieTtsProvider() {
+export function createMoxieTtsProvider() {
   if (BrowserSpeechTtsProvider.isSupported()) return new BrowserSpeechTtsProvider();
   return new TextOnlyTtsProvider();
 }
 
 let programTts = null;
 
-export function speakHottieVoiceOnProgram(voice) {
+export function speakMoxieVoiceOnProgram(voice) {
   if (!voice?.speak || !voice.text) return { ok: false, reason: "silent" };
-  if (!programTts) programTts = createHottieTtsProvider();
+  if (!programTts) programTts = createMoxieTtsProvider();
   if (programTts.speaking) programTts.cancel();
   return programTts.speak(voice.text, { utteranceId: voice.utteranceId });
 }
 
-export function cancelHottieVoice() {
+export function cancelMoxieVoice() {
   programTts?.cancel?.();
 }
 
-export { HOTTIE_VOICE_SOURCE };
+export { MOXIE_VOICE_SOURCE };

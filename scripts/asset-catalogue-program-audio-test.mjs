@@ -170,7 +170,7 @@ console.log("\nPLAY_AUDIO / STOP_AUDIO are structured production actions on the 
   assert(sting.ok, "stinger PLAY_AUDIO executes");
 
   const alias = session.programController.execute({ type: ProductionActionType.PLAY_ASSET, assetId: "whoosh-01" });
-  assert(alias.ok, "PLAY_ASSET is the Hottie-facing alias for PLAY_AUDIO");
+  assert(alias.ok, "PLAY_ASSET is the Moxie-facing alias for PLAY_AUDIO");
   assertEqual(alias.command.action, ProductionActionType.PLAY_AUDIO, "PLAY_ASSET still records PLAY_AUDIO on the bus");
 
   const stop = session.programController.execute({ type: ProductionActionType.STOP_AUDIO, initiator: "producer" });
@@ -187,7 +187,7 @@ console.log("\nSoundboard has no procedural fallback");
   assert(!/case \"drumRoll\"/.test(soundboard), "procedural cue switch is gone");
   assert(soundboard.includes("ProductionActionType.PLAY_AUDIO"), "pads execute PLAY_AUDIO");
   const items = loadCatalogue().soundboardItems();
-  const drum = resolveSoundCommand("Hottie give me a drum roll", items);
+  const drum = resolveSoundCommand("Moxie give me a drum roll", items);
   assertEqual(drum?.id, "drum-roll-01", "host language still resolves to the real drum roll");
   const whistleCue = resolveSoundCommand("play the wolf whistle", items);
   assertEqual(whistleCue?.id, "wolf-whistle-01", "wolf whistle resolves through the same soundboard path");

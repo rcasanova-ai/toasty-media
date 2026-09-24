@@ -37,7 +37,7 @@ export const MarkerType = Object.freeze({
   PLAY_AUDIO: "play-audio",
   STOP_AUDIO: "stop-audio",
   TOPIC: "topic",
-  HOTTIE: "hottie",
+  MOXIE: "hottie",
   AUDIENCE: "audience",
   FOCUS_GROUP: "focus-group"
 });
@@ -49,7 +49,7 @@ export const MARKER_FROM_ACTION = Object.freeze({
   "remove-asset": MarkerType.REMOVE_ASSET,
   manual: MarkerType.MANUAL,
   topic: MarkerType.TOPIC,
-  hottie: MarkerType.HOTTIE,
+  hottie: MarkerType.MOXIE,
   audience: MarkerType.AUDIENCE,
   "focus-group": MarkerType.FOCUS_GROUP
 });
@@ -101,7 +101,7 @@ export function createMomentMarker({
 } = {}) {
   const marker = createMarker({
     timestamp,
-    type: MarkerType.HOTTIE,
+    type: MarkerType.MOXIE,
     label: reason || "Moment",
     source: "hottie"
   });
@@ -195,7 +195,7 @@ export function assetsUsedFromTimeline(timeline = [], assets = []) {
 }
 
 export const PROGRAM_OUTPUT_PICKER_INSTRUCTION =
-  "Select:\n“Toasty Studio — Program Output”\nMake sure:\n“Share tab audio” is ON.";
+  "SELECT THE TOASTY PROGRAM OUTPUT TAB\nENABLE “SHARE TAB AUDIO”\nTHEN CLICK SHARE";
 
 function trackReadyState(track) {
   if (!track) return "missing";
@@ -264,7 +264,7 @@ export function composeMasterMediaStream(tracks) {
 
 export function captureFailureMessage(reason) {
   if (reason === "missing-audio" || reason === "audio-not-live") {
-    return "Program Output audio was not shared. Start again and enable Share tab audio.";
+    return "Recording needs Program Output audio. Select the Toasty Program Output tab and enable Share tab audio.";
   }
   if (reason === "missing-video" || reason === "video-not-live") {
     return "Program Output video capture is unavailable.";
@@ -366,9 +366,14 @@ export function startMasterMediaRecorder(Rec, stream, mimeType, { onRecorder } =
   }), lastOperation);
 }
 
+// ROOT CAUSE (recording-quality audit): no width/height was ever requested here, so the captured
+// resolution was whatever the Program Output tab/window happened to be sized to at share time — a
+// producer sharing a small or restored-down window silently got a low-res master, with nothing in the
+// UI to warn them. `ideal` (not min/exact) asks Chrome to scale the actual shared surface toward 1080p
+// without failing the picker for a differently-shaped or smaller source.
 export function programOutputDisplayConstraints() {
   return {
-    video: { frameRate: { ideal: 30, max: 30 } },
+    video: { frameRate: { ideal: 30, max: 30 }, width: { ideal: 1920 }, height: { ideal: 1080 } },
     audio: true,
     preferCurrentTab: false,
     selfBrowserSurface: "exclude",
@@ -481,11 +486,18 @@ export function assembleMasterPackage({
     stoppedAt,
     brandTheme,
     participants,
-    master: {
-      filename: `session/master/${recordingId}.webm`,
-      mediaId: masterMediaId(recordingId),
-      mimeType: captureResult.mimeType,
+    source: {
+      filename: `session/source/${recordingId}.webm`,
+      mediaId: sourceMediaId(recordingId),
+      mimeType: captureResult.mimeType || "video/webm",
       bytes: captureResult.bytes || captureResult.blob?.size || 0
+    },
+    master: {
+      filename: `session/master/${recordingId}.mp4`,
+      mediaId: masterMediaId(recordingId),
+      mimeType: "video/mp4",
+      bytes: 0,
+      status: "pending-finalization"
     },
     isolatedTracks,
     transcriptRef: transcript,
@@ -518,6 +530,7 @@ export function buildMasterManifest({
   stoppedAt,
   brandTheme = "",
   participants = [],
+  source = {},
   master = {},
   isolatedTracks = [],
   transcriptRef = null,
@@ -549,14 +562,22 @@ export function buildMasterManifest({
       company: p.company || ""
     })),
     files: {
-      master: master.filename || "session/master/program.webm",
+      source: source.filename || `session/source/${recordingId || "program"}.webm`,
+      master: master.filename || `session/master/${recordingId || "program"}.mp4`,
       manifest: "session/master/manifest.json",
       isolated: isolatedTracks
     },
     media: {
+      sourceMediaId: source.mediaId || null,
       masterMediaId: master.mediaId || null,
-      mimeType: master.mimeType || "video/webm",
-      bytes: master.bytes || 0
+      sourceMimeType: source.mimeType || "video/webm",
+      masterMimeType: master.mimeType || "video/mp4",
+      sourceBytes: source.bytes || 0,
+      masterBytes: master.bytes || 0,
+      mimeType: master.mimeType || "video/mp4",
+      bytes: master.bytes || 0,
+      finalizationStatus: master.status || (master.bytes ? "finalized" : "pending-finalization"),
+      finalizationError: master.error || null
     },
     isolatedTracks,
     transcript: transcriptRef,
@@ -580,6 +601,14 @@ export function buildMasterManifest({
 }
 
 export function masterMediaId(recordingId) {
+  return `master-recording:${recordingId}:master-mp4`;
+}
+
+export function sourceMediaId(recordingId) {
+  return `master-recording:${recordingId}:source-webm`;
+}
+
+export function legacyMasterWebmMediaId(recordingId) {
   return `master-recording:${recordingId}:webm`;
 }
 
@@ -587,25 +616,126 @@ export function masterManifestId(recordingId) {
   return `master-recording:${recordingId}:manifest`;
 }
 
-export async function persistMasterRecording({ recordingId, blob, manifest }) {
+export function finalizedMasterManifest(manifest, { masterBlob, sourceBlob, error = "" } = {}) {
+  const ok = Boolean(masterBlob?.size);
+  return {
+    ...manifest,
+    files: {
+      ...(manifest.files || {}),
+      source: manifest.files?.source || `session/source/${manifest.recordingId || "program"}.webm`,
+      master: manifest.files?.master || `session/master/${manifest.recordingId || "program"}.mp4`
+    },
+    media: {
+      ...(manifest.media || {}),
+      sourceMediaId: manifest.media?.sourceMediaId || sourceMediaId(manifest.recordingId),
+      masterMediaId: manifest.media?.masterMediaId || masterMediaId(manifest.recordingId),
+      sourceMimeType: sourceBlob?.type || manifest.media?.sourceMimeType || "video/webm",
+      masterMimeType: "video/mp4",
+      sourceBytes: sourceBlob?.size || manifest.media?.sourceBytes || 0,
+      masterBytes: masterBlob?.size || 0,
+      mimeType: "video/mp4",
+      bytes: masterBlob?.size || 0,
+      finalizationStatus: ok ? "finalized" : "failed",
+      finalizationError: ok ? null : String(error || "MP4 finalization failed.")
+    }
+  };
+}
+
+export async function persistMasterRecording({ recordingId, sourceBlob, masterBlob = null, manifest }) {
+  const source = sourceBlob || null;
+  if (!source) throw new Error("Source WebM recording is required.");
   await saveMediaBlob({
-    id: masterMediaId(recordingId),
-    blob,
-    metadata: { kind: RecordingKind.MASTER, recordingId, mimeType: blob.type }
+    id: sourceMediaId(recordingId),
+    blob: source,
+    metadata: { kind: `${RecordingKind.MASTER}:source`, recordingId, mimeType: source.type || "video/webm" }
   });
+  if (masterBlob) {
+    await saveMediaBlob({
+      id: masterMediaId(recordingId),
+      blob: masterBlob,
+      metadata: { kind: `${RecordingKind.MASTER}:master`, recordingId, mimeType: masterBlob.type || "video/mp4" }
+    });
+  }
   await saveMediaBlob({
     id: masterManifestId(recordingId),
     blob: new Blob([JSON.stringify(manifest, null, 2)], { type: "application/json" }),
     metadata: { kind: "master-manifest", recordingId }
   });
-  return { recordingId, mediaId: masterMediaId(recordingId), manifestId: masterManifestId(recordingId) };
+  return {
+    recordingId,
+    sourceMediaId: sourceMediaId(recordingId),
+    masterMediaId: masterBlob ? masterMediaId(recordingId) : null,
+    manifestId: masterManifestId(recordingId)
+  };
 }
 
 export async function loadMasterRecording(recordingId) {
-  const blob = await getMediaBlob(masterMediaId(recordingId));
+  const masterBlob = await getMediaBlob(masterMediaId(recordingId));
+  const sourceBlob = await getMediaBlob(sourceMediaId(recordingId));
+  const legacyBlob = !masterBlob && !sourceBlob ? await getMediaBlob(legacyMasterWebmMediaId(recordingId)) : null;
   const manifestBlob = await getMediaBlob(masterManifestId(recordingId));
   const manifest = manifestBlob ? JSON.parse(await manifestBlob.text()) : null;
-  return { blob, manifest };
+  return {
+    blob: masterBlob || legacyBlob || sourceBlob,
+    masterBlob: masterBlob || null,
+    sourceBlob: sourceBlob || legacyBlob || null,
+    manifest
+  };
+}
+
+// ROOT CAUSE (recording-quality audit, round 2 — real measured master): true peaks hit +0.3 dBFS with
+// visible waveform clipping even though overall loudness (-19.8 LUFS) was reasonable. The captured tab
+// audio (VDO participant speech + ProgramAudioBus destination, summed by the browser's own tab-audio
+// mixer) was reaching MediaRecorder's Opus encoder already exceeding 0 dBFS at peaks, and PCM
+// quantization at that boundary hard-clips anything past 1.0 — a static volume reduction can't undo
+// that, it would just make an already-clipped signal quieter. A DynamicsCompressorNode inserted between
+// the captured audio track and MediaRecorder operates on full-precision float samples BEFORE that
+// quantization step, so it can genuinely prevent the clipping: it only pulls gain down on loud peaks,
+// leaving normal speech level alone. Threshold sits well below the -1 dBFS target because
+// DynamicsCompressorNode's max ratio (20:1) is not a true brick wall — fast attack + a hard knee keep
+// transient overshoot small at that margin.
+//
+// Only the video track is reused as-is; the recorded audio track is a NEW one from a
+// MediaStreamAudioDestinationNode, never a re-wrapped capture track. That's a different case from the
+// composeMasterMediaStream() incident documented elsewhere in this file: that bug was re-wrapping the
+// SAME getDisplayMedia video+audio tracks together into a new MediaStream (BUILD 2026.09.20-masterrec,
+// InvalidStateError). Here the video track is the identical object the whole way through; the only new
+// track is a genuinely synthesized one from the Web Audio graph, which is the standard, broadly-relied-on
+// browser pattern for processing audio before MediaRecorder.
+function buildLimitedRecordingStream(capture) {
+  const Ctx = globalThis.AudioContext || globalThis.webkitAudioContext;
+  const audioTracks = capture.getAudioTracks();
+  if (!Ctx || !audioTracks.length) return { stream: capture, cleanup: () => {} };
+  let ctx;
+  try {
+    ctx = new Ctx();
+    const source = ctx.createMediaStreamSource(capture);
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -10;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.15;
+    const destination = ctx.createMediaStreamDestination();
+    source.connect(limiter).connect(destination);
+    void ctx.resume?.().catch?.(() => {});
+    const stream = new MediaStream([...capture.getVideoTracks(), ...destination.stream.getAudioTracks()]);
+    return {
+      stream,
+      cleanup: () => {
+        try { source.disconnect(); } catch (_) {}
+        try { limiter.disconnect(); } catch (_) {}
+        audioTracks.forEach((track) => track.stop());
+        try { ctx.close(); } catch (_) {}
+      }
+    };
+  } catch (error) {
+    // Recording the raw capture unlimited is still strictly better than failing the recording outright —
+    // this only degrades back to the pre-limiter behavior, it never blocks capture.
+    try { console.error("[MasterProgramRecorder] audio limiter setup failed, recording unlimited", error); } catch (_) {}
+    try { ctx?.close?.(); } catch (_) {}
+    return { stream: capture, cleanup: () => {} };
+  }
 }
 
 export class MasterProgramRecorder {
@@ -662,14 +792,17 @@ export class MasterProgramRecorder {
     if (inspection.looksLikeProgramOutput === false) {
       this.status?.("That share does not look like Program Output. Stop and select “Toasty Studio — Program Output”.");
     }
-    // Record the original getDisplayMedia stream. Do not wrap tracks in a new MediaStream —
-    // that reconstructed stream made MediaRecorder.start() throw InvalidStateError.
-    this.masterStream = capture;
+    // Video track is the original getDisplayMedia one, untouched. Audio is passed through a limiter
+    // first — see buildLimitedRecordingStream's own comment for why this is safe (only the video track
+    // is reused as-is; the audio track is genuinely new, not a re-wrapped capture track).
+    const limited = buildLimitedRecordingStream(capture);
+    this.masterStream = limited.stream;
+    this._releaseLimiter = limited.cleanup;
     capture.getVideoTracks()[0]?.addEventListener?.("ended", () => {
       if (this.recorder?.state === "recording") this.stop().catch(() => {});
     });
     this.mimeType = MASTER_MIME.find((type) => Rec.isTypeSupported?.(type)) || "";
-    const started = startMasterMediaRecorder(Rec, capture, this.mimeType, {
+    const started = startMasterMediaRecorder(Rec, this.masterStream, this.mimeType, {
       onRecorder: (recorder) => {
         recorder.addEventListener("dataavailable", (event) => {
           if (event.data?.size) this.chunks.push(event.data);
@@ -687,7 +820,7 @@ export class MasterProgramRecorder {
       surfaceLabel: this.surfaceLabel,
       diagnostics: describeRecorderDiagnostics({
         recorder: this.recorder,
-        capture,
+        capture: this.masterStream,
         mimeType: this.mimeType,
         operation: `MediaRecorder.start (${started.attempt})`,
         attempt: started.attempt
@@ -709,6 +842,8 @@ export class MasterProgramRecorder {
     return new Promise((resolve, reject) => {
       const finish = () => {
         this.stoppedAt = Date.now();
+        this._releaseLimiter?.();
+        this._releaseLimiter = null;
         this.captureStream?.getTracks().forEach((track) => track.stop());
         const blob = new Blob(this.chunks, { type: this.recorder.mimeType || this.mimeType || "video/webm" });
         const result = {

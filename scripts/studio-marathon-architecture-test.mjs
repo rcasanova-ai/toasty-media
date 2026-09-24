@@ -15,18 +15,18 @@ import { ActiveSpeakerController, nominateActiveSpeaker, ACTIVE_SPEAKER_HOLD_MS,
 import { buildCanonicalState } from "../js/session-control.js";
 import { ProgramAudioMixer, createProgramAudioSource, ProgramAudioSourceKind, ProgramAudioCompleteness } from "../js/program-audio-mixer.js";
 import { createTranscriptEvent, transcriptEventFromLegacyLine } from "../js/transcript-event.js";
-import { normalizeAudienceMessage, AudienceSource, HOTTIE_PUBLIC_IDENTITY, hottiePublicReply, clusterAudienceQuestions } from "../js/audience-message.js";
+import { normalizeAudienceMessage, AudienceSource, MOXIE_PUBLIC_IDENTITY, hottiePublicReply, clusterAudienceQuestions } from "../js/audience-message.js";
 import { createSessionRecord, createSessionArtifact, ArtifactType, planDefaultArtifacts } from "../js/session-artifact.js";
 import { ProgramDestinationRouter, ProgramDestinationKind } from "../js/program-destination.js";
 import { ProductionTimeline, ProductionEventType } from "../js/production-timeline.js";
-import { collectHottieContext, proposeHottieActions, hottieMayExecute } from "../js/hottie-show-runner.js";
+import { collectMoxieContext, proposeMoxieActions, hottieMayExecute } from "../js/hottie-show-runner.js";
 import { focusGroupUsesStudioPrimitives, attachFocusGroupToSession } from "../js/focus-group-studio.js";
 import { inspectComposedMaster, ProgramVideoSourceKind } from "../js/master-recorder.js";
 import { detectHostDirective, isHostSpeaker } from "../js/host-directive.js";
 import { ProgramController, ProductionActionType } from "../js/production-controller.js";
 import { formatDiagnostics } from "../js/media-diagnostics.js";
 import { cameraSourceFromParticipant, ParticipantSourceKind } from "../js/participant-source.js";
-import { formatHottieProposalFeed } from "../js/hottie-show-runner.js";
+import { formatMoxieProposalFeed } from "../js/hottie-show-runner.js";
 import { LiveProducerController } from "../js/live-producer.js";
 import { ProducerFeed, ProducerEntryType } from "../js/ai-producer.js";
 import { parseRunOfShowText, RunOfShow } from "../js/run-of-show.js";
@@ -193,17 +193,17 @@ assertEqual(detectHostDirective(event), null, "guest Toasty phrase does not exec
 assert(detectHostDirective({ participantId: "host", role: "host", speaker: "Ricardo", text: "Toasty, spotlight Tukta" }), "host directive still executes");
 assert(transcriptEventFromLegacyLine({ participantId: "host", role: "host", speaker: "Ricardo", text: "hello" }).source, "legacy lines map to TranscriptEvent");
 
-console.log("\nAudienceMessage + Hottie → ProgramController");
+console.log("\nAudienceMessage + Moxie → ProgramController");
 const msg = normalizeAudienceMessage({ displayName: "Maria", message: "Does the grid have capacity?", platform: "toasty" });
 assertEqual(msg.source, AudienceSource.TOASTY, "Toasty audience normalizes");
 assertEqual(msg.kind, "question", "questions are classified");
 const reply = hottiePublicReply({ text: "Great question — we will come back to grid capacity." });
-assertEqual(reply.author, HOTTIE_PUBLIC_IDENTITY, "public AI identity is Hottie · Toasty Producer");
-assertEqual(reply.metadata.impersonatesHost, false, "Hottie does not impersonate Host");
+assertEqual(reply.author, MOXIE_PUBLIC_IDENTITY, "public AI identity is Moxie · Toasty Producer");
+assertEqual(reply.metadata.impersonatesHost, false, "Moxie does not impersonate Host");
 assert(clusterAudienceQuestions([msg, normalizeAudienceMessage({ message: "grid capacity??", displayName: "Pim" })]).length >= 1, "clusters repeated questions");
 const executable = new Set(Object.values(ProductionActionType));
-assert(executable.has("SURFACE_CHAT") && executable.has("POST_CHAT"), "Hottie chat actions exist on ProgramController");
-assert(!hottieMayExecute({ action: { type: "SET_SPOTLIGHT" }, requiresApproval: true }, { autonomy: "suggest" }), "Hottie does not execute without approval");
+assert(executable.has("SURFACE_CHAT") && executable.has("POST_CHAT"), "Moxie chat actions exist on ProgramController");
+assert(!hottieMayExecute({ action: { type: "SET_SPOTLIGHT" }, requiresApproval: true }, { autonomy: "suggest" }), "Moxie does not execute without approval");
 
 console.log("\nSessionArtifact + Focus Group primitives + timeline + destinations");
 const record = createSessionRecord({ sessionId: "sess-1", roomId: "tmroom", focusGroup: { id: "fg-1" } });
@@ -214,7 +214,7 @@ assertEqual(primitives.composition, "ProgramComposition", "Focus Group uses Prog
 assertEqual(primitives.recording, "MasterRecorder", "Focus Group uses MasterRecorder");
 const sessionStub = { participants: { list: () => [host, tukta] }, runOfShow: { load() {} } };
 attachFocusGroupToSession(sessionStub, { objective: "Understand pricing objections", researchQuestions: ["What would stop you?"] });
-assert(sessionStub.researchContext.objective.includes("pricing"), "ResearchContext attached for Hottie");
+assert(sessionStub.researchContext.objective.includes("pricing"), "ResearchContext attached for Moxie");
 const timeline = new ProductionTimeline();
 timeline.record(ProductionEventType.SHARE_STARTED, { transportSourceId: "tmroomsabcd1234" }, { participantId: "host" });
 assertEqual(timeline.items[0].type, "share-started", "production breadcrumbs are timestampable");
@@ -248,8 +248,8 @@ ros.goTo(ros.items[2].id);
 assertEqual(ros.current().title, "WHAT WE BUILT", "Run of Show GO TO SEGMENT works");
 const contextSession = { roomId: "tmroom", runOfShow: ros, elapsedMs: () => 90_000, transcript: new TranscriptStore(), showMemory: { compact: () => null }, hostDirectives: { recent: () => [] }, guestSeats: [], audience: { recent: () => [] }, aiProducerFeed: { recent: () => [] }, researchContext: null };
 const showContext = buildShowContext(contextSession);
-assertEqual(showContext.currentTopic.title, "WHAT WE BUILT", "Hottie context sees current segment");
-assert(showContext.nextTopic?.title, "Hottie context sees next segment");
+assertEqual(showContext.currentTopic.title, "WHAT WE BUILT", "Moxie context sees current segment");
+assert(showContext.nextTopic?.title, "Moxie context sees next segment");
 const emptyPost = buildSessionDeliverables({ runOfShow: ros, transcript: new TranscriptStore(), markers: { items: [] }, recording: {} });
 assert(emptyPost.summary, "post-production handles missing optional data");
 const weekly = buildWeeklyUpdatePackage({ runOfShow: ros, transcript: new TranscriptStore(), markers: { items: [] }, recording: {} });
@@ -259,13 +259,13 @@ attachFocusGroupToSession(focusSession, { objective: "Test the pitch", researchQ
 assert(focusSession.runOfShow.items.some((item) => /Welcome/i.test(item.title)), "Focus Group uses shared Run of Show");
 assert(directorHtml.includes("lvGenerateFocusInsights"), "Focus Group uses shared Post Production surface");
 
-console.log("\nHottie proposal approval actually reaches ProgramController.execute (audit repair)");
+console.log("\nMoxie proposal approval actually reaches ProgramController.execute (audit repair)");
 {
-  // Regression test for the exact seam the integration audit found broken: formatHottieProposalFeed
+  // Regression test for the exact seam the integration audit found broken: formatMoxieProposalFeed
   // built a real, executable action on every proposal, but no UI path ever called
   // ProgramController.execute with it (renderFeedEntry only rendered an action row for
   // ASSET_PROPOSAL/retry entries, never PRODUCTION_SUGGESTION). This proves the repaired wire
-  // (LiveProducerController.approveHottieProposal, js/ai-producer.js's new render branch) without a DOM.
+  // (LiveProducerController.approveMoxieProposal, js/ai-producer.js's new render branch) without a DOM.
   let spotlighted = null;
   const fakeSession = {
     aiProducerFeed: new ProducerFeed(),
@@ -282,12 +282,12 @@ console.log("\nHottie proposal approval actually reaches ProgramController.execu
     action: { type: ProductionActionType.SET_SPOTLIGHT, participantId: "guest-b" },
     requiresApproval: true
   };
-  const entry = fakeSession.aiProducerFeed.push(formatHottieProposalFeed(proposal));
-  assertEqual(entry.type, ProducerEntryType.PRODUCTION_SUGGESTION, "Hottie proposal lands as a PRODUCTION_SUGGESTION feed entry");
+  const entry = fakeSession.aiProducerFeed.push(formatMoxieProposalFeed(proposal));
+  assertEqual(entry.type, ProducerEntryType.PRODUCTION_SUGGESTION, "Moxie proposal lands as a PRODUCTION_SUGGESTION feed entry");
   assertEqual(entry.proposal.requiresApproval, true, "proposal starts requiring approval");
 
-  const result = producer.approveHottieProposal(entry.id);
-  assertEqual(result.ok, true, "approveHottieProposal's execute() call succeeds");
+  const result = producer.approveMoxieProposal(entry.id);
+  assertEqual(result.ok, true, "approveMoxieProposal's execute() call succeeds");
   assertEqual(spotlighted, "guest-b", "the proposed action's participantId actually reached session.setSpotlight — not just logged");
 
   const updated = fakeSession.aiProducerFeed.entries.find((item) => item.id === entry.id);
@@ -296,10 +296,10 @@ console.log("\nHottie proposal approval actually reaches ProgramController.execu
 
   // Dismiss path — the other half of the wire (Producer can reject instead of approving).
   const proposal2 = { ...proposal, action: { type: ProductionActionType.SET_SPOTLIGHT, participantId: "guest-c" } };
-  const entry2 = fakeSession.aiProducerFeed.push(formatHottieProposalFeed(proposal2));
-  producer.dismissHottieProposal(entry2.id);
+  const entry2 = fakeSession.aiProducerFeed.push(formatMoxieProposalFeed(proposal2));
+  producer.dismissMoxieProposal(entry2.id);
   const dismissed = fakeSession.aiProducerFeed.entries.find((item) => item.id === entry2.id);
-  assertEqual(dismissed.dismissed, true, "dismissHottieProposal marks the entry dismissed without executing it");
+  assertEqual(dismissed.dismissed, true, "dismissMoxieProposal marks the entry dismissed without executing it");
   assertEqual(spotlighted, "guest-b", "dismissing a second proposal does not execute its action (still guest-b from the approved one)");
 }
 

@@ -1,11 +1,11 @@
-// Deterministic production actions. Hottie proposes; this controller executes.
+// Deterministic production actions. Moxie proposes; this controller executes.
 //
 // No model-generated JavaScript, selectors, or DOM instructions. TAKE LIVE is the only path that
 // can place a visual ProgramAsset onto ProgramComposition / Program Renderer.
 //
 // PLAY_AUDIO / STOP_AUDIO are the Program Audio path: they publish a catalogue file onto the
 // Program Audio bus (audience Program Output). PLAY_ASSET is the same execute as PLAY_AUDIO so a
-// future Hottie [ PLAY ] button can fire a structured action without touching the audio DOM.
+// future Moxie [ PLAY ] button can fire a structured action without touching the audio DOM.
 
 import { ProgramAssetStatus, serializeProgramAsset } from "./program-asset.js";
 import { CompositionMode, ProgramLayout, ShareLayout } from "./program-composition.js";
@@ -286,7 +286,7 @@ export class ProgramController {
 
   showResearch({ initiator = "hottie" } = {}) {
     this.session.productionLog?.record(ProductionActionType.SHOW_RESEARCH, { initiator });
-    this.session.proposeHottieLoop?.();
+    this.session.proposeMoxieLoop?.();
     return { ok: true };
   }
 
@@ -301,7 +301,7 @@ export class ProgramController {
   postChat({ text, initiator = "hottie" } = {}) {
     if (!text) return { ok: false, reason: "missing-text" };
     const message = this.session.audienceAdapter?.ingest?.({
-      author: "Hottie · Toasty Producer",
+      author: "Moxie · Toasty Producer",
       text,
       metadata: { impersonatesHost: false }
     });

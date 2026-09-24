@@ -17,7 +17,7 @@ import {
   countFeedHealth,
   normalizeScene
 } from "./session-control.js";
-import { speakHottieVoiceOnProgram, cancelHottieVoice } from "./hottie-voice.js";
+import { speakMoxieVoiceOnProgram, cancelMoxieVoice } from "./hottie-voice.js";
 
 // Toasty Studio Program Output — the finished, audience-facing broadcast canvas.
 // This page contains ONLY the composited show: no director/guest/camera/scene controls of any kind.
@@ -44,7 +44,7 @@ let audioError = null;
 const programAudio = new ProgramAudioBus({ role: "program" });
 const programMixer = new ProgramAudioMixer({ bus: programAudio, role: "program" });
 let lastAudioPlayId = null;
-let lastHottieUtteranceId = null;
+let lastMoxieUtteranceId = null;
 let statusTimerId = null;
 let serverSync = null;
 let lastServerBundle = null;
@@ -218,7 +218,7 @@ async function unlockAudio() {
   failures.push(...playFailures);
   try {
     syncProgramAudio(lastProgramState);
-    syncHottieVoice(lastProgramState);
+    syncMoxieVoice(lastProgramState);
   } catch (error) {
     failures.push(`ProgramAudioBus: ${String(error?.message || error)}`);
   }
@@ -234,7 +234,7 @@ async function unlockAudio() {
   audioError = null;
   if (!previous && normalizeScene(lastProgramState?.scene) === SceneId.LIVE) renderLiveStage(lastProgramState);
   syncProgramAudio(lastProgramState);
-  syncHottieVoice(lastProgramState);
+  syncMoxieVoice(lastProgramState);
   reportOutputStatus(true);
 }
 
@@ -318,7 +318,7 @@ function render(programState, source = "unknown") {
   }
   if (scene === SceneId.ENDING) renderEndCard(programState.endCard);
   syncProgramAudio(programState);
-  syncHottieVoice(programState);
+  syncMoxieVoice(programState);
   reportOutputStatus();
 }
 
@@ -509,17 +509,24 @@ function reportOutputStatus(immediate = false) {
   if (immediate) presence?.publishNow();
 }
 
+// ROOT CAUSE of "severe echo/doubled audio" in every tab-capture recording: this used to pass
+// ownedStreamFor()'s native MediaStream (the SAME physical mic the Director's own push frame already
+// publishes into the VDO room) into programMixer.addParticipant(), which
+// connectStream()s it into ProgramAudioBus -> ctx.destination. But Program Output's own room/scene
+// VDO iframe (video-engine.js, deliberately unmuted) ALREADY autoplays that same person's voice into
+// this tab's audio destination — that's the whole point of it being unmuted. Wiring the owned
+// stream's audio in too meant every host/participant voice reached the tab's speakers (and therefore
+// any tab-audio-share recording) twice, through two different-latency paths, producing a phasing/echo
+// doubling. ownedStreamFor() stays video-only (see renderLiveStage's resolveOwnedStream below) —
+// every participant's audio, including Host, arrives exclusively via that VDO iframe's own autoplay.
 function syncProgramAudio(programState) {
-  const hostOwned = ownedStreamFor({ role: "host", participantId: "host" });
-  if (hostOwned) programMixer.addParticipant({ participantId: "host", stream: hostOwned, label: "Host" });
+  programMixer.addParticipant({ participantId: "host", label: "Host", transportLimited: true });
   programParticipants(programState).forEach((participant) => {
     if (participant.participantId === "host") return;
-    const owned = ownedStreamFor(participant);
     programMixer.addParticipant({
       participantId: participant.participantId,
-      stream: owned,
       label: participant.displayName,
-      transportLimited: !owned
+      transportLimited: true
     });
   });
   const command = serializeProgramAudio(programState?.audio);
@@ -545,19 +552,19 @@ function syncProgramAudio(programState) {
   });
 }
 
-function syncHottieVoice(programState) {
+function syncMoxieVoice(programState) {
   const voice = programState?.hottieVoice;
   if (!voice?.speak || !String(voice.text || "").trim()) {
-    if (lastHottieUtteranceId) {
-      cancelHottieVoice();
-      lastHottieUtteranceId = null;
+    if (lastMoxieUtteranceId) {
+      cancelMoxieVoice();
+      lastMoxieUtteranceId = null;
     }
     return;
   }
   if (!audioUnlocked) return;
-  if (voice.utteranceId && voice.utteranceId === lastHottieUtteranceId) return;
-  lastHottieUtteranceId = voice.utteranceId || voice.text;
-  speakHottieVoiceOnProgram(voice);
+  if (voice.utteranceId && voice.utteranceId === lastMoxieUtteranceId) return;
+  lastMoxieUtteranceId = voice.utteranceId || voice.text;
+  speakMoxieVoiceOnProgram(voice);
 }
 
 function applyBrand(themeId) {
