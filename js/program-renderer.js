@@ -8,6 +8,7 @@ import { composeProgram, ProgramLayout, compositionOptionsFromState } from "./pr
 import { buildParticipantLowerThird, updateParticipantLowerThird } from "./participant-lower-third.js";
 import { SourceKind } from "./participant-registry.js";
 import { allowlistedImageUrl, sanitizeBroadcastText } from "./program-asset.js";
+import { resolveProgramGeometry, applyProgramGeometry, programOrientationFor } from "./program-geometry.js";
 
 const LAYOUT_COUNT = Object.freeze({
   single: "1",
@@ -151,6 +152,12 @@ export function syncProgramRenderer({
   stage.dataset.layout = programLayoutCount(composition.layout);
   stage.dataset.compositionMode = composition.mode || "";
   stage.dataset.featuredId = composition.featuredId || "";
+  // Branded-canvas geometry (frame scale, canvas margin, chrome, fit/focal, safe zones) is resolved per
+  // layout + orientation and applied as CSS custom properties — see js/program-geometry.js. This is what
+  // makes a composition read as frames floating on a canvas rather than a full-bleed video grid; it never
+  // touches the grid's own track sizing (still minmax(0, 1fr) etc.), only how much smaller than its
+  // already-safe cell each frame renders.
+  applyProgramGeometry(stage, resolveProgramGeometry(composition.layout, programOrientationFor(stage.ownerDocument?.defaultView)));
 
   syncProgramAssetTile(stage, composition.asset);
   syncProgramScreenTile(stage, composition.screen, {

@@ -3977,11 +3977,14 @@
   border-radius: 10px;
   display: grid;
   flex: 1 1 auto;
-  gap: 0.45rem;
+  /* Same per-layout geometry custom properties as css/program-output.css's real .po-stage — set by the
+     SAME js/program-renderer.js syncProgramRenderer() call, since this preview and the real Program
+     Output stage are mounted by that one shared function. Fallbacks reproduce the previous fixed values. */
+  gap: var(--po-frame-gap-dynamic, 0.45rem);
   min-height: min(48vh, 420px);
   min-width: 0;
   overflow: hidden;
-  padding: 0.45rem;
+  padding: var(--po-canvas-padding, 0.45rem);
   width: 100%;
 }
 
@@ -4023,13 +4026,17 @@
 
 .lv-program-preview .po-tile {
   background: #0c0908;
-  border: 1px solid var(--studio-line);
-  border-radius: 10px;
-  height: 100%;
+  border: var(--po-frame-border-dynamic, 1px solid var(--studio-line));
+  border-radius: var(--po-frame-radius-dynamic, 10px);
+  box-shadow: var(--po-frame-shadow-dynamic, none);
+  height: calc(100% * var(--po-frame-scale, 1));
+  margin: auto;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+  place-self: center;
   position: relative;
+  width: calc(100% * var(--po-frame-scale, 1));
 }
 
 .lv-program-preview .po-tile-video {
@@ -4042,7 +4049,8 @@
   border: 0;
   height: 100%;
   left: 0;
-  object-fit: cover;
+  object-fit: var(--po-frame-fit, cover);
+  object-position: var(--po-frame-focal, center);
   position: absolute;
   top: 0;
   width: 100%;

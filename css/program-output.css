@@ -319,7 +319,7 @@ html, body {
 }
 .po-stage[data-layout="1"] .po-tile {
   aspect-ratio: 4 / 3;
-  height: 100%;
+  height: calc(100% * var(--po-frame-scale, 1));
   max-width: 100%;
   width: auto;
 }
@@ -477,8 +477,8 @@ html, body {
   left: 0;
   max-height: 100%;
   max-width: 100%;
-  object-fit: cover;
-  object-position: center;
+  object-fit: var(--po-frame-fit, cover);
+  object-position: var(--po-frame-focal, center);
   position: absolute;
   top: 0;
   width: 100%;
@@ -1158,18 +1158,34 @@ body.program-output[data-scene="ending"] .po-scene-screen {
   --po-frame-gap: clamp(4px, 0.55vw, 9px);
   --po-frame-inset: clamp(7px, 1.15vw, 18px);
   --po-frame-radius: clamp(3px, 0.35vw, 6px);
+  /* Defaults for js/program-geometry.js's per-layout custom properties (see applyProgramGeometry) — these
+     fallbacks only matter before that JS ever runs (e.g. a static/offline preview); the real values are
+     set per-composition on the .po-stage element itself. scale:1/fit:cover/focal:center reproduce the
+     PREVIOUS fixed behavior exactly, so a page that never calls applyProgramGeometry renders unchanged. */
+  --po-frame-scale: 1;
+  --po-frame-fit: cover;
+  --po-frame-focal: center;
 }
 
-/* Let the branded canvas read around the feeds instead of wrapping every participant in UI chrome. */
+/* Let the branded canvas read around the feeds instead of wrapping every participant in UI chrome.
+   --po-canvas-padding/--po-frame-gap-dynamic come from js/program-geometry.js's per-layout spec; the
+   var(...) fallback keeps this identical to the previous fixed values when geometry hasn't been applied. */
 .po-stage {
-  gap: var(--po-frame-gap);
-  padding: 0 var(--po-frame-inset) var(--po-frame-inset);
+  gap: var(--po-frame-gap-dynamic, var(--po-frame-gap));
+  padding: var(--po-canvas-padding, 0 var(--po-frame-inset) var(--po-frame-inset));
 }
 
+/* A frame renders at --po-frame-scale of its (already grid-safe, minmax(0,1fr)-bounded) cell, centered —
+   the gap between that and 100% is branded canvas showing through. Radius/border/shadow are the same
+   per-layout geometry, not fixed chrome. */
 .po-tile {
-  border-color: color-mix(in srgb, var(--studio-line) 72%, transparent);
-  border-radius: var(--po-frame-radius);
-  box-shadow: 0 10px 30px color-mix(in srgb, #000 20%, transparent);
+  border: var(--po-frame-border-dynamic, 1px solid color-mix(in srgb, var(--studio-line) 72%, transparent));
+  border-radius: var(--po-frame-radius-dynamic, var(--po-frame-radius));
+  box-shadow: var(--po-frame-shadow-dynamic, 0 10px 30px color-mix(in srgb, #000 20%, transparent));
+  height: calc(100% * var(--po-frame-scale, 1));
+  margin: auto;
+  place-self: center;
+  width: calc(100% * var(--po-frame-scale, 1));
 }
 
 /* Two-person interviews should feel like a composed broadcast split, not two dashboard cards. */
@@ -1179,7 +1195,7 @@ body.program-output[data-scene="ending"] .po-scene-screen {
 }
 
 .po-stage[data-layout="2"] .po-tile {
-  width: 100%;
+  width: calc(100% * var(--po-frame-scale, 1));
 }
 
 /* Cleaner, more television-like masthead. Branding remains skin-driven. */
