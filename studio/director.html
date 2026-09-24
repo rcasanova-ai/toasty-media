@@ -433,6 +433,12 @@
             </div>
           </header>
 
+          <nav class="lv-workspace-tabs" id="lvProducerWorkspaces" data-lv-only="producer" hidden aria-label="Producer workspace">
+            <button type="button" class="lv-workspace-tab" data-producer-workspace="production" aria-pressed="true">Production</button>
+            <button type="button" class="lv-workspace-tab" data-producer-workspace="focus" aria-pressed="false">Focus Group</button>
+            <button type="button" class="lv-workspace-tab" data-producer-workspace="moxie" aria-pressed="false">Moxie</button>
+          </nav>
+
           <div class="lv-body">
             <section class="lv-panel lv-program" aria-label="Studio stage">
               <div class="lv-panel-head">
@@ -588,8 +594,8 @@
               </div>
             </section>
 
-            <aside class="lv-panel lv-ai-producer-pane" data-lv-only="producer" hidden aria-label="AI Producer">
-              <div class="lv-panel-head"><span>AI Producer</span></div>
+            <aside class="lv-panel lv-ai-producer-pane" data-lv-only="producer" data-producer-workspace="moxie" hidden aria-label="Moxie producer intelligence">
+              <div class="lv-panel-head"><span>Moxie</span><span class="lv-chip">Production Intelligence</span></div>
               <div class="lv-hottie-rail" id="lvMoxieRail" aria-label="Moxie status">
                 <span class="lv-hottie-status" id="lvMoxieStatus" data-state="listening">LISTENING</span>
                 <p class="lv-hottie-proposal" id="lvMoxieProposal">Waiting for a Host production cue.</p>
@@ -714,8 +720,8 @@
               <textarea id="lvPostProductionOutput" rows="12" readonly placeholder="Post-session outputs will appear here."></textarea>
             </section>
 
-            <section class="lv-panel lv-focus-brief" data-lv-only="producer" hidden aria-label="Focus group brief">
-              <div class="lv-panel-head"><span>Focus Group Brief</span><span class="lv-chip" id="lvFocusRecruitmentStatus">NEEDS PARTICIPANTS</span></div>
+            <section class="lv-panel lv-focus-brief" data-lv-only="producer" data-producer-workspace="focus" hidden aria-label="Focus group workspace">
+              <div class="lv-panel-head"><span>Focus Group Workspace</span><span class="lv-chip" id="lvFocusRecruitmentStatus">NEEDS PARTICIPANTS</span></div>
               <input id="lvFocusProject" type="text" placeholder="Project">
               <textarea id="lvFocusObjective" rows="3" placeholder="Research objective"></textarea>
               <input id="lvFocusProfile" type="text" placeholder="Target participant profile">
