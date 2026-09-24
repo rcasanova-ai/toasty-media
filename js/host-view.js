@@ -65,7 +65,17 @@ export class HostView {
   init() {
     this.elements.toggleMic.addEventListener("click", () => this.session.toggleMic());
     this.elements.toggleCamera.addEventListener("click", () => this.session.toggleCamera());
-    this.elements.toggleScreen.addEventListener("click", () => this.session.toggleScreenShare());
+    this.elements.toggleScreen.addEventListener("click", async () => {
+      this.elements.toggleScreen.disabled = true;
+      try {
+        await this.session.toggleScreenShare();
+      } catch (error) {
+        console.error("[Toasty Host] Screen share failed", error);
+        window.alert(String(error?.message || "Screen share could not start."));
+      } finally {
+        this.elements.toggleScreen.disabled = false;
+      }
+    });
     this.elements.leaveStudio.addEventListener("click", () => this.session.leaveStudio());
 
     this.session.on("av", (av) => this.renderAv(av));
