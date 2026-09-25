@@ -508,7 +508,14 @@ async function renderReadiness() {
           ? `<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" data-checklist="${key}" ${ok ? "checked" : ""}> <span class="plan-pill ${ok ? "good" : "warn"}">${ok ? "Ready" : "Pending"}</span></label>`
           : `<span class="plan-pill ${ok ? "good" : "warn"}">${ok ? "Ready" : "Pending"}</span>`}
       </div>`).join("")}
-    <p style="color:#8f857b;margin-top:16px;font-size:13px">Speakers/Sponsors/Consent/Landing page/End Card are computed from real data. Host/Producer/Assets/Run of Show/Branding/Recording are organizer self-attestation checkboxes.</p>
+    <p style="color:#8f857b;margin-top:16px;font-size:13px">Speakers/Sponsors/Consent/Landing page/End Card are computed from real data. Host/Producer/Assets/Run of Show/Branding/Recording are organizer self-attestation checkboxes. None of these — including the growth items below — block opening Studio; they're here so you don't forget them, not gates.</p>
+
+    <div class="plan-section-title" style="margin:26px 0 10px;font-weight:800;color:#e8ded4;font-size:15px">Grow this event</div>
+    <div class="plan-grid-2">
+      <a class="xp-btn xp-btn-ghost" style="text-align:center" href="./event-page.html?session=${session.id}${organizationId ? `&org=${encodeURIComponent(organizationId)}` : ""}">Event Page ${landingPublished ? "(published)" : "(draft)"}</a>
+      <a class="xp-btn xp-btn-ghost" style="text-align:center" href="./session-growth.html?session=${session.id}${organizationId ? `&org=${encodeURIComponent(organizationId)}` : ""}">Audience, Campaign Links &amp; Sponsor Analytics</a>
+    </div>
+
     <div class="plan-actions">
       <button class="xp-btn xp-btn-ghost plan-btn-small" id="readinessBack">Back</button>
       <a class="xp-btn" id="openStudioBtn" href="./director.html?session=${session.id}">Open Studio</a>
