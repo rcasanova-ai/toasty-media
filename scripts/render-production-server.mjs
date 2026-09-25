@@ -346,7 +346,7 @@ const server = createServer(async (req, res) => {
     }
   }
   {
-    const actionMatch = req.url?.match(/^\/api\/organizations\/platform-admin\/organizations\/([^/]+)\/(basics|settings|onboarding|member-role|member-status|member-remove|brand-profile|brand-profile-delete)$/);
+    const actionMatch = req.url?.match(/^\/api\/organizations\/platform-admin\/organizations\/([^/]+)\/(basics|settings|onboarding|billing-account|member-role|member-status|member-remove|brand-profile|brand-profile-delete)$/);
     if (req.method === "POST" && actionMatch) {
       if (!requireCsrf(req, res) || !limit(req, res, "platform-admin-write", 120, 15 * 60 * 1000)) return;
       const session = await requirePlatformAdmin(req, res);
@@ -355,6 +355,7 @@ const server = createServer(async (req, res) => {
       if (action === "basics") await handlePlatformOrganizationBasics(req, res, organizationId);
       else if (action === "settings") await handlePlatformOrganizationSettings(req, res, organizationId);
       else if (action === "onboarding") await handlePlatformOnboarding(req, res, organizationId);
+      else if (action === "billing-account") await handlePlatformBillingAccount(req, res, organizationId);
       else if (action === "member-role") await handlePlatformMemberRole(req, res, organizationId);
       else if (action === "member-status") await handlePlatformMemberStatus(req, res, organizationId);
       else if (action === "member-remove") await handlePlatformMemberRemove(req, res, organizationId);
@@ -2625,6 +2626,20 @@ async function handlePlatformOnboarding(req, res, organizationId) {
   const body = await readJson(req);
   const result = await db("platform_set_onboarding_state", { organizationId, completed: Boolean(body?.completed) });
   sendJson(req, res, 200, { settings: result.settings });
+}
+
+async function handlePlatformBillingAccount(req, res, organizationId) {
+  const body = await readJson(req);
+  const current = await db("get_billing_account", { organizationId });
+  const result = await db("upsert_billing_account", {
+    organizationId,
+    stripeCustomerId: current.billingAccount?.stripeCustomerId || null,
+    preferredPaymentMethod: typeof body?.preferredPaymentMethod === "string" ? body.preferredPaymentMethod.slice(0, 80) : (current.billingAccount?.preferredPaymentMethod || ""),
+    billingEmail: typeof body?.billingEmail === "string" ? normalizeEmail(body.billingEmail) : (current.billingAccount?.billingEmail || ""),
+    currency: typeof body?.currency === "string" ? body.currency.toLowerCase().slice(0, 12) : (current.billingAccount?.currency || "usd"),
+    billingMetadata: current.billingAccount?.billingMetadata || {}
+  });
+  sendJson(req, res, 200, { billingAccount: result.billingAccount });
 }
 
 async function handlePlatformMemberRole(req, res, organizationId) {
