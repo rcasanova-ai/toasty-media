@@ -32,6 +32,11 @@ jobs:
           set -euo pipefail
           node scripts/remaining-work-consolidation-test.mjs
 
+      - name: Validate live Studio stability
+        run: |
+          set -euo pipefail
+          node scripts/live-studio-stability-test.mjs
+
       - name: Configure SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.TOASTY_SSH_PRIVATE_KEY }}
