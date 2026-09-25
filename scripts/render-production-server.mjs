@@ -4638,6 +4638,78 @@ const LANDING_BLOCK_TYPES = new Set([
   "listener_embed", "prerecorded_player", "replay", "share"
 ]);
 
+function safePublicHttpUrl(value, maxLength = 2000) {
+  const raw = sessionText(value, maxLength);
+  if (!raw) return "";
+  let parsed;
+  try { parsed = new URL(raw); } catch { throw httpError(400, "Event page URLs must be valid http/https URLs."); }
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
+    throw httpError(400, "Event page URLs must use http/https and cannot contain credentials.");
+  }
+  return parsed.toString();
+}
+
+function landingText(value, maxLength) {
+  return sessionText(value, maxLength);
+}
+
+function sanitizeLandingBlockContent(type, input) {
+  const raw = input && typeof input === "object" ? input : {};
+  if (type === "hero") {
+    return {
+      title: landingText(raw.title, 160),
+      shortDescription: landingText(raw.shortDescription, 500),
+      heroImageUrl: raw.heroImageUrl ? safePublicHttpUrl(raw.heroImageUrl) : "",
+      scheduledAt: landingText(raw.scheduledAt, 80),
+      timezone: landingText(raw.timezone, 80),
+      sessionType: landingText(raw.sessionType, 80)
+    };
+  }
+  if (type === "description") return { body: landingText(raw.body, 12000) };
+  if (type === "cta") {
+    const cleanCta = (cta) => {
+      if (!cta || typeof cta !== "object") return null;
+      const label = landingText(cta.label, 120);
+      const url = cta.url ? safePublicHttpUrl(cta.url, 2000) : "";
+      return label && url ? { label, url } : null;
+    };
+    return { primary: cleanCta(raw.primary), secondary: cleanCta(raw.secondary) };
+  }
+  if (type === "share") {
+    return {
+      shareTitle: landingText(raw.shareTitle, 180),
+      shareDescription: landingText(raw.shareDescription, 500)
+    };
+  }
+  if (type === "replay") return { enabled: Boolean(raw.enabled) };
+  if (type === "speakers") {
+    const items = (Array.isArray(raw.items) ? raw.items : []).slice(0, 40).map((item) => ({
+      id: landingText(item?.id, 80),
+      displayName: landingText(item?.displayName, 120),
+      sessionRole: landingText(item?.sessionRole, 120),
+      title: landingText(item?.title, 160),
+      company: landingText(item?.company, 160),
+      bioShort: landingText(item?.bioShort, 800),
+      headshotReference: item?.headshotReference ? safePublicHttpUrl(item.headshotReference, 2000) : ""
+    }));
+    return { items };
+  }
+  if (type === "sponsors") {
+    const items = (Array.isArray(raw.items) ? raw.items : []).slice(0, 40).map((item) => ({
+      id: landingText(item?.id, 80),
+      companyName: landingText(item?.companyName, 160),
+      website: item?.website ? safePublicHttpUrl(item.website, 2000) : "",
+      logoReference: item?.logoReference ? safePublicHttpUrl(item.logoReference, 2000) : ""
+    }));
+    return { items };
+  }
+  // Other currently-supported block types are not emitted by the structured editor yet.
+  // Keep them bounded and inert rather than accepting arbitrarily large nested JSON.
+  const json = JSON.stringify(raw);
+  if (json.length > 20000) throw httpError(413, "Event page block content is too large.");
+  return JSON.parse(json);
+}
+
 function sanitizeLandingBlocks(input) {
   return (Array.isArray(input) ? input : [])
     .slice(0, 40)
@@ -4645,13 +4717,7 @@ function sanitizeLandingBlocks(input) {
       const raw = block && typeof block === "object" ? block : {};
       const type = LANDING_BLOCK_TYPES.has(raw.type) ? raw.type : null;
       if (!type) return null;
-      return {
-        type,
-        position: index,
-        // Block content itself stays a bounded JSON blob — validated by shape (type allowlist) not by
-        // hand-checking every possible field, same tradeoff sanitizeSessionSetup makes for runOfShow.
-        content: raw.content && typeof raw.content === "object" ? JSON.parse(JSON.stringify(raw.content).slice(0, 20000)) : {}
-      };
+      return { type, position: index, content: sanitizeLandingBlockContent(type, raw.content) };
     })
     .filter(Boolean);
 }
