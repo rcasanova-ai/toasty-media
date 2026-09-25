@@ -930,6 +930,13 @@ const server = createServer(async (req, res) => {
     await handlePostEventArtifactCreate(req, res, session);
     return;
   }
+  if (req.method === "POST" && req.url?.startsWith("/api/artifacts/") && req.url.endsWith("/update")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "post-event-artifacts-update", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handlePostEventArtifactUpdate(req, res, session);
+    return;
+  }
 
   if (req.method === "GET" && req.url?.startsWith("/api/sessions/")) {
     if (!limit(req, res, "sessions-get", 60, 60 * 1000)) return;
@@ -4966,6 +4973,28 @@ async function handlePostEventArtifactCreate(req, res, authSession) {
     storageReference: sessionText(body.storageReference, 2000)
   });
   sendJson(req, res, 201, { artifact: result.artifact });
+}
+
+const POST_EVENT_ARTIFACT_STATUSES = new Set(["draft", "processing", "ready", "unavailable"]);
+
+// Nothing in this app auto-generates a post-event artifact — status only ever moves because the
+// organizer says so, after they've actually produced/uploaded the thing themselves. That is what keeps
+// "Available/Processing/Not generated/Unavailable" honest rather than a fabricated ready state.
+async function handlePostEventArtifactUpdate(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/artifacts/".length, -"/update".length));
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid artifact id.");
+  const existing = await db("post_event_artifact_get", { id });
+  if (!existing.artifact) throw httpError(404, "Artifact not found.");
+  const owned = await db("session_get", { id: existing.artifact.sessionId, ownerUserId: authSession.id });
+  if (!owned.session) throw httpError(404, "Artifact not found.");
+  const body = await readJson(req);
+  if (body.status !== undefined && !POST_EVENT_ARTIFACT_STATUSES.has(body.status)) throw httpError(400, "Invalid artifact status.");
+  const result = await db("post_event_artifact_update", {
+    id,
+    status: body.status,
+    storageReference: body.storageReference !== undefined ? sessionText(body.storageReference, 2000) : undefined
+  });
+  sendJson(req, res, 200, { artifact: result.artifact });
 }
 
 async function writeMediaFiles({ form, workDir }) {

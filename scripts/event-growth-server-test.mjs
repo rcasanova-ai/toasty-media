@@ -394,6 +394,19 @@ async function main() {
   assertEqual(badArtifact.status, 400, "unknown artifact type is rejected");
   const artifactList = await jsonFetch(`/api/sessions/${sessionId}/artifacts`, { cookie: organizer.cookie });
   assertEqual(artifactList.data.artifacts.length, 1, "artifacts list for the session");
+  const artifactId = artifactCreate.data.artifact.id;
+
+  const badStatus = await jsonFetch(`/api/artifacts/${artifactId}/update`, { method: "POST", cookie: organizer.cookie, body: { status: "definitely_ready" } });
+  assertEqual(badStatus.status, 400, "an unknown artifact status is rejected — never a free-text fake state");
+  const markProcessing = await jsonFetch(`/api/artifacts/${artifactId}/update`, { method: "POST", cookie: organizer.cookie, body: { status: "processing" } });
+  assertEqual(markProcessing.data.artifact.status, "processing", "organizer can move an artifact from draft to processing");
+  const markReady = await jsonFetch(`/api/artifacts/${artifactId}/update`, { method: "POST", cookie: organizer.cookie, body: { status: "ready", storageReference: "final-render-id-456" } });
+  assertEqual(markReady.data.artifact.status, "ready", "organizer can mark an artifact ready once they've actually produced it");
+  assertEqual(markReady.data.artifact.storageReference, "final-render-id-456", "storageReference updates alongside status");
+  const stolenArtifactUpdate = await jsonFetch(`/api/artifacts/${artifactId}/update`, { method: "POST", cookie: otherOrganizer.cookie, body: { status: "ready" } });
+  assertEqual(stolenArtifactUpdate.status, 404, "a different organizer cannot flip this session's artifact status");
+  const noAuthArtifactUpdate = await jsonFetch(`/api/artifacts/${artifactId}/update`, { method: "POST", body: { status: "ready" } });
+  assertEqual(noAuthArtifactUpdate.status, 401, "updating an artifact's status requires the organizer's session");
 
   console.log("\nCross-organization tenant isolation (a session/child row owned by a DIFFERENT account)");
   const stolenSpeakers = await jsonFetch(`/api/sessions/${sessionId}/speakers`, { cookie: otherOrganizer.cookie });

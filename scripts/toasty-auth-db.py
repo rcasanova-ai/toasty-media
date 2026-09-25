@@ -4393,6 +4393,29 @@ def main():
         print(json.dumps({"artifact": public_post_event_artifact(row)}))
         return
 
+    if action == "post_event_artifact_update":
+        row = conn.execute("SELECT * FROM post_event_artifacts WHERE id = ?", (payload["id"],)).fetchone()
+        if not row:
+            print(json.dumps({"artifact": None}))
+            return
+        status = payload.get("status") or row["status"]
+        storage_reference = payload.get("storageReference")
+        if storage_reference is None:
+            storage_reference = row["storage_reference"]
+        conn.execute(
+            "UPDATE post_event_artifacts SET status = ?, storage_reference = ?, updated_at = ? WHERE id = ?",
+            (status, storage_reference, utc_now(), payload["id"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM post_event_artifacts WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"artifact": public_post_event_artifact(row)}))
+        return
+
+    if action == "post_event_artifact_get":
+        row = conn.execute("SELECT * FROM post_event_artifacts WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"artifact": public_post_event_artifact(row)}))
+        return
+
     if action == "post_event_artifact_list":
         rows = conn.execute(
             "SELECT * FROM post_event_artifacts WHERE session_id = ? ORDER BY created_at DESC",
