@@ -107,7 +107,10 @@ async function register() {
         password: els.signupPassword.value
       })
     });
-    if (session.authenticated) openStudio(session.user?.branding);
+    // A fresh signup goes to the onboarding wizard, not straight into the Studio — login() below still
+    // goes straight to openStudio(), so a returning user is never re-routed through onboarding on every
+    // sign-in even if they skipped/abandoned it the first time (Settings covers the same ground either way).
+    if (session.authenticated) window.location.href = "./onboarding.html";
   } catch (error) {
     setMessage(error.message, true);
   } finally {
