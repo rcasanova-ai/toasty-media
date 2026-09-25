@@ -25,6 +25,7 @@ async function init() {
     "aiProvidersList",
     "brandProfileForm", "brandProfileName", "brandProfileTheme", "brandProfileMessage",
     "brandProfilesBody", "brandProfilesEmpty",
+    "usageLimits", "usageCounters", "usageMessage", "safetySwitches", "runtimeSafety",
     "changePasswordForm", "currentPassword", "newPassword", "passwordMessage"
   ].forEach((id) => { els[id] = document.getElementById(id); });
 
@@ -91,7 +92,8 @@ async function setCurrentOrg(orgId) {
   await Promise.all([
     loadMembers(),
     loadAiProviders(),
-    loadBrandProfiles()
+    loadBrandProfiles(),
+    loadUsage()
   ]);
 }
 
@@ -120,6 +122,73 @@ async function loadOrganization() {
   } catch (error) {
     setMessage(els.orgMessage, error.message, true);
   }
+}
+
+async function loadUsage() {
+  try {
+    const result = await studioRequest(orgPath("/usage"), { method: "GET" });
+    const limits = result.limits || {};
+    const today = result.usage?.today || {};
+    const month = result.usage?.month || {};
+    const limitRows = [
+      ["Concurrent sessions", limits.maxConcurrentSessions],
+      ["Participants / session", limits.maxParticipants],
+      ["Recording length", limits.maxRecordingMinutes != null ? `${limits.maxRecordingMinutes} min` : "—"],
+      ["Concurrent renders", limits.maxConcurrentRenders],
+      ["Render jobs / day", limits.maxRenderJobsPerDay],
+      ["Max render length", limits.maxRenderDurationSeconds != null ? `${limits.maxRenderDurationSeconds}s` : "—"],
+      ["Upload size", limits.maxUploadBytes != null ? formatBytes(limits.maxUploadBytes) : "—"],
+      ["Storage quota", limits.maxStorageBytes != null ? formatBytes(limits.maxStorageBytes) : "—"]
+    ];
+    els.usageLimits.innerHTML = limitRows.map(([label, value]) => usageMetric(label, value)).join("");
+    const usageRows = [
+      ["Sessions today", today.sessionsCreated || 0],
+      ["Sessions this month", month.sessionsCreated || 0],
+      ["Renders today", today.renderJobs || 0],
+      ["Render minutes this month", formatNumber(month.renderMinutes || 0)],
+      ["Recording minutes this month", formatNumber(month.recordingMinutes || 0)],
+      ["AI requests this month", month.aiRequests || 0],
+      ["Uploads this month", formatBytes(month.uploadsBytes || 0)]
+    ];
+    els.usageCounters.innerHTML = usageRows.map(([label, value]) => usageMetric(label, value)).join("");
+    const safety = result.safety || {};
+    els.safetySwitches.innerHTML = Object.entries(safety).map(([key, enabled]) =>
+      `<div class="safety-switch-row"><span>${escapeHtml(humanize(key))}</span><span class="badge ${enabled ? "ok" : "warn"}">${enabled ? "Enabled" : "Blocked"}</span></div>`
+    ).join("");
+    const runtime = result.runtime || {};
+    els.runtimeSafety.innerHTML = [
+      usageMetric("Active render jobs", runtime.activeRenderJobs || 0),
+      usageMetric("Active transcriptions", runtime.transcribeActive || 0),
+      usageMetric("Transcription queue", runtime.transcriptionQueueDepth || 0)
+    ].join("");
+    setMessage(els.usageMessage, `Plan: ${result.plan || "demo"}. Server-side limits are active.`, false, true);
+  } catch (error) {
+    els.usageLimits.innerHTML = "";
+    els.usageCounters.innerHTML = "";
+    els.safetySwitches.innerHTML = "";
+    els.runtimeSafety.innerHTML = "";
+    setMessage(els.usageMessage, error.message || "Could not load usage.", true);
+  }
+}
+
+function usageMetric(label, value) {
+  return `<div class="usage-metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value ?? "—")}</strong></div>`;
+}
+
+function humanize(value) {
+  return String(value || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (m) => m.toUpperCase());
+}
+
+function formatBytes(bytes) {
+  const n = Number(bytes || 0);
+  if (!Number.isFinite(n) || n <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const index = Math.min(units.length - 1, Math.floor(Math.log(n) / Math.log(1024)));
+  return `${(n / Math.pow(1024, index)).toFixed(index < 2 ? 0 : 1)} ${units[index]}`;
+}
+
+function formatNumber(value) {
+  return Number(value || 0).toFixed(1).replace(/\.0$/, "");
 }
 
 function planBadgeClass(plan) {

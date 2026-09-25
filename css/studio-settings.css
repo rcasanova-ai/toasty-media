@@ -357,3 +357,12 @@ table.settings-table select {
   .settings-row.two-col, .settings-row.three-col, .plan-grid { grid-template-columns: 1fr; }
   .provider-row { grid-template-columns: 1fr; }
 }
+
+.usage-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.usage-metric{border:1px solid var(--public-line);border-radius:8px;padding:12px;background:rgba(255,255,255,.025);display:flex;flex-direction:column;gap:6px}
+.usage-metric span{color:var(--public-muted);font-size:.78rem}
+.usage-metric strong{font-size:1.05rem}
+.safety-switch-list{display:flex;flex-direction:column;gap:8px}
+.safety-switch-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+.safety-switch-row:last-child{border-bottom:0}
+@media(max-width:720px){.usage-grid{grid-template-columns:1fr}}

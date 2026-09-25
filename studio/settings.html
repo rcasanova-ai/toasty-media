@@ -31,6 +31,7 @@
           <button data-panel="organization" class="is-active" type="button">Organization</button>
           <button data-panel="members" type="button">Members</button>
           <button data-panel="billing" type="button">Billing</button>
+          <button data-panel="usage" type="button">Usage & Safety</button>
           <button data-panel="ai-providers" type="button">AI Providers</button>
           <button data-panel="brand-profiles" type="button">Brand Profiles</button>
           <button data-panel="security" type="button">Security</button>
@@ -205,6 +206,30 @@
                 <tbody id="brandProfilesBody"></tbody>
               </table>
               <div id="brandProfilesEmpty" class="empty-state" hidden>No brand profiles yet — the organization uses its default theme.</div>
+            </div>
+          </section>
+
+          <!-- Usage & Safety -->
+          <section class="settings-panel" data-panel="usage">
+            <h1>Usage & Safety</h1>
+            <div class="settings-card">
+              <h2>Plan limits</h2>
+              <p class="hint">These are enforced server-side. Hitting a limit blocks the expensive action instead of allowing surprise spend.</p>
+              <div id="usageLimits" class="usage-grid"></div>
+            </div>
+            <div class="settings-card">
+              <h2>Current usage</h2>
+              <div id="usageCounters" class="usage-grid"></div>
+              <p class="settings-message" id="usageMessage" role="status"></p>
+            </div>
+            <div class="settings-card">
+              <h2>Platform safety switches</h2>
+              <p class="hint">Read-only here. These switches are controlled at the server environment level so they remain available even if the UI is broken.</p>
+              <div id="safetySwitches" class="safety-switch-list"></div>
+            </div>
+            <div class="settings-card">
+              <h2>Runtime</h2>
+              <div id="runtimeSafety" class="usage-grid"></div>
             </div>
           </section>
 

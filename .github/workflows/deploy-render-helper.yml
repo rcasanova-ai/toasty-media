@@ -27,6 +27,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate server and cost-safety regression
+        run: |
+          set -euo pipefail
+          node --check scripts/render-production-server.mjs
+          node scripts/cost-safety-architecture-test.mjs
+
       - name: Configure SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.TOASTY_RENDER_SSH_PRIVATE_KEY || secrets.TOASTY_SSH_PRIVATE_KEY }}

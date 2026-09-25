@@ -58,7 +58,7 @@ function render(){
   el("settingsNav").href=`./settings.html?${orgParam}`;
   el("manageSettingsBtn").href=`./settings.html?${orgParam}`;
   el("orgAdminLink").href=`./settings.html?${orgParam}`;
-  [["membersLink","members"],["billingLink","billing"],["aiLink","ai-providers"],["brandLink","brand-profiles"],["securityLink","security"]].forEach(([id,hash])=>{el(id).href=`./settings.html?${orgParam}#${hash}`;});
+  [["membersLink","members"],["billingLink","billing"],["usageLink","usage"],["aiLink","ai-providers"],["brandLink","brand-profiles"],["securityLink","security"]].forEach(([id,hash])=>{el(id).href=`./settings.html?${orgParam}#${hash}`;});
 
   const active=state.sessions.filter(isLive);
   const ended=state.sessions.filter(s=>String(s.status||"").toUpperCase()==="ENDED");
