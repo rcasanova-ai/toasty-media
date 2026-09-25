@@ -600,6 +600,15 @@ def migrate(conn):
     # live_sessions gains an ADDITIONAL nullable organization_id below rather than replacing owner_user_id,
     # so every route written against the old column keeps working unchanged during the tenancy rollout.
     ensure_columns(conn, "users", {"email_verified_at": "TEXT"})
+    # Stamped on every password reset/change. readSession (render-production-server.mjs) rejects any
+    # cookie issued before this timestamp — since every request already re-fetches the live user row (see
+    # readSession's existing db("get_user_by_id") call), this is enough to invalidate every outstanding
+    # session on a password change/reset with no separate session-store needed.
+    ensure_columns(conn, "users", {"password_changed_at": "TEXT"})
+    # The actual invalidation mechanism (readSession compares this, not password_changed_at's timestamp —
+    # a same-second timestamp tie between a password change and a legitimate new login is a real,
+    # reproducible race with second-precision comparisons; an incrementing version has no such tie).
+    ensure_columns(conn, "users", {"password_version": "INTEGER NOT NULL DEFAULT 1"})
 
     conn.execute(
         """
@@ -844,6 +853,8 @@ def public_user(row):
         "branding": user_branding(row),
         "endCard": user_end_card(row),
         "emailVerifiedAt": row["email_verified_at"] if _row_has(row, "email_verified_at") else None,
+        "passwordChangedAt": row["password_changed_at"] if _row_has(row, "password_changed_at") else None,
+        "passwordVersion": row["password_version"] if _row_has(row, "password_version") else 1,
     }
 
 
@@ -2825,9 +2836,24 @@ def main():
             "UPDATE password_reset_tokens SET consumed_at = ? WHERE user_id = ? AND consumed_at IS NULL",
             (now, row["user_id"]),
         )
-        conn.execute("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?", (payload["newPasswordHash"], now, row["user_id"]))
+        conn.execute(
+            "UPDATE users SET password_hash = ?, password_changed_at = ?, password_version = password_version + 1, updated_at = ? WHERE id = ?",
+            (payload["newPasswordHash"], now, now, row["user_id"]),
+        )
         conn.commit()
         user_row = conn.execute("SELECT * FROM users WHERE id = ?", (row["user_id"],)).fetchone()
+        print(json.dumps({"user": public_user(user_row)}))
+        return
+
+    # Authenticated "change password" (current password already verified in Node before this call).
+    if action == "change_password":
+        now = utc_now()
+        conn.execute(
+            "UPDATE users SET password_hash = ?, password_changed_at = ?, password_version = password_version + 1, updated_at = ? WHERE id = ?",
+            (payload["newPasswordHash"], now, now, payload["id"]),
+        )
+        conn.commit()
+        user_row = conn.execute("SELECT * FROM users WHERE id = ?", (payload["id"],)).fetchone()
         print(json.dumps({"user": public_user(user_row)}))
         return
 

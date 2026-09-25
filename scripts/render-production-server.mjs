@@ -87,6 +87,122 @@ const TOASTY_SOLANA_RPC_URL = process.env.TOASTY_SOLANA_RPC_URL || "https://api.
 const TOASTY_SOLANA_PAYER_KEYPAIR = process.env.TOASTY_SOLANA_PAYER_KEYPAIR || process.env.SVM_KEYPAIR_PATH || "";
 const TOASTY_MICROTASK_RECIPIENT = process.env.TOASTY_MICROTASK_RECIPIENT || process.env.SVM_PAY_TO || "";
 const TOASTY_MICROTASK_RESPONSE_PRICE = Number(process.env.TOASTY_MICROTASK_RESPONSE_PRICE || 0.10);
+
+// ---- Accounts / Organizations / Billing config ----
+// Email: dev/mock transport (console-logged, never actually sent) unless RESEND_API_KEY is set — same
+// "env var present = real integration, absent = safe local default" pattern as ANTHROPIC_API_KEY/
+// DEEPSEEK_API_KEY above. Resend's plain HTTPS API needs no SDK, matching this file's zero-dependency
+// deploy model (a single scp'd file — see docs/DEPLOYMENT.md).
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+const EMAIL_FROM = process.env.TOASTY_EMAIL_FROM || "Toasty Studio <studio@toasty.media>";
+const APP_BASE_URL = process.env.TOASTY_APP_BASE_URL || "https://toasty.media";
+const EMAIL_VERIFICATION_TOKEN_TTL_MS = Number(process.env.TOASTY_EMAIL_VERIFICATION_TTL_MS || 24 * 60 * 60 * 1000);
+const PASSWORD_RESET_TOKEN_TTL_MS = Number(process.env.TOASTY_PASSWORD_RESET_TTL_MS || 60 * 60 * 1000);
+// Per-IP signup throttle is the existing `limit(..., "register", ...)` call; this is a SEPARATE, tighter
+// per-email throttle so one address can't be used to spam verification/reset emails from many IPs.
+const EMAIL_ACTION_WINDOW_MS = 15 * 60 * 1000;
+const EMAIL_ACTION_MAX_PER_WINDOW = 3;
+const emailActionBuckets = new Map();
+
+// ---- Solana billing (organization subscriptions) ----
+// Deliberately separate constants from the expert-marketplace's TOASTY_SOLANA_* above even though several
+// resolve to the same env vars by default — organization billing and expert-discovery x402 payments are
+// different products that happen to share one Solana wallet/network in simple deployments, and either can
+// be pointed at a different wallet later without touching the other.
+const BILLING_SOLANA_RECIPIENT = process.env.TOASTY_BILLING_SOLANA_RECIPIENT || TOASTY_EXPERT_DISCOVERY_RECIPIENT;
+const BILLING_SOLANA_NETWORK = process.env.TOASTY_SOLANA_NETWORK || "solana-devnet";
+const BILLING_USDC_MINT = process.env.TOASTY_USDC_MINT || "devnet-usdc";
+const BILLING_USDT_MINT = process.env.TOASTY_USDT_MINT || "";
+const BILLING_SOLANA_RPC_URL = process.env.TOASTY_SOLANA_RPC_URL || "https://api.devnet.solana.com";
+const PAYMENT_INTENT_TTL_MS = Number(process.env.TOASTY_PAYMENT_INTENT_TTL_MS || 15 * 60 * 1000);
+
+// ---- Stripe billing ----
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
+const STRIPE_PRICE_IDS = {
+  creator: process.env.STRIPE_PRICE_CREATOR || "",
+  pro: process.env.STRIPE_PRICE_PRO || ""
+};
+
+// ---- Plans / entitlements ----
+// The ONE place plan limits are defined — every enforcement point (createSession, startRecording,
+// runRender, useAi, inviteMember, etc.) reads from here via can()/planLimits(), never a hard-coded number
+// scattered in a route handler. DEMO's numbers are deliberately strict per the brief: a demo account must
+// never be able to create meaningful infrastructure cost.
+const PLAN_LIMITS = Object.freeze({
+  demo: Object.freeze({
+    aiRequiresByok: true,
+    maxConcurrentSessions: 1,
+    maxSessionsPerDay: 3,
+    maxSessionsPerMonth: 20,
+    maxParticipants: 4,
+    maxRecordingMinutes: 15,
+    maxConcurrentRenders: 1,
+    maxRenderJobsPerDay: 3,
+    maxRenderDurationSeconds: 120,
+    maxSourceFileBytes: 50 * 1024 * 1024,
+    maxStorageBytes: 500 * 1024 * 1024,
+    maxUploadBytes: 50 * 1024 * 1024,
+    maxUploadsBytesPerMonth: 500 * 1024 * 1024,
+    rtmpEnabled: false,
+    customDomainsEnabled: false,
+    maxMembers: 1
+  }),
+  creator: Object.freeze({
+    aiRequiresByok: true,
+    maxConcurrentSessions: 2,
+    maxSessionsPerDay: 20,
+    maxSessionsPerMonth: 200,
+    maxParticipants: 6,
+    maxRecordingMinutes: 120,
+    maxConcurrentRenders: 2,
+    maxRenderJobsPerDay: 20,
+    maxRenderDurationSeconds: 900,
+    maxSourceFileBytes: MAX_FILE_BYTES,
+    maxStorageBytes: 20 * 1024 * 1024 * 1024,
+    maxUploadBytes: MAX_UPLOAD_BYTES,
+    maxUploadsBytesPerMonth: 20 * 1024 * 1024 * 1024,
+    rtmpEnabled: true,
+    customDomainsEnabled: false,
+    maxMembers: 5
+  }),
+  pro: Object.freeze({
+    aiRequiresByok: true,
+    maxConcurrentSessions: 5,
+    maxSessionsPerDay: 100,
+    maxSessionsPerMonth: 2000,
+    maxParticipants: 8,
+    maxRecordingMinutes: 480,
+    maxConcurrentRenders: 4,
+    maxRenderJobsPerDay: 100,
+    maxRenderDurationSeconds: 3600,
+    maxSourceFileBytes: MAX_FILE_BYTES,
+    maxStorageBytes: 200 * 1024 * 1024 * 1024,
+    maxUploadBytes: MAX_UPLOAD_BYTES,
+    maxUploadsBytesPerMonth: 200 * 1024 * 1024 * 1024,
+    rtmpEnabled: true,
+    customDomainsEnabled: true,
+    maxMembers: 25
+  }),
+  enterprise: Object.freeze({
+    aiRequiresByok: true,
+    maxConcurrentSessions: 20,
+    maxSessionsPerDay: 1000,
+    maxSessionsPerMonth: 20000,
+    maxParticipants: 12,
+    maxRecordingMinutes: 1440,
+    maxConcurrentRenders: 10,
+    maxRenderJobsPerDay: 1000,
+    maxRenderDurationSeconds: 14400,
+    maxSourceFileBytes: MAX_FILE_BYTES,
+    maxStorageBytes: 1024 * 1024 * 1024 * 1024,
+    maxUploadBytes: MAX_UPLOAD_BYTES,
+    maxUploadsBytesPerMonth: 1024 * 1024 * 1024 * 1024,
+    rtmpEnabled: true,
+    customDomainsEnabled: true,
+    maxMembers: 500
+  })
+});
 const TOASTY_EXPERTS = Object.freeze([
   { id: "exp-nadia-maclean", name: "Nadia MacLean", headline: "Canadian soccer business analyst", location: "Toronto, Canada", languages: ["English", "French"], categories: ["Soccer/football", "Media", "Business strategy"], topics: ["canadian premier league", "canada soccer", "soccer business", "sponsorship", "club operations"], sessionPrice: 425, currency: "USDC", verificationState: "Credentials reviewed", reputationScore: 94, completedEngagements: 18 },
   { id: "exp-julien-roche", name: "Julien Roche", headline: "Football journalist covering Canada and CONCACAF", location: "Montreal, Canada", languages: ["English", "French"], categories: ["Soccer/football", "Media"], topics: ["canadian premier league", "concacaf", "canada soccer", "player development", "world cup"], sessionPrice: 325, currency: "USDC", verificationState: "Profile reviewed", reputationScore: 91, completedEngagements: 31 },
@@ -153,6 +269,31 @@ const server = createServer(async (req, res) => {
     if (!requireCsrf(req, res)) return;
     clearSession(req, res);
     sendJson(req, res, 200, { authenticated: false });
+    return;
+  }
+  if (req.method === "POST" && req.url === "/auth/verify-email") {
+    if (!requireCsrf(req, res) || !limit(req, res, "verify-email", 20, 15 * 60 * 1000)) return;
+    await handleVerifyEmail(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/auth/verify-email/resend") {
+    if (!requireCsrf(req, res) || !limit(req, res, "verify-email-resend", 5, 15 * 60 * 1000)) return;
+    await handleResendVerification(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/auth/forgot-password") {
+    if (!requireCsrf(req, res) || !limit(req, res, "forgot-password", 6, 15 * 60 * 1000)) return;
+    await handleForgotPassword(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/auth/reset-password") {
+    if (!requireCsrf(req, res) || !limit(req, res, "reset-password", 10, 15 * 60 * 1000)) return;
+    await handleResetPassword(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/auth/change-password") {
+    if (!requireCsrf(req, res) || !limit(req, res, "change-password", 10, 15 * 60 * 1000)) return;
+    await handleChangePassword(req, res);
     return;
   }
   if (req.method === "GET" && req.url === "/integrations/google-drive/status") {
@@ -1331,8 +1472,35 @@ async function handleRegister(req, res) {
   const result = await db("create_user", { id: userId, name, email, passwordHash });
   if (result.error === "duplicate_email") return sendJson(req, res, 409, { error: "An account with that email already exists." });
   if (!result.user) return sendJson(req, res, 500, { error: "Account could not be created." });
+  // Every new user gets exactly one organization on sign-up (owner role) — see the brief's core account
+  // model. Slug collisions retry with a short random suffix rather than failing signup outright.
+  await createDefaultOrganizationForUser(result.user);
+  await sendEmailVerification(result.user).catch((error) => {
+    console.error("[Toasty Auth] Failed to send verification email", error);
+  });
   setSession(req, res, result.user);
   sendJson(req, res, 201, { authenticated: true, user: result.user });
+}
+
+async function createDefaultOrganizationForUser(user) {
+  const base = slugify(user.name || user.email.split("@")[0] || "studio");
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const slug = attempt === 0 ? base : `${base}-${randomBytes(3).toString("hex")}`;
+    const result = await db("create_organization", {
+      id: randomUUID(),
+      name: `${user.name || "My"}'s Studio`,
+      slug,
+      ownerUserId: user.id,
+      membershipId: randomUUID()
+    });
+    if (result.organization) return result.organization;
+    if (result.error !== "duplicate_slug") throw httpError(500, "Could not create your organization.");
+  }
+  throw httpError(500, "Could not create your organization.");
+}
+
+function slugify(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "studio";
 }
 
 async function handleLogin(req, res) {
@@ -1350,6 +1518,162 @@ async function handleLogin(req, res) {
   const user = login.user || result.user;
   setSession(req, res, user);
   sendJson(req, res, 200, { authenticated: true, user });
+}
+
+// ---- Email provider ----
+// One abstraction, two transports: Resend's plain HTTPS API when RESEND_API_KEY is set, otherwise a dev
+// transport that logs the email instead of sending it (per the brief's "use a mock transport locally"
+// requirement). Callers never touch the transport directly — sendEmailVerification/sendPasswordReset/
+// sendOrganizationInvite are the only entry points, so swapping providers later stays a one-function change.
+async function sendEmail({ to, subject, html }) {
+  if (!RESEND_API_KEY) {
+    console.log(`[Toasty Email:DEV] to=${to} subject=${JSON.stringify(subject)}\n${html}`);
+    return { ok: true, transport: "dev" };
+  }
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject, html })
+  });
+  if (!response.ok) {
+    console.error("[Toasty Email] Resend send failed", response.status, await response.text().catch(() => ""));
+    return { ok: false, transport: "resend" };
+  }
+  return { ok: true, transport: "resend" };
+}
+
+function emailActionAllowed(email) {
+  const now = Date.now();
+  const key = normalizeEmail(email);
+  const bucket = (emailActionBuckets.get(key) || []).filter((time) => now - time < EMAIL_ACTION_WINDOW_MS);
+  bucket.push(now);
+  emailActionBuckets.set(key, bucket);
+  return bucket.length <= EMAIL_ACTION_MAX_PER_WINDOW;
+}
+
+async function sendEmailVerification(user) {
+  const rawToken = randomBytes(32).toString("base64url");
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  await db("create_email_verification_token", {
+    id: randomUUID(),
+    userId: user.id,
+    tokenHash,
+    expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TOKEN_TTL_MS).toISOString()
+  });
+  const verifyUrl = `${APP_BASE_URL}/studio/verify-email.html?token=${rawToken}`;
+  await sendEmail({
+    to: user.email,
+    subject: "Verify your Toasty Studio email",
+    html: `<p>Hi ${escapeHtml(user.name || "there")},</p><p>Confirm your email to finish setting up Toasty Studio:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p><p>This link expires in 24 hours.</p>`
+  });
+}
+
+async function sendPasswordResetEmail(user) {
+  const rawToken = randomBytes(32).toString("base64url");
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  await db("create_password_reset_token", {
+    id: randomUUID(),
+    userId: user.id,
+    tokenHash,
+    expiresAt: new Date(Date.now() + PASSWORD_RESET_TOKEN_TTL_MS).toISOString()
+  });
+  const resetUrl = `${APP_BASE_URL}/studio/reset-password.html?token=${rawToken}`;
+  await sendEmail({
+    to: user.email,
+    subject: "Reset your Toasty Studio password",
+    html: `<p>Hi ${escapeHtml(user.name || "there")},</p><p>Someone asked to reset the password on this account. If that was you:</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>This link expires in 1 hour and can only be used once. If you didn't request this, you can ignore this email.</p>`
+  });
+}
+
+async function sendOrganizationInviteEmail({ toEmail, inviterName, organizationName, role }) {
+  await sendEmail({
+    to: toEmail,
+    subject: `You've been invited to ${organizationName} on Toasty Studio`,
+    html: `<p>${escapeHtml(inviterName || "A teammate")} invited you to join <strong>${escapeHtml(organizationName)}</strong> on Toasty Studio as ${escapeHtml(role)}.</p><p><a href="${APP_BASE_URL}/studio/">Sign in or create an account</a> with this email address to accept.</p>`
+  });
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+}
+
+async function handleVerifyEmail(req, res) {
+  const body = await readJson(req);
+  const rawToken = String(body?.token || "");
+  if (!rawToken) return sendJson(req, res, 400, { error: "Missing verification token." });
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  const result = await db("consume_email_verification_token", { tokenHash });
+  if (result.error === "invalid_token") return sendJson(req, res, 400, { error: "This verification link is invalid or was already used." });
+  if (result.error === "expired_token") return sendJson(req, res, 400, { error: "This verification link has expired. Request a new one." });
+  if (!result.user) return sendJson(req, res, 500, { error: "Could not verify email." });
+  sendJson(req, res, 200, { ok: true, user: result.user });
+}
+
+async function handleResendVerification(req, res) {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  if (session.emailVerifiedAt) return sendJson(req, res, 200, { ok: true, alreadyVerified: true });
+  if (!emailActionAllowed(session.email)) return sendJson(req, res, 429, { error: "Too many verification emails requested. Try again later." });
+  await sendEmailVerification(session);
+  sendJson(req, res, 200, { ok: true });
+}
+
+// Neutral response ALWAYS — per the brief's explicit anti-enumeration requirement, a caller can never
+// tell from this response whether the email exists, is unverified, or is suspended.
+async function handleForgotPassword(req, res) {
+  const body = await readJson(req);
+  const email = normalizeEmail(body?.email);
+  const neutral = { ok: true, message: "If an account exists for that email, a reset link has been sent." };
+  if (!email || !EMAIL_PATTERN.test(email)) return sendJson(req, res, 200, neutral);
+  if (!emailActionAllowed(email)) return sendJson(req, res, 200, neutral);
+  const result = await db("get_user_by_email", { email });
+  if (result.user && result.user.status === "active") {
+    await sendPasswordResetEmail(result.user).catch((error) => {
+      console.error("[Toasty Auth] Failed to send password reset email", error);
+    });
+  }
+  sendJson(req, res, 200, neutral);
+}
+
+async function handleResetPassword(req, res) {
+  const body = await readJson(req);
+  const rawToken = String(body?.token || "");
+  const newPassword = String(body?.newPassword || "");
+  if (!rawToken || !newPassword) return sendJson(req, res, 400, { error: "Missing token or new password." });
+  if (newPassword.length < 10) return sendJson(req, res, 400, { error: "Use a password with at least 10 characters." });
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  const newPasswordHash = await hashPassword(newPassword);
+  const result = await db("consume_password_reset_token", { tokenHash, newPasswordHash });
+  if (result.error === "invalid_token") return sendJson(req, res, 400, { error: "This reset link is invalid or was already used." });
+  if (result.error === "expired_token") return sendJson(req, res, 400, { error: "This reset link has expired. Request a new one." });
+  if (!result.user) return sendJson(req, res, 500, { error: "Could not reset password." });
+  // The reset itself already invalidates every existing session (readSession rejects cookies issued
+  // before passwordChangedAt) — clear THIS browser's cookie too so it doesn't sit around presenting as
+  // logged-in until its next request silently 401s.
+  clearSession(req, res);
+  sendJson(req, res, 200, { ok: true });
+}
+
+async function handleChangePassword(req, res) {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  const body = await readJson(req);
+  const currentPassword = String(body?.currentPassword || "");
+  const newPassword = String(body?.newPassword || "");
+  if (!currentPassword || !newPassword) return sendJson(req, res, 400, { error: "Current and new password are required." });
+  if (newPassword.length < 10) return sendJson(req, res, 400, { error: "Use a password with at least 10 characters." });
+  const stored = await db("get_user_by_email", { email: session.email });
+  if (!(await verifyPassword(currentPassword, stored.passwordHash))) {
+    return sendJson(req, res, 401, { error: "Current password is incorrect." });
+  }
+  const newPasswordHash = await hashPassword(newPassword);
+  const result = await db("change_password", { id: session.id, newPasswordHash });
+  if (!result.user) return sendJson(req, res, 500, { error: "Could not change password." });
+  // Re-issue a fresh cookie for THIS browser, carrying the just-bumped passwordVersion, so the user who
+  // just changed their own password isn't immediately logged out by their own change — every OTHER
+  // outstanding session/device (still carrying the OLD version) is invalidated by readSession's check.
+  setSession(req, res, result.user);
+  sendJson(req, res, 200, { ok: true, user: result.user });
 }
 
 function authConfigured() {
@@ -1377,6 +1701,11 @@ function setSession(req, res, user) {
     name: user.name,
     email: user.email,
     status: user.status,
+    // Captured at issue time, compared against the LIVE value in readSession — a plain integer equality
+    // check has no timestamp-precision race (a same-second password change and a fresh login can never
+    // tie the way two second-rounded Date.now() reads can; the new login simply reads the already-bumped
+    // version and matches).
+    passwordVersion: Number(user.passwordVersion) || 1,
     expires
   })).toString("base64url");
   const signature = sign(payload);
@@ -1407,6 +1736,14 @@ async function readSession(req) {
     if (Number(session.expires) <= Math.floor(Date.now() / 1000)) return null;
     const result = await db("get_user_by_id", { id: session.id });
     if (!result.user || result.user.status !== "active") return null;
+    // A cookie carrying an OLD passwordVersion is a stale session from before the account's most recent
+    // password change/reset and must not still work — this is the entire "invalidate active sessions on
+    // password change" mechanism (no separate session store needed: every request already re-fetches the
+    // live user row above). session.passwordVersion is absent on cookies set before this field existed;
+    // treat that as version 1 (the default for every account that has never changed its password) rather
+    // than breaking every pre-existing session on deploy.
+    const cookieVersion = Number.isFinite(session.passwordVersion) ? session.passwordVersion : 1;
+    if (cookieVersion !== (Number(result.user.passwordVersion) || 1)) return null;
     return result.user;
   } catch {
     return null;
@@ -1704,7 +2041,10 @@ function parseCookies(header) {
 // Errors the auth-db script returns as legitimate, expected results (not a storage/DB failure) — callers
 // branch on result.error themselves for these. Anything else in result.error means the Python side threw
 // (see toasty-auth-db.py's own try/except) and really is a storage failure.
-const DB_EXPECTED_ERRORS = new Set(["duplicate_email", "kicked", "full", "invalid_mode", "invalid_brand", "brand_forbidden"]);
+const DB_EXPECTED_ERRORS = new Set([
+  "duplicate_email", "kicked", "full", "invalid_mode", "invalid_brand", "brand_forbidden",
+  "duplicate_slug", "already_member", "invalid_token", "expired_token", "duplicate_reference", "duplicate_signature"
+]);
 
 async function db(action, values = {}) {
   const result = await runJson("python3", [AUTH_DB_HELPER], { action, dbPath: AUTH_DB_PATH, ...values });
