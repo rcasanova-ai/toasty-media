@@ -234,6 +234,25 @@
               <p class="settings-message" id="usageMessage" role="status"></p>
             </div>
             <div class="settings-card">
+              <h2>AI usage on your keys</h2>
+              <p class="hint">Provider-reported model usage tied to your organization's AI keys, broken down by model and session. Estimated cost is informational and may differ from your provider's final invoice.</p>
+              <div id="orgAiUsageCards" class="usage-grid"></div>
+              <h3>By provider / model</h3>
+              <div style="overflow:auto">
+                <table class="settings-table">
+                  <thead><tr><th>Provider / model</th><th>Calls</th><th>Input</th><th>Output</th><th>Total tokens</th><th>Est. cost</th></tr></thead>
+                  <tbody id="orgAiModels"></tbody>
+                </table>
+              </div>
+              <h3>Compare sessions</h3>
+              <div style="overflow:auto">
+                <table class="settings-table">
+                  <thead><tr><th>Session</th><th>Calls</th><th>Input</th><th>Output</th><th>Total tokens</th><th>Est. cost</th><th>vs avg</th></tr></thead>
+                  <tbody id="orgAiSessions"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="settings-card">
               <h2>Platform safety switches</h2>
               <p class="hint">Read-only here. These switches are controlled at the server environment level so they remain available even if the UI is broken.</p>
               <div id="safetySwitches" class="safety-switch-list"></div>

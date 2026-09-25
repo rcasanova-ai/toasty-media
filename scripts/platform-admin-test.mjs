@@ -24,6 +24,10 @@ function scalar(sql){const r=spawnSync("python3",["-c",`import sqlite3,sys
 c=sqlite3.connect(${JSON.stringify(dbPath)})
 r=c.execute(sys.argv[1]).fetchone()
 print(r[0] if r else "")`,sql],{encoding:"utf8"});if(r.status!==0)throw new Error(r.stderr);return r.stdout.trim();}
+function execSql(sql,params=[]){const r=spawnSync("python3",["-c",`import sqlite3,sys,json
+c=sqlite3.connect(${JSON.stringify(dbPath)})
+c.execute(sys.argv[1],json.loads(sys.argv[2]))
+c.commit()`,sql,JSON.stringify(params)],{encoding:"utf8"});if(r.status!==0)throw new Error(r.stderr);}
 
 const server=spawn("node",[join(ROOT,"scripts","render-production-server.mjs")],{
   env:{...process.env,TOASTY_RENDER_PORT:String(PORT),TOASTY_AUTH_DB:dbPath,TOASTY_AUTH_DB_HELPER:helper,TOASTY_SESSION_SECRET:"platform-admin-test",DEEPSEEK_API_KEY:"founder-test-key",RESEND_API_KEY:""},
@@ -103,6 +107,27 @@ async function main(){
 
   const customerSession=await req("/api/sessions",{method:"POST",cookie:second.cookie,body:{roomId:"customer-live",organizationId:customerOrg.id,title:"Customer live"}});
   assert(customerSession.status===200,"customer can create its own session before operator intervention");
+  const customerSession2=await req("/api/sessions",{method:"POST",cookie:second.cookie,body:{roomId:"customer-two",organizationId:customerOrg.id,title:"Customer comparison"}});
+  assert(customerSession2.status===200,"customer can create a second session for AI usage comparison");
+
+  const now=new Date().toISOString();
+  execSql(
+    "INSERT INTO ai_usage_events (id,organization_id,session_id,occurred_at,provider,model,feature,input_tokens,output_tokens,total_tokens,estimated_cost,latency_ms,metadata_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    ["ai_test_1",customerOrg.id,customerSession.data.session.id,now,"deepseek","deepseek-chat","moxie_live_producer",100,50,150,0.001,320,"{}",now]
+  );
+  execSql(
+    "INSERT INTO ai_usage_events (id,organization_id,session_id,occurred_at,provider,model,feature,input_tokens,output_tokens,total_tokens,estimated_cost,latency_ms,metadata_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    ["ai_test_2",customerOrg.id,customerSession2.data.session.id,now,"deepseek","deepseek-reasoner","moxie_session_research",300,100,400,0.004,640,"{}",now]
+  );
+  const usageDetail=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/detail`,{cookie:founder.cookie});
+  assert(usageDetail.data.aiUsageReport?.totals?.totalTokens===550,"platform admin gets organization-wide AI token totals");
+  assert(usageDetail.data.aiUsageReport?.bySession?.length>=2,"platform admin gets AI usage compared across sessions");
+  assert(usageDetail.data.aiUsageReport?.byProviderModel?.some(r=>r.model==="deepseek-chat"),"platform admin gets provider/model breakdown");
+
+  const customerUsage=await req(`/api/organizations/${customerOrg.id}/usage`,{cookie:second.cookie});
+  assert(customerUsage.status===200 && customerUsage.data.aiUsageReport?.totals?.totalTokens===550,"organization owner sees AI usage on their own keys");
+  assert(customerUsage.data.aiUsageReport?.bySession?.some(r=>r.sessionId===customerSession.data.session.id && r.totalTokens===150),"organization usage compares individual sessions");
+
   const ended=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/sessions/${customerSession.data.session.id}/end`,{method:"POST",cookie:founder.cookie,body:{}});
   assert(ended.status===200 && ended.data.session.status==="ENDED","platform admin can end a customer session");
 
