@@ -9,6 +9,8 @@ import { execFile, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
+import { lookup as dnsLookup } from "node:dns/promises";
+import { isIPv4, isIPv6 } from "node:net";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -397,6 +399,15 @@ const server = createServer(async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
     await handleInviteAccept(req, res, session);
+    return;
+  }
+  // Tightly rate-limited: this is an outbound server-side fetch of a caller-supplied URL, the most
+  // expensive/abusable route in this file — see the SSRF protections on handleAnalyzeWebsite itself.
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/onboarding/analyze-website")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "onboarding-analyze", 8, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleAnalyzeWebsite(req, res, session);
     return;
   }
   // ---- BYOK: AI provider credentials ----
@@ -2247,6 +2258,166 @@ async function handleBrandProfileDelete(req, res, session) {
   if (!brandProfile) return;
   await db("delete_brand_profile", { id: brandProfile.id });
   sendJson(req, res, 200, { ok: true });
+}
+
+// ---- Onboarding: website analysis ----
+// Fetches a URL the org owner/admin supplies and extracts basic branding signals (title, description,
+// theme color, logo/favicon, dominant colors) with no AI call involved — the onboarding wizard runs this
+// step BEFORE AI Setup, so it has to work with zero AI provider connected. Because this is "fetch a URL a
+// user gave us" from the server, it's a textbook SSRF vector: every resolved IP (the initial hostname AND
+// each redirect hop) is checked against private/loopback/link-local/reserved ranges before the request is
+// made, redirects are followed manually (never automatically, so a redirect to an internal address can't
+// slip past the check), and the response is both time- and size-capped.
+const PRIVATE_IPV4_RANGES = [
+  [0x00000000, 8], [0x0A000000, 8], [0x7F000000, 8], [0xA9FE0000, 16], [0xAC100000, 12],
+  [0xC0A80000, 16], [0xC0000000, 24], [0xC0000200, 24], [0xC6336400, 24], [0xE0000000, 4], [0xF0000000, 4]
+];
+
+function ipv4ToInt(ip) {
+  const parts = ip.split(".").map(Number);
+  return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+function isPrivateIpv4(ip) {
+  const value = ipv4ToInt(ip);
+  return PRIVATE_IPV4_RANGES.some(([base, prefix]) => {
+    const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+    return (value & mask) === (base & mask);
+  });
+}
+
+function isPrivateIpv6(address) {
+  const normalized = address.toLowerCase();
+  if (normalized === "::1" || normalized === "::") return true;
+  if (normalized.startsWith("::ffff:")) {
+    const mapped = normalized.slice(7);
+    if (isIPv4(mapped)) return isPrivateIpv4(mapped);
+  }
+  // fc00::/7 (unique local) and fe80::/10 (link-local) — checked by their leading hex groups.
+  return /^(fc|fd|fe[89ab])/.test(normalized);
+}
+
+function isPrivateAddress(address) {
+  if (isIPv4(address)) return isPrivateIpv4(address);
+  if (isIPv6(address)) return isPrivateIpv6(address);
+  return true; // unrecognized shape — refuse rather than guess
+}
+
+// Off by default in every real deployment — exists ONLY so scripts/accounts-onboarding-server-test.mjs can
+// point this route at a local mock "website" server and exercise the full parsing happy path, the same way
+// scripts/accounts-solana-server-test.mjs points TOASTY_SOLANA_RPC_URL at a local mock RPC. Never set this
+// outside a test process.
+const ONBOARDING_ANALYSIS_ALLOW_PRIVATE = process.env.TOASTY_ONBOARDING_ANALYSIS_ALLOW_PRIVATE === "1";
+
+async function assertPublicHostname(hostname) {
+  if (ONBOARDING_ANALYSIS_ALLOW_PRIVATE) return;
+  if (isIPv4(hostname) || isIPv6(hostname)) {
+    if (isPrivateAddress(hostname)) throw httpError(400, "That address can't be analyzed.");
+    return;
+  }
+  let records;
+  try {
+    records = await dnsLookup(hostname, { all: true, verbatim: true });
+  } catch {
+    throw httpError(400, "Could not resolve that website.");
+  }
+  if (!records.length || records.some((record) => isPrivateAddress(record.address))) {
+    throw httpError(400, "That address can't be analyzed.");
+  }
+}
+
+const WEBSITE_ANALYSIS_MAX_BYTES = 2 * 1024 * 1024;
+
+async function safeFetchForAnalysis(startUrl) {
+  let target = new URL(startUrl);
+  for (let redirects = 0; redirects <= 3; redirects += 1) {
+    if (target.protocol !== "http:" && target.protocol !== "https:") throw httpError(400, "Only http/https websites can be analyzed.");
+    await assertPublicHostname(target.hostname);
+    let response;
+    try {
+      response = await fetch(target, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(8000),
+        headers: { "user-agent": "ToastyStudioOnboarding/1.0 (+https://toasty.media)" }
+      });
+    } catch (error) {
+      throw httpError(502, "Could not reach that website.");
+    }
+    if (response.status >= 300 && response.status < 400 && response.headers.get("location")) {
+      target = new URL(response.headers.get("location"), target);
+      continue;
+    }
+    if (!response.ok) throw httpError(502, `That website responded with ${response.status}.`);
+    const reader = response.body?.getReader();
+    if (!reader) return "";
+    let received = 0;
+    const chunks = [];
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.length;
+      if (received > WEBSITE_ANALYSIS_MAX_BYTES) { reader.cancel().catch(() => {}); break; }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks).toString("utf8");
+  }
+  throw httpError(400, "That website redirected too many times.");
+}
+
+function extractMeta(html, ...names) {
+  for (const name of names) {
+    const attrMatch = html.match(new RegExp(`<meta[^>]+(?:name|property)=["']${name}["'][^>]+content=["']([^"']*)["']`, "i"))
+      || html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:name|property)=["']${name}["']`, "i"));
+    if (attrMatch) return attrMatch[1].trim();
+  }
+  return "";
+}
+
+function analyzeWebsiteHtml(html, baseUrl) {
+  const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+  const title = (extractMeta(html, "og:site_name") || (titleMatch ? titleMatch[1].trim() : "")).slice(0, 200);
+  const description = extractMeta(html, "og:description", "description").slice(0, 400);
+  const themeColor = extractMeta(html, "theme-color");
+  const ogImageRaw = extractMeta(html, "og:image");
+  let ogImage = "";
+  try { if (ogImageRaw) ogImage = new URL(ogImageRaw, baseUrl).toString(); } catch { /* malformed image URL — leave blank */ }
+  let iconHref = "";
+  const iconMatch = html.match(/<link[^>]+rel=["'](?:shortcut icon|icon|apple-touch-icon)["'][^>]+href=["']([^"']+)["']/i)
+    || html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["'](?:shortcut icon|icon|apple-touch-icon)["']/i);
+  if (iconMatch) {
+    try { iconHref = new URL(iconMatch[1], baseUrl).toString(); } catch { /* malformed icon URL — leave blank */ }
+  }
+  const colorMatches = [...html.matchAll(/#[0-9a-fA-F]{6}\b/g)].map((m) => m[0].toLowerCase());
+  const colorCounts = new Map();
+  for (const color of colorMatches) colorCounts.set(color, (colorCounts.get(color) || 0) + 1);
+  const dominantColors = [...colorCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([color]) => color);
+  return {
+    title,
+    description,
+    themeColor: /^#[0-9a-fA-F]{6}$/.test(themeColor) ? themeColor : "",
+    logoUrl: iconHref || ogImage,
+    ogImage,
+    dominantColors
+  };
+}
+
+async function handleAnalyzeWebsite(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/onboarding/analyze-website");
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  const body = await readJson(req);
+  const rawUrl = String(body?.url || "").trim();
+  if (!rawUrl) return sendJson(req, res, 400, { error: "A website URL is required." });
+  let parsed;
+  try {
+    parsed = new URL(/^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`);
+  } catch {
+    return sendJson(req, res, 400, { error: "That doesn't look like a valid URL." });
+  }
+  const html = await safeFetchForAnalysis(parsed.toString());
+  const analysis = analyzeWebsiteHtml(html, parsed.toString());
+  await db("update_organization_settings", { organizationId, websiteUrl: parsed.toString() });
+  sendJson(req, res, 200, { analysis, websiteUrl: parsed.toString() });
 }
 
 // ---- BYOK: AI provider credentials ----
