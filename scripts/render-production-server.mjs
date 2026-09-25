@@ -788,6 +788,25 @@ async function handleAiProducerRespond(req, res) {
   if (!AI_PRODUCER_ENTRY_TYPES.has(parsed.type)) parsed.type = "production_suggestion";
   if (!AI_PRODUCER_ACTION_TYPES.has(parsed.action)) parsed.action = "private";
 
+  // BYOK usage telemetry (section 21) — client already knows its own logged-in owner + current session,
+  // same trust boundary as /api/audience/events' client-declared ownerUserId. Never blocks the response:
+  // recordAiUsage swallows its own errors.
+  const telemetryOwnerId = sessionText(body.ownerUserId, 80);
+  if (SAFE_ID.test(telemetryOwnerId)) {
+    await recordAiUsage({
+      ownerUserId: telemetryOwnerId,
+      sessionId: SAFE_ID.test(sessionText(body.sessionId, 80)) ? sessionText(body.sessionId, 80) : null,
+      provider: usage.provider,
+      model: usage.model,
+      feature: "ai_producer_respond",
+      inputTokens: usage.promptTokens,
+      outputTokens: usage.completionTokens,
+      totalTokens: usage.totalTokens,
+      estimatedCost: usage.estimatedCostUsd,
+      metadata: { action: parsed.action, type: parsed.type }
+    });
+  }
+
   sendJson(req, res, 200, {
     type: parsed.type,
     title: String(parsed.title || "AI Producer").slice(0, 120),
@@ -872,6 +891,25 @@ async function handleTranscribe(req, res) {
     });
 
     if (!transcript) throw httpError(422, "Didn't catch anything in that recording.");
+
+    // BYOK usage telemetry (section 21) — transcription is NOT token-based (local whisper.cpp), so
+    // totalTokens/estimatedCost stay null rather than fabricated; durationSeconds is the honest signal.
+    // Binary body means no JSON to carry owner/session — the client passes them as query params instead.
+    const query = new URL(req.url, `http://${req.headers.host}`).searchParams;
+    const telemetryOwnerId = sessionText(query.get("ownerUserId"), 80);
+    if (SAFE_ID.test(telemetryOwnerId)) {
+      await recordAiUsage({
+        ownerUserId: telemetryOwnerId,
+        sessionId: SAFE_ID.test(sessionText(query.get("sessionId"), 80)) ? sessionText(query.get("sessionId"), 80) : null,
+        provider: "whisper.cpp",
+        model: WHISPER_MODEL_PATH.split("/").pop() || "whisper",
+        feature: "transcription",
+        totalTokens: null,
+        estimatedCost: null,
+        metadata: { durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : null }
+      });
+    }
+
     sendJson(req, res, 200, { transcript });
   } finally {
     await rm(workDir, { recursive: true, force: true });
