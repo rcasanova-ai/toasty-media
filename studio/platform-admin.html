@@ -140,6 +140,45 @@
 
         <section class="platform-panel" data-panel-view="usage">
           <div id="paUsageCards" class="usage-grid"></div>
+
+          <div class="settings-card">
+            <h2>AI model usage</h2>
+            <p class="hint">Actual provider/model telemetry from customer BYOK calls and founder-authorized AI calls. Estimated cost is informational and depends on provider usage metadata.</p>
+            <div id="paAiUsageCards" class="usage-grid"></div>
+            <div class="table-wrap">
+              <table class="settings-table">
+                <thead><tr><th>Provider / model</th><th>Calls</th><th>Input</th><th>Output</th><th>Total tokens</th><th>Est. cost</th><th>Avg latency</th></tr></thead>
+                <tbody id="paAiModels"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <h2>AI usage by session</h2>
+            <p class="hint">Compare sessions directly, including sessions with zero recorded model usage.</p>
+            <div class="table-wrap">
+              <table class="settings-table">
+                <thead><tr><th>Session</th><th>Status</th><th>Calls</th><th>Input</th><th>Output</th><th>Total tokens</th><th>Est. cost</th><th>vs avg</th></tr></thead>
+                <tbody id="paAiSessions"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <h2>AI usage by feature</h2>
+            <div id="paAiFeatures" class="platform-stack"></div>
+          </div>
+
+          <div class="settings-card">
+            <h2>Recent AI calls</h2>
+            <div class="table-wrap">
+              <table class="settings-table">
+                <thead><tr><th>When</th><th>Session</th><th>Feature</th><th>Provider / model</th><th>Tokens</th><th>Est. cost</th><th>Latency</th></tr></thead>
+                <tbody id="paAiRecent"></tbody>
+              </table>
+            </div>
+          </div>
+
           <div class="settings-card">
             <h2>Platform safety switches</h2>
             <div id="paSafety" class="platform-stack"></div>
