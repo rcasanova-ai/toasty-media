@@ -6,32 +6,175 @@
   <title>Toasty Platform Admin</title>
   <link rel="stylesheet" href="../css/studio-public.css">
   <link rel="stylesheet" href="../css/studio-settings.css">
+  <link rel="stylesheet" href="../css/platform-admin.css">
   <script type="module" src="../js/platform-admin.js"></script>
 </head>
 <body class="settings-shell">
-  <header class="settings-topbar">
+  <header class="settings-topbar platform-topbar">
     <a href="./dashboard.html">← Dashboard</a>
     <strong>Toasty Platform Admin</strong>
+    <select id="platformOrgSwitcher" aria-label="Organization"></select>
   </header>
-  <main class="settings-main" style="max-width:1180px;margin:0 auto;padding:32px 20px 80px">
-    <section class="settings-panel is-active">
-      <h1>Platform controls</h1>
-      <p class="hint">Founder/operator controls. These are separate from organization administration and are enforced server-side.</p>
 
-      <div class="usage-grid" id="platformStatus">
-        <div class="settings-card"><h2>Loading…</h2></div>
-      </div>
+  <main class="platform-admin-shell">
+    <aside class="platform-admin-nav">
+      <p class="eyebrow">PLATFORM</p>
+      <button class="platform-nav-btn is-active" data-panel="overview">Overview</button>
+      <button class="platform-nav-btn" data-panel="settings">Organization</button>
+      <button class="platform-nav-btn" data-panel="members">Members & access</button>
+      <button class="platform-nav-btn" data-panel="brands">Branding</button>
+      <button class="platform-nav-btn" data-panel="ai">AI providers</button>
+      <button class="platform-nav-btn" data-panel="sessions">Sessions</button>
+      <button class="platform-nav-btn" data-panel="usage">Usage & safety</button>
+      <button class="platform-nav-btn" data-panel="billing">Billing</button>
+      <button class="platform-nav-btn" data-panel="integrations">Integrations</button>
+    </aside>
 
-      <div class="settings-card">
-        <h2>Organizations</h2>
-        <p class="hint">Change an organization's effective plan for testing/support, or reset its usage counters. Customer billing flows remain separate.</p>
-        <div style="overflow:auto">
-          <table class="settings-table">
-            <thead><tr><th>Organization</th><th>Plan</th><th>Status</th><th>Members</th><th>Actions</th></tr></thead>
-            <tbody id="platformOrganizations"></tbody>
-          </table>
-        </div>
-        <p class="settings-message" id="platformMessage" role="status"></p>
+    <section class="platform-admin-main">
+      <div id="platformLoading" class="settings-card"><h2>Loading platform controls…</h2></div>
+      <div id="platformApp" hidden>
+        <section class="platform-org-heading">
+          <div>
+            <p class="eyebrow">ORGANIZATION</p>
+            <h1 id="platformOrgName">Organization</h1>
+            <p id="platformOrgMeta" class="hint"></p>
+          </div>
+          <a id="platformOpenCustomerDashboard" class="btn" href="./dashboard.html">Open my dashboard</a>
+        </section>
+
+        <p id="platformMessage" class="settings-message" role="status"></p>
+
+        <section class="platform-panel is-active" data-panel-view="overview">
+          <div id="platformStatus" class="usage-grid"></div>
+          <div class="settings-card">
+            <h2>Account controls</h2>
+            <div class="form-grid four">
+              <label>Plan<select id="paPlan"></select></label>
+              <label>Subscription status<select id="paSubscription"></select></label>
+              <label>Onboarding<select id="paOnboarding"><option value="complete">Complete</option><option value="reset">Needs onboarding</option></select></label>
+              <label>Active brand<select id="paActiveBrand"></select></label>
+            </div>
+            <div class="button-row">
+              <button id="paSaveAccount" class="btn primary" type="button">Save account controls</button>
+              <button id="paResetUsage" class="btn" type="button">Reset all usage</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="settings">
+          <div class="settings-card">
+            <h2>Organization identity</h2>
+            <div class="form-grid two">
+              <label>Name<input id="paOrgName" type="text"></label>
+              <label>Slug<input id="paOrgSlug" type="text"></label>
+              <label>Website<input id="paWebsite" type="url"></label>
+              <label>Booking URL<input id="paBooking" type="url"></label>
+              <label>Support email<input id="paSupportEmail" type="email"></label>
+              <label>Timezone<input id="paTimezone" type="text"></label>
+            </div>
+            <button id="paSaveOrg" class="btn primary" type="button">Save organization</button>
+          </div>
+
+          <div class="settings-card">
+            <h2>Organization defaults</h2>
+            <p class="hint">Structured JSON used by the existing customer settings surfaces. Editing here changes the same underlying settings.</p>
+            <label>Default session settings<textarea id="paDefaultSession" rows="7"></textarea></label>
+            <label>Default CTA<textarea id="paDefaultCTA" rows="7"></textarea></label>
+            <label>Default end screen<textarea id="paDefaultEndCard" rows="7"></textarea></label>
+            <label>Social links<textarea id="paSocialLinks" rows="7"></textarea></label>
+            <label>Custom domain foundation<textarea id="paDomainConfig" rows="7"></textarea></label>
+            <button id="paSaveDefaults" class="btn primary" type="button">Save defaults</button>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="members">
+          <div class="settings-card">
+            <div class="panel-heading"><div><h2>Members & access</h2><p class="hint">Roles and account status are platform-authoritative here.</p></div></div>
+            <div class="form-grid three">
+              <label>Invite email<input id="paInviteEmail" type="email" placeholder="name@example.com"></label>
+              <label>Role<select id="paInviteRole"><option value="member">Member</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></label>
+              <label>&nbsp;<button id="paInviteMember" class="btn primary" type="button">Send invite</button></label>
+            </div>
+            <div class="table-wrap">
+              <table class="settings-table">
+                <thead><tr><th>Person</th><th>Role</th><th>Account</th><th>Actions</th></tr></thead>
+                <tbody id="paMembers"></tbody>
+              </table>
+            </div>
+            <h3>Pending invites</h3>
+            <div id="paPendingInvites" class="platform-stack"></div>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="brands">
+          <div class="settings-card">
+            <div class="panel-heading"><div><h2>Brand profiles</h2><p class="hint">Edit the same organization-owned BrandProfiles used throughout Toasty.</p></div><button id="paNewBrand" class="btn" type="button">New profile</button></div>
+            <div id="paBrands" class="platform-stack"></div>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="ai">
+          <div class="settings-card">
+            <h2>AI providers</h2>
+            <p class="hint">You can add, replace, activate, revoke or delete customer BYOK credentials. Saved keys are never revealed here. Your founder DeepSeek key remains a platform-admin-only fallback for your own requests.</p>
+            <div class="form-grid three">
+              <label>Provider<select id="paAiProvider"><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Gemini</option></select></label>
+              <label>API key<input id="paAiKey" type="password" autocomplete="new-password" placeholder="Paste key"></label>
+              <label>&nbsp;<button id="paSaveAiKey" class="btn primary" type="button">Save / replace key</button></label>
+            </div>
+            <div id="paAiProviders" class="platform-stack"></div>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="sessions">
+          <div class="settings-card">
+            <h2>Sessions</h2>
+            <div class="table-wrap">
+              <table class="settings-table">
+                <thead><tr><th>Session</th><th>Status</th><th>Created</th><th>Owner</th><th>Action</th></tr></thead>
+                <tbody id="paSessions"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="usage">
+          <div id="paUsageCards" class="usage-grid"></div>
+          <div class="settings-card">
+            <h2>Platform safety switches</h2>
+            <div id="paSafety" class="platform-stack"></div>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="billing">
+          <div class="settings-card">
+            <h2>Billing account</h2>
+            <div class="form-grid three">
+              <label>Billing email<input id="paBillingEmail" type="email"></label>
+              <label>Currency<input id="paCurrency" type="text"></label>
+              <label>Preferred payment method<input id="paPaymentMethod" type="text"></label>
+            </div>
+            <p class="hint" id="paStripeCustomer"></p>
+            <button id="paSaveBilling" class="btn primary" type="button">Save billing account</button>
+          </div>
+          <div class="settings-card">
+            <h2>Subscriptions</h2>
+            <div id="paSubscriptions" class="platform-stack"></div>
+          </div>
+          <div class="settings-card">
+            <h2>Payment intents</h2>
+            <div id="paPaymentIntents" class="platform-stack"></div>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="integrations">
+          <div class="settings-card">
+            <h2>Integrations</h2>
+            <div class="integration-row"><div><strong>Santati</strong><p class="hint">CRM & relationship intelligence</p></div><span>Coming soon: Connect Santati</span></div>
+            <div class="integration-row"><div><strong>Google Drive</strong><p class="hint">User-level connection. Platform Admin does not expose OAuth tokens.</p></div><span>Managed by the connected user</span></div>
+            <div class="integration-row"><div><strong>Custom domains</strong><p class="hint">Foundation data only. No fake provisioning state.</p></div><span>Coming soon</span></div>
+          </div>
+        </section>
       </div>
     </section>
   </main>

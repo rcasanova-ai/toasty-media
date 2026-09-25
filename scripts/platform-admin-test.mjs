@@ -63,6 +63,59 @@ async function main(){
   const reset=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/reset-usage`,{method:"POST",cookie:founder.cookie,body:{}});
   assert(reset.status===200,"platform admin can reset organization usage");
 
+
+  const detail=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/detail`,{cookie:founder.cookie});
+  assert(detail.status===200 && detail.data.organization.id===customerOrg.id,"platform admin can inspect a full customer organization");
+  assert(Array.isArray(detail.data.members) && detail.data.members[0]?.userEmail==="customer@example.com","detail includes customer members without exposing secrets");
+  const detailForbidden=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/detail`,{cookie:second.cookie});
+  assert(detailForbidden.status===403,"normal customer cannot use platform organization detail API");
+
+  const basics=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/basics`,{method:"POST",cookie:founder.cookie,body:{name:"Customer Updated",slug:"customer-updated"}});
+  assert(basics.status===200 && basics.data.organization.name==="Customer Updated","platform admin can edit customer organization identity");
+
+  const settings=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/settings`,{method:"POST",cookie:founder.cookie,body:{websiteUrl:"https://example.com",timezone:"Asia/Bangkok",defaultCTA:{label:"Book"}}});
+  assert(settings.status===200 && settings.data.settings.websiteUrl==="https://example.com","platform admin can edit customer organization settings");
+
+  const onboardingReset=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/onboarding`,{method:"POST",cookie:founder.cookie,body:{completed:false}});
+  assert(onboardingReset.status===200 && !onboardingReset.data.settings.onboardingCompletedAt,"platform admin can reset onboarding");
+  const onboardingDone=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/onboarding`,{method:"POST",cookie:founder.cookie,body:{completed:true}});
+  assert(onboardingDone.status===200 && onboardingDone.data.settings.onboardingCompletedAt,"platform admin can mark onboarding complete");
+
+  const billing=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/billing-account`,{method:"POST",cookie:founder.cookie,body:{billingEmail:"billing@example.com",currency:"usd",preferredPaymentMethod:"manual"}});
+  assert(billing.status===200 && billing.data.billingAccount.billingEmail==="billing@example.com","platform admin can edit billing account metadata");
+
+  const brand=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/brand-profile`,{method:"POST",cookie:founder.cookie,body:{name:"Customer Brand",baseThemeId:"toasty",overrides:{accent:"#fff"}}});
+  assert(brand.status===200 && brand.data.brandProfile.organizationId===customerOrg.id,"platform admin can create customer brand profiles");
+  const activeBrand=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/basics`,{method:"POST",cookie:founder.cookie,body:{activeBrandProfileId:brand.data.brandProfile.id}});
+  assert(activeBrand.status===200 && activeBrand.data.organization.activeBrandProfileId===brand.data.brandProfile.id,"platform admin can set active brand profile");
+
+  const aiSave=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/ai-provider-save`,{method:"POST",cookie:founder.cookie,body:{provider:"deepseek",apiKey:"customer-deepseek-key"}});
+  assert(aiSave.status===200 && aiSave.data.credential.keyLast4==="-key","platform admin can save customer BYOK without returning plaintext");
+  assert(JSON.stringify(aiSave.data).includes("customer-deepseek-key")===false,"BYOK plaintext is never returned from platform admin");
+  const aiRevoke=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/ai-providers/deepseek/revoke`,{method:"POST",cookie:founder.cookie,body:{}});
+  assert(aiRevoke.status===200,"platform admin can revoke customer BYOK");
+  const aiActivate=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/ai-providers/deepseek/activate`,{method:"POST",cookie:founder.cookie,body:{}});
+  assert(aiActivate.status===200,"platform admin can reactivate customer BYOK");
+
+  const invite=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/member-invite`,{method:"POST",cookie:founder.cookie,body:{email:"newmember@example.com",role:"admin"}});
+  assert(invite.status===201,"platform admin can invite a member into any organization");
+  assert(scalar("SELECT COUNT(*) FROM organization_invites WHERE email='newmember@example.com'")==="1","platform invite is persisted");
+
+  const customerSession=await req("/api/sessions",{method:"POST",cookie:second.cookie,body:{roomId:"customer-live",organizationId:customerOrg.id,title:"Customer live"}});
+  assert(customerSession.status===200,"customer can create its own session before operator intervention");
+  const ended=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/sessions/${customerSession.data.session.id}/end`,{method:"POST",cookie:founder.cookie,body:{}});
+  assert(ended.status===200 && ended.data.session.status==="ENDED","platform admin can end a customer session");
+
+  const suspend=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/member-status`,{method:"POST",cookie:founder.cookie,body:{userId:second.data.user.id,status:"suspended"}});
+  assert(suspend.status===200 && suspend.data.user.status==="suspended","platform admin can suspend a customer account");
+  const suspendedSession=await req("/auth/session",{cookie:second.cookie});
+  assert(suspendedSession.data.authenticated===false,"suspending a customer invalidates account access on the next request");
+  const reactivate=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/member-status`,{method:"POST",cookie:founder.cookie,body:{userId:second.data.user.id,status:"active"}});
+  assert(reactivate.status===200 && reactivate.data.user.status==="active","platform admin can reactivate a customer account");
+
+  const selfSuspend=await req(`/api/organizations/platform-admin/organizations/${orgs.data.organizations.find(o=>o.ownerUserId===founder.data.user.id).id}/member-status`,{method:"POST",cookie:founder.cookie,body:{userId:founder.data.user.id,status:"suspended"}});
+  assert(selfSuspend.status===400,"platform admin cannot accidentally suspend the platform-admin account");
+
   const founderOrgs=orgs.data.organizations.find(o=>o.ownerUserId===founder.data.user.id);
   const s1=await req("/api/sessions",{method:"POST",cookie:founder.cookie,body:{roomId:"founder-one",organizationId:founderOrgs.id,title:"QA one"}});
   const s2=await req("/api/sessions",{method:"POST",cookie:founder.cookie,body:{roomId:"founder-two",organizationId:founderOrgs.id,title:"QA two"}});
