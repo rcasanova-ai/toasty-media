@@ -609,6 +609,11 @@ def migrate(conn):
     # a same-second timestamp tie between a password change and a legitimate new login is a real,
     # reproducible race with second-precision comparisons; an incrementing version has no such tie).
     ensure_columns(conn, "users", {"password_version": "INTEGER NOT NULL DEFAULT 1"})
+    # Platform operator role is distinct from organization membership. It follows the user across orgs and
+    # is never granted by organization owners/admins. On an existing self-hosted install with no platform
+    # admin yet, bootstrap the founder deterministically from the earliest organization owner (or earliest
+    # active user before organizations existed). Once one exists this block is a no-op forever.
+    ensure_columns(conn, "users", {"platform_role": "TEXT NOT NULL DEFAULT 'user'"})
 
     conn.execute(
         """
@@ -642,6 +647,23 @@ def migrate(conn):
     )
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_memberships_org_user ON memberships(organization_id, user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id)")
+
+    existing_platform_admin = conn.execute(
+        "SELECT id FROM users WHERE platform_role = 'platform_admin' LIMIT 1"
+    ).fetchone()
+    if not existing_platform_admin:
+        founder = conn.execute(
+            "SELECT owner_user_id AS id FROM organizations ORDER BY created_at ASC LIMIT 1"
+        ).fetchone()
+        if not founder:
+            founder = conn.execute(
+                "SELECT id FROM users WHERE status = 'active' ORDER BY created_at ASC LIMIT 1"
+            ).fetchone()
+        if founder:
+            conn.execute(
+                "UPDATE users SET platform_role = 'platform_admin', updated_at = ? WHERE id = ?",
+                (utc_now(), founder["id"]),
+            )
 
     conn.execute(
         """
@@ -1196,6 +1218,8 @@ def public_user(row):
         "emailVerifiedAt": row["email_verified_at"] if _row_has(row, "email_verified_at") else None,
         "passwordChangedAt": row["password_changed_at"] if _row_has(row, "password_changed_at") else None,
         "passwordVersion": row["password_version"] if _row_has(row, "password_version") else 1,
+        "platformRole": row["platform_role"] if _row_has(row, "platform_role") else "user",
+        "isPlatformAdmin": bool(_row_has(row, "platform_role") and row["platform_role"] == "platform_admin"),
     }
 
 
@@ -2061,6 +2085,50 @@ def main():
     if action == "get_user_by_id":
         row = conn.execute("SELECT * FROM users WHERE id = ?", (payload["id"],)).fetchone()
         print(json.dumps({"user": public_user(row)}))
+        return
+
+    # Platform-admin actions are intentionally only callable by the Node server after its own
+    # requirePlatformAdmin() check. The SQLite helper itself is not network-addressable.
+    if action == "platform_list_organizations":
+        rows = conn.execute(
+            """
+            SELECT o.*,
+                   (SELECT COUNT(*) FROM memberships m WHERE m.organization_id = o.id) AS member_count
+            FROM organizations o
+            ORDER BY o.created_at ASC
+            """
+        ).fetchall()
+        organizations = []
+        for row in rows:
+            item = org_public(row)
+            item["memberCount"] = row["member_count"]
+            organizations.append(item)
+        print(json.dumps({"organizations": organizations}))
+        return
+
+    if action == "platform_set_organization_plan":
+        plan = payload.get("plan")
+        status = payload.get("subscriptionStatus")
+        if plan not in ("demo", "creator", "pro", "enterprise"):
+            print(json.dumps({"error": "invalid_plan"}))
+            return
+        if status not in ("none", "trialing", "active", "past_due", "canceled"):
+            print(json.dumps({"error": "invalid_status"}))
+            return
+        now = utc_now()
+        conn.execute(
+            "UPDATE organizations SET plan = ?, subscription_status = ?, updated_at = ? WHERE id = ?",
+            (plan, status, now, payload["organizationId"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM organizations WHERE id = ?", (payload["organizationId"],)).fetchone()
+        print(json.dumps({"organization": org_public(row)}))
+        return
+
+    if action == "platform_reset_usage":
+        conn.execute("DELETE FROM usage_counters WHERE organization_id = ?", (payload["organizationId"],))
+        conn.commit()
+        print(json.dumps({"ok": True}))
         return
 
     # OPERATOR-ONLY — not reachable through any public HTTP route. Locking a customer's brand is
