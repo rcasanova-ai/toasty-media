@@ -4320,12 +4320,16 @@ async function handleOrganizationUsageGet(req, res, session) {
   const org = await db("get_organization", { id: organizationId });
   if (!org.organization) return sendJson(req, res, 404, { error: "Organization not found." });
   const limits = planLimitsFor(org.organization.plan);
-  const today = await db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("day") });
-  const month = await db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("month") });
+  const [today, month, aiUsageReport] = await Promise.all([
+    db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("day") }),
+    db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("month") }),
+    db("platform_ai_usage_report", { organizationId })
+  ]);
   sendJson(req, res, 200, {
     plan: org.organization.plan,
     limits,
     usage: { today: today.usage || {}, month: month.usage || {} },
+    aiUsageReport,
     safety: safetySwitchSnapshot(),
     runtime: {
       activeRenderJobs,
