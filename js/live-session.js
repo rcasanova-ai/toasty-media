@@ -1154,17 +1154,17 @@ export class LiveSession {
   // next presence/session poll — see _restartGuestListPolling's session-status check below and
   // js/guest.js's mirror-image handling of a 410 from presence/announce.
   async endDurableSession() {
-    if (!this.durableSession) return;
-    try {
-      await this.persistReusableSetupNow();
-      await studioRequest(`/api/sessions/${this.durableSession.id}/end`, { method: "POST", body: "{}" });
-    } catch (error) {
-      console.error("[LiveSession] endDurableSession request failed", error);
+    if (!this.durableSession) throw new Error("This room has no durable session record.");
+    await this.persistReusableSetupNow();
+    const result = await studioRequest(`/api/sessions/${this.durableSession.id}/end`, { method: "POST", body: "{}" });
+    if (!result?.session || result.session.status !== "ENDED") {
+      throw new Error("The server did not confirm that the session ended.");
     }
-    this.durableSession = { ...this.durableSession, status: "ENDED" };
-    this.emit("session-ended");
+    this.durableSession = result.session;
+    this.emit("session-ended", result.session);
     this.endShow();
     this.leaveStudio();
+    return result.session;
   }
 
   // Real removal, not a UI-only hide: a best-effort VDO disconnect command (see VideoEngine.sendToGuest's

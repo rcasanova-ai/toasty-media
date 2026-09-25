@@ -97,7 +97,7 @@ async function register() {
         password: els.signupPassword.value
       })
     });
-    if (session.authenticated) openStudio(session.user?.branding);
+    if (session.authenticated) openStudio(session.user?.branding, { destination: "./onboarding.html" });
   } catch (error) {
     setMessage(error.message, true);
   } finally {
@@ -147,7 +147,7 @@ async function logout() {
 // NOT the security boundary: handleSessionCreate/handleSessionBrand (render-production-server.mjs) enforce
 // the lock server-side regardless of what this ever sends, so a tampered/bypassed URL still can't create or
 // change a session to another brand — only the frontend's OWN selector visibility depends on this.
-function openStudio(branding = { mode: "flexible", brandId: null }) {
+function openStudio(branding = { mode: "flexible", brandId: null }, { destination = null } = {}) {
   els.studioPublicPage.hidden = true;
   els.studioAppShell.hidden = false;
   document.body.classList.add("is-authenticated");
@@ -172,8 +172,8 @@ function openStudio(branding = { mode: "flexible", brandId: null }) {
     }, { once: true });
     // Authenticated users land on the organization dashboard. A direct session deep-link still opens
     // Studio immediately so shared/bookmarked session URLs keep their existing behavior.
-    const destination = query.get("session") ? "./director.html" : "./dashboard.html";
-    els.studioAppFrame.src = `${destination}?${query}`;
+    const resolvedDestination = destination || (query.get("session") ? "./director.html" : "./dashboard.html");
+    els.studioAppFrame.src = `${resolvedDestination}?${query}`;
     state.appLoaded = true;
   }
 }
