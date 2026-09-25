@@ -825,6 +825,13 @@ const server = createServer(async (req, res) => {
     await handleLandingPagePublish(req, res, session);
     return;
   }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/landing-page/unpublish")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "landing-page-publish", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleLandingPageUnpublish(req, res, session);
+    return;
+  }
   // Public event page read — no session, this is what a visitor's browser fetches.
   if (req.method === "GET" && req.url?.startsWith("/api/landing-pages/")) {
     if (!limit(req, res, "landing-page-public", 120, 60 * 1000)) return;
@@ -4642,6 +4649,12 @@ async function handleLandingPagePublish(req, res, authSession) {
   sendJson(req, res, 200, { landingPage: result.landingPage });
 }
 
+async function handleLandingPageUnpublish(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/landing-page/unpublish");
+  const result = await db("landing_page_unpublish", { sessionId: session.id });
+  sendJson(req, res, 200, { landingPage: result.landingPage });
+}
+
 async function handleLandingPageGetBySlug(req, res) {
   const slug = decodeURIComponent(req.url.slice("/api/landing-pages/".length)).toLowerCase();
   if (!SLUG_PATTERN.test(slug)) throw httpError(400, "Invalid event URL.");
@@ -4660,11 +4673,26 @@ const AUDIENCE_EVENT_TYPES = new Set([
 
 async function handleAudienceIdentityUpsert(req, res) {
   const body = await readJson(req);
-  const organizationId = sessionText(body.organizationId, 80);
   const anonymousId = sessionText(body.anonymousId, 80);
-  if (!SAFE_ID.test(organizationId) || !SAFE_ID.test(anonymousId)) throw httpError(400, "Invalid identity request.");
-  const orgCheck = await db("get_organization", { id: organizationId });
-  if (!orgCheck.organization) throw httpError(404, "Organization not found.");
+  if (!SAFE_ID.test(anonymousId)) throw httpError(400, "Invalid identity request.");
+  // A visitor's very first identity write may happen before any session is known (organization-wide
+  // visitor identity), so a bare organizationId is still accepted directly here — but when a sessionId
+  // is given (the normal case: a visitor landed on one specific event page), the organization is always
+  // derived server-side from that session, exactly like every other Event Growth child row, rather than
+  // trusted from the client — the public event page itself is never told its own organizationId.
+  let organizationId = null;
+  const sessionId = sessionText(body.sessionId, 80);
+  if (sessionId) {
+    if (!SAFE_ID.test(sessionId)) throw httpError(400, "Invalid identity request.");
+    const owning = await db("session_get_organization", { id: sessionId });
+    if (!owning.organizationId) throw httpError(404, "Session not found.");
+    organizationId = owning.organizationId;
+  } else {
+    organizationId = sessionText(body.organizationId, 80);
+    if (!SAFE_ID.test(organizationId)) throw httpError(400, "Invalid identity request.");
+    const orgCheck = await db("get_organization", { id: organizationId });
+    if (!orgCheck.organization) throw httpError(404, "Organization not found.");
+  }
   const result = await db("audience_identity_upsert", {
     id: newId("aid"),
     organizationId,
@@ -4677,10 +4705,15 @@ async function handleAudienceIdentityUpsert(req, res) {
 
 async function handleAudienceEventRecord(req, res) {
   const body = await readJson(req);
-  const organizationId = sessionText(body.organizationId, 80);
   const sessionId = sessionText(body.sessionId, 80);
-  if (!SAFE_ID.test(organizationId) || !SAFE_ID.test(sessionId)) throw httpError(400, "Invalid event request.");
+  if (!SAFE_ID.test(sessionId)) throw httpError(400, "Invalid event request.");
   if (!AUDIENCE_EVENT_TYPES.has(body.eventType)) throw httpError(400, "Unknown audience event type.");
+  // organizationId is always derived server-side from the session, never trusted from the client (the
+  // public event page that fires these never learns its own organizationId), so a client cannot attribute
+  // an event to a different organization than the session it actually names.
+  const owning = await db("session_get_organization", { id: sessionId });
+  if (!owning.organizationId) throw httpError(404, "Session not found.");
+  const organizationId = owning.organizationId;
   const result = await db("audience_event_record", {
     id: newId("ae"),
     organizationId,

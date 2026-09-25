@@ -81,6 +81,33 @@ async function main() {
   assertEqual(created.data.session.organizationId, organizer.organizationId, "session is auto-stamped with the organizer's own organization, not client-supplied");
   const sessionId = created.data.session.id;
 
+  console.log("\nMulti-organization session creation (Session Planner org-selector fix)");
+  // The organizer belongs to two organizations: their auto-provisioned "owner" org, and a second one
+  // they explicitly created (simulating a member of a second team). Planner sessions must land in
+  // whichever org the dashboard's switcher had selected, not always the owner-role default.
+  const secondOrg = await jsonFetch("/api/organizations", { method: "POST", cookie: organizer.cookie, body: { name: "Ricardo's Second Org" } });
+  assertEqual(secondOrg.status, 201, "organizer can create a second organization");
+  const secondOrgId = secondOrg.data.organization.id;
+  assert(secondOrgId !== organizer.organizationId, "second organization is a distinct id from the auto-provisioned owner org");
+
+  // The demo plan allows only 1 concurrent session per org — free org A's slot (the "created" session
+  // above) before proving explicit org-A targeting still works, the same way an organizer would end one
+  // session before planning the next.
+  await jsonFetch(`/api/sessions/${sessionId}/end`, { method: "POST", cookie: organizer.cookie, body: {} });
+  const createdInOwnerOrg = await jsonFetch("/api/sessions", { method: "POST", cookie: organizer.cookie, body: { roomId: "egtest-orga", title: "Org A session", organizationId: organizer.organizationId } });
+  assertEqual(createdInOwnerOrg.status, 200, "session creates when explicitly targeting org A (the owner org)");
+  assertEqual(createdInOwnerOrg.data.session.organizationId, organizer.organizationId, "explicit organizationId=A lands the session in A, not blindly defaulted");
+  await jsonFetch(`/api/sessions/${createdInOwnerOrg.data.session.id}/end`, { method: "POST", cookie: organizer.cookie, body: {} });
+
+  const createdInSecondOrg = await jsonFetch("/api/sessions", { method: "POST", cookie: organizer.cookie, body: { roomId: "egtest-orgb", title: "Org B session", organizationId: secondOrgId } });
+  assertEqual(createdInSecondOrg.status, 200, "session creates when explicitly targeting org B (the second org)");
+  assertEqual(createdInSecondOrg.data.session.organizationId, secondOrgId, "explicit organizationId=B lands the session in B, matching the currently-selected org, not the owner org");
+
+  const nonMember = await registerWithOrg("non-member-eg@example.com");
+  const rejectedCreate = await jsonFetch("/api/sessions", { method: "POST", cookie: nonMember.cookie, body: { roomId: "egtest-hijack", title: "Should not be allowed", organizationId: secondOrgId } });
+  assertEqual(rejectedCreate.status, 404, "a non-member cannot create a session into an arbitrary organization id (404, not 403, so membership is never confirmed to a non-member)");
+  assert(!rejectedCreate.data.session, "the rejected create does not return a session");
+
   console.log("\nSession Planner");
   const planSet = await jsonFetch(`/api/sessions/${sessionId}/plan`, {
     method: "POST",
@@ -219,6 +246,15 @@ async function main() {
   const publicPage = await jsonFetch(`/api/landing-pages/q3-product-launch`, {});
   assertEqual(publicPage.status, 200, "published landing page is publicly readable");
   assert(!("organizationId" in publicPage.data.landingPage), "public landing page never exposes organizationId");
+  assert(publicPage.data.landingPage.sessionId, "public landing page does expose sessionId — the public renderer needs it to record audience events");
+
+  const unpublish = await jsonFetch(`/api/sessions/${sessionId}/landing-page/unpublish`, { method: "POST", cookie: organizer.cookie, body: {} });
+  assertEqual(unpublish.status, 200, "unpublish succeeds");
+  assertEqual(unpublish.data.landingPage.status, "draft", "unpublish flips status back to draft");
+  const goneFromPublic = await jsonFetch(`/api/landing-pages/q3-product-launch`, {});
+  assertEqual(goneFromPublic.status, 404, "an unpublished event page is no longer publicly visible — never a fake 'published' state");
+  const republish = await jsonFetch(`/api/sessions/${sessionId}/landing-page/publish`, { method: "POST", cookie: organizer.cookie, body: {} });
+  assertEqual(republish.data.landingPage.status, "published", "republishing after unpublish works");
 
   const otherOrganizer = await registerWithOrg("other-eg@example.com");
   const otherSession = await jsonFetch("/api/sessions", { method: "POST", cookie: otherOrganizer.cookie, body: { roomId: "egtest2", title: "Different event" } });
@@ -243,6 +279,26 @@ async function main() {
 
   const bogusOrg = await jsonFetch("/api/audience/identity", { method: "POST", body: { organizationId: "org_does_not_exist", anonymousId: "anon-x" } });
   assertEqual(bogusOrg.status, 404, "identity upsert against a non-existent organization is rejected");
+
+  // The public event page renderer only ever learns a session id (organizationId is deliberately never
+  // exposed through /api/landing-pages/:slug) — identity/events recording must derive organizationId
+  // server-side from that sessionId, exactly like every other Event Growth child row, not trust the
+  // client for it.
+  const identityBySession = await jsonFetch("/api/audience/identity", { method: "POST", body: { sessionId, anonymousId: "anon-visitor-session-derived" } });
+  assertEqual(identityBySession.status, 200, "identity upsert works when given a sessionId instead of an organizationId");
+  const identityBogusSession = await jsonFetch("/api/audience/identity", { method: "POST", body: { sessionId: "ls_does_not_exist", anonymousId: "anon-y" } });
+  assertEqual(identityBogusSession.status, 404, "identity upsert against a non-existent sessionId is rejected");
+
+  // Fired against otherSession (otherOrganizer's own session) rather than the main sessionId under test,
+  // so this doesn't perturb the countsByType/uniqueVisitors assertions below.
+  const eventSpoofedOrg = await jsonFetch("/api/audience/events", {
+    method: "POST",
+    body: { organizationId: organizer.organizationId, sessionId: otherSession.data.session.id, anonymousId: "anon-spoof-check", eventType: "PAGE_VIEW" }
+  });
+  assertEqual(eventSpoofedOrg.status, 201, "audience event recording ignores a client-supplied organizationId that doesn't match the session");
+  assertEqual(eventSpoofedOrg.data.event.organizationId, otherOrganizer.organizationId, "the event is attributed to the session's REAL organization (otherOrganizer's), not the client-supplied (mismatched, organizer's) one — never spoofable");
+  const eventBogusSession = await jsonFetch("/api/audience/events", { method: "POST", body: { sessionId: "ls_does_not_exist", anonymousId: "anon-z", eventType: "PAGE_VIEW" } });
+  assertEqual(eventBogusSession.status, 404, "audience event recording against a non-existent sessionId is rejected");
 
   const pageView = await jsonFetch("/api/audience/events", { method: "POST", body: { organizationId: organizer.organizationId, sessionId, anonymousId: "anon-visitor-1", identityId, eventType: "PAGE_VIEW", source: "twitter", campaign: "launch-day" } });
   assertEqual(pageView.status, 201, "PAGE_VIEW event records");

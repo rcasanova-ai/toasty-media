@@ -305,7 +305,7 @@ server {
     # rejected a nested-optional-group version of a pattern like this once (see the /api/sessions/ block
     # above's own comment); keep these flat.
 
-    location ~ "^/api/sessions/[a-zA-Z0-9._-]+/(plan|speakers|sponsors|sponsor-moments|consent|landing-page|landing-page/publish|audience/events|audience/summary|campaign-links|ai-usage|moxie/readiness-summary|artifacts)$" {
+    location ~ "^/api/sessions/[a-zA-Z0-9._-]+/(plan|speakers|sponsors|sponsor-moments|consent|landing-page|landing-page/publish|landing-page/unpublish|audience/events|audience/summary|campaign-links|ai-usage|moxie/readiness-summary|moxie/speaker-briefing|moxie/session-research|moxie/audience-insights|moxie/post-event-suggestions|artifacts)$" {
         # Same organizer-authenticated shape as the /api/sessions/ block above — one block covering every
         # new session sub-resource route rather than one location per route.
         limit_req zone=toasty_settings burst=20 nodelay;

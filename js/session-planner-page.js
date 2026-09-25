@@ -16,6 +16,7 @@ let plan = defaultPlan();
 let speakers = [];
 let sponsors = [];
 let currentStep = "basics";
+let organizationId = null;
 
 function defaultPlan() {
   return {
@@ -52,15 +53,41 @@ function defaultPlan() {
 }
 
 async function init() {
-  const existingId = new URLSearchParams(window.location.search).get("session");
-  if (existingId) {
-    const result = await studioRequest(`/api/sessions/${existingId}`);
-    session = result.session;
-    plan = { ...defaultPlan(), ...(session.plan || {}), audience: { ...defaultPlan().audience, ...(session.plan?.audience || {}) }, readinessChecklist: { ...defaultPlan().readinessChecklist, ...(session.plan?.readinessChecklist || {}) } };
-  } else {
-    session = await createSession({ title: "Untitled event" });
-    await savePlan();
-    history.replaceState(null, "", `?session=${session.id}`);
+  const params = new URLSearchParams(window.location.search);
+  const existingId = params.get("session");
+  const requestedOrg = params.get("org");
+  try {
+    if (existingId) {
+      const result = await studioRequest(`/api/sessions/${existingId}`);
+      session = result.session;
+      organizationId = session.organizationId || null;
+      plan = { ...defaultPlan(), ...(session.plan || {}), audience: { ...defaultPlan().audience, ...(session.plan?.audience || {}) }, readinessChecklist: { ...defaultPlan().readinessChecklist, ...(session.plan?.readinessChecklist || {}) } };
+    } else {
+      // The Session Planner never shows its own organization picker — it always inherits the
+      // organization the dashboard's own switcher had selected (studio/dashboard.html appends
+      // ?org=<selected> to the Plan Session link). Landing here without that param means the
+      // planner wasn't reached through the dashboard, so we refuse to guess which organization
+      // to create the session in rather than silently defaulting to the user's owner org.
+      if (!requestedOrg) {
+        main.innerHTML = `
+          <h1>Plan a session</h1>
+          <p style="color:#8f857b">Open Session Planner from your Toasty dashboard so we know which organization this session belongs to.</p>
+          <a class="xp-btn" href="./dashboard.html">Back to dashboard</a>
+        `;
+        return;
+      }
+      organizationId = requestedOrg;
+      session = await createSession({ title: "Untitled event", organizationId });
+      await savePlan();
+      history.replaceState(null, "", `?session=${session.id}&org=${encodeURIComponent(organizationId)}`);
+    }
+  } catch (error) {
+    main.innerHTML = `
+      <h1>Plan a session</h1>
+      <p style="color:#e58686">${escapeHtml(error?.message || "Couldn't open the Session Planner for that organization.")}</p>
+      <a class="xp-btn" href="./dashboard.html">Back to dashboard</a>
+    `;
+    return;
   }
   await refreshSpeakers();
   await refreshSponsors();

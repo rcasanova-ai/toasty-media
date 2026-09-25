@@ -3583,6 +3583,14 @@ def main():
         print(json.dumps({"session": {"title": row["title"], "brandId": row["brand_id"]}}))
         return
 
+    if action == "session_get_organization":
+        # Internal-only lookup: derives a session's organization_id server-side so audience-event/identity
+        # recording never has to trust a client-supplied organizationId, without exposing organizationId
+        # itself through any client-facing action (session_get_public deliberately omits it).
+        row = conn.execute("SELECT organization_id FROM live_sessions WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"organizationId": row["organization_id"] if row else None}))
+        return
+
     if action == "session_set_plan":
         now = utc_now()
         conn.execute(
@@ -4080,6 +4088,17 @@ def main():
         conn.execute(
             "UPDATE landing_pages SET status = 'published', published_at = ?, updated_at = ? WHERE session_id = ?",
             (now, now, payload["sessionId"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM landing_pages WHERE session_id = ?", (payload["sessionId"],)).fetchone()
+        print(json.dumps({"landingPage": public_landing_page(row)}))
+        return
+
+    if action == "landing_page_unpublish":
+        now = utc_now()
+        conn.execute(
+            "UPDATE landing_pages SET status = 'draft', updated_at = ? WHERE session_id = ?",
+            (now, payload["sessionId"]),
         )
         conn.commit()
         row = conn.execute("SELECT * FROM landing_pages WHERE session_id = ?", (payload["sessionId"],)).fetchone()
