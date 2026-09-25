@@ -280,9 +280,7 @@ function bindProducerWorkspaces() {
 function bindProducerChrome() {
   elements.topProgramOutput?.addEventListener("click", () => document.querySelector("#lvOpenProgramOutput")?.click());
   elements.topSettings?.addEventListener("click", () => {
-    const drawer = document.querySelector(".lv-advanced-drawer");
-    if (drawer) drawer.open = true;
-    drawer?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    window.open("./dashboard.html", "_blank", "noopener");
   });
   elements.topEndSession?.addEventListener("click", () => elements.endSessionBtn?.click());
   elements.bottomNavButtons.forEach((button) => {
@@ -349,7 +347,7 @@ function bindRailControls() {
   // Opens in a new tab, never navigates this frame away — a live session's Host/Producer state must never
   // be disrupted by visiting Settings (see the module comment on why director.html can't safely reload).
   elements.openSettingsQuick?.addEventListener("click", () => {
-    window.open("./settings.html", "_blank", "noopener");
+    window.open("./dashboard.html", "_blank", "noopener");
   });
   elements.toggleScreenQuick?.addEventListener("click", async () => {
     // Disabled state while connecting is driven by the "screenshare" listener below (real share state),
