@@ -336,6 +336,55 @@ const server = createServer(async (req, res) => {
       return;
     }
   }
+  {
+    const detailMatch = req.url?.match(/^\/api\/organizations\/platform-admin\/organizations\/([^/]+)\/detail$/);
+    if (req.method === "GET" && detailMatch) {
+      const session = await requirePlatformAdmin(req, res);
+      if (!session) return;
+      await handlePlatformOrganizationDetail(req, res, detailMatch[1]);
+      return;
+    }
+  }
+  {
+    const actionMatch = req.url?.match(/^\/api\/organizations\/platform-admin\/organizations\/([^/]+)\/(basics|settings|onboarding|member-role|member-status|member-remove|brand-profile|brand-profile-delete)$/);
+    if (req.method === "POST" && actionMatch) {
+      if (!requireCsrf(req, res) || !limit(req, res, "platform-admin-write", 120, 15 * 60 * 1000)) return;
+      const session = await requirePlatformAdmin(req, res);
+      if (!session) return;
+      const [, organizationId, action] = actionMatch;
+      if (action === "basics") await handlePlatformOrganizationBasics(req, res, organizationId);
+      else if (action === "settings") await handlePlatformOrganizationSettings(req, res, organizationId);
+      else if (action === "onboarding") await handlePlatformOnboarding(req, res, organizationId);
+      else if (action === "member-role") await handlePlatformMemberRole(req, res, organizationId);
+      else if (action === "member-status") await handlePlatformMemberStatus(req, res, organizationId);
+      else if (action === "member-remove") await handlePlatformMemberRemove(req, res, organizationId);
+      else if (action === "brand-profile") await handlePlatformBrandProfileSave(req, res, organizationId);
+      else await handlePlatformBrandProfileDelete(req, res, organizationId);
+      return;
+    }
+  }
+  {
+    const aiAdminMatch = req.url?.match(/^\/api\/organizations\/platform-admin\/organizations\/([^/]+)\/ai-providers\/([^/]+)\/(activate|revoke|delete)$/);
+    if (req.method === "POST" && aiAdminMatch) {
+      if (!requireCsrf(req, res) || !limit(req, res, "platform-admin-write", 120, 15 * 60 * 1000)) return;
+      const session = await requirePlatformAdmin(req, res);
+      if (!session) return;
+      const [, organizationId, provider, action] = aiAdminMatch;
+      await handlePlatformAiProviderAction(req, res, organizationId, provider, action);
+      return;
+    }
+  }
+  {
+    const sessionAdminMatch = req.url?.match(/^\/api\/organizations\/platform-admin\/organizations\/([^/]+)\/sessions\/([^/]+)\/end$/);
+    if (req.method === "POST" && sessionAdminMatch) {
+      if (!requireCsrf(req, res) || !limit(req, res, "platform-admin-write", 120, 15 * 60 * 1000)) return;
+      const session = await requirePlatformAdmin(req, res);
+      if (!session) return;
+      const [, organizationId, sessionId] = sessionAdminMatch;
+      await handlePlatformSessionEnd(req, res, session, organizationId, sessionId);
+      return;
+    }
+  }
 
   // ---- Organizations ----
   if (req.method === "GET" && req.url === "/api/organizations") {
@@ -2507,6 +2556,153 @@ async function handlePlatformResetUsage(req, res, organizationId) {
   if (!org.organization) throw httpError(404, "Organization not found.");
   await db("platform_reset_usage", { organizationId });
   sendJson(req, res, 200, { ok: true, organizationId });
+}
+
+async function platformOrganizationSnapshot(organizationId) {
+  if (!SAFE_ID.test(organizationId)) throw httpError(400, "Invalid organization id.");
+  const [org, settings, members, brands, billing, subscriptions, credentials, sessions, today, month, intents] = await Promise.all([
+    db("get_organization", { id: organizationId }),
+    db("get_organization_settings", { organizationId }),
+    db("list_memberships", { organizationId }),
+    db("list_brand_profiles", { organizationId }),
+    db("get_billing_account", { organizationId }),
+    db("list_subscriptions", { organizationId }),
+    db("list_ai_provider_credentials", { organizationId }),
+    db("platform_list_sessions_by_org", { organizationId, limit: 200 }),
+    db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("day") }),
+    db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("month") }),
+    db("list_payment_intents", { organizationId })
+  ]);
+  if (!org.organization) throw httpError(404, "Organization not found.");
+  return {
+    organization: org.organization,
+    settings: settings.settings || null,
+    members: members.memberships || [],
+    brandProfiles: brands.brandProfiles || [],
+    billingAccount: billing.billingAccount || null,
+    subscriptions: subscriptions.subscriptions || [],
+    aiProviders: credentials.credentials || [],
+    sessions: sessions.sessions || [],
+    usage: { today: today.usage || {}, month: month.usage || {} },
+    paymentIntents: intents.paymentIntents || [],
+    limits: planLimitsFor(org.organization.plan),
+    safety: safetySwitchSnapshot()
+  };
+}
+
+async function handlePlatformOrganizationDetail(req, res, organizationId) {
+  sendJson(req, res, 200, await platformOrganizationSnapshot(organizationId));
+}
+
+async function handlePlatformOrganizationBasics(req, res, organizationId) {
+  const body = await readJson(req);
+  const patch = { id: organizationId };
+  if (typeof body.name === "string") patch.name = cleanName(body.name);
+  if (typeof body.slug === "string") patch.slug = slugify(body.slug);
+  if (typeof body.activeBrandProfileId === "string" || body.activeBrandProfileId === null) {
+    patch.activeBrandProfileId = body.activeBrandProfileId || null;
+  }
+  const result = await db("update_organization", patch);
+  if (result.error === "duplicate_slug") throw httpError(409, "That organization slug is already taken.");
+  if (!result.organization) throw httpError(404, "Organization not found.");
+  sendJson(req, res, 200, { organization: result.organization });
+}
+
+async function handlePlatformOrganizationSettings(req, res, organizationId) {
+  const body = await readJson(req);
+  const patch = { organizationId };
+  for (const key of ["websiteUrl", "bookingUrl", "supportEmail", "timezone"]) {
+    if (typeof body?.[key] === "string") patch[key] = body[key].slice(0, 500);
+  }
+  for (const key of ["defaultSessionSettings", "defaultCTA", "defaultEndCard", "socialLinks", "customDomainConfig"]) {
+    if (body?.[key] && typeof body[key] === "object") patch[key] = body[key];
+  }
+  const result = await db("update_organization_settings", patch);
+  sendJson(req, res, 200, { settings: result.settings });
+}
+
+async function handlePlatformOnboarding(req, res, organizationId) {
+  const body = await readJson(req);
+  const result = await db("platform_set_onboarding_state", { organizationId, completed: Boolean(body?.completed) });
+  sendJson(req, res, 200, { settings: result.settings });
+}
+
+async function handlePlatformMemberRole(req, res, organizationId) {
+  const body = await readJson(req);
+  const userId = sessionText(body?.userId, 80);
+  const role = sessionText(body?.role, 30);
+  if (!SAFE_ID.test(userId)) throw httpError(400, "Invalid user id.");
+  if (!["viewer", "member", "admin", "owner"].includes(role)) throw httpError(400, "Invalid role.");
+  if (!(await guardLastOwner(req, res, organizationId, userId, role))) return;
+  const result = await db("update_membership_role", { organizationId, userId, role });
+  sendJson(req, res, 200, { membership: result.membership });
+}
+
+async function handlePlatformMemberStatus(req, res, organizationId) {
+  const body = await readJson(req);
+  const userId = sessionText(body?.userId, 80);
+  const status = sessionText(body?.status, 30);
+  if (!SAFE_ID.test(userId)) throw httpError(400, "Invalid user id.");
+  const membership = await db("get_membership", { organizationId, userId });
+  if (!membership.membership) throw httpError(404, "Member not found.");
+  const result = await db("platform_set_user_status", { userId, status });
+  if (result.error === "invalid_status") throw httpError(400, "Invalid user status.");
+  sendJson(req, res, 200, { user: result.user });
+}
+
+async function handlePlatformMemberRemove(req, res, organizationId) {
+  const body = await readJson(req);
+  const userId = sessionText(body?.userId, 80);
+  if (!SAFE_ID.test(userId)) throw httpError(400, "Invalid user id.");
+  if (!(await guardLastOwner(req, res, organizationId, userId, null))) return;
+  await db("remove_membership", { organizationId, userId });
+  sendJson(req, res, 200, { ok: true });
+}
+
+async function handlePlatformBrandProfileSave(req, res, organizationId) {
+  const body = await readJson(req);
+  const id = sessionText(body?.id, 80);
+  const name = cleanName(body?.name) || "Default";
+  const baseThemeId = sessionText(body?.baseThemeId, 60) || "toasty";
+  const overrides = body?.overrides && typeof body.overrides === "object" ? body.overrides : {};
+  let result;
+  if (id) {
+    const existing = await db("get_brand_profile", { id });
+    if (!existing.brandProfile || existing.brandProfile.organizationId !== organizationId) throw httpError(404, "Brand profile not found.");
+    result = await db("update_brand_profile", { id, name, baseThemeId, overrides });
+  } else {
+    result = await db("create_brand_profile", { id: randomUUID(), organizationId, name, baseThemeId, overrides });
+  }
+  sendJson(req, res, 200, { brandProfile: result.brandProfile });
+}
+
+async function handlePlatformBrandProfileDelete(req, res, organizationId) {
+  const body = await readJson(req);
+  const id = sessionText(body?.id, 80);
+  const existing = await db("get_brand_profile", { id });
+  if (!existing.brandProfile || existing.brandProfile.organizationId !== organizationId) throw httpError(404, "Brand profile not found.");
+  await db("delete_brand_profile", { id });
+  const org = await db("get_organization", { id: organizationId });
+  if (org.organization?.activeBrandProfileId === id) {
+    await db("update_organization", { id: organizationId, activeBrandProfileId: null });
+  }
+  sendJson(req, res, 200, { ok: true });
+}
+
+async function handlePlatformAiProviderAction(req, res, organizationId, provider, action) {
+  if (!AI_PROVIDER_NAMES.has(provider)) throw httpError(400, "Unknown AI provider.");
+  if (action === "revoke") await db("set_ai_provider_credential_status", { organizationId, provider, status: "revoked" });
+  else if (action === "activate") await db("set_ai_provider_credential_status", { organizationId, provider, status: "active" });
+  else if (action === "delete") await db("delete_ai_provider_credential", { organizationId, provider });
+  else throw httpError(400, "Unknown provider action.");
+  sendJson(req, res, 200, { ok: true });
+}
+
+async function handlePlatformSessionEnd(req, res, authSession, organizationId, sessionId) {
+  if (!SAFE_ID.test(sessionId)) throw httpError(400, "Invalid session id.");
+  const result = await db("platform_end_session", { organizationId, sessionId, endedBy: authSession.id });
+  if (!result.session) throw httpError(404, "Session not found.");
+  sendJson(req, res, 200, { session: result.session });
 }
 
 async function requireMembership(req, res, organizationId, minRole, session) {
