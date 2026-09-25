@@ -312,20 +312,20 @@ const server = createServer(async (req, res) => {
   }
 
   // ---- Platform administrator ----
-  if (req.method === "GET" && req.url === "/api/platform/status") {
+  if (req.method === "GET" && req.url === "/api/organizations/platform-admin/status") {
     const session = await requirePlatformAdmin(req, res);
     if (!session) return;
     await handlePlatformStatus(req, res, session);
     return;
   }
-  if (req.method === "GET" && req.url === "/api/platform/organizations") {
+  if (req.method === "GET" && req.url === "/api/organizations/platform-admin/organizations") {
     const session = await requirePlatformAdmin(req, res);
     if (!session) return;
     await handlePlatformOrganizations(req, res, session);
     return;
   }
   {
-    const platformOrgMatch = req.url?.match(/^\/api\/platform\/organizations\/([^/]+)\/(plan|reset-usage)$/);
+    const platformOrgMatch = req.url?.match(/^\/api\/organizations\/platform-admin\/organizations\/([^/]+)\/(plan|reset-usage)$/);
     if (req.method === "POST" && platformOrgMatch) {
       if (!requireCsrf(req, res) || !limit(req, res, "platform-admin-write", 60, 15 * 60 * 1000)) return;
       const session = await requirePlatformAdmin(req, res);
