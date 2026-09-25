@@ -135,6 +135,14 @@ export class AIProducerService {
       const result = await activeProvider.respond(instructionText, context, persona);
       const providerCallEndedAt = performance.now();
       result.action = normalizeActionType(result.action);
+      // The organization has no AI provider connected — the heuristic answer underneath is still real and
+      // still shown (never invented), but per the brief this must say so explicitly rather than silently
+      // reading as full Moxie. Only prepended once per response, not stored separately, so it can never
+      // drift out of sync with which entry it belongs to.
+      if (result.byokRequired) {
+        result.title = result.title || "Moxie";
+        result.summary = `Moxie requires an AI provider.\nConnect your API key to enable research, production intelligence, and live assistance.${result.summary ? `\n\n${result.summary}` : ""}`;
+      }
       this.feed.replace(pending.id, { ...result, instruction: instructionText, actionStatus: result.action === ProducerActionType.SEND_TO_PROGRAM ? "pending" : null });
       this._recordUsage(result.usage);
       // Autonomy enforcement lives HERE, client-side, never inside a provider response — a model saying
@@ -483,25 +491,42 @@ function getAiProducerEndpoint() {
   return (host === "localhost" || host === "127.0.0.1" || host === "") ? LOCAL_AI_PRODUCER_ENDPOINT : PRODUCTION_AI_PRODUCER_ENDPOINT;
 }
 
+// Thrown specifically when the backend reports no organization-owned AI provider key is configured (see
+// scripts/render-production-server.mjs's handleAiProducerRespond) — distinct from every other failure so
+// FallbackAIProducerProvider can surface the brief's required "Moxie requires an AI provider" message
+// instead of silently looking identical to a network blip.
+class ByokRequiredError extends Error {
+  constructor() { super("ai-producer-byok-required"); }
+}
+
 export class BackendAIProducerProvider {
-  constructor({ timeoutMs = 12000 } = {}) {
+  constructor({ timeoutMs = 12000, getOrganizationId = () => null } = {}) {
     this.timeoutMs = timeoutMs;
+    this.getOrganizationId = getOrganizationId;
   }
 
   // persona (relationship/tone/autonomy — see js/producer-persona.js) rides in the request body so the
-  // backend can compose a persona-aware system prompt itself. The backend is still the ONLY place either
-  // provider's API key lives; this never gives the browser a way to reach DeepSeek/Anthropic directly.
+  // backend can compose a persona-aware system prompt itself. The backend is still the ONLY place any
+  // provider's API key lives (the organization's own, decrypted server-side — see BYOK) or ever touches
+  // network; this never gives the browser a way to reach DeepSeek/Anthropic/OpenAI/Gemini directly.
+  // credentials:"include" + the CSRF header are required now that this route needs a signed-in session to
+  // know WHICH organization's key to use — see js/studio-api.js's studioRequest for the same pattern.
   async respond(instruction, context, persona) {
     let response;
     try {
       response = await fetch(getAiProducerEndpoint(), {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ instruction, context, persona }),
+        credentials: "include",
+        headers: { "content-type": "application/json", "x-toasty-csrf": "1" },
+        body: JSON.stringify({ instruction, context, persona, organizationId: this.getOrganizationId() }),
         signal: AbortSignal.timeout(this.timeoutMs)
       });
     } catch (error) {
       throw new Error("ai-producer-backend-unreachable");
+    }
+    if (response.status === 402) {
+      const payload = await response.json().catch(() => ({}));
+      if (payload.error === "byok_required") throw new ByokRequiredError();
     }
     if (!response.ok) throw new Error(`ai-producer-backend-${response.status}`);
     const parsed = await response.json();
@@ -515,7 +540,10 @@ export class BackendAIProducerProvider {
 
 // Tries the real backend first; ANY failure (unreachable, timeout, non-200, malformed JSON) falls back
 // to the heuristic provider silently — the Host never sees a provider name, HTTP status, or stack trace
-// (see AIProducerService.handleInstruction's own catch for the last-resort case where even that fails).
+// (see AIProducerService.handleInstruction's own catch for the last-resort case where even that fails) —
+// EXCEPT a missing BYOK key, which the brief requires to be an explicit, visible message, not a silent
+// swap: the returned result carries byokRequired so the caller can say so instead of quietly pretending
+// the heuristic answer is full Moxie.
 export class FallbackAIProducerProvider {
   constructor({ primary, fallback }) {
     this.primary = primary;
@@ -526,15 +554,19 @@ export class FallbackAIProducerProvider {
     try {
       return await this.primary.respond(instruction, context, persona);
     } catch (error) {
+      if (error instanceof ByokRequiredError) {
+        const result = await this.fallback.respond(instruction, context, persona);
+        return { ...result, byokRequired: true };
+      }
       console.warn("AI Producer backend unavailable, falling back to heuristic:", error?.message || error);
       return this.fallback.respond(instruction, context, persona);
     }
   }
 }
 
-export function createAIProducerProvider({ useBackend = true } = {}) {
+export function createAIProducerProvider({ useBackend = true, getOrganizationId = () => null } = {}) {
   const heuristic = new HeuristicAIProducerProvider();
-  return useBackend ? new FallbackAIProducerProvider({ primary: new BackendAIProducerProvider(), fallback: heuristic }) : heuristic;
+  return useBackend ? new FallbackAIProducerProvider({ primary: new BackendAIProducerProvider({ getOrganizationId }), fallback: heuristic }) : heuristic;
 }
 
 // ---------------------------------------------------------------------------

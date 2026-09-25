@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Organization Settings — Toasty Studio</title>
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/studio-public.css">
+    <link rel="stylesheet" href="../css/studio-settings.css">
+    <script type="module" src="../js/studio-settings.js"></script>
+  </head>
+  <body class="settings-shell">
+    <div id="loadingState" class="loading-state">Loading Studio settings...</div>
+
+    <div id="settingsApp" hidden>
+      <header class="settings-topbar">
+        <a href="./sessions.html" aria-label="Back to Studio"><img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Studio"></a>
+        <div class="settings-topbar-right">
+          <label class="org-switcher">
+            <select id="orgSwitcher" aria-label="Organization"></select>
+          </label>
+          <button id="signOutBtn" class="settings-signout" type="button">Sign out</button>
+        </div>
+      </header>
+
+      <div class="settings-body">
+        <nav class="settings-nav" aria-label="Settings sections">
+          <button data-panel="organization" class="is-active" type="button">Organization</button>
+          <button data-panel="members" type="button">Members</button>
+          <button data-panel="billing" type="button">Billing</button>
+          <button data-panel="ai-providers" type="button">AI Providers</button>
+          <button data-panel="brand-profiles" type="button">Brand Profiles</button>
+          <button data-panel="security" type="button">Security</button>
+        </nav>
+
+        <main class="settings-main">
+          <!-- Organization -->
+          <section class="settings-panel is-active" data-panel="organization">
+            <h1>Organization</h1>
+            <form id="orgForm" class="settings-card">
+              <h2>Details</h2>
+              <div class="settings-row two-col">
+                <label class="field">Name<input id="orgName" name="name" required></label>
+                <label class="field">URL slug<input id="orgSlug" name="slug" pattern="[a-z0-9-]+"></label>
+              </div>
+              <div class="btn-row">
+                <span class="badge" id="orgPlanBadge">Plan</span>
+                <span class="badge" id="orgStatusBadge">Status</span>
+              </div>
+              <div class="btn-row">
+                <button class="btn primary" type="submit">Save changes</button>
+              </div>
+              <p class="settings-message" id="orgMessage" role="status"></p>
+            </form>
+          </section>
+
+          <!-- Members -->
+          <section class="settings-panel" data-panel="members">
+            <h1>Members</h1>
+            <div class="settings-card">
+              <h2>Invite someone</h2>
+              <form id="inviteForm" class="settings-row three-col">
+                <label class="field">Email<input id="inviteEmail" type="email" required></label>
+                <label class="field">Role
+                  <select id="inviteRole">
+                    <option value="member" selected>Member</option>
+                    <option value="admin">Admin</option>
+                    <option value="viewer">Viewer</option>
+                  </select>
+                </label>
+                <div style="display:flex; align-items:flex-end;"><button class="btn primary" type="submit">Send invite</button></div>
+              </form>
+              <p class="settings-message" id="inviteMessage" role="status"></p>
+            </div>
+            <div class="settings-card">
+              <h2>Current members</h2>
+              <table class="settings-table" id="membersTable">
+                <thead><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr></thead>
+                <tbody id="membersBody"></tbody>
+              </table>
+              <div id="membersEmpty" class="empty-state" hidden>No members yet.</div>
+            </div>
+            <div class="settings-card" id="pendingInvitesCard" hidden>
+              <h2>Pending invites</h2>
+              <table class="settings-table">
+                <thead><tr><th>Email</th><th>Role</th><th>Expires</th></tr></thead>
+                <tbody id="pendingInvitesBody"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- Billing -->
+          <section class="settings-panel" data-panel="billing">
+            <h1>Billing</h1>
+            <div class="settings-card">
+              <h2>Current plan</h2>
+              <div class="btn-row">
+                <span class="badge" id="billingPlanBadge">Plan</span>
+                <span class="badge" id="billingStatusBadge">Status</span>
+              </div>
+              <p class="hint">Demo accounts run with strict usage limits and no paid AI access until a plan is active — see Usage limits below.</p>
+            </div>
+
+            <div class="settings-card">
+              <h2>Pay by card (Stripe)</h2>
+              <div class="plan-grid">
+                <div class="plan-card">
+                  <strong>Creator</strong>
+                  <span class="price">Monthly subscription</span>
+                  <button class="btn primary" type="button" data-checkout-plan="creator">Upgrade to Creator</button>
+                </div>
+                <div class="plan-card">
+                  <strong>Pro</strong>
+                  <span class="price">Monthly subscription</span>
+                  <button class="btn primary" type="button" data-checkout-plan="pro">Upgrade to Pro</button>
+                </div>
+              </div>
+              <div class="btn-row">
+                <button class="btn" id="billingPortalBtn" type="button">Manage billing / cancel</button>
+              </div>
+              <p class="settings-message" id="stripeMessage" role="status"></p>
+            </div>
+
+            <div class="settings-card">
+              <h2>Pay with crypto (Solana) — SOL, USDC, or USDT</h2>
+              <p class="hint">A first-class payment option, not an afterthought. Pick a plan and term, pay from your own wallet, then confirm with the transaction signature — the plan activates only once the payment is verified on-chain.</p>
+              <form id="solanaIntentForm" class="settings-row three-col">
+                <label class="field">Plan
+                  <select id="solanaPlan">
+                    <option value="creator">Creator</option>
+                    <option value="pro">Pro</option>
+                  </select>
+                </label>
+                <label class="field">Term
+                  <select id="solanaTerm">
+                    <option value="30">30 days</option>
+                    <option value="90">90 days</option>
+                    <option value="365">365 days</option>
+                  </select>
+                </label>
+                <label class="field">Asset
+                  <select id="solanaAsset">
+                    <option value="USDC">USDC</option>
+                    <option value="USDT">USDT</option>
+                    <option value="SOL">SOL</option>
+                  </select>
+                </label>
+              </form>
+              <div class="btn-row">
+                <button class="btn primary" id="solanaCreateBtn" type="button">Get payment address</button>
+              </div>
+              <div class="solana-reference" id="solanaReference" hidden>
+                <div>Send exactly <strong id="solanaAmount"></strong> to:</div>
+                <code id="solanaRecipient"></code>
+                <div>Network: <span id="solanaNetwork"></span></div>
+                <div>Reference expires: <span id="solanaExpiry"></span></div>
+                <label class="field">Transaction signature<input id="solanaSignature" placeholder="Paste your transaction signature after sending"></label>
+                <div class="btn-row">
+                  <button class="btn primary" id="solanaConfirmBtn" type="button">Confirm payment</button>
+                </div>
+              </div>
+              <p class="settings-message" id="solanaMessage" role="status"></p>
+            </div>
+          </section>
+
+          <!-- AI Providers (BYOK) -->
+          <section class="settings-panel" data-panel="ai-providers">
+            <h1>AI Providers</h1>
+            <div class="settings-card">
+              <p class="hint">Moxie requires an AI provider. Connect your API key to enable research, production intelligence, and live assistance. Toasty never falls back to a shared key — your key is encrypted at rest and used only for your organization's requests.</p>
+              <div id="aiProvidersList"></div>
+            </div>
+          </section>
+
+          <!-- Brand Profiles -->
+          <section class="settings-panel" data-panel="brand-profiles">
+            <h1>Brand Profiles</h1>
+            <div class="settings-card">
+              <h2>Create a brand profile</h2>
+              <form id="brandProfileForm" class="settings-row three-col">
+                <label class="field">Name<input id="brandProfileName" required></label>
+                <label class="field">Base theme
+                  <select id="brandProfileTheme">
+                    <option value="toasty">Toasty Media</option>
+                    <option value="8alta">8ALTA</option>
+                    <option value="santati">Santati</option>
+                    <option value="zenify">Zenify</option>
+                    <option value="optimai">OptimAI Network</option>
+                    <option value="tangem">Tangem</option>
+                    <option value="superteam">Superteam Thailand</option>
+                    <option value="peeps">Toasty Peeps</option>
+                  </select>
+                </label>
+                <div style="display:flex; align-items:flex-end;"><button class="btn primary" type="submit">Create</button></div>
+              </form>
+              <p class="settings-message" id="brandProfileMessage" role="status"></p>
+            </div>
+            <div class="settings-card">
+              <h2>Existing profiles</h2>
+              <table class="settings-table">
+                <thead><tr><th>Name</th><th>Base theme</th><th></th></tr></thead>
+                <tbody id="brandProfilesBody"></tbody>
+              </table>
+              <div id="brandProfilesEmpty" class="empty-state" hidden>No brand profiles yet — the organization uses its default theme.</div>
+            </div>
+          </section>
+
+          <!-- Security -->
+          <section class="settings-panel" data-panel="security">
+            <h1>Security</h1>
+            <form id="changePasswordForm" class="settings-card">
+              <h2>Change password</h2>
+              <div class="settings-row two-col">
+                <label class="field">Current password<input type="password" id="currentPassword" autocomplete="current-password" required></label>
+                <label class="field">New password<input type="password" id="newPassword" autocomplete="new-password" minlength="10" required></label>
+              </div>
+              <div class="btn-row">
+                <button class="btn primary" type="submit">Update password</button>
+              </div>
+              <p class="settings-message" id="passwordMessage" role="status"></p>
+            </form>
+          </section>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

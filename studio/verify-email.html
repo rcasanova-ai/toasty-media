@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Verify your email — Toasty Studio</title>
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/studio-public.css">
+    <script type="module">
+      import { initVerifyEmail } from "../js/studio-account-flows.js";
+      initVerifyEmail();
+    </script>
+  </head>
+  <body class="studio-public-shell">
+    <main class="studio-public-page" style="display:grid; place-items:center; min-height:80vh;">
+      <section class="auth-card" style="max-width:420px; width:100%;">
+        <h2>Verify your email</h2>
+        <p id="flowStatus" class="auth-message" role="status">Verifying...</p>
+        <div id="flowAction"></div>
+      </section>
+    </main>
+  </body>
+</html>

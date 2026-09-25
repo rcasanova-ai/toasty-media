@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Set up your Studio — Toasty</title>
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/studio-public.css">
+    <link rel="stylesheet" href="../css/studio-settings.css">
+    <link rel="stylesheet" href="../css/studio-onboarding.css">
+    <script type="module" src="../js/studio-onboarding.js"></script>
+  </head>
+  <body class="onboarding-shell">
+    <div id="loadingState" class="loading-state">Loading...</div>
+    <div class="wrap" id="wizardApp" hidden>
+      <div class="onboarding-brand"><img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Studio"></div>
+      <div style="text-align:right; margin-bottom:8px;">
+        <button id="skipAllBtn" type="button" style="background:none; border:none; color:var(--public-muted); text-decoration:underline; cursor:pointer; font-size:0.85rem;">Skip setup for now</button>
+      </div>
+      <p class="step-label" id="stepLabel">Step 1 of 10</p>
+      <div class="progress-track" id="progressTrack"></div>
+
+      <!-- Step 1: Organization -->
+      <section class="step-panel" data-step="1">
+        <h1>Name your organization</h1>
+        <p class="lede">This is your workspace — everyone you invite will see this name.</p>
+        <label class="field">Organization name<input id="orgNameInput" required></label>
+        <p class="wizard-message" id="step1Message"></p>
+      </section>
+
+      <!-- Step 2: Brand -->
+      <section class="step-panel" data-step="2">
+        <h1>Start your brand</h1>
+        <p class="lede">Give your brand profile a name. You'll refine the look in a few steps.</p>
+        <label class="field">Brand name<input id="brandNameInput" required></label>
+        <label class="field">Starting point
+          <select id="baseThemeSelect">
+            <option value="toasty">Toasty Media (default look)</option>
+            <option value="8alta">8ALTA-style</option>
+            <option value="santati">Santati-style</option>
+            <option value="zenify">Zenify-style</option>
+          </select>
+        </label>
+      </section>
+
+      <!-- Step 3: Website Analysis -->
+      <section class="step-panel" data-step="3">
+        <h1>Analyze your website</h1>
+        <p class="lede">We'll pull your logo, colors, and description straight from your site. Optional — skip if you don't have one yet.</p>
+        <div class="wizard-row two-col">
+          <label class="field" style="grid-column: 1 / -1;">Website URL<input id="websiteUrlInput" placeholder="https://example.com"></label>
+        </div>
+        <div class="btn-row">
+          <button class="btn primary" id="analyzeBtn" type="button">Analyze website</button>
+        </div>
+        <div class="analysis-result" id="analysisResult" hidden>
+          <div><strong id="analysisTitle"></strong></div>
+          <div id="analysisDescription" style="color:var(--public-muted);"></div>
+          <div class="color-swatches" id="analysisSwatches"></div>
+        </div>
+        <p class="wizard-message" id="step3Message"></p>
+      </section>
+
+      <!-- Step 4: Socials -->
+      <section class="step-panel" data-step="4">
+        <h1>Add your socials</h1>
+        <p class="lede">Shown to guests and used across your Studio. All optional.</p>
+        <div class="wizard-row two-col">
+          <label class="field">Twitter / X<input id="socialTwitter" placeholder="https://x.com/yourhandle"></label>
+          <label class="field">Instagram<input id="socialInstagram" placeholder="https://instagram.com/yourhandle"></label>
+          <label class="field">LinkedIn<input id="socialLinkedin" placeholder="https://linkedin.com/company/you"></label>
+          <label class="field">YouTube<input id="socialYoutube" placeholder="https://youtube.com/@you"></label>
+        </div>
+        <p class="wizard-message" id="step4Message"></p>
+      </section>
+
+      <!-- Step 5: Brand Profile Generation -->
+      <section class="step-panel" data-step="5">
+        <h1>Generating your brand profile</h1>
+        <p class="lede" id="step5Lede">Building a brand profile from what we found.</p>
+        <p class="wizard-message" id="step5Message"></p>
+      </section>
+
+      <!-- Step 6: Preview -->
+      <section class="step-panel" data-step="6">
+        <h1>Preview your brand</h1>
+        <p class="lede">Here's what we generated. You can fine-tune it on the next step.</p>
+        <div class="preview-card" id="previewCard"></div>
+      </section>
+
+      <!-- Step 7: Quick Tweaks -->
+      <section class="step-panel" data-step="7">
+        <h1>Quick tweaks</h1>
+        <p class="lede">Adjust the colors and logo before finishing. You can always change these later in Settings.</p>
+        <div class="wizard-row two-col">
+          <label class="field">Primary color<input id="tweakPrimary" type="color"></label>
+          <label class="field">Secondary color<input id="tweakSecondary" type="color"></label>
+        </div>
+        <label class="field">Logo URL<input id="tweakLogoUrl" placeholder="https://..."></label>
+        <p class="wizard-message" id="step7Message"></p>
+      </section>
+
+      <!-- Step 8: Plan / Payment -->
+      <section class="step-panel" data-step="8">
+        <h1>Choose a plan</h1>
+        <p class="lede">Start on Demo for free, or upgrade now. You can also pay with SOL, USDC, or USDT any time from Settings → Billing.</p>
+        <div class="plan-choice-grid">
+          <div class="plan-choice">
+            <strong>Demo</strong>
+            <span style="color:var(--public-muted); font-size:0.85rem;">Free — strict usage limits, no paid AI without your own key.</span>
+            <button class="btn" id="stayOnDemoBtn" type="button">Continue on Demo</button>
+          </div>
+          <div class="plan-choice">
+            <strong>Creator</strong>
+            <span style="color:var(--public-muted); font-size:0.85rem;">Monthly subscription.</span>
+            <button class="btn primary" id="upgradeCreatorBtn" type="button">Upgrade to Creator</button>
+          </div>
+          <div class="plan-choice">
+            <strong>Pro</strong>
+            <span style="color:var(--public-muted); font-size:0.85rem;">Monthly subscription.</span>
+            <button class="btn primary" id="upgradeProBtn" type="button">Upgrade to Pro</button>
+          </div>
+        </div>
+        <p class="wizard-message" id="step8Message"></p>
+      </section>
+
+      <!-- Step 9: AI Setup -->
+      <section class="step-panel" data-step="9">
+        <h1>Connect an AI provider</h1>
+        <p class="lede">Moxie requires an AI provider. Connect your API key to enable research, production intelligence, and live assistance. Toasty never falls back to a shared key. You can skip this and add it later in Settings.</p>
+        <div id="onboardingAiProviders"></div>
+        <p class="wizard-message" id="step9Message"></p>
+      </section>
+
+      <!-- Step 10: Complete -->
+      <section class="step-panel" data-step="10">
+        <h1>You're all set</h1>
+        <p class="lede">Your Studio workspace is ready. You can revisit any of this in Settings any time.</p>
+        <div class="btn-row">
+          <a class="btn primary" href="./sessions.html" id="enterStudioLink">Enter Toasty Studio</a>
+        </div>
+      </section>
+
+      <div class="wizard-nav">
+        <button class="btn" id="backBtn" type="button">Back</button>
+        <button class="btn primary" id="nextBtn" type="button">Continue</button>
+      </div>
+    </div>
+  </body>
+</html>

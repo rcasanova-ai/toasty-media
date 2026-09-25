@@ -9,6 +9,8 @@ import { execFile, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
+import { lookup as dnsLookup } from "node:dns/promises";
+import { isIPv4, isIPv6 } from "node:net";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -87,6 +89,122 @@ const TOASTY_SOLANA_RPC_URL = process.env.TOASTY_SOLANA_RPC_URL || "https://api.
 const TOASTY_SOLANA_PAYER_KEYPAIR = process.env.TOASTY_SOLANA_PAYER_KEYPAIR || process.env.SVM_KEYPAIR_PATH || "";
 const TOASTY_MICROTASK_RECIPIENT = process.env.TOASTY_MICROTASK_RECIPIENT || process.env.SVM_PAY_TO || "";
 const TOASTY_MICROTASK_RESPONSE_PRICE = Number(process.env.TOASTY_MICROTASK_RESPONSE_PRICE || 0.10);
+
+// ---- Accounts / Organizations / Billing config ----
+// Email: dev/mock transport (console-logged, never actually sent) unless RESEND_API_KEY is set — same
+// "env var present = real integration, absent = safe local default" pattern as ANTHROPIC_API_KEY/
+// DEEPSEEK_API_KEY above. Resend's plain HTTPS API needs no SDK, matching this file's zero-dependency
+// deploy model (a single scp'd file — see docs/DEPLOYMENT.md).
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+const EMAIL_FROM = process.env.TOASTY_EMAIL_FROM || "Toasty Studio <studio@toasty.media>";
+const APP_BASE_URL = process.env.TOASTY_APP_BASE_URL || "https://toasty.media";
+const EMAIL_VERIFICATION_TOKEN_TTL_MS = Number(process.env.TOASTY_EMAIL_VERIFICATION_TTL_MS || 24 * 60 * 60 * 1000);
+const PASSWORD_RESET_TOKEN_TTL_MS = Number(process.env.TOASTY_PASSWORD_RESET_TTL_MS || 60 * 60 * 1000);
+// Per-IP signup throttle is the existing `limit(..., "register", ...)` call; this is a SEPARATE, tighter
+// per-email throttle so one address can't be used to spam verification/reset emails from many IPs.
+const EMAIL_ACTION_WINDOW_MS = 15 * 60 * 1000;
+const EMAIL_ACTION_MAX_PER_WINDOW = 3;
+const emailActionBuckets = new Map();
+
+// ---- Solana billing (organization subscriptions) ----
+// Deliberately separate constants from the expert-marketplace's TOASTY_SOLANA_* above even though several
+// resolve to the same env vars by default — organization billing and expert-discovery x402 payments are
+// different products that happen to share one Solana wallet/network in simple deployments, and either can
+// be pointed at a different wallet later without touching the other.
+const BILLING_SOLANA_RECIPIENT = process.env.TOASTY_BILLING_SOLANA_RECIPIENT || TOASTY_EXPERT_DISCOVERY_RECIPIENT;
+const BILLING_SOLANA_NETWORK = process.env.TOASTY_SOLANA_NETWORK || "solana-devnet";
+const BILLING_USDC_MINT = process.env.TOASTY_USDC_MINT || "devnet-usdc";
+const BILLING_USDT_MINT = process.env.TOASTY_USDT_MINT || "";
+const BILLING_SOLANA_RPC_URL = process.env.TOASTY_SOLANA_RPC_URL || "https://api.devnet.solana.com";
+const PAYMENT_INTENT_TTL_MS = Number(process.env.TOASTY_PAYMENT_INTENT_TTL_MS || 15 * 60 * 1000);
+
+// ---- Stripe billing ----
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
+const STRIPE_PRICE_IDS = {
+  creator: process.env.STRIPE_PRICE_CREATOR || "",
+  pro: process.env.STRIPE_PRICE_PRO || ""
+};
+
+// ---- Plans / entitlements ----
+// The ONE place plan limits are defined — every enforcement point (createSession, startRecording,
+// runRender, useAi, inviteMember, etc.) reads from here via can()/planLimits(), never a hard-coded number
+// scattered in a route handler. DEMO's numbers are deliberately strict per the brief: a demo account must
+// never be able to create meaningful infrastructure cost.
+const PLAN_LIMITS = Object.freeze({
+  demo: Object.freeze({
+    aiRequiresByok: true,
+    maxConcurrentSessions: 1,
+    maxSessionsPerDay: 3,
+    maxSessionsPerMonth: 20,
+    maxParticipants: 4,
+    maxRecordingMinutes: 15,
+    maxConcurrentRenders: 1,
+    maxRenderJobsPerDay: 3,
+    maxRenderDurationSeconds: 120,
+    maxSourceFileBytes: 50 * 1024 * 1024,
+    maxStorageBytes: 500 * 1024 * 1024,
+    maxUploadBytes: 50 * 1024 * 1024,
+    maxUploadsBytesPerMonth: 500 * 1024 * 1024,
+    rtmpEnabled: false,
+    customDomainsEnabled: false,
+    maxMembers: 1
+  }),
+  creator: Object.freeze({
+    aiRequiresByok: true,
+    maxConcurrentSessions: 2,
+    maxSessionsPerDay: 20,
+    maxSessionsPerMonth: 200,
+    maxParticipants: 6,
+    maxRecordingMinutes: 120,
+    maxConcurrentRenders: 2,
+    maxRenderJobsPerDay: 20,
+    maxRenderDurationSeconds: 900,
+    maxSourceFileBytes: MAX_FILE_BYTES,
+    maxStorageBytes: 20 * 1024 * 1024 * 1024,
+    maxUploadBytes: MAX_UPLOAD_BYTES,
+    maxUploadsBytesPerMonth: 20 * 1024 * 1024 * 1024,
+    rtmpEnabled: true,
+    customDomainsEnabled: false,
+    maxMembers: 5
+  }),
+  pro: Object.freeze({
+    aiRequiresByok: true,
+    maxConcurrentSessions: 5,
+    maxSessionsPerDay: 100,
+    maxSessionsPerMonth: 2000,
+    maxParticipants: 8,
+    maxRecordingMinutes: 480,
+    maxConcurrentRenders: 4,
+    maxRenderJobsPerDay: 100,
+    maxRenderDurationSeconds: 3600,
+    maxSourceFileBytes: MAX_FILE_BYTES,
+    maxStorageBytes: 200 * 1024 * 1024 * 1024,
+    maxUploadBytes: MAX_UPLOAD_BYTES,
+    maxUploadsBytesPerMonth: 200 * 1024 * 1024 * 1024,
+    rtmpEnabled: true,
+    customDomainsEnabled: true,
+    maxMembers: 25
+  }),
+  enterprise: Object.freeze({
+    aiRequiresByok: true,
+    maxConcurrentSessions: 20,
+    maxSessionsPerDay: 1000,
+    maxSessionsPerMonth: 20000,
+    maxParticipants: 12,
+    maxRecordingMinutes: 1440,
+    maxConcurrentRenders: 10,
+    maxRenderJobsPerDay: 1000,
+    maxRenderDurationSeconds: 14400,
+    maxSourceFileBytes: MAX_FILE_BYTES,
+    maxStorageBytes: 1024 * 1024 * 1024 * 1024,
+    maxUploadBytes: MAX_UPLOAD_BYTES,
+    maxUploadsBytesPerMonth: 1024 * 1024 * 1024 * 1024,
+    rtmpEnabled: true,
+    customDomainsEnabled: true,
+    maxMembers: 500
+  })
+});
 const TOASTY_EXPERTS = Object.freeze([
   { id: "exp-nadia-maclean", name: "Nadia MacLean", headline: "Canadian soccer business analyst", location: "Toronto, Canada", languages: ["English", "French"], categories: ["Soccer/football", "Media", "Business strategy"], topics: ["canadian premier league", "canada soccer", "soccer business", "sponsorship", "club operations"], sessionPrice: 425, currency: "USDC", verificationState: "Credentials reviewed", reputationScore: 94, completedEngagements: 18 },
   { id: "exp-julien-roche", name: "Julien Roche", headline: "Football journalist covering Canada and CONCACAF", location: "Montreal, Canada", languages: ["English", "French"], categories: ["Soccer/football", "Media"], topics: ["canadian premier league", "concacaf", "canada soccer", "player development", "world cup"], sessionPrice: 325, currency: "USDC", verificationState: "Profile reviewed", reputationScore: 91, completedEngagements: 31 },
@@ -155,6 +273,227 @@ const server = createServer(async (req, res) => {
     sendJson(req, res, 200, { authenticated: false });
     return;
   }
+  if (req.method === "POST" && req.url === "/auth/verify-email") {
+    if (!requireCsrf(req, res) || !limit(req, res, "verify-email", 20, 15 * 60 * 1000)) return;
+    await handleVerifyEmail(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/auth/verify-email/resend") {
+    if (!requireCsrf(req, res) || !limit(req, res, "verify-email-resend", 5, 15 * 60 * 1000)) return;
+    await handleResendVerification(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/auth/forgot-password") {
+    if (!requireCsrf(req, res) || !limit(req, res, "forgot-password", 6, 15 * 60 * 1000)) return;
+    await handleForgotPassword(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/auth/reset-password") {
+    if (!requireCsrf(req, res) || !limit(req, res, "reset-password", 10, 15 * 60 * 1000)) return;
+    await handleResetPassword(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/auth/change-password") {
+    if (!requireCsrf(req, res) || !limit(req, res, "change-password", 10, 15 * 60 * 1000)) return;
+    await handleChangePassword(req, res);
+    return;
+  }
+
+  // ---- Organizations ----
+  if (req.method === "GET" && req.url === "/api/organizations") {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const result = await db("list_user_organizations", { userId: session.id });
+    sendJson(req, res, 200, { organizations: result.organizations || [] });
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/organizations") {
+    if (!requireCsrf(req, res) || !limit(req, res, "org-create", 10, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleOrganizationCreate(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/settings")) {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleOrganizationSettingsGet(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/settings")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "org-settings", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleOrganizationSettingsUpdate(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/members")) {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMembersList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/members/invite")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "org-invite", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMemberInvite(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/members/role")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "org-member-role", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMemberRoleUpdate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/members/remove")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "org-member-remove", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMemberRemove(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/brand-profiles")) {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleBrandProfilesList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/brand-profiles")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "brand-profile-create", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleBrandProfileCreate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/update")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "org-update", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleOrganizationUpdate(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/organizations/") && !req.url.includes("/", "/api/organizations/".length)) {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleOrganizationGet(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/brand-profiles/") && req.url.endsWith("/update")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "brand-profile-update", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleBrandProfileUpdate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/brand-profiles/") && req.url.endsWith("/delete")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "brand-profile-delete", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleBrandProfileDelete(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/invites/accept") {
+    if (!requireCsrf(req, res) || !limit(req, res, "invite-accept", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleInviteAccept(req, res, session);
+    return;
+  }
+  // Tightly rate-limited: this is an outbound server-side fetch of a caller-supplied URL, the most
+  // expensive/abusable route in this file — see the SSRF protections on handleAnalyzeWebsite itself.
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/onboarding/analyze-website")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "onboarding-analyze", 8, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleAnalyzeWebsite(req, res, session);
+    return;
+  }
+  // ---- BYOK: AI provider credentials ----
+  if (req.method === "GET" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/ai-providers")) {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleAiProvidersList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/ai-providers")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "ai-provider-save", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleAiProviderSave(req, res, session);
+    return;
+  }
+  {
+    const aiProviderActionMatch = req.url?.match(/^\/api\/organizations\/([^/]+)\/ai-providers\/([^/]+)\/(test|revoke|delete)$/);
+    if (req.method === "POST" && aiProviderActionMatch) {
+      const [, organizationId, provider, action] = aiProviderActionMatch;
+      if (!requireCsrf(req, res) || !limit(req, res, `ai-provider-${action}`, action === "test" ? 20 : 30, 15 * 60 * 1000)) return;
+      const session = await requireSession(req, res);
+      if (!session) return;
+      if (action === "test") await handleAiProviderTest(req, res, session, organizationId, provider);
+      else if (action === "revoke") await handleAiProviderRevoke(req, res, session, organizationId, provider);
+      else await handleAiProviderDelete(req, res, session, organizationId, provider);
+      return;
+    }
+  }
+  // ---- Stripe billing ----
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/billing/checkout")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "billing-checkout", 10, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleBillingCheckout(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/billing/portal")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "billing-portal", 10, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleBillingPortal(req, res, session);
+    return;
+  }
+  // No requireCsrf/requireSession here on purpose — Stripe's own servers call this directly (no browser,
+  // no cookie, no Origin header Toasty controls). verifyStripeSignature inside the handler IS the auth.
+  if (req.method === "POST" && req.url === "/webhooks/stripe") {
+    if (!limit(req, res, "stripe-webhook", 100, 60 * 1000)) return;
+    await handleStripeWebhook(req, res);
+    return;
+  }
+  // ---- Solana billing ----
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/billing/solana/intent")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "solana-intent-create", 10, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSolanaIntentCreate(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/billing/solana/intents")) {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const organizationId = organizationIdFromUrl(req, "/billing/solana/intents");
+    await handleSolanaIntentsList(req, res, session, organizationId);
+    return;
+  }
+  {
+    const solanaIntentMatch = req.url?.match(/^\/api\/billing\/solana\/intents\/([^/]+)(?:\/(confirm))?$/);
+    if (solanaIntentMatch) {
+      const [, intentId, action] = solanaIntentMatch;
+      if (req.method === "GET" && !action) {
+        const session = await requireSession(req, res);
+        if (!session) return;
+        await handleSolanaIntentGet(req, res, session, intentId);
+        return;
+      }
+      if (req.method === "POST" && action === "confirm") {
+        if (!requireCsrf(req, res) || !limit(req, res, "solana-intent-confirm", 20, 15 * 60 * 1000)) return;
+        const session = await requireSession(req, res);
+        if (!session) return;
+        await handleSolanaIntentConfirm(req, res, session, intentId);
+        return;
+      }
+    }
+  }
+
   if (req.method === "GET" && req.url === "/integrations/google-drive/status") {
     const session = await requireSession(req, res);
     if (!session) return;
@@ -233,8 +572,13 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (req.method === "POST" && req.url === "/api/ai-producer/respond") {
-    if (!limit(req, res, "ai-producer-respond", 30, 5 * 60 * 1000)) return;
-    await handleAiProducerRespond(req, res);
+    if (!requireCsrf(req, res) || !limit(req, res, "ai-producer-respond", 30, 5 * 60 * 1000)) return;
+    // Session-gated as of BYOK: this route now needs to know WHICH organization's AI key to use, so an
+    // anonymous caller (which is all this route accepted before BYOK existed) can no longer reach it —
+    // there is no "whose key" answer for a request with no account behind it.
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleAiProducerRespond(req, res, session);
     return;
   }
   if (req.method === "POST" && req.url === "/api/transcribe") {
@@ -519,18 +863,44 @@ function buildAiProducerSystemPrompt(persona = {}) {
 const AI_PRODUCER_ENTRY_TYPES = new Set(["audience_questions", "context", "transition", "timing", "research", "production_suggestion"]);
 const AI_PRODUCER_ACTION_TYPES = new Set(["private", "surface_question", "draft_audience_reply", "send_to_program"]);
 
-async function handleAiProducerRespond(req, res) {
-  if (!DEEPSEEK_API_KEY && !ANTHROPIC_API_KEY) throw httpError(503, "AI Producer isn't configured on the server.");
+// The organization's own key, decrypted only for the duration of this one call — never cached, never
+// logged, never returned to the browser. Checked in AI_PROVIDER_PREFERENCE order; the first ACTIVE
+// (non-revoked) credential found wins. No platform-key fallback for any of these four — see BYOK_RULE
+// below for why that's deliberate, not an oversight.
+async function findActiveAiCredential(organizationId) {
+  for (const provider of AI_PROVIDER_PREFERENCE) {
+    const result = await db("get_ai_provider_credential", { organizationId, provider });
+    if (result.credential) return result.credential;
+  }
+  return null;
+}
+
+// BYOK_RULE: "No BYOK credential = no paid AI. Do NOT silently fall back to our own OpenAI, Anthropic,
+// DeepSeek, Gemini, or any other paid provider key. The organization owns its AI configuration." — this
+// function is the one enforcement point; DEEPSEEK_API_KEY/ANTHROPIC_API_KEY (the platform keys) are
+// deliberately never read here at all, only inside callDeepSeek/callAnthropic's own default parameter,
+// which nothing in this function's call path ever exercises.
+async function handleAiProducerRespond(req, res, authSession) {
   const body = await readJson(req);
   const instruction = String(body.instruction || "").trim().slice(0, 2000);
   if (!instruction) throw httpError(400, "Missing instruction.");
   const context = body.context && typeof body.context === "object" ? body.context : {};
   const persona = body.persona && typeof body.persona === "object" ? body.persona : {};
+
+  const organizationId = await resolveOrganizationForSession(authSession, body.organizationId);
+  const credential = organizationId ? await findActiveAiCredential(organizationId) : null;
+  if (!credential) {
+    sendJson(req, res, 402, {
+      error: "byok_required",
+      message: "Moxie requires an AI provider. Connect your API key to enable research, production intelligence, and live assistance."
+    });
+    return;
+  }
+
   const userContent = `HOST INSTRUCTION: ${instruction}\n\nSHOW CONTEXT:\n${JSON.stringify(context)}`;
   const systemPrompt = buildAiProducerSystemPrompt(persona);
-
-  // DeepSeek preferred whenever configured — see the DEEPSEEK_API_KEY comment above for why.
-  const { text, usage } = DEEPSEEK_API_KEY ? await callDeepSeek(userContent, systemPrompt) : await callAnthropic(userContent, systemPrompt);
+  const apiKey = decryptSecret(credential.encryptedCredential);
+  const { text, usage } = await AI_CALL_BY_PROVIDER[credential.provider](userContent, systemPrompt, apiKey);
 
   let parsed;
   try {
@@ -693,13 +1063,13 @@ async function readBinaryBody(req, maxBytes) {
   return Buffer.concat(chunks);
 }
 
-async function callDeepSeek(userContent, systemPrompt) {
+async function callDeepSeek(userContent, systemPrompt, apiKey = DEEPSEEK_API_KEY) {
   let response;
   try {
     response = await fetch("https://api.deepseek.com/chat/completions", {
       method: "POST",
       signal: AbortSignal.timeout(DEEPSEEK_TIMEOUT_MS),
-      headers: { "content-type": "application/json", authorization: `Bearer ${DEEPSEEK_API_KEY}` },
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: DEEPSEEK_MODEL,
         // Non-thinking mode: deepseek-flash defaults to thinking-enabled, which costs more and is
@@ -756,7 +1126,7 @@ function deepSeekIsPeakNow() {
   return (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10);
 }
 
-async function callAnthropic(userContent, systemPrompt) {
+async function callAnthropic(userContent, systemPrompt, apiKey = ANTHROPIC_API_KEY) {
   let response;
   try {
     response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -764,7 +1134,7 @@ async function callAnthropic(userContent, systemPrompt) {
       signal: AbortSignal.timeout(ANTHROPIC_TIMEOUT_MS),
       headers: {
         "content-type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
+        "x-api-key": apiKey,
         "anthropic-version": "2023-06-01"
       },
       body: JSON.stringify({
@@ -802,6 +1172,104 @@ async function callAnthropic(userContent, systemPrompt) {
     }
   };
 }
+
+// BYOK-only — there is no platform-wide OPENAI_API_KEY constant anywhere in this file, unlike DeepSeek/
+// Anthropic above (which predate BYOK and still have a platform key as a fallback for the cost-cutoff
+// path). This provider only ever runs with an organization's own key.
+const OPENAI_MODEL = process.env.TOASTY_AI_PRODUCER_OPENAI_MODEL || "gpt-5";
+const OPENAI_TIMEOUT_MS = Number(process.env.TOASTY_AI_PRODUCER_TIMEOUT_MS || 12000);
+
+async function callOpenAI(userContent, systemPrompt, apiKey) {
+  let response;
+  try {
+    response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS),
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent }
+        ]
+      })
+    });
+  } catch (error) {
+    console.error("AI Producer (OpenAI) upstream request failed:", error);
+    throw httpError(502, "AI Producer request failed.");
+  }
+  if (!response.ok) {
+    console.error("AI Producer (OpenAI) upstream error status:", response.status, await response.text().catch(() => ""));
+    throw httpError(502, "AI Producer request failed.");
+  }
+  const data = await response.json();
+  const text = data.choices?.[0]?.message?.content || "";
+  const u = data.usage || {};
+  return {
+    text,
+    usage: {
+      provider: "openai",
+      model: OPENAI_MODEL,
+      promptTokens: Number(u.prompt_tokens || 0),
+      cacheHitTokens: 0,
+      cacheMissTokens: Number(u.prompt_tokens || 0),
+      completionTokens: Number(u.completion_tokens || 0),
+      totalTokens: Number(u.total_tokens || 0),
+      estimatedCostUsd: null,
+      peak: null
+    }
+  };
+}
+
+const GEMINI_MODEL = process.env.TOASTY_AI_PRODUCER_GEMINI_MODEL || "gemini-2.5-flash";
+const GEMINI_TIMEOUT_MS = Number(process.env.TOASTY_AI_PRODUCER_TIMEOUT_MS || 12000);
+
+async function callGemini(userContent, systemPrompt, apiKey) {
+  let response;
+  try {
+    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: "user", parts: [{ text: userContent }] }],
+        generationConfig: { responseMimeType: "application/json" }
+      })
+    });
+  } catch (error) {
+    console.error("AI Producer (Gemini) upstream request failed:", error);
+    throw httpError(502, "AI Producer request failed.");
+  }
+  if (!response.ok) {
+    console.error("AI Producer (Gemini) upstream error status:", response.status, await response.text().catch(() => ""));
+    throw httpError(502, "AI Producer request failed.");
+  }
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const u = data.usageMetadata || {};
+  return {
+    text,
+    usage: {
+      provider: "gemini",
+      model: GEMINI_MODEL,
+      promptTokens: Number(u.promptTokenCount || 0),
+      cacheHitTokens: 0,
+      cacheMissTokens: Number(u.promptTokenCount || 0),
+      completionTokens: Number(u.candidatesTokenCount || 0),
+      totalTokens: Number(u.totalTokenCount || 0),
+      estimatedCostUsd: null,
+      peak: null
+    }
+  };
+}
+
+const AI_CALL_BY_PROVIDER = { deepseek: callDeepSeek, anthropic: callAnthropic, openai: callOpenAI, gemini: callGemini };
+// Preference order when an organization has more than one provider connected — DeepSeek stays first
+// (see its own comment above: cheap enough to actually afford per-show telemetry), matching the
+// pre-BYOK preference exactly so an org that only ever configures DeepSeek sees no behavior change.
+const AI_PROVIDER_PREFERENCE = ["deepseek", "anthropic", "openai", "gemini"];
 
 async function handleAgentFindExperts(req, res) {
   if (!TOASTY_EXPERT_DISCOVERY_RECIPIENT) {
@@ -1331,8 +1799,35 @@ async function handleRegister(req, res) {
   const result = await db("create_user", { id: userId, name, email, passwordHash });
   if (result.error === "duplicate_email") return sendJson(req, res, 409, { error: "An account with that email already exists." });
   if (!result.user) return sendJson(req, res, 500, { error: "Account could not be created." });
+  // Every new user gets exactly one organization on sign-up (owner role) — see the brief's core account
+  // model. Slug collisions retry with a short random suffix rather than failing signup outright.
+  await createDefaultOrganizationForUser(result.user);
+  await sendEmailVerification(result.user).catch((error) => {
+    console.error("[Toasty Auth] Failed to send verification email", error);
+  });
   setSession(req, res, result.user);
   sendJson(req, res, 201, { authenticated: true, user: result.user });
+}
+
+async function createDefaultOrganizationForUser(user) {
+  const base = slugify(user.name || user.email.split("@")[0] || "studio");
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const slug = attempt === 0 ? base : `${base}-${randomBytes(3).toString("hex")}`;
+    const result = await db("create_organization", {
+      id: randomUUID(),
+      name: `${user.name || "My"}'s Studio`,
+      slug,
+      ownerUserId: user.id,
+      membershipId: randomUUID()
+    });
+    if (result.organization) return result.organization;
+    if (result.error !== "duplicate_slug") throw httpError(500, "Could not create your organization.");
+  }
+  throw httpError(500, "Could not create your organization.");
+}
+
+function slugify(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "studio";
 }
 
 async function handleLogin(req, res) {
@@ -1352,8 +1847,1019 @@ async function handleLogin(req, res) {
   sendJson(req, res, 200, { authenticated: true, user });
 }
 
+// ---- Email provider ----
+// One abstraction, two transports: Resend's plain HTTPS API when RESEND_API_KEY is set, otherwise a dev
+// transport that logs the email instead of sending it (per the brief's "use a mock transport locally"
+// requirement). Callers never touch the transport directly — sendEmailVerification/sendPasswordReset/
+// sendOrganizationInvite are the only entry points, so swapping providers later stays a one-function change.
+async function sendEmail({ to, subject, html }) {
+  if (!RESEND_API_KEY) {
+    console.log(`[Toasty Email:DEV] to=${to} subject=${JSON.stringify(subject)}\n${html}`);
+    return { ok: true, transport: "dev" };
+  }
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject, html })
+  });
+  if (!response.ok) {
+    console.error("[Toasty Email] Resend send failed", response.status, await response.text().catch(() => ""));
+    return { ok: false, transport: "resend" };
+  }
+  return { ok: true, transport: "resend" };
+}
+
+function emailActionAllowed(email) {
+  const now = Date.now();
+  const key = normalizeEmail(email);
+  const bucket = (emailActionBuckets.get(key) || []).filter((time) => now - time < EMAIL_ACTION_WINDOW_MS);
+  bucket.push(now);
+  emailActionBuckets.set(key, bucket);
+  return bucket.length <= EMAIL_ACTION_MAX_PER_WINDOW;
+}
+
+async function sendEmailVerification(user) {
+  const rawToken = randomBytes(32).toString("base64url");
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  await db("create_email_verification_token", {
+    id: randomUUID(),
+    userId: user.id,
+    tokenHash,
+    expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TOKEN_TTL_MS).toISOString()
+  });
+  const verifyUrl = `${APP_BASE_URL}/studio/verify-email.html?token=${rawToken}`;
+  await sendEmail({
+    to: user.email,
+    subject: "Verify your Toasty Studio email",
+    html: `<p>Hi ${escapeHtml(user.name || "there")},</p><p>Confirm your email to finish setting up Toasty Studio:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p><p>This link expires in 24 hours.</p>`
+  });
+}
+
+async function sendPasswordResetEmail(user) {
+  const rawToken = randomBytes(32).toString("base64url");
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  await db("create_password_reset_token", {
+    id: randomUUID(),
+    userId: user.id,
+    tokenHash,
+    expiresAt: new Date(Date.now() + PASSWORD_RESET_TOKEN_TTL_MS).toISOString()
+  });
+  const resetUrl = `${APP_BASE_URL}/studio/reset-password.html?token=${rawToken}`;
+  await sendEmail({
+    to: user.email,
+    subject: "Reset your Toasty Studio password",
+    html: `<p>Hi ${escapeHtml(user.name || "there")},</p><p>Someone asked to reset the password on this account. If that was you:</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>This link expires in 1 hour and can only be used once. If you didn't request this, you can ignore this email.</p>`
+  });
+}
+
+async function sendOrganizationInviteEmail({ toEmail, inviterName, organizationName, role, rawToken }) {
+  const acceptUrl = `${APP_BASE_URL}/studio/accept-invite.html?token=${rawToken}`;
+  await sendEmail({
+    to: toEmail,
+    subject: `You've been invited to ${organizationName} on Toasty Studio`,
+    html: `<p>${escapeHtml(inviterName || "A teammate")} invited you to join <strong>${escapeHtml(organizationName)}</strong> on Toasty Studio as ${escapeHtml(role)}.</p><p><a href="${acceptUrl}">${acceptUrl}</a></p><p>Sign in or create an account with this email address (${escapeHtml(toEmail)}) to accept — this invite expires in 7 days.</p>`
+  });
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+}
+
+async function handleVerifyEmail(req, res) {
+  const body = await readJson(req);
+  const rawToken = String(body?.token || "");
+  if (!rawToken) return sendJson(req, res, 400, { error: "Missing verification token." });
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  const result = await db("consume_email_verification_token", { tokenHash });
+  if (result.error === "invalid_token") return sendJson(req, res, 400, { error: "This verification link is invalid or was already used." });
+  if (result.error === "expired_token") return sendJson(req, res, 400, { error: "This verification link has expired. Request a new one." });
+  if (!result.user) return sendJson(req, res, 500, { error: "Could not verify email." });
+  sendJson(req, res, 200, { ok: true, user: result.user });
+}
+
+async function handleResendVerification(req, res) {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  if (session.emailVerifiedAt) return sendJson(req, res, 200, { ok: true, alreadyVerified: true });
+  if (!emailActionAllowed(session.email)) return sendJson(req, res, 429, { error: "Too many verification emails requested. Try again later." });
+  await sendEmailVerification(session);
+  sendJson(req, res, 200, { ok: true });
+}
+
+// Neutral response ALWAYS — per the brief's explicit anti-enumeration requirement, a caller can never
+// tell from this response whether the email exists, is unverified, or is suspended.
+async function handleForgotPassword(req, res) {
+  const body = await readJson(req);
+  const email = normalizeEmail(body?.email);
+  const neutral = { ok: true, message: "If an account exists for that email, a reset link has been sent." };
+  if (!email || !EMAIL_PATTERN.test(email)) return sendJson(req, res, 200, neutral);
+  if (!emailActionAllowed(email)) return sendJson(req, res, 200, neutral);
+  const result = await db("get_user_by_email", { email });
+  if (result.user && result.user.status === "active") {
+    await sendPasswordResetEmail(result.user).catch((error) => {
+      console.error("[Toasty Auth] Failed to send password reset email", error);
+    });
+  }
+  sendJson(req, res, 200, neutral);
+}
+
+async function handleResetPassword(req, res) {
+  const body = await readJson(req);
+  const rawToken = String(body?.token || "");
+  const newPassword = String(body?.newPassword || "");
+  if (!rawToken || !newPassword) return sendJson(req, res, 400, { error: "Missing token or new password." });
+  if (newPassword.length < 10) return sendJson(req, res, 400, { error: "Use a password with at least 10 characters." });
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  const newPasswordHash = await hashPassword(newPassword);
+  const result = await db("consume_password_reset_token", { tokenHash, newPasswordHash });
+  if (result.error === "invalid_token") return sendJson(req, res, 400, { error: "This reset link is invalid or was already used." });
+  if (result.error === "expired_token") return sendJson(req, res, 400, { error: "This reset link has expired. Request a new one." });
+  if (!result.user) return sendJson(req, res, 500, { error: "Could not reset password." });
+  // The reset itself already invalidates every existing session (readSession rejects cookies issued
+  // before passwordChangedAt) — clear THIS browser's cookie too so it doesn't sit around presenting as
+  // logged-in until its next request silently 401s.
+  clearSession(req, res);
+  sendJson(req, res, 200, { ok: true });
+}
+
+async function handleChangePassword(req, res) {
+  const session = await requireSession(req, res);
+  if (!session) return;
+  const body = await readJson(req);
+  const currentPassword = String(body?.currentPassword || "");
+  const newPassword = String(body?.newPassword || "");
+  if (!currentPassword || !newPassword) return sendJson(req, res, 400, { error: "Current and new password are required." });
+  if (newPassword.length < 10) return sendJson(req, res, 400, { error: "Use a password with at least 10 characters." });
+  const stored = await db("get_user_by_email", { email: session.email });
+  if (!(await verifyPassword(currentPassword, stored.passwordHash))) {
+    return sendJson(req, res, 401, { error: "Current password is incorrect." });
+  }
+  const newPasswordHash = await hashPassword(newPassword);
+  const result = await db("change_password", { id: session.id, newPasswordHash });
+  if (!result.user) return sendJson(req, res, 500, { error: "Could not change password." });
+  // Re-issue a fresh cookie for THIS browser, carrying the just-bumped passwordVersion, so the user who
+  // just changed their own password isn't immediately logged out by their own change — every OTHER
+  // outstanding session/device (still carrying the OLD version) is invalidated by readSession's check.
+  setSession(req, res, result.user);
+  sendJson(req, res, 200, { ok: true, user: result.user });
+}
+
 function authConfigured() {
   return Boolean(SESSION_SECRET);
+}
+
+// ---- Organizations / Members / Settings / Brand Profiles ----
+// One role hierarchy, checked in exactly one place (requireMembership) — every route below calls it
+// instead of re-implementing "is this person allowed to do this" per handler. A non-member gets a 404,
+// not a 403, for the same reason js/live-session.js's session ownership checks do: a 403 on someone else's
+// organization would confirm that organization id/slug exists to a caller with no business knowing that.
+const ORG_ROLE_RANK = { viewer: 1, member: 2, admin: 3, owner: 4 };
+
+async function requireMembership(req, res, organizationId, minRole, session) {
+  if (!SAFE_ID.test(organizationId)) {
+    sendJson(req, res, 404, { error: "Organization not found." });
+    return null;
+  }
+  const result = await db("get_membership", { organizationId, userId: session.id });
+  if (!result.membership) {
+    sendJson(req, res, 404, { error: "Organization not found." });
+    return null;
+  }
+  if ((ORG_ROLE_RANK[result.membership.role] || 0) < (ORG_ROLE_RANK[minRole] || 0)) {
+    sendJson(req, res, 403, { error: "You don't have permission to do that." });
+    return null;
+  }
+  return result.membership;
+}
+
+function organizationIdFromUrl(req, suffix = "") {
+  const prefix = "/api/organizations/";
+  const path = suffix ? req.url.slice(prefix.length, -suffix.length) : req.url.slice(prefix.length);
+  return decodeURIComponent(path);
+}
+
+async function handleOrganizationCreate(req, res, session) {
+  const body = await readJson(req);
+  const name = cleanName(body?.name);
+  if (!name) return sendJson(req, res, 400, { error: "Organization name is required." });
+  const requestedSlug = body?.slug ? slugify(body.slug) : slugify(name);
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const slug = attempt === 0 ? requestedSlug : `${requestedSlug}-${randomBytes(3).toString("hex")}`;
+    const result = await db("create_organization", { id: randomUUID(), name, slug, ownerUserId: session.id, membershipId: randomUUID() });
+    if (result.organization) return sendJson(req, res, 201, { organization: result.organization });
+    if (result.error !== "duplicate_slug") return sendJson(req, res, 500, { error: "Could not create organization." });
+  }
+  sendJson(req, res, 500, { error: "Could not create organization." });
+}
+
+async function handleOrganizationGet(req, res, session) {
+  const organizationId = organizationIdFromUrl(req);
+  const membership = await requireMembership(req, res, organizationId, "viewer", session);
+  if (!membership) return;
+  const result = await db("get_organization", { id: organizationId });
+  if (!result.organization) return sendJson(req, res, 404, { error: "Organization not found." });
+  sendJson(req, res, 200, { organization: result.organization, role: membership.role });
+}
+
+async function handleOrganizationUpdate(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/update");
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  const body = await readJson(req);
+  // plan/subscriptionStatus are deliberately NOT settable here — those only ever change via the billing
+  // webhooks/payment-confirmation code paths (Stripe webhook, Solana payment verification), never a
+  // direct user-facing edit, so an org can never grant itself entitlements it hasn't paid for.
+  const patch = {};
+  if (typeof body?.name === "string") patch.name = cleanName(body.name) || undefined;
+  if (typeof body?.slug === "string") patch.slug = slugify(body.slug);
+  if (typeof body?.activeBrandProfileId === "string") patch.activeBrandProfileId = body.activeBrandProfileId;
+  if (Object.keys(patch).length === 0) return sendJson(req, res, 400, { error: "Nothing to update." });
+  const result = await db("update_organization", { id: organizationId, ...patch });
+  if (result.error === "duplicate_slug") return sendJson(req, res, 409, { error: "That URL slug is already taken." });
+  sendJson(req, res, 200, { organization: result.organization });
+}
+
+async function handleOrganizationSettingsGet(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/settings");
+  const membership = await requireMembership(req, res, organizationId, "viewer", session);
+  if (!membership) return;
+  const result = await db("get_organization_settings", { organizationId });
+  sendJson(req, res, 200, { settings: result.settings });
+}
+
+async function handleOrganizationSettingsUpdate(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/settings");
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  const body = await readJson(req);
+  const patch = { organizationId };
+  for (const key of ["websiteUrl", "bookingUrl", "supportEmail", "timezone"]) {
+    if (typeof body?.[key] === "string") patch[key] = body[key].slice(0, 500);
+  }
+  for (const key of ["defaultSessionSettings", "defaultCTA", "defaultEndCard", "socialLinks", "customDomainConfig"]) {
+    if (body?.[key] && typeof body[key] === "object") patch[key] = body[key];
+  }
+  if (body?.onboardingCompleted) patch.onboardingCompleted = true;
+  const result = await db("update_organization_settings", patch);
+  sendJson(req, res, 200, { settings: result.settings });
+}
+
+async function handleMembersList(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/members");
+  const membership = await requireMembership(req, res, organizationId, "viewer", session);
+  if (!membership) return;
+  const result = await db("list_memberships", { organizationId });
+  const invites = await db("list_invites", { organizationId });
+  sendJson(req, res, 200, { members: result.memberships || [], pendingInvites: invites.invites || [] });
+}
+
+async function handleMemberInvite(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/members/invite");
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  const body = await readJson(req);
+  const email = normalizeEmail(body?.email);
+  const role = ["viewer", "member", "admin"].includes(body?.role) ? body.role : "member";
+  if (!email || !EMAIL_PATTERN.test(email)) return sendJson(req, res, 400, { error: "Enter a valid email address." });
+  // Admins can invite viewer/member/admin but never owner — ownership only transfers explicitly (not
+  // implemented yet), never via a generic invite.
+  const org = await db("get_organization", { id: organizationId });
+  const rawToken = randomBytes(32).toString("base64url");
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  await db("create_invite", {
+    id: randomUUID(),
+    organizationId,
+    email,
+    role,
+    tokenHash,
+    invitedByUserId: session.id,
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+  });
+  await sendOrganizationInviteEmail({ toEmail: email, inviterName: session.name, organizationName: org.organization?.name || "Toasty Studio", role, rawToken }).catch((error) => {
+    console.error("[Toasty Auth] Failed to send invite email", error);
+  });
+  sendJson(req, res, 201, { ok: true });
+}
+
+async function handleInviteAccept(req, res, session) {
+  const body = await readJson(req);
+  const rawToken = String(body?.token || "");
+  if (!rawToken) return sendJson(req, res, 400, { error: "Missing invite token." });
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  const invite = await db("get_invite_by_token", { tokenHash });
+  if (!invite.invite) return sendJson(req, res, 400, { error: "This invite is invalid or was already used." });
+  if (normalizeEmail(invite.invite.email) !== normalizeEmail(session.email)) {
+    return sendJson(req, res, 403, { error: "This invite was sent to a different email address. Sign in with that email to accept it." });
+  }
+  const result = await db("accept_invite", { tokenHash, userId: session.id, membershipId: randomUUID() });
+  if (result.error === "invalid_token") return sendJson(req, res, 400, { error: "This invite is invalid or was already used." });
+  if (result.error === "expired_token") return sendJson(req, res, 400, { error: "This invite has expired." });
+  if (result.error === "already_member") return sendJson(req, res, 409, { error: "You're already a member of that organization." });
+  sendJson(req, res, 200, { organizationId: result.organizationId, role: result.role });
+}
+
+async function handleMemberRoleUpdate(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/members/role");
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  const body = await readJson(req);
+  const targetUserId = String(body?.userId || "");
+  const newRole = body?.role;
+  if (!["viewer", "member", "admin", "owner"].includes(newRole)) return sendJson(req, res, 400, { error: "Invalid role." });
+  if (newRole === "owner" && membership.role !== "owner") return sendJson(req, res, 403, { error: "Only an owner can grant ownership." });
+  if (!(await guardLastOwner(req, res, organizationId, targetUserId, newRole))) return;
+  const result = await db("update_membership_role", { organizationId, userId: targetUserId, role: newRole });
+  sendJson(req, res, 200, { membership: result.membership });
+}
+
+async function handleMemberRemove(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/members/remove");
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  const body = await readJson(req);
+  const targetUserId = String(body?.userId || "");
+  if (targetUserId === session.id) return sendJson(req, res, 400, { error: "Use account settings to leave an organization yourself." });
+  if (!(await guardLastOwner(req, res, organizationId, targetUserId, null))) return;
+  await db("remove_membership", { organizationId, userId: targetUserId });
+  sendJson(req, res, 200, { ok: true });
+}
+
+// Refuses a role change/removal that would leave an organization with zero owners. `newRole` is the role
+// being assigned (null means "being removed entirely").
+async function guardLastOwner(req, res, organizationId, targetUserId, newRole) {
+  const current = await db("get_membership", { organizationId, userId: targetUserId });
+  if (!current.membership) {
+    sendJson(req, res, 404, { error: "That person is not a member of this organization." });
+    return false;
+  }
+  if (current.membership.role !== "owner" || newRole === "owner") return true;
+  const all = await db("list_memberships", { organizationId });
+  const ownerCount = (all.memberships || []).filter((m) => m.role === "owner").length;
+  if (ownerCount <= 1) {
+    sendJson(req, res, 400, { error: "An organization must always have at least one owner." });
+    return false;
+  }
+  return true;
+}
+
+async function handleBrandProfilesList(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/brand-profiles");
+  const membership = await requireMembership(req, res, organizationId, "viewer", session);
+  if (!membership) return;
+  const result = await db("list_brand_profiles", { organizationId });
+  sendJson(req, res, 200, { brandProfiles: result.brandProfiles || [] });
+}
+
+async function handleBrandProfileCreate(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/brand-profiles");
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  const body = await readJson(req);
+  const result = await db("create_brand_profile", {
+    id: randomUUID(),
+    organizationId,
+    name: cleanName(body?.name) || "Default",
+    baseThemeId: typeof body?.baseThemeId === "string" ? body.baseThemeId : "toasty",
+    overrides: body?.overrides && typeof body.overrides === "object" ? body.overrides : {}
+  });
+  sendJson(req, res, 201, { brandProfile: result.brandProfile });
+}
+
+// Brand profiles are addressed by their own id (not nested under an organization id in the URL), so
+// authorization has to resolve the owning organization first, then run the SAME membership check as
+// every other admin-only route — never trust a profile id alone.
+async function resolveBrandProfileMembership(req, res, profileId, minRole, session) {
+  const profile = await db("get_brand_profile", { id: profileId });
+  if (!profile.brandProfile) {
+    sendJson(req, res, 404, { error: "Brand profile not found." });
+    return null;
+  }
+  const membership = await requireMembership(req, res, profile.brandProfile.organizationId, minRole, session);
+  if (!membership) return null;
+  return profile.brandProfile;
+}
+
+async function handleBrandProfileUpdate(req, res, session) {
+  const profileId = decodeURIComponent(req.url.slice("/api/brand-profiles/".length, -"/update".length));
+  const brandProfile = await resolveBrandProfileMembership(req, res, profileId, "admin", session);
+  if (!brandProfile) return;
+  const body = await readJson(req);
+  const patch = { id: brandProfile.id };
+  if (typeof body?.name === "string") patch.name = cleanName(body.name);
+  if (typeof body?.baseThemeId === "string") patch.baseThemeId = body.baseThemeId;
+  if (body?.overrides && typeof body.overrides === "object") patch.overrides = body.overrides;
+  const result = await db("update_brand_profile", patch);
+  sendJson(req, res, 200, { brandProfile: result.brandProfile });
+}
+
+async function handleBrandProfileDelete(req, res, session) {
+  const profileId = decodeURIComponent(req.url.slice("/api/brand-profiles/".length, -"/delete".length));
+  const brandProfile = await resolveBrandProfileMembership(req, res, profileId, "admin", session);
+  if (!brandProfile) return;
+  await db("delete_brand_profile", { id: brandProfile.id });
+  sendJson(req, res, 200, { ok: true });
+}
+
+// ---- Onboarding: website analysis ----
+// Fetches a URL the org owner/admin supplies and extracts basic branding signals (title, description,
+// theme color, logo/favicon, dominant colors) with no AI call involved — the onboarding wizard runs this
+// step BEFORE AI Setup, so it has to work with zero AI provider connected. Because this is "fetch a URL a
+// user gave us" from the server, it's a textbook SSRF vector: every resolved IP (the initial hostname AND
+// each redirect hop) is checked against private/loopback/link-local/reserved ranges before the request is
+// made, redirects are followed manually (never automatically, so a redirect to an internal address can't
+// slip past the check), and the response is both time- and size-capped.
+const PRIVATE_IPV4_RANGES = [
+  [0x00000000, 8], [0x0A000000, 8], [0x7F000000, 8], [0xA9FE0000, 16], [0xAC100000, 12],
+  [0xC0A80000, 16], [0xC0000000, 24], [0xC0000200, 24], [0xC6336400, 24], [0xE0000000, 4], [0xF0000000, 4]
+];
+
+function ipv4ToInt(ip) {
+  const parts = ip.split(".").map(Number);
+  return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+function isPrivateIpv4(ip) {
+  const value = ipv4ToInt(ip);
+  return PRIVATE_IPV4_RANGES.some(([base, prefix]) => {
+    const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+    return (value & mask) === (base & mask);
+  });
+}
+
+function isPrivateIpv6(address) {
+  const normalized = address.toLowerCase();
+  if (normalized === "::1" || normalized === "::") return true;
+  if (normalized.startsWith("::ffff:")) {
+    const mapped = normalized.slice(7);
+    if (isIPv4(mapped)) return isPrivateIpv4(mapped);
+  }
+  // fc00::/7 (unique local) and fe80::/10 (link-local) — checked by their leading hex groups.
+  return /^(fc|fd|fe[89ab])/.test(normalized);
+}
+
+function isPrivateAddress(address) {
+  if (isIPv4(address)) return isPrivateIpv4(address);
+  if (isIPv6(address)) return isPrivateIpv6(address);
+  return true; // unrecognized shape — refuse rather than guess
+}
+
+// Off by default in every real deployment — exists ONLY so scripts/accounts-onboarding-server-test.mjs can
+// point this route at a local mock "website" server and exercise the full parsing happy path, the same way
+// scripts/accounts-solana-server-test.mjs points TOASTY_SOLANA_RPC_URL at a local mock RPC. Never set this
+// outside a test process.
+const ONBOARDING_ANALYSIS_ALLOW_PRIVATE = process.env.TOASTY_ONBOARDING_ANALYSIS_ALLOW_PRIVATE === "1";
+
+async function assertPublicHostname(hostname) {
+  if (ONBOARDING_ANALYSIS_ALLOW_PRIVATE) return;
+  if (isIPv4(hostname) || isIPv6(hostname)) {
+    if (isPrivateAddress(hostname)) throw httpError(400, "That address can't be analyzed.");
+    return;
+  }
+  let records;
+  try {
+    records = await dnsLookup(hostname, { all: true, verbatim: true });
+  } catch {
+    throw httpError(400, "Could not resolve that website.");
+  }
+  if (!records.length || records.some((record) => isPrivateAddress(record.address))) {
+    throw httpError(400, "That address can't be analyzed.");
+  }
+}
+
+const WEBSITE_ANALYSIS_MAX_BYTES = 2 * 1024 * 1024;
+
+async function safeFetchForAnalysis(startUrl) {
+  let target = new URL(startUrl);
+  for (let redirects = 0; redirects <= 3; redirects += 1) {
+    if (target.protocol !== "http:" && target.protocol !== "https:") throw httpError(400, "Only http/https websites can be analyzed.");
+    await assertPublicHostname(target.hostname);
+    let response;
+    try {
+      response = await fetch(target, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(8000),
+        headers: { "user-agent": "ToastyStudioOnboarding/1.0 (+https://toasty.media)" }
+      });
+    } catch (error) {
+      throw httpError(502, "Could not reach that website.");
+    }
+    if (response.status >= 300 && response.status < 400 && response.headers.get("location")) {
+      target = new URL(response.headers.get("location"), target);
+      continue;
+    }
+    if (!response.ok) throw httpError(502, `That website responded with ${response.status}.`);
+    const reader = response.body?.getReader();
+    if (!reader) return "";
+    let received = 0;
+    const chunks = [];
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.length;
+      if (received > WEBSITE_ANALYSIS_MAX_BYTES) { reader.cancel().catch(() => {}); break; }
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks).toString("utf8");
+  }
+  throw httpError(400, "That website redirected too many times.");
+}
+
+function extractMeta(html, ...names) {
+  for (const name of names) {
+    const attrMatch = html.match(new RegExp(`<meta[^>]+(?:name|property)=["']${name}["'][^>]+content=["']([^"']*)["']`, "i"))
+      || html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+(?:name|property)=["']${name}["']`, "i"));
+    if (attrMatch) return attrMatch[1].trim();
+  }
+  return "";
+}
+
+function analyzeWebsiteHtml(html, baseUrl) {
+  const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+  const title = (extractMeta(html, "og:site_name") || (titleMatch ? titleMatch[1].trim() : "")).slice(0, 200);
+  const description = extractMeta(html, "og:description", "description").slice(0, 400);
+  const themeColor = extractMeta(html, "theme-color");
+  const ogImageRaw = extractMeta(html, "og:image");
+  let ogImage = "";
+  try { if (ogImageRaw) ogImage = new URL(ogImageRaw, baseUrl).toString(); } catch { /* malformed image URL — leave blank */ }
+  let iconHref = "";
+  const iconMatch = html.match(/<link[^>]+rel=["'](?:shortcut icon|icon|apple-touch-icon)["'][^>]+href=["']([^"']+)["']/i)
+    || html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["'](?:shortcut icon|icon|apple-touch-icon)["']/i);
+  if (iconMatch) {
+    try { iconHref = new URL(iconMatch[1], baseUrl).toString(); } catch { /* malformed icon URL — leave blank */ }
+  }
+  const colorMatches = [...html.matchAll(/#[0-9a-fA-F]{6}\b/g)].map((m) => m[0].toLowerCase());
+  const colorCounts = new Map();
+  for (const color of colorMatches) colorCounts.set(color, (colorCounts.get(color) || 0) + 1);
+  const dominantColors = [...colorCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([color]) => color);
+  return {
+    title,
+    description,
+    themeColor: /^#[0-9a-fA-F]{6}$/.test(themeColor) ? themeColor : "",
+    logoUrl: iconHref || ogImage,
+    ogImage,
+    dominantColors
+  };
+}
+
+async function handleAnalyzeWebsite(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/onboarding/analyze-website");
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  const body = await readJson(req);
+  const rawUrl = String(body?.url || "").trim();
+  if (!rawUrl) return sendJson(req, res, 400, { error: "A website URL is required." });
+  let parsed;
+  try {
+    parsed = new URL(/^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`);
+  } catch {
+    return sendJson(req, res, 400, { error: "That doesn't look like a valid URL." });
+  }
+  const html = await safeFetchForAnalysis(parsed.toString());
+  const analysis = analyzeWebsiteHtml(html, parsed.toString());
+  await db("update_organization_settings", { organizationId, websiteUrl: parsed.toString() });
+  sendJson(req, res, 200, { analysis, websiteUrl: parsed.toString() });
+}
+
+// ---- BYOK: AI provider credentials ----
+const AI_PROVIDER_NAMES = new Set(["openai", "anthropic", "deepseek", "gemini"]);
+
+async function handleAiProvidersList(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/ai-providers");
+  const membership = await requireMembership(req, res, organizationId, "member", session);
+  if (!membership) return;
+  const result = await db("list_ai_provider_credentials", { organizationId });
+  sendJson(req, res, 200, { credentials: result.credentials || [] });
+}
+
+async function handleAiProviderSave(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/ai-providers");
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  const body = await readJson(req);
+  const provider = String(body?.provider || "").toLowerCase();
+  const apiKey = String(body?.apiKey || "").trim();
+  if (!AI_PROVIDER_NAMES.has(provider)) return sendJson(req, res, 400, { error: "Unknown AI provider." });
+  if (apiKey.length < 8 || apiKey.length > 400) return sendJson(req, res, 400, { error: "That doesn't look like a valid API key." });
+  // The plaintext key exists in this process only for the length of this request — encrypted immediately,
+  // never logged, never written anywhere else, and never sent back to the browser (see ai_credential_public
+  // in toasty-auth-db.py: include_secret defaults to false everywhere except the one internal AI-call path).
+  const encryptedCredential = encryptSecret(apiKey);
+  const keyLast4 = apiKey.slice(-4);
+  const result = await db("upsert_ai_provider_credential", { id: randomUUID(), organizationId, provider, encryptedCredential, keyLast4 });
+  sendJson(req, res, 200, { credential: result.credential });
+}
+
+async function handleAiProviderTest(req, res, session, organizationId, provider) {
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  if (!AI_PROVIDER_NAMES.has(provider)) return sendJson(req, res, 400, { error: "Unknown AI provider." });
+  const body = await readJson(req);
+  // Testing a key the user just typed (not yet saved) is supported so "Test" can run before "Save" — see
+  // the brief's "testable through a server-side validation endpoint" requirement. Falls back to the
+  // already-stored key when the request omits apiKey, so an existing connection can be re-verified later
+  // (e.g. "did this key get revoked upstream?") without re-entering it.
+  let apiKey = String(body?.apiKey || "").trim();
+  if (!apiKey) {
+    const stored = await db("get_ai_provider_credential", { organizationId, provider });
+    if (!stored.credential) return sendJson(req, res, 404, { error: "No key saved for this provider yet." });
+    apiKey = decryptSecret(stored.credential.encryptedCredential);
+  }
+  try {
+    await AI_CALL_BY_PROVIDER[provider]("Reply with exactly this JSON and nothing else: {\"ok\":true}", "You are a connectivity test. Output only the requested JSON.", apiKey);
+    sendJson(req, res, 200, { ok: true });
+  } catch (error) {
+    sendJson(req, res, 200, { ok: false, error: "The provider rejected this key or the request failed. Double-check the key and try again." });
+  }
+}
+
+async function handleAiProviderRevoke(req, res, session, organizationId, provider) {
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  if (!AI_PROVIDER_NAMES.has(provider)) return sendJson(req, res, 400, { error: "Unknown AI provider." });
+  await db("set_ai_provider_credential_status", { organizationId, provider, status: "revoked" });
+  sendJson(req, res, 200, { ok: true });
+}
+
+async function handleAiProviderDelete(req, res, session, organizationId, provider) {
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  if (!AI_PROVIDER_NAMES.has(provider)) return sendJson(req, res, 400, { error: "Unknown AI provider." });
+  await db("delete_ai_provider_credential", { organizationId, provider });
+  sendJson(req, res, 200, { ok: true });
+}
+
+// ---- Stripe billing ----
+// A thin adapter, not Toasty business logic hardwired to Stripe objects — every call goes through
+// stripeRequest()/verifyStripeSignature() below, and every entitlement-affecting write goes through the
+// SAME db("update_organization"/"create_subscription"/"update_subscription") actions a future
+// SolanaBillingAdapter also uses (see Phase 8), so "how a plan gets activated" has one shape regardless of
+// payment rail. No SDK — raw fetch + form-encoding, matching this file's zero-dependency deploy model.
+function stripeConfigured() {
+  return Boolean(STRIPE_SECRET_KEY);
+}
+
+// Stripe's API takes application/x-www-form-urlencoded with bracket notation for nested values
+// (line_items[0][price]=x), not JSON.
+function stripeFormEncode(params, prefix = "") {
+  const pairs = [];
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null) continue;
+    const fullKey = prefix ? `${prefix}[${key}]` : key;
+    if (typeof value === "object" && !Array.isArray(value)) {
+      pairs.push(...stripeFormEncode(value, fullKey).split("&").filter(Boolean));
+    } else if (Array.isArray(value)) {
+      value.forEach((item, index) => {
+        if (typeof item === "object") pairs.push(...stripeFormEncode(item, `${fullKey}[${index}]`).split("&").filter(Boolean));
+        else pairs.push(`${encodeURIComponent(`${fullKey}[${index}]`)}=${encodeURIComponent(item)}`);
+      });
+    } else {
+      pairs.push(`${encodeURIComponent(fullKey)}=${encodeURIComponent(value)}`);
+    }
+  }
+  return pairs.join("&");
+}
+
+async function stripeRequest(path, params, { method = "POST" } = {}) {
+  const body = method === "GET" ? undefined : stripeFormEncode(params);
+  const url = method === "GET" && params ? `https://api.stripe.com/v1${path}?${stripeFormEncode(params)}` : `https://api.stripe.com/v1${path}`;
+  let response;
+  try {
+    response = await fetch(url, {
+      method,
+      signal: AbortSignal.timeout(15000),
+      headers: {
+        authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+        ...(body ? { "content-type": "application/x-www-form-urlencoded" } : {})
+      },
+      body
+    });
+  } catch (error) {
+    console.error("[Toasty Billing] Stripe request failed:", error);
+    throw httpError(502, "Billing provider request failed.");
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    console.error("[Toasty Billing] Stripe error:", response.status, data?.error?.message || data);
+    throw httpError(502, data?.error?.message || "Billing provider request failed.");
+  }
+  return data;
+}
+
+// Stripe's documented scheme (https://stripe.com/docs/webhooks#verify-manually): header is
+// "t=<timestamp>,v1=<signature>[,v1=<signature>...]" (multiple v1 values during secret rotation), the
+// signed payload is "<timestamp>.<raw body>", and the signature is HMAC-SHA256 of that payload with the
+// webhook secret, hex-encoded. A timestamp outside the tolerance window is rejected even with a valid
+// signature, to block replay of an old captured request.
+function verifyStripeSignature(rawBody, signatureHeader, secret, toleranceSeconds = 300) {
+  const parsed = String(signatureHeader || "").split(",").reduce((acc, part) => {
+    const [key, value] = part.split("=");
+    if (key === "t") acc.timestamp = value;
+    if (key === "v1" && value) acc.signatures.push(value);
+    return acc;
+  }, { timestamp: null, signatures: [] });
+  if (!parsed.timestamp || !parsed.signatures.length) return false;
+  const expected = createHmac("sha256", secret).update(`${parsed.timestamp}.${rawBody}`).digest("hex");
+  const expectedBuf = Buffer.from(expected, "utf8");
+  const signatureMatches = parsed.signatures.some((sig) => {
+    const sigBuf = Buffer.from(sig, "utf8");
+    return sigBuf.length === expectedBuf.length && timingSafeEqual(sigBuf, expectedBuf);
+  });
+  if (!signatureMatches) return false;
+  const ageSeconds = Math.abs(Date.now() / 1000 - Number(parsed.timestamp));
+  return ageSeconds <= toleranceSeconds;
+}
+
+async function ensureStripeCustomer(organizationId, session) {
+  const billing = await db("get_billing_account", { organizationId });
+  if (billing.billingAccount?.stripeCustomerId) return billing.billingAccount.stripeCustomerId;
+  const org = await db("get_organization", { id: organizationId });
+  const customer = await stripeRequest("/customers", { email: session.email, name: org.organization?.name || undefined, metadata: { organizationId } });
+  await db("upsert_billing_account", { organizationId, stripeCustomerId: customer.id, billingEmail: session.email });
+  return customer.id;
+}
+
+async function handleBillingCheckout(req, res, session) {
+  // Authorization is checked BEFORE revealing whether billing is even configured — a non-owner probing
+  // this route should not be able to learn server configuration state they have no business asking about.
+  const organizationId = organizationIdFromUrl(req, "/billing/checkout");
+  const membership = await requireMembership(req, res, organizationId, "owner", session);
+  if (!membership) return;
+  if (!stripeConfigured()) return sendJson(req, res, 503, { error: "Card billing isn't configured on the server yet." });
+  const body = await readJson(req);
+  const plan = body?.plan;
+  const priceId = STRIPE_PRICE_IDS[plan];
+  if (!priceId) return sendJson(req, res, 400, { error: "Unknown or unpriced plan." });
+  const customerId = await ensureStripeCustomer(organizationId, session);
+  const checkoutSession = await stripeRequest("/checkout/sessions", {
+    mode: "subscription",
+    customer: customerId,
+    line_items: [{ price: priceId, quantity: 1 }],
+    client_reference_id: organizationId,
+    metadata: { organizationId, plan },
+    subscription_data: { metadata: { organizationId, plan } },
+    success_url: `${APP_BASE_URL}/studio/?billing=success`,
+    cancel_url: `${APP_BASE_URL}/studio/?billing=cancelled`
+  });
+  sendJson(req, res, 200, { url: checkoutSession.url });
+}
+
+async function handleBillingPortal(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/billing/portal");
+  const membership = await requireMembership(req, res, organizationId, "owner", session);
+  if (!membership) return;
+  if (!stripeConfigured()) return sendJson(req, res, 503, { error: "Card billing isn't configured on the server yet." });
+  const billing = await db("get_billing_account", { organizationId });
+  if (!billing.billingAccount?.stripeCustomerId) return sendJson(req, res, 400, { error: "No billing account on file yet — subscribe first." });
+  const portalSession = await stripeRequest("/billing_portal/sessions", {
+    customer: billing.billingAccount.stripeCustomerId,
+    return_url: `${APP_BASE_URL}/studio/`
+  });
+  sendJson(req, res, 200, { url: portalSession.url });
+}
+
+// Webhook handlers activate/deactivate entitlements — this is the ONE place client-side payment state
+// becomes real. Nothing in the checkout/portal routes above ever grants a plan directly; they only ever
+// redirect to Stripe, which redirects back, and Stripe separately (and asynchronously) calls THIS route
+// server-to-server once it has actually confirmed payment. See the brief's "Never trust client-side
+// payment state" requirement.
+async function handleStripeWebhook(req, res) {
+  if (!STRIPE_WEBHOOK_SECRET) return sendJson(req, res, 503, { error: "Stripe webhook is not configured." });
+  const rawBody = await readRawBody(req);
+  const signature = req.headers["stripe-signature"];
+  if (!verifyStripeSignature(rawBody, signature, STRIPE_WEBHOOK_SECRET)) {
+    console.error("[Toasty Billing] Rejected a Stripe webhook with an invalid or stale signature.");
+    return sendJson(req, res, 400, { error: "Invalid signature." });
+  }
+  let event;
+  try {
+    event = JSON.parse(rawBody);
+  } catch {
+    return sendJson(req, res, 400, { error: "Invalid payload." });
+  }
+
+  const obj = event.data?.object || {};
+  if (event.type === "checkout.session.completed") {
+    const organizationId = obj.client_reference_id || obj.metadata?.organizationId;
+    const plan = obj.metadata?.plan;
+    if (organizationId && plan) {
+      await db("upsert_billing_account", { organizationId, stripeCustomerId: obj.customer });
+      await db("create_subscription", { id: randomUUID(), organizationId, provider: "stripe", plan, status: "active", externalSubscriptionId: obj.subscription });
+      await db("update_organization", { id: organizationId, plan, subscriptionStatus: "active" });
+    }
+  } else if (event.type === "customer.subscription.updated" || event.type === "customer.subscription.deleted") {
+    const organizationId = obj.metadata?.organizationId;
+    const status = event.type === "customer.subscription.deleted" ? "canceled" : (obj.status || "active");
+    if (organizationId) {
+      // A webhook only ever knows STRIPE's subscription id (obj.id) — never this table's own row id — so
+      // the matching row has to be found by external_subscription_id first (see the note on
+      // get_subscription_by_external_id in toasty-auth-db.py).
+      const existing = await db("get_subscription_by_external_id", { provider: "stripe", externalSubscriptionId: obj.id });
+      if (existing.subscription) {
+        await db("update_subscription", {
+          id: existing.subscription.id,
+          status,
+          currentPeriodEnd: obj.current_period_end ? new Date(obj.current_period_end * 1000).toISOString() : undefined,
+          cancelAtPeriodEnd: Boolean(obj.cancel_at_period_end)
+        });
+      }
+      const downgradedPlan = status === "canceled" ? "demo" : undefined;
+      await db("update_organization", { id: organizationId, subscriptionStatus: status, ...(downgradedPlan ? { plan: downgradedPlan } : {}) });
+    }
+  } else if (event.type === "invoice.payment_failed") {
+    const organizationId = obj.subscription_details?.metadata?.organizationId || obj.metadata?.organizationId;
+    if (organizationId) await db("update_organization", { id: organizationId, subscriptionStatus: "past_due" });
+  }
+  sendJson(req, res, 200, { received: true });
+}
+
+// ---- Solana billing (organization subscriptions) ----
+// A first-class rail alongside Stripe, not an afterthought — SOL/USDC/USDT prepaid terms, verified by a
+// READ-ONLY call to the Solana RPC (getTransaction). No keypair, no signing, no CLI, no SDK: this only ever
+// checks a transaction the customer already broadcast from their own wallet, so it's a raw fetch like
+// everything else in this file. Every one of the brief's required anti-fraud checks lives in
+// verifySolanaTransactionForIntent below: wrong recipient, wrong mint, underpayment, unconfirmed/failed
+// tx, and (via the `transaction_signature UNIQUE` column enforced in toasty-auth-db.py's
+// update_payment_intent_status) a signature can never be credited twice. Activation funnels into the exact
+// same db("create_subscription")/db("update_organization") calls the Stripe webhook uses above, so "how a
+// plan gets activated" has one shape regardless of payment rail.
+const SOLANA_ASSETS = new Set(["SOL", "USDC", "USDT"]);
+const SOLANA_TERM_DAYS = new Set([30, 90, 365]);
+// Prepaid term pricing in USD, illustrative defaults — adjust to actual plan pricing before going live.
+// Stablecoins (USDC/USDT) charge this amount 1:1; SOL is converted at a live quote locked into the intent.
+const SOLANA_PLAN_PRICES_USD = Object.freeze({
+  creator: Object.freeze({ 30: 49, 90: 132, 365: 470 }),
+  pro: Object.freeze({ 30: 149, 90: 402, 365: 1430 })
+});
+
+function solanaBillingConfigured() {
+  return Boolean(BILLING_SOLANA_RECIPIENT);
+}
+
+function solanaMintFor(asset) {
+  if (asset === "USDC") return BILLING_USDC_MINT;
+  if (asset === "USDT") return BILLING_USDT_MINT;
+  return null;
+}
+
+async function solanaRpc(method, params) {
+  let response;
+  try {
+    response = await fetch(BILLING_SOLANA_RPC_URL, {
+      method: "POST",
+      signal: AbortSignal.timeout(15000),
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })
+    });
+  } catch (error) {
+    console.error("[Toasty Billing] Solana RPC request failed:", error);
+    throw httpError(502, "Solana network request failed. Try again shortly.");
+  }
+  const data = await response.json().catch(() => ({}));
+  if (data.error) {
+    console.error("[Toasty Billing] Solana RPC error:", data.error);
+    throw httpError(502, "Solana network request failed. Try again shortly.");
+  }
+  return data.result;
+}
+
+// CoinGecko's public simple-price endpoint needs no API key. If it's unreachable, SOL checkout is
+// unavailable but USDC/USDT (no quote needed, 1:1 with USD) still work.
+async function fetchSolUsdPrice() {
+  let response;
+  try {
+    response = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd", { signal: AbortSignal.timeout(8000) });
+  } catch (error) {
+    throw httpError(502, "Could not fetch a live SOL price quote right now. Try USDC or USDT, or retry shortly.");
+  }
+  const data = await response.json().catch(() => ({}));
+  const price = data?.solana?.usd;
+  if (typeof price !== "number" || !(price > 0)) throw httpError(502, "Could not fetch a live SOL price quote right now. Try USDC or USDT, or retry shortly.");
+  return price;
+}
+
+async function handleSolanaIntentCreate(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/billing/solana/intent");
+  const membership = await requireMembership(req, res, organizationId, "owner", session);
+  if (!membership) return;
+  if (!solanaBillingConfigured()) return sendJson(req, res, 503, { error: "Solana billing isn't configured on the server yet." });
+  const body = await readJson(req);
+  const plan = String(body?.plan || "");
+  const termDays = Number(body?.termDays);
+  const asset = String(body?.asset || "").toUpperCase();
+  if (!SOLANA_PLAN_PRICES_USD[plan]) return sendJson(req, res, 400, { error: "Unknown or unpriced plan." });
+  if (!SOLANA_TERM_DAYS.has(termDays)) return sendJson(req, res, 400, { error: "termDays must be 30, 90, or 365." });
+  if (!SOLANA_ASSETS.has(asset)) return sendJson(req, res, 400, { error: "asset must be SOL, USDC, or USDT." });
+  if ((asset === "USDC" && !BILLING_USDC_MINT) || (asset === "USDT" && !BILLING_USDT_MINT)) {
+    return sendJson(req, res, 400, { error: `${asset} is not configured on this server yet. Try a different asset.` });
+  }
+
+  const fiatAmount = SOLANA_PLAN_PRICES_USD[plan][termDays];
+  const cryptoAmount = asset === "SOL" ? Number((fiatAmount / (await fetchSolUsdPrice())).toFixed(9)) : fiatAmount;
+
+  const result = await db("create_payment_intent", {
+    id: randomUUID(),
+    organizationId,
+    provider: "solana",
+    asset,
+    network: BILLING_SOLANA_NETWORK,
+    fiatReferenceAmount: fiatAmount,
+    cryptoAmount,
+    recipientWallet: BILLING_SOLANA_RECIPIENT,
+    reference: randomBytes(16).toString("hex"),
+    plan,
+    termDays,
+    expiresAt: new Date(Date.now() + PAYMENT_INTENT_TTL_MS).toISOString(),
+    metadata: { requestedByUserId: session.id }
+  });
+  if (result.error) return sendJson(req, res, 409, { error: "Could not create a payment reference. Try again." });
+  sendJson(req, res, 200, { paymentIntent: result.paymentIntent });
+}
+
+async function handleSolanaIntentGet(req, res, session, intentId) {
+  const result = await db("get_payment_intent", { id: intentId });
+  if (!result.paymentIntent) return sendJson(req, res, 404, { error: "Payment intent not found." });
+  const membership = await requireMembership(req, res, result.paymentIntent.organizationId, "member", session);
+  if (!membership) return;
+  sendJson(req, res, 200, { paymentIntent: result.paymentIntent });
+}
+
+async function handleSolanaIntentsList(req, res, session, organizationId) {
+  const membership = await requireMembership(req, res, organizationId, "member", session);
+  if (!membership) return;
+  const result = await db("list_payment_intents", { organizationId });
+  sendJson(req, res, 200, { paymentIntents: result.paymentIntents || [] });
+}
+
+// Base58 alphabet, 64-100 chars covers every real Solana transaction signature length.
+const SOLANA_SIGNATURE_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{64,100}$/;
+
+async function verifySolanaTransactionForIntent(intent, transactionSignature) {
+  if (!SOLANA_SIGNATURE_PATTERN.test(transactionSignature)) {
+    throw httpError(400, "That doesn't look like a real Solana transaction signature.");
+  }
+  const tx = await solanaRpc("getTransaction", [transactionSignature, { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: 0 }]);
+  if (!tx) throw httpError(400, "Transaction not found yet — it may still be confirming. Try again shortly.");
+  if (tx.meta?.err) throw httpError(400, "That transaction failed on-chain and cannot be credited.");
+
+  const accountKeys = (tx.transaction?.message?.accountKeys || []).map((entry) => (typeof entry === "string" ? entry : entry.pubkey));
+  const recipientIndex = accountKeys.indexOf(intent.recipientWallet);
+  if (recipientIndex === -1) throw httpError(400, "That transaction does not pay the expected Toasty billing wallet.");
+
+  if (intent.asset === "SOL") {
+    const pre = tx.meta?.preBalances?.[recipientIndex];
+    const post = tx.meta?.postBalances?.[recipientIndex];
+    if (typeof pre !== "number" || typeof post !== "number") throw httpError(400, "Could not read the SOL balance change on that transaction.");
+    const expectedLamports = Math.round(intent.cryptoAmount * 1e9);
+    if (post - pre < expectedLamports) throw httpError(400, "That transaction underpays the quoted amount.");
+  } else {
+    const expectedMint = solanaMintFor(intent.asset);
+    const preEntry = (tx.meta?.preTokenBalances || []).find((entry) => entry.owner === intent.recipientWallet && entry.mint === expectedMint);
+    const postEntry = (tx.meta?.postTokenBalances || []).find((entry) => entry.owner === intent.recipientWallet && entry.mint === expectedMint);
+    if (!postEntry) throw httpError(400, `That transaction does not deliver ${intent.asset} (on the expected mint) to the expected wallet.`);
+    const preAmount = preEntry ? Number(preEntry.uiTokenAmount?.uiAmount || 0) : 0;
+    const postAmount = Number(postEntry.uiTokenAmount?.uiAmount || 0);
+    if (postAmount - preAmount < intent.cryptoAmount - 1e-6) throw httpError(400, "That transaction underpays the quoted amount.");
+  }
+}
+
+async function handleSolanaIntentConfirm(req, res, session, intentId) {
+  const intentResult = await db("get_payment_intent", { id: intentId });
+  if (!intentResult.paymentIntent) return sendJson(req, res, 404, { error: "Payment intent not found." });
+  const intent = intentResult.paymentIntent;
+  const membership = await requireMembership(req, res, intent.organizationId, "owner", session);
+  if (!membership) return;
+
+  if (intent.status === "paid") return sendJson(req, res, 200, { paymentIntent: intent });
+  if (new Date(intent.expiresAt).getTime() < Date.now()) {
+    if (intent.status !== "expired") await db("update_payment_intent_status", { id: intent.id, status: "expired" });
+    return sendJson(req, res, 410, { error: "This payment reference expired. Start a new checkout." });
+  }
+
+  const body = await readJson(req);
+  const transactionSignature = String(body?.transactionSignature || "").trim();
+  if (!transactionSignature) return sendJson(req, res, 400, { error: "transactionSignature is required." });
+
+  await verifySolanaTransactionForIntent(intent, transactionSignature);
+
+  const updated = await db("update_payment_intent_status", { id: intent.id, status: "paid", transactionSignature });
+  if (updated.error === "duplicate_signature") {
+    return sendJson(req, res, 409, { error: "This transaction has already been used to pay for a different order." });
+  }
+
+  const now = new Date();
+  await db("create_subscription", {
+    id: randomUUID(),
+    organizationId: intent.organizationId,
+    provider: "solana",
+    plan: intent.plan,
+    status: "active",
+    externalSubscriptionId: transactionSignature,
+    currentPeriodStart: now.toISOString(),
+    currentPeriodEnd: new Date(now.getTime() + intent.termDays * 24 * 60 * 60 * 1000).toISOString()
+  });
+  await db("update_organization", { id: intent.organizationId, plan: intent.plan, subscriptionStatus: "active" });
+
+  sendJson(req, res, 200, { paymentIntent: updated.paymentIntent });
 }
 
 async function hashPassword(password) {
@@ -1377,6 +2883,11 @@ function setSession(req, res, user) {
     name: user.name,
     email: user.email,
     status: user.status,
+    // Captured at issue time, compared against the LIVE value in readSession — a plain integer equality
+    // check has no timestamp-precision race (a same-second password change and a fresh login can never
+    // tie the way two second-rounded Date.now() reads can; the new login simply reads the already-bumped
+    // version and matches).
+    passwordVersion: Number(user.passwordVersion) || 1,
     expires
   })).toString("base64url");
   const signature = sign(payload);
@@ -1407,6 +2918,14 @@ async function readSession(req) {
     if (Number(session.expires) <= Math.floor(Date.now() / 1000)) return null;
     const result = await db("get_user_by_id", { id: session.id });
     if (!result.user || result.user.status !== "active") return null;
+    // A cookie carrying an OLD passwordVersion is a stale session from before the account's most recent
+    // password change/reset and must not still work — this is the entire "invalidate active sessions on
+    // password change" mechanism (no separate session store needed: every request already re-fetches the
+    // live user row above). session.passwordVersion is absent on cookies set before this field existed;
+    // treat that as version 1 (the default for every account that has never changed its password) rather
+    // than breaking every pre-existing session on deploy.
+    const cookieVersion = Number.isFinite(session.passwordVersion) ? session.passwordVersion : 1;
+    if (cookieVersion !== (Number(result.user.passwordVersion) || 1)) return null;
     return result.user;
   } catch {
     return null;
@@ -1704,7 +3223,10 @@ function parseCookies(header) {
 // Errors the auth-db script returns as legitimate, expected results (not a storage/DB failure) — callers
 // branch on result.error themselves for these. Anything else in result.error means the Python side threw
 // (see toasty-auth-db.py's own try/except) and really is a storage failure.
-const DB_EXPECTED_ERRORS = new Set(["duplicate_email", "kicked", "full", "invalid_mode", "invalid_brand", "brand_forbidden"]);
+const DB_EXPECTED_ERRORS = new Set([
+  "duplicate_email", "kicked", "full", "invalid_mode", "invalid_brand", "brand_forbidden",
+  "duplicate_slug", "already_member", "invalid_token", "expired_token", "duplicate_reference", "duplicate_signature"
+]);
 
 async function db(action, values = {}) {
   const result = await runJson("python3", [AUTH_DB_HELPER], { action, dbPath: AUTH_DB_PATH, ...values });
@@ -1754,6 +3276,14 @@ async function handlePresenceAnnounce(req, res) {
   // live_sessions row at all, so this never breaks a room that predates session tracking.
   const sessionStatus = await db("session_get_by_room", { roomId });
   if (sessionStatus.status === "ENDED") throw httpError(410, "This session has ended.");
+  // Plan-derived participant cap (see PLAN_LIMITS) rather than the flat historical constant, when this
+  // room is tagged to an organization — untagged rooms (pre-Phase-1 sessions) fall back to
+  // toasty-auth-db.py's own MAX_GUESTS_PER_ROOM default, unchanged.
+  let maxGuests;
+  if (sessionStatus.organizationId) {
+    const org = await db("get_organization", { id: sessionStatus.organizationId });
+    maxGuests = Math.max(0, planLimitsFor(org.organization?.plan).maxParticipants - 1);
+  }
   const result = await db("presence_upsert", {
     roomId,
     participantId,
@@ -1762,6 +3292,7 @@ async function handlePresenceAnnounce(req, res) {
     title: presenceText(body.title, 120),
     company: presenceText(body.company, 120),
     transportSourceId,
+    maxGuests,
     micEnabled: typeof body.micEnabled === "boolean" ? body.micEnabled : null,
     cameraEnabled: typeof body.cameraEnabled === "boolean" ? body.cameraEnabled : null,
     screenShare: body.screenShare && typeof body.screenShare === "object" ? {
@@ -1956,6 +3487,63 @@ function resolveAuthoritativeBrandId(authSession, requestedBrandId) {
   return brandId;
 }
 
+// ---- Entitlements ----
+// The ONE place a plan's numeric limits are read (PLAN_LIMITS itself is declared near the top of this
+// file, next to the other env-driven config) and the ONE place session/participant quotas are enforced —
+// every check funnels through here so a limit is never re-implemented, and drifted, per call site. UI-side
+// hiding of a disabled action is convenience only; these are the actual gate.
+function planLimitsFor(plan) {
+  return PLAN_LIMITS[plan] || PLAN_LIMITS.demo;
+}
+
+function currentPeriodStart(granularity = "day") {
+  const now = new Date();
+  if (granularity === "month") return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
+  return now.toISOString().slice(0, 10);
+}
+
+// A session is created by one specific user, but may belong to any organization that user is a member of.
+// Defaults to that user's own (owner) organization when the client doesn't specify one — every existing
+// caller (js/live-session.js doesn't send organizationId yet) keeps working unchanged.
+async function resolveOrganizationForSession(authSession, requestedOrgId) {
+  if (requestedOrgId) {
+    if (!SAFE_ID.test(requestedOrgId)) throw httpError(400, "Invalid organization id.");
+    const membership = await db("get_membership", { organizationId: requestedOrgId, userId: authSession.id });
+    if (!membership.membership) throw httpError(404, "Organization not found.");
+    return requestedOrgId;
+  }
+  const orgs = await db("list_user_organizations", { userId: authSession.id });
+  const list = orgs.organizations || [];
+  if (!list.length) return null;
+  const owned = list.find((org) => org.role === "owner") || list[0];
+  return owned.id;
+}
+
+// Concurrent + daily session caps. Scoped to THIS user's own sessions within the organization (not every
+// member's combined usage) — matches how session_list is already scoped by ownerUserId elsewhere in this
+// file, and is exactly right for a demo org anyway (PLAN_LIMITS.demo.maxMembers is 1). A multi-member
+// creator/pro org undercounts true org-wide concurrency this way; widening session_list to aggregate by
+// organization_id across members is a defined follow-up, not done here to avoid changing that route's
+// existing owner-scoped semantics for every other caller (session history, rename, delete, etc.).
+async function enforceSessionQuota(organizationId, authSession) {
+  if (!organizationId) return; // no organization context (a legacy/pre-Phase-1 account) — don't newly restrict
+  const org = await db("get_organization", { id: organizationId });
+  const limits = planLimitsFor(org.organization?.plan);
+  const activeResult = await db("session_list", { ownerUserId: authSession.id, statuses: ["OPEN", "LIVE"] });
+  const activeInOrg = (activeResult.sessions || []).filter((s) => s.organizationId === organizationId).length;
+  if (activeInOrg >= limits.maxConcurrentSessions) {
+    throw httpError(402, `Your plan allows ${limits.maxConcurrentSessions} active session${limits.maxConcurrentSessions === 1 ? "" : "s"} at a time. End one before starting another, or upgrade.`);
+  }
+  const usageResult = await db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("day") });
+  if ((usageResult.usage?.sessionsCreated || 0) >= limits.maxSessionsPerDay) {
+    throw httpError(402, `Your plan allows ${limits.maxSessionsPerDay} new session${limits.maxSessionsPerDay === 1 ? "" : "s"} per day. Try again tomorrow, or upgrade.`);
+  }
+  const monthlyUsage = await db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("month") });
+  if ((monthlyUsage.usage?.sessionsCreated || 0) >= limits.maxSessionsPerMonth) {
+    throw httpError(402, `Your plan allows ${limits.maxSessionsPerMonth} new sessions per month. Upgrade to create more this month.`);
+  }
+}
+
 async function handleSessionCreate(req, res, authSession) {
   const body = await readJson(req);
   const roomId = requirePresenceId(body.roomId, "roomId");
@@ -1966,16 +3554,23 @@ async function handleSessionCreate(req, res, authSession) {
   const brandId = resolveAuthoritativeBrandId(authSession, body.brandId);
   const setup = body.setup != null ? sanitizeSessionSetup(body.setup) : {};
   const endCard = body.endCard != null ? sanitizeEndCard(body.endCard) : {};
+  const organizationId = await resolveOrganizationForSession(authSession, body.organizationId);
+  await enforceSessionQuota(organizationId, authSession);
   const result = await db("session_create", {
     id,
     roomId,
     ownerUserId: authSession.id,
+    organizationId,
     brandId,
     title: sessionText(body.title, 160),
     setup,
     endCard
   });
   if (result.error === "invalid_brand") throw httpError(400, "Unknown brand.");
+  if (result.session && organizationId) {
+    await db("increment_usage", { organizationId, periodStart: currentPeriodStart("day"), deltas: { sessionsCreated: 1 } });
+    await db("increment_usage", { organizationId, periodStart: currentPeriodStart("month"), deltas: { sessionsCreated: 1 } });
+  }
   sendJson(req, res, 200, { session: result.session });
 }
 
@@ -2636,6 +4231,19 @@ async function readJson(req, maxBytes = 64 * 1024) {
   } catch {
     throw httpError(400, "Invalid JSON request.");
   }
+}
+
+// Stripe webhook signature verification needs the EXACT bytes Stripe signed — readJson's parse-and-discard
+// would make that impossible to recover, so this is a separate raw reader used only by the webhook route.
+async function readRawBody(req, maxBytes = 256 * 1024) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maxBytes) throw httpError(413, "Request is too large.");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 function cleanName(value) {

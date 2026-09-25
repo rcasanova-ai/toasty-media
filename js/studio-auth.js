@@ -27,11 +27,15 @@ document.addEventListener("DOMContentLoaded", () => {
     "showLogin",
     "signupForm",
     "loginForm",
+    "forgotForm",
+    "showForgot",
+    "backToLogin",
     "signupName",
     "signupEmail",
     "signupPassword",
     "loginEmail",
     "loginPassword",
+    "forgotEmail",
     "authMessage"
   ].forEach((id) => { els[id] = document.getElementById(id); });
 
@@ -51,6 +55,12 @@ document.addEventListener("DOMContentLoaded", () => {
     event.preventDefault();
     login();
   });
+  els.forgotForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    forgotPassword();
+  });
+  els.showForgot.addEventListener("click", () => setMode("forgot"));
+  els.backToLogin.addEventListener("click", () => setMode("login"));
   els.studioLogout.addEventListener("click", logout);
 
   // See js/session-manager.js's setUrlSession comment: director.html (inside #studioAppFrame) can only
@@ -97,7 +107,10 @@ async function register() {
         password: els.signupPassword.value
       })
     });
-    if (session.authenticated) openStudio(session.user?.branding);
+    // A fresh signup goes to the onboarding wizard, not straight into the Studio — login() below still
+    // goes straight to openStudio(), so a returning user is never re-routed through onboarding on every
+    // sign-in even if they skipped/abandoned it the first time (Settings covers the same ground either way).
+    if (session.authenticated) window.location.href = "./onboarding.html";
   } catch (error) {
     setMessage(error.message, true);
   } finally {
@@ -123,6 +136,22 @@ async function login() {
   } finally {
     els.loginPassword.value = "";
     setBusy(els.loginForm, false);
+  }
+}
+
+async function forgotPassword() {
+  setBusy(els.forgotForm, true);
+  setMessage("");
+  try {
+    const result = await request("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email: els.forgotEmail.value })
+    });
+    setMessage(result.message || "If an account exists for that email, a reset link has been sent.");
+  } catch (error) {
+    setMessage(error.message, true);
+  } finally {
+    setBusy(els.forgotForm, false);
   }
 }
 
@@ -185,12 +214,15 @@ function showPublic(message, isError = false) {
 function setMode(mode) {
   state.mode = mode;
   const signup = mode === "signup";
+  const login = mode === "login";
+  const forgot = mode === "forgot";
   els.signupForm.hidden = !signup;
-  els.loginForm.hidden = signup;
+  els.loginForm.hidden = !login;
+  els.forgotForm.hidden = !forgot;
   els.showSignup.classList.toggle("is-active", signup);
-  els.showLogin.classList.toggle("is-active", !signup);
+  els.showLogin.classList.toggle("is-active", login || forgot);
   els.showSignup.setAttribute("aria-selected", String(signup));
-  els.showLogin.setAttribute("aria-selected", String(!signup));
+  els.showLogin.setAttribute("aria-selected", String(login || forgot));
   setMessage("");
 }
 

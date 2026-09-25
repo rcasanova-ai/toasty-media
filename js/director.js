@@ -77,6 +77,7 @@ const elements = {
   endSessionBtn: document.querySelector("#endSessionBtn"),
   sessionArtifactsHome: document.querySelector("#sessionArtifactsHome"),
   toggleScreenQuick: document.querySelector("#toggleScreenQuick"),
+  openSettingsQuick: document.querySelector("#openSettingsQuick"),
   lvSessionType: document.querySelector("#lvSessionType"),
   lvJamPolicyFields: document.querySelector("#lvJamPolicyFields"),
   lvJamPrivacy: document.querySelector("#lvJamPrivacy"),
@@ -344,6 +345,11 @@ function bindRailControls() {
     elements.endSessionBtn.disabled = true;
     await session.endDurableSession();
     elements.endSessionBtn.disabled = false;
+  });
+  // Opens in a new tab, never navigates this frame away — a live session's Host/Producer state must never
+  // be disrupted by visiting Settings (see the module comment on why director.html can't safely reload).
+  elements.openSettingsQuick?.addEventListener("click", () => {
+    window.open("./settings.html", "_blank", "noopener");
   });
   elements.toggleScreenQuick?.addEventListener("click", async () => {
     // Disabled state while connecting is driven by the "screenshare" listener below (real share state),
