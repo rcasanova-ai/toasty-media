@@ -176,6 +176,8 @@ export class LiveSession {
     this.researchContext = null;
 
     this.av = { micMuted: false, cameraOff: false };
+    this.controlWriterId = `host-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
+    this.controlWriterStartedAt = Date.now();
     this.recording = idleRecordingState();
     this.programOutput = idleProgramOutputState();
     this.connection = { status: "idle", label: "Ready" };
@@ -593,6 +595,8 @@ export class LiveSession {
       container.removeAttribute("data-empty");
     }
     if (video.srcObject !== this._hostPreviewStream) video.srcObject = this._hostPreviewStream;
+    video.hidden = Boolean(this.av.cameraOff);
+    container.dataset.cameraOff = this.av.cameraOff ? "true" : "false";
   }
 
   // A fresh room id means a fresh push stream id, so the host's camera frame always has to remount here
@@ -1268,7 +1272,9 @@ export class LiveSession {
       },
       outputs: this.presence?.outputs || [],
       endCard: resolveEndCard({ sessionEndCard: this.sessionEndCard, profileEndCard: this.profileEndCard }),
-      hottieVoice: this.program.hottieVoice || null
+      hottieVoice: this.program.hottieVoice || null,
+      controllerId: this.controlWriterId,
+      controllerStartedAt: this.controlWriterStartedAt
     });
   }
 
@@ -1326,11 +1332,21 @@ export class LiveSession {
     // this.program.scene (see producer-view.js's renderProgram), so this is what makes them reflect
     // reality instead of staying permanently optimistic.
     if (bundle.program && typeof bundle.program === "object") {
-      const confirmedScene = normalizeScene(bundle.program.scene);
-      if (confirmedScene !== this.program.scene) {
-        this.program.scene = confirmedScene;
-        this.program.live = confirmedScene === SceneId.LIVE;
-        this.emit("program", this.program);
+      const serverControllerStartedAt = Number(bundle.program.controllerStartedAt) || 0;
+      const serverControllerId = bundle.program.controllerId || null;
+      const belongsToThisController = !serverControllerStartedAt
+        || serverControllerStartedAt === this.controlWriterStartedAt
+        || serverControllerId === this.controlWriterId;
+      // Never let an older/other Studio tab heartbeat yank this active controller back to stale scene state.
+      // The server also rejects older controller epochs, but this keeps the local UI deterministic while
+      // the authoritative write converges.
+      if (belongsToThisController) {
+        const confirmedScene = normalizeScene(bundle.program.scene);
+        if (confirmedScene !== this.program.scene) {
+          this.program.scene = confirmedScene;
+          this.program.live = confirmedScene === SceneId.LIVE;
+          this.emit("program", this.program);
+        }
       }
     }
     const outputs = bundle.outputs || this.presence?.outputs || [];
@@ -1751,9 +1767,13 @@ export class LiveSession {
     this.av.cameraOff = !this.av.cameraOff;
     this.engine.setCamera(!this.av.cameraOff);
     this._hostPreviewStream?.getVideoTracks().forEach((track) => { track.enabled = !this.av.cameraOff; });
+    const localVideo = this._containers?.host?.querySelector?.("video.lv-host-live-video");
+    if (localVideo) localVideo.hidden = Boolean(this.av.cameraOff);
+    if (this._containers?.host) this._containers.host.dataset.cameraOff = this.av.cameraOff ? "true" : "false";
     this.presence?.setMediaState({ cameraEnabled: !this.av.cameraOff });
     this.emit("av", this.av);
     this._publishControlNow();
+    this._syncProgramPreview();
   }
 
   // ---- Guests (producer actions) ----
