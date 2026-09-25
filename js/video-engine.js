@@ -61,7 +61,7 @@ export class VideoEngine {
   // still needs the next real Host+Guest test to confirm VDO actually resolves it this way in practice.
   mountDirectorFrame(container,{roomId,label="Host",videoDeviceLabel,audioDeviceLabel}) {
     const streamId=`${roomId}h`;
-    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cleanoutput:"1",cover:"1",autostart:"1",videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel)});
+    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cleanoutput:"1",cover:"1",autostart:"1",view:true,nhp:"1",videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel)});
   }
 
   // slots=4 reserves 4 even grid cells regardless of how many are actually filled, and cover=1 crops
@@ -165,7 +165,7 @@ export class VideoEngine {
   // them. Costs nothing (this frame is never shown — see .director-control-frame's 2x2px CSS box) and is
   // not yet confirmed to be the actual cause of "sidebar shows Guest instead of the real name" — flagged
   // as a worth-trying hedge, not a proven fix, pending the next real two-device test.
-  mountDirectorControlFrame(container,{roomId}) { return this.mountFrame(container,"control",{room:roomId,director:roomId,cleanoutput:"1",transparent:"1",showlabels:"1"}); }
+  mountDirectorControlFrame(container,{roomId}) { return this.mountFrame(container,"control",{room:roomId,director:roomId,cleanoutput:"1",transparent:"1",showlabels:"1",view:true,muted:"1",mute:"1"}); }
 
   // Program Output's video layer: VDO.Ninja's own auto-mixed room grid (scene=0), showing whoever is
   // currently live with VDO.Ninja's own name labels. Numbered director-controlled scenes (scene=1+) and
@@ -434,6 +434,9 @@ export function buildGuestPublisherParams({roomId,guestName,backgroundMode,video
       // Local self-preview is not a remote stream, so it still paints; ParticipantStage keeps
       // rendering Host/other guests. Do NOT pass view=ownId (that pulls a remote copy of self).
       view:true,
+      // VDO.Ninja no-headphones mode enables its speech-oriented echo cancellation / noise handling
+      // for ordinary laptop/phone speaker use. Headphones may help but are not a product requirement.
+      nhp:"1",
       videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),
       audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),
       effects:effectForBackground(backgroundMode),
