@@ -4934,15 +4934,8 @@ async function recordAiUsage({ organizationId, sessionId, provider, model, featu
 // handleAiProducerRespond, never a parallel AI path or a platform-key fallback.
 async function handleMoxieReadinessSummary(req, res, authSession) {
   const session = await requireOwnedSession(req, res, authSession, "/moxie/readiness-summary");
-  if (!session.organizationId) throw httpError(402, "This session has no organization context for AI features.");
-  const credential = await findActiveAiCredential(session.organizationId);
-  if (!credential) {
-    sendJson(req, res, 402, {
-      error: "byok_required",
-      message: "Moxie requires an AI provider. Connect your API key to enable research, production intelligence, and live assistance."
-    });
-    return;
-  }
+  const credential = await requireMoxieCredential(req, res, session);
+  if (!credential) return;
   const [speakersResult, sponsorsResult, consentResult] = await Promise.all([
     db("speaker_list", { sessionId: session.id }),
     db("sponsor_list", { sessionId: session.id }),
@@ -4958,24 +4951,14 @@ async function handleMoxieReadinessSummary(req, res, authSession) {
     sponsors: sponsors.map((s) => ({ companyName: s.companyName, approvalStatus: s.approvalStatus })),
     consentRecordCount: consentRecords.length
   };
-  const systemPrompt = "You are Moxie, Toasty's production assistant. Given structured JSON facts about an upcoming session's speakers, sponsors, and consent status, write a short (3-5 sentence) plain-language readiness summary for the Host. Never invent facts not present in the JSON. Respond with prose only, no JSON, no markdown.";
-  const userContent = `SESSION READINESS FACTS:\n${JSON.stringify(factsForModel)}`;
-  const apiKey = decryptSecret(credential.encryptedCredential);
-  const started = Date.now();
-  const { text, usage } = await AI_CALL_BY_PROVIDER[credential.provider](userContent, systemPrompt, apiKey);
-  await recordAiUsage({
-    organizationId: session.organizationId,
-    sessionId: session.id,
-    provider: usage.provider,
-    model: usage.model,
-    feature: "moxie_readiness_summary",
-    inputTokens: usage.promptTokens,
-    outputTokens: usage.completionTokens,
-    totalTokens: usage.totalTokens,
-    estimatedCost: usage.estimatedCostUsd,
-    latencyMs: Date.now() - started
+  const summary = await callMoxie({
+    session,
+    credential,
+    systemPrompt: "You are Moxie, Toasty's production assistant. Given structured JSON facts about an upcoming session's speakers, sponsors, and consent status, write a short (3-5 sentence) plain-language readiness summary for the Host. Never invent facts not present in the JSON. Respond with prose only, no JSON, no markdown.",
+    userContent: `SESSION READINESS FACTS:\n${JSON.stringify(factsForModel)}`,
+    feature: "moxie_readiness_summary"
   });
-  sendJson(req, res, 200, { summary: String(text || "").trim().slice(0, 2000) });
+  sendJson(req, res, 200, { summary });
 }
 
 // Shared BYOK gate for every Moxie Event Growth hook below — same findActiveAiCredential/byok_required

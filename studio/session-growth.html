@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Growth — Toasty Studio</title>
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="stylesheet" href="../css/studio-public.css">
+    <link rel="stylesheet" href="../css/studio-settings.css">
+    <style>
+      .growth-shell{min-height:100vh}
+      .growth-topbar{display:flex;align-items:center;justify-content:space-between;padding:16px 28px;border-bottom:1px solid var(--public-line);background:rgba(0,0,0,.2)}
+      .growth-topbar a{color:var(--public-muted);text-decoration:none;font-weight:700;font-size:14px}
+      .growth-body{max-width:980px;margin:0 auto;padding:28px 20px 80px}
+      .growth-tabs{display:flex;gap:6px;margin-bottom:22px;flex-wrap:wrap}
+      .growth-tabs button{border:1px solid var(--public-line);background:transparent;color:var(--public-muted);padding:9px 16px;border-radius:999px;font:inherit;font-weight:700;cursor:pointer}
+      .growth-tabs button.is-active{background:rgba(255,122,41,.16);color:var(--public-ink);border-color:rgba(255,122,41,.4)}
+      .growth-panel{display:none}
+      .growth-panel.is-active{display:block}
+      .metric-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:22px}
+      .metric-box{border:1px solid var(--public-line);border-radius:8px;padding:12px;background:rgba(255,255,255,.025)}
+      .metric-box span{display:block;color:var(--public-muted);font-size:.76rem;text-transform:uppercase;letter-spacing:.04em}
+      .metric-box strong{font-size:1.3rem}
+      .metric-box.unavailable strong{color:var(--public-muted);font-size:.95rem}
+      table.growth-table{width:100%;border-collapse:collapse;font-size:.88rem;margin-bottom:20px}
+      table.growth-table th{text-align:left;color:var(--public-muted);font-size:.72rem;text-transform:uppercase;padding:8px 10px;border-bottom:1px solid var(--public-line)}
+      table.growth-table td{padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:middle}
+      .g-badge{display:inline-flex;padding:3px 9px;border-radius:999px;font-size:.72rem;font-weight:800;background:rgba(255,255,255,.08)}
+      .g-badge.ok{color:#8bffb0}
+      .g-badge.warn{color:#f9c46b}
+      .g-badge.off{color:var(--public-muted)}
+      .growth-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:14px}
+      .growth-form input,.growth-form select{min-height:38px;border:1px solid var(--public-line);border-radius:6px;background:#130f0d;color:var(--public-ink);padding:0 10px;font:inherit}
+      .btn{min-height:36px;padding:0 14px;border:1px solid var(--public-line);border-radius:6px;background:rgba(255,255,255,.06);color:var(--public-ink);font:inherit;font-weight:700;cursor:pointer}
+      .btn.primary{border-color:rgba(255,122,41,.64);background:linear-gradient(135deg,#ff7a29,#f9ad3d);color:#1b0f08}
+      .btn.small{min-height:28px;padding:0 10px;font-size:.78rem}
+      .hint{color:var(--public-muted);font-size:.85rem;line-height:1.5}
+      .timeline{display:flex;flex-direction:column;gap:6px}
+      .timeline-row{display:flex;justify-content:space-between;font-size:.85rem;padding:7px 10px;border:1px solid var(--public-line);border-radius:6px}
+      .timeline-row small{color:var(--public-muted)}
+      .growth-card{border:1px solid var(--public-line);border-radius:10px;padding:16px;margin-bottom:14px;background:var(--public-panel)}
+      .growth-card h3{margin:0 0 8px}
+      .msg{font-size:.85rem;min-height:18px;color:var(--public-muted)}
+      .msg.ok{color:#8bffb0}
+      .msg.err{color:#ffb199}
+    </style>
+  </head>
+  <body class="settings-shell">
+    <div id="growthLoading" class="loading-state">Loading growth data...</div>
+    <div id="growthApp" class="growth-shell" hidden>
+      <header class="growth-topbar">
+        <a id="growthBack" href="./plan.html">&larr; Back to Planner</a>
+        <strong id="growthTitle">Event Growth</strong>
+      </header>
+      <main class="growth-body">
+        <div class="growth-tabs" id="growthTabs">
+          <button data-tab="audience" class="is-active" type="button">Audience</button>
+          <button data-tab="campaign" type="button">Campaign Links</button>
+          <button data-tab="sponsors" type="button">Sponsors</button>
+          <button data-tab="postevent" type="button">Session Results</button>
+        </div>
+        <section class="growth-panel is-active" data-panel="audience" id="panelAudience"></section>
+        <section class="growth-panel" data-panel="campaign" id="panelCampaign"></section>
+        <section class="growth-panel" data-panel="sponsors" id="panelSponsors"></section>
+        <section class="growth-panel" data-panel="postevent" id="panelPostEvent"></section>
+      </main>
+    </div>
+    <script type="module" src="../js/session-growth.js"></script>
+  </body>
+</html>
