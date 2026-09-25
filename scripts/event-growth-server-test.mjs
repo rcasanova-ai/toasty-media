@@ -256,6 +256,19 @@ async function main() {
   assertEqual(landingUpsert.status, 200, "landing page upserts");
   assertEqual(landingUpsert.data.landingPage.blocks.length, 2, "unknown block types are dropped, not stored");
   assertEqual(landingUpsert.data.landingPage.status, "draft", "landing page starts as draft");
+  const unsafeLandingCta = await jsonFetch(`/api/sessions/${sessionId}/landing-page`, {
+    method: "POST",
+    cookie: organizer.cookie,
+    body: { slug: "unsafe-cta-test", blocks: [{ type: "cta", content: { primary: { label: "Click", url: "javascript:alert(1)" } } }] }
+  });
+  assertEqual(unsafeLandingCta.status, 400, "event page CTA rejects javascript: URLs server-side");
+  const unsafeLandingImage = await jsonFetch(`/api/sessions/${sessionId}/landing-page`, {
+    method: "POST",
+    cookie: organizer.cookie,
+    body: { slug: "unsafe-image-test", blocks: [{ type: "hero", content: { title: "Unsafe", heroImageUrl: "data:text/html,<script>alert(1)</script>" } }] }
+  });
+  assertEqual(unsafeLandingImage.status, 400, "event page media rejects non-http(s) URLs server-side");
+
   const prePublish = await jsonFetch(`/api/landing-pages/q3-product-launch`, {});
   assertEqual(prePublish.status, 404, "draft landing page is not publicly visible");
   const publish = await jsonFetch(`/api/sessions/${sessionId}/landing-page/publish`, { method: "POST", cookie: organizer.cookie, body: {} });
@@ -287,16 +300,16 @@ async function main() {
   console.log("\nAudience identity + event stream");
   const identity = await jsonFetch("/api/audience/identity", {
     method: "POST",
-    body: { organizationId: organizer.organizationId, anonymousId: "anon-visitor-1", displayName: "Curious Visitor" }
+    body: { sessionId, anonymousId: "anon-visitor-1", displayName: "Curious Visitor" }
   });
-  assertEqual(identity.status, 200, "anonymous identity upserts without auth (public endpoint)");
+  assertEqual(identity.status, 200, "anonymous identity upserts without auth when scoped to a real session");
   const identityId = identity.data.identity.id;
-  const identityAgain = await jsonFetch("/api/audience/identity", { method: "POST", body: { organizationId: organizer.organizationId, anonymousId: "anon-visitor-1", knownEmail: "visitor@example.com" } });
+  const identityAgain = await jsonFetch("/api/audience/identity", { method: "POST", body: { sessionId, anonymousId: "anon-visitor-1", knownEmail: "visitor@example.com" } });
   assertEqual(identityAgain.data.identity.id, identityId, "same anonymousId resolves to the same identity row");
   assertEqual(identityAgain.data.identity.knownEmail, "visitor@example.com", "identity can be enriched (registers) without losing history");
 
-  const bogusOrg = await jsonFetch("/api/audience/identity", { method: "POST", body: { organizationId: "org_does_not_exist", anonymousId: "anon-x" } });
-  assertEqual(bogusOrg.status, 404, "identity upsert against a non-existent organization is rejected");
+  const bareOrgIdentity = await jsonFetch("/api/audience/identity", { method: "POST", body: { organizationId: organizer.organizationId, anonymousId: "anon-x" } });
+  assertEqual(bareOrgIdentity.status, 400, "public identity writes cannot target a bare organization id");
 
   // The public event page renderer only ever learns a session id (organizationId is deliberately never
   // exposed through /api/landing-pages/:slug) — identity/events recording must derive organizationId
