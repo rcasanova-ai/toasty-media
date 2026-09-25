@@ -1258,6 +1258,17 @@ def session_program_put(conn, room_id, state):
             existing_state = {}
         existing_updated_at = existing_state.get("updatedAt") if isinstance(existing_state, dict) else None
         incoming_updated_at = state.get("updatedAt")
+        existing_controller_started_at = existing_state.get("controllerStartedAt") if isinstance(existing_state, dict) else None
+        incoming_controller_started_at = state.get("controllerStartedAt")
+        # Studio tabs can remain open for hours. Without a controller epoch, an older hidden tab keeps
+        # heartbeating its stale scene and can overwrite a newer active tab every few seconds, making LIVE
+        # visibly bounce back to STARTING SOON. A newer controller epoch permanently wins for the room.
+        if (
+            isinstance(existing_controller_started_at, (int, float))
+            and isinstance(incoming_controller_started_at, (int, float))
+            and incoming_controller_started_at < existing_controller_started_at
+        ):
+            return session_program_get(conn, room_id)
         if (
             isinstance(existing_updated_at, (int, float))
             and isinstance(incoming_updated_at, (int, float))

@@ -245,7 +245,7 @@ export function clearProgramRenderer({ engine, mounted, stage }) {
 }
 
 function slotSourceKey(participant, videoEnabled = true, resolveOwnedStream = null, muted = false) {
-  if (!videoEnabled) return `placeholder:${participant.participantId}`;
+  if (!videoEnabled || participant?.cameraEnabled === false) return `placeholder:${participant.participantId}`;
   if (resolveOwnedStream?.(participant)) return `owned:${participant.participantId}`;
   if (participant?.videoSource?.kind === SourceKind.NATIVE_MEDIA_STREAM && participant.videoSource.stream) {
     return `native:${participant.participantId}`;
@@ -272,7 +272,7 @@ function mountNativeProgramVideo(container, stream, muted) {
 }
 
 function mountProgramSlotVideo(engine, container, participant, roomId, frameId, muted, videoEnabled = true, resolveOwnedStream = null) {
-  if (!videoEnabled) {
+  if (!videoEnabled || participant?.cameraEnabled === false) {
     container.classList.add("po-tile-video--empty");
     container.replaceChildren();
     return;

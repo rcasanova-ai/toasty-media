@@ -81,6 +81,8 @@ export function buildCanonicalState({
   outputs = [],
   endCard = null,
   hottieVoice = null,
+  controllerId = null,
+  controllerStartedAt = 0,
   revision = 0,
   updatedAt = Date.now()
 } = {}) {
@@ -117,6 +119,8 @@ export function buildCanonicalState({
     recording: recording || null,
     outputs: (outputs || []).map(normalizeOutputStatus).filter(Boolean),
     endCard: endCard || null,
+    controllerId: controllerId || null,
+    controllerStartedAt: Number(controllerStartedAt) || 0,
     hottieVoice: hottieVoice && typeof hottieVoice === "object" ? {
       utteranceId: hottieVoice.utteranceId || null,
       text: String(hottieVoice.text || "").slice(0, 400),

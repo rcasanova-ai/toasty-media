@@ -183,9 +183,11 @@ function ownedStreamFor(participant) {
       return screenLive ? screen : null;
     }
     if (!participant || (participant.role !== "host" && participant.participantId !== "host")) return null;
-    const stream = typeof api.hostStream === "function" ? api.hostStream() : null;
-    const videoLive = stream?.getVideoTracks?.().some((track) => track.readyState === "live");
-    return videoLive ? stream : null;
+    // Do not reuse the Director's raw host MediaStream inside Program Output. That stream contains the
+    // physical microphone and creates a same-browser self-monitor path when Program Output is open on the
+    // host machine. Host audio/video should arrive through the same VDO transport path as remote viewers,
+    // where browser echo processing is applied consistently.
+    return null;
   } catch (_) {
     return null;
   }
