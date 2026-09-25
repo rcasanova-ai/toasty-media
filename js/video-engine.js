@@ -59,9 +59,21 @@ export class VideoEngine {
   // LABEL, not its value/deviceId — see normalizeVdoDeviceLabel below. NOT yet confirmed on a real device;
   // this is a documented-behavior-based fix for a documented cross-origin limitation, not a guess, but it
   // still needs the next real Host+Guest test to confirm VDO actually resolves it this way in practice.
+  // ROOT CAUSE of Host-side duplicated/echoed guest voices (confirmed against VDO.Ninja's own docs —
+  // docs.vdo.ninja/advanced-settings/mixer-scene-parameters/view and the Rooms guide): a bare
+  // &room=X&push=Y with no &view is NOT publish-only — VDO's documented default room behavior is
+  // "everyone in a room will auto-connect to each other... [and] see and hear all other present
+  // device video/audio streams." This hidden, off-screen iframe was joining the room in that DEFAULT
+  // mode, so it was independently receiving and autoplaying EVERY other guest's audio — completely
+  // duplicate to the Host's own correctly-isolated per-guest &view=<id> tiles (see live-session.js's
+  // _syncGuestVideoTile/mountParticipantView), on a separate WebRTC connection with different latency.
+  // view=true (bare &view, no stream ids) is VDO's own documented publish-only mode — "no streams will
+  // play; only publishing will be allowed" — exactly what buildGuestPublisherParams below already uses
+  // for the Guest's equivalent hidden publisher, with an identical comment explaining why. This mount
+  // never needed to receive anything; it only ever needed to publish.
   mountDirectorFrame(container,{roomId,label="Host",videoDeviceLabel,audioDeviceLabel}) {
     const streamId=`${roomId}h`;
-    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cleanoutput:"1",cover:"1",autostart:"1",videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel)});
+    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cleanoutput:"1",cover:"1",autostart:"1",view:true,videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel)});
   }
 
   // slots=4 reserves 4 even grid cells regardless of how many are actually filled, and cover=1 crops
@@ -165,7 +177,14 @@ export class VideoEngine {
   // them. Costs nothing (this frame is never shown — see .director-control-frame's 2x2px CSS box) and is
   // not yet confirmed to be the actual cause of "sidebar shows Guest instead of the real name" — flagged
   // as a worth-trying hedge, not a proven fix, pending the next real two-device test.
-  mountDirectorControlFrame(container,{roomId}) { return this.mountFrame(container,"control",{room:roomId,director:roomId,cleanoutput:"1",transparent:"1",showlabels:"1"}); }
+  // noaudio/novideo: this frame issues commands (getGuestList/getDetailedState) and is never shown (see
+  // .director-control-frame's 2x2px CSS box) — it has no legitimate reason to receive or play anything.
+  // Per VDO.Ninja's own docs (advanced-settings/video-parameters/and-novideo): "&novideo and &noaudio
+  // used together... prevents guest room members from seeing or hearing other member's audio or video
+  // feeds, which is useful for directors who may wish to only issue commands... but not need to see
+  // video or audio" — this is precisely that documented use case, not a guessed parameter. Defensive
+  // hardening alongside mountDirectorFrame's own fix for the same class of unintended room audio.
+  mountDirectorControlFrame(container,{roomId}) { return this.mountFrame(container,"control",{room:roomId,director:roomId,cleanoutput:"1",transparent:"1",showlabels:"1",noaudio:"1",novideo:"1"}); }
 
   // Program Output's video layer: VDO.Ninja's own auto-mixed room grid (scene=0), showing whoever is
   // currently live with VDO.Ninja's own name labels. Numbered director-controlled scenes (scene=1+) and
