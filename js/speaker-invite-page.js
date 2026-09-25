@@ -208,8 +208,10 @@ function showReadyStep() {
     techCheck: techCheckResult,
     consentRecords: [{ participantId: speaker.id, acceptedAt: new Date().toISOString(), requiredAcceptances: requiredConsentKeysFor({ sessionType: "default" }) }],
     requirementConfig: { sessionType: "default" },
-    calendarConfirmed: true,
-    sessionLinkSent: true
+    // These are organizer-controlled facts and are not exposed to the public invite flow.
+    // Keep them pending instead of falsely marking the guest fully ready.
+    calendarConfirmed: false,
+    sessionLinkSent: false
   });
   const labels = {
     [ReadinessItem.PROFILE]: "Profile",
