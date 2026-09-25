@@ -366,3 +366,10 @@ table.settings-table select {
 .safety-switch-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.06)}
 .safety-switch-row:last-child{border-bottom:0}
 @media(max-width:720px){.usage-grid{grid-template-columns:1fr}}
+.integrations-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-bottom:18px}
+.integration-card{border:1px solid var(--public-line);border-radius:10px;background:var(--public-panel);padding:18px;display:flex;flex-direction:column;gap:10px}
+.integration-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.integration-card-head h3{margin:2px 0 0;font-size:1.05rem}
+.integration-card-eyebrow{margin:0;color:var(--public-muted);font-size:0.72rem;text-transform:uppercase;letter-spacing:0.06em}
+.integration-card p{margin:0;color:var(--public-muted);font-size:0.86rem;line-height:1.5}
+.integration-card-actions{display:flex;align-items:center;gap:12px;margin-top:4px}
