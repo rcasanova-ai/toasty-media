@@ -282,10 +282,35 @@ function bindProducerChrome() {
   elements.topSettings?.addEventListener("click", () => {
     window.open("./dashboard.html", "_blank", "noopener");
   });
-  elements.topEndSession?.addEventListener("click", () => elements.endSessionBtn?.click());
+  elements.topEndSession?.addEventListener("click", () => endCurrentSession(elements.topEndSession));
   elements.bottomNavButtons.forEach((button) => {
     button.addEventListener("click", () => jumpProducerPanel(button.dataset.producerJump));
   });
+}
+
+async function endCurrentSession(button) {
+  if (!session.durableSession) {
+    window.alert("This room has no durable session record, so there is nothing to end.");
+    return;
+  }
+  if (!window.confirm(`End "${session.durableSession.title || "this session"}" for everyone?`)) return;
+  const previousLabel = button?.textContent || "End Session";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Ending…";
+  }
+  try {
+    await session.endDurableSession();
+    const url = new URL("./dashboard.html", window.location.href);
+    window.location.href = url.toString();
+  } catch (error) {
+    console.error("[Toasty Studio] End Session failed", error);
+    window.alert(`Could not end this session: ${error?.message || error}`);
+    if (button) {
+      button.disabled = false;
+      button.textContent = previousLabel;
+    }
+  }
 }
 
 function jumpProducerPanel(target) {
@@ -334,16 +359,7 @@ function bindRailControls() {
     url.searchParams.delete("session");
     window.location.href = url.toString();
   });
-  elements.endSessionBtn.addEventListener("click", async () => {
-    if (!session.durableSession) {
-      window.alert("This room has no durable session record (it predates Session Manager) — nothing to end here.");
-      return;
-    }
-    if (!window.confirm(`End "${session.durableSession.title || "this session"}" for everyone?`)) return;
-    elements.endSessionBtn.disabled = true;
-    await session.endDurableSession();
-    elements.endSessionBtn.disabled = false;
-  });
+  elements.endSessionBtn.addEventListener("click", () => endCurrentSession(elements.endSessionBtn));
   // Opens in a new tab, never navigates this frame away — a live session's Host/Producer state must never
   // be disrupted by visiting Settings (see the module comment on why director.html can't safely reload).
   elements.openSettingsQuick?.addEventListener("click", () => {
