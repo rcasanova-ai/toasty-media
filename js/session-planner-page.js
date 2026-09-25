@@ -451,7 +451,9 @@ async function renderReadiness() {
   }));
   const allSpeakersReady = speakers.length > 0 && speakerReadiness.every((r) => r.readiness.ready);
   const allSponsorsApproved = sponsors.length === 0 || sponsors.every((s) => s.approvalStatus === "approved");
-  const allConsentComplete = speakerReadiness.every((r) => r.readiness.items[ReadinessItem.CONSENT]);
+  // Guarded the same way allSpeakersReady is (Array.prototype.every is vacuously true on an empty array) —
+  // with zero speakers, "Consent complete" showing Ready would be misleading, not honest.
+  const allConsentComplete = speakers.length > 0 && speakerReadiness.every((r) => r.readiness.items[ReadinessItem.CONSENT]);
   const landingPublished = Boolean(landingResult.landingPage?.publishedAt);
   const endCardReady = Boolean(session.endCard?.headline);
   const checklist = plan.readinessChecklist;
