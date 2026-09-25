@@ -1291,11 +1291,9 @@ function aiCredentialKey(credential) {
   return credential?.platformKey ? DEEPSEEK_API_KEY : decryptSecret(credential.encryptedCredential);
 }
 
-// BYOK_RULE: "No BYOK credential = no paid AI. Do NOT silently fall back to our own OpenAI, Anthropic,
-// DeepSeek, Gemini, or any other paid provider key. The organization owns its AI configuration." — this
-// function is the one enforcement point; DEEPSEEK_API_KEY/ANTHROPIC_API_KEY (the platform keys) are
-// deliberately never read here at all, only inside callDeepSeek/callAnthropic's own default parameter,
-// which nothing in this function's call path ever exercises.
+// BYOK rule for customers: no organization credential means no paid AI. The only exception is an
+// authenticated platform_admin, who may use this deployment's configured DeepSeek key for founder QA.
+// That exception is resolved explicitly in resolveAiCredential() and is never inherited by customer users.
 async function handleAiProducerRespond(req, res, authSession) {
   const body = await readJson(req);
   const instruction = String(body.instruction || "").trim().slice(0, 2000);
