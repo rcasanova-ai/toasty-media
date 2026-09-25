@@ -15,3 +15,22 @@ header nav .text-link,header nav button.text-link{background:none;border:0;paddi
 #peepsAuthClose{position:absolute;top:12px;right:12px;width:36px;height:36px;border:0;border-radius:999px;background:#f1dfc7;color:#2b1714;font-size:20px;cursor:pointer}
 @media(max-width:850px){header{padding:0 18px}header nav a:not(:nth-last-of-type(1)){display:none}main:not(.workspace){padding:0 18px 60px}.hero{grid-template-columns:1fr;min-height:auto;padding:55px 0}.hero h1{font-size:64px}.mascot-stage{display:none}.search,.brand-kit,.stats{grid-template-columns:1fr}.privacy,.manifesto{padding:28px}.app-shell{grid-template-columns:1fr}.side{height:auto;position:relative;padding:15px}.side nav{display:flex;overflow:auto}.side-brand{margin-bottom:12px}.side-foot{display:none}.workspace{padding:25px 5vw}.grid,.profile,.receipt{grid-template-columns:1fr}.table .row{grid-template-columns:1fr 1fr}.table .row>*:nth-child(3),.table .row>*:nth-child(4){display:none}.ask{flex-direction:column}}
 .field{display:block;width:100%;border:1px solid var(--line);border-radius:9px;background:#fff;padding:12px 13px;font:inherit;color:#231412;margin:7px 0 16px}.field.tall{min-height:170px;resize:vertical}textarea.field{min-height:96px;resize:vertical}.metric{overflow-wrap:anywhere}
+
+/* Consolidated Peeps Jam surfaces from the earlier Jam Rooms branch. */
+.jam-callout{display:flex;align-items:center;justify-content:space-between;gap:20px;margin:0 0 18px;border-left:4px solid #ed9a6f}
+.jam-policy{margin-top:18px}.jam-policy>p{max-width:900px;line-height:1.65;color:#5e4940}
+.jam-steps{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}
+.jam-steps div{background:#f4e5d1;padding:16px;border-radius:10px}.jam-steps b,.jam-steps span{display:block}
+.jam-steps span{font-size:12px;color:#7a6256;line-height:1.5;margin-top:7px}
+.room-body{min-height:100vh;background:#1c1210;color:#fff6e8}
+.room-shell{max-width:1280px;margin:auto;padding:24px}
+.room-top,.room-info{display:flex;align-items:center;justify-content:space-between;gap:20px}
+.room-top .side-brand{margin:0}.room-stage{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:26px 0}
+.room-video{min-height:390px;border:1px solid #ffffff20;border-radius:18px;background:linear-gradient(145deg,#3b2622,#241714);display:grid;place-content:center;text-align:center;gap:8px}
+.room-video.waiting{background:#211715}.room-avatar{width:84px;height:84px;border-radius:50%;background:#8b5e1c;display:grid;place-items:center;margin:auto;font-size:25px;font-weight:900}
+.room-video span,.room-note{color:#bca89b;font-size:12px}.room-info{padding:4px 2px 18px}.room-info h2{margin:5px 0}
+.room-clock{text-align:right}.room-clock span,.room-clock b{display:block}.room-clock span{font-size:11px;color:#bca89b;text-transform:uppercase;letter-spacing:.1em}
+.room-clock b{font-size:28px;margin-top:4px}.room-dock{display:flex;justify-content:center;gap:9px;flex-wrap:wrap;padding:15px;border:1px solid #ffffff18;border-radius:15px;background:#2b1b18}
+.room-dock .secondary{background:#3a2925;color:#fff6e8;border-color:#ffffff20}.room-dock .selected{background:#5b4039}
+.room-note{text-align:center}.room-body .tag.good{background:#173d31;color:#bde8d8}
+@media(max-width:850px){.grid,.profile,.jam-steps,.room-stage{grid-template-columns:1fr}.jam-callout,.section-head,.room-info{align-items:flex-start;flex-direction:column}.room-video{min-height:260px}.room-clock{text-align:left}}
