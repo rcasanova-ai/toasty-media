@@ -1,0 +1,36 @@
+/* Event Growth layer — guest-facing invite pages (speaker/sponsor) and the Session Planner wizard.
+   Reuses css/brand.css's tokens; does not touch Studio runtime CSS (studio.css, studio-shell-v2.css). */
+.eg-shell{min-height:100vh;background:var(--espresso-2);color:var(--cream-soft);font-family:var(--font-body);display:flex;flex-direction:column;align-items:center;padding:48px 20px 80px}
+.eg-card{width:100%;max-width:640px;background:var(--panel);color:var(--ink);border-radius:var(--radius);box-shadow:var(--shadow);padding:36px}
+.eg-brand{display:flex;align-items:center;gap:12px;margin-bottom:28px}
+.eg-brand img{height:32px}
+.eg-kicker{text-transform:uppercase;letter-spacing:.12em;font-size:12px;font-weight:700;color:var(--caramel);margin:0 0 6px}
+.eg-card h1{font-family:var(--font-heading);font-size:28px;margin:0 0 14px;color:var(--espresso)}
+.eg-card p{line-height:1.6;color:var(--muted)}
+.eg-step{display:none}
+.eg-step.is-active{display:block}
+.eg-field{display:grid;gap:6px;margin-bottom:16px}
+.eg-field label{font-size:13px;font-weight:700;color:var(--espresso)}
+.eg-field input,.eg-field textarea,.eg-field select{border:1px solid var(--line);border-radius:6px;padding:10px 12px;font:inherit;background:#fff;color:var(--ink)}
+.eg-field textarea{min-height:80px;resize:vertical}
+.eg-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
+.eg-check-row{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.eg-check-row input{margin-top:3px}
+.eg-check-row label{font-size:14px;line-height:1.4}
+.eg-section-title{font-weight:700;color:var(--espresso);margin:22px 0 4px;font-size:14px;text-transform:uppercase;letter-spacing:.06em}
+.eg-actions{display:flex;justify-content:space-between;gap:12px;margin-top:26px}
+.eg-btn{border:0;border-radius:999px;padding:12px 22px;font-weight:700;cursor:pointer;background:var(--toast);color:var(--espresso-2)}
+.eg-btn:hover{filter:brightness(1.05)}
+.eg-btn[disabled]{opacity:.5;cursor:default}
+.eg-btn-ghost{background:transparent;border:1px solid var(--line);color:var(--espresso)}
+.eg-status{font-size:13px;color:var(--muted);margin-top:10px;min-height:18px}
+.eg-status.is-error{color:#a33}
+.eg-readiness{display:grid;gap:8px;margin:18px 0}
+.eg-readiness div{display:flex;justify-content:space-between;padding:8px 12px;border-radius:6px;background:rgba(0,0,0,.04);font-size:14px}
+.eg-readiness span.ok{color:#2b7a4b;font-weight:700}
+.eg-readiness span.pending{color:var(--muted)}
+.eg-preview-card{border:1px solid var(--line);border-radius:8px;padding:16px;margin-top:16px;background:#fff}
+.eg-preview-card strong{display:block;font-size:16px;color:var(--espresso)}
+.eg-preview-card small{color:var(--muted)}
+.eg-badge{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;background:rgba(139,94,28,.12);color:var(--caramel)}
+.eg-tech-item{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
