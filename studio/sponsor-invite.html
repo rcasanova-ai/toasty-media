@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sponsor Kit — Toasty</title>
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="stylesheet" href="../css/brand.css">
+    <link rel="stylesheet" href="../css/event-growth.css">
+  </head>
+  <body>
+    <main class="eg-shell">
+      <div class="eg-card">
+        <div class="eg-brand">
+          <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Media">
+        </div>
+
+        <section id="stepLoading" class="eg-step is-active">
+          <p>Loading your sponsor invitation…</p>
+        </section>
+
+        <section id="stepError" class="eg-step">
+          <p class="eg-kicker">Invite</p>
+          <h1>This link isn't valid</h1>
+          <p id="errorMessage">This invitation has expired, was already used, or the link is incorrect. Ask your organizer to resend it.</p>
+        </section>
+
+        <section id="stepKit" class="eg-step">
+          <p class="eg-kicker">Sponsor kit</p>
+          <h1 id="kitEventName">Complete your sponsor kit</h1>
+          <p>These details are used for your on-screen sponsor treatment and CTA — logo, campaign link, promo code, talking points, and anything that must not be said on air.</p>
+          <form id="kitForm">
+            <div class="eg-grid-2">
+              <div class="eg-field"><label for="fWebsite">Website</label><input id="fWebsite" type="url" required></div>
+              <div class="eg-field"><label for="fLogo">Logo URL</label><input id="fLogo" type="url"></div>
+            </div>
+            <div class="eg-grid-2">
+              <div class="eg-field"><label for="fCampaignUrl">Campaign URL</label><input id="fCampaignUrl" type="url"></div>
+              <div class="eg-field"><label for="fPromoCode">Promo code</label><input id="fPromoCode" maxlength="40"></div>
+            </div>
+            <div class="eg-field"><label for="fQrDestination">QR destination</label><input id="fQrDestination" type="url"></div>
+            <div class="eg-field"><label for="fTalkingPoints">Talking points (what the Host should say)</label><textarea id="fTalkingPoints"></textarea></div>
+            <div class="eg-field"><label for="fRequiredDisclosure">Required disclosure</label><input id="fRequiredDisclosure"></div>
+            <div class="eg-field"><label for="fDoNotSay">Do-not-say / prohibited claims</label><textarea id="fDoNotSay"></textarea></div>
+            <p class="eg-section-title">Social links</p>
+            <div class="eg-grid-2">
+              <div class="eg-field"><label for="sLinkedin">LinkedIn</label><input id="sLinkedin" type="url"></div>
+              <div class="eg-field"><label for="sX">X</label><input id="sX" type="url"></div>
+              <div class="eg-field"><label for="sInstagram">Instagram</label><input id="sInstagram" type="url"></div>
+              <div class="eg-field"><label for="sYoutube">YouTube</label><input id="sYoutube" type="url"></div>
+            </div>
+            <p class="eg-section-title">Preview</p>
+            <div class="eg-preview-card">
+              <span class="eg-badge">SPONSOR</span>
+              <strong id="previewCompany">Company</strong>
+              <small id="previewPromo">Promo code</small>
+            </div>
+            <div class="eg-actions">
+              <span></span>
+              <button class="eg-btn" type="submit">Submit sponsor kit</button>
+            </div>
+            <p class="eg-status" id="kitStatus"></p>
+          </form>
+        </section>
+
+        <section id="stepReady" class="eg-step">
+          <p class="eg-kicker">All set</p>
+          <h1>Your sponsor kit is submitted</h1>
+          <p>The Host/Producer will review and approve your sponsor treatment before it goes live. You can close this page.</p>
+        </section>
+      </div>
+    </main>
+    <script type="module" src="../js/sponsor-invite-page.js"></script>
+  </body>
+</html>

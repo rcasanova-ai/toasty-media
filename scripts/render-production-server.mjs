@@ -649,6 +649,327 @@ const server = createServer(async (req, res) => {
     await handleSessionCreate(req, res, session);
     return;
   }
+  // ==================================================================================================
+  // EVENT GROWTH LAYER — Session Planner, Speakers, Consent, Sponsors, Landing Pages, Audience,
+  // Campaign Links, AI usage detail, Post-event hooks. New product surfaces around Studio, not a rewrite
+  // of it. Session sub-resource routes stay owner_user_id-scoped exactly like /api/sessions/* above
+  // (Studio session access is not yet organization-wide on this codebase — see enforceSessionQuota's own
+  // comment) but every NEW child row created below is stamped with the session's own organizationId,
+  // never a client-supplied one, via requireOwnedSession's returned session object. Guest-facing invite
+  // routes are deliberately unauthenticated, like /api/presence/* — a Speaker/Sponsor invitee has no
+  // Toasty account — and are rate-limited per IP plus gated by a high-entropy invite token whose HASH
+  // (never the raw token) is the only thing stored.
+  // ==================================================================================================
+
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/plan")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "session-plan-set", 60, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSessionSetPlan(req, res, session);
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/speakers")) {
+    if (!limit(req, res, "speakers-list", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSpeakerList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/speakers")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "speakers-create", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSpeakerCreate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/speakers/") && req.url.endsWith("/update")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "speakers-update", 60, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSpeakerUpdate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/speakers/") && req.url.endsWith("/invite")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "speakers-invite", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSpeakerInviteIssue(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/speakers/") && req.url.endsWith("/tech-check")) {
+    if (!limit(req, res, "speakers-tech-check-get", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSpeakerTechCheckLatest(req, res, session);
+    return;
+  }
+  // Guest path — no account. Token in the URL is the only credential; rate-limited per IP, expiring,
+  // single-use-at-redemption once the whole guest flow completes (see toasty-auth-db.py's
+  // speaker_invite_redeem and handleSpeakerInviteConsent below).
+  if (req.method === "GET" && req.url?.startsWith("/api/speaker-invites/")) {
+    if (!limit(req, res, "speaker-invite-get", 60, 60 * 1000)) return;
+    await handleSpeakerInviteGet(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/speaker-invites/") && req.url.endsWith("/profile")) {
+    if (!limit(req, res, "speaker-invite-profile", 30, 15 * 60 * 1000)) return;
+    await handleSpeakerInviteProfile(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/speaker-invites/") && req.url.endsWith("/tech-check")) {
+    if (!limit(req, res, "speaker-invite-tech-check", 30, 15 * 60 * 1000)) return;
+    await handleSpeakerInviteTechCheck(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/speaker-invites/") && req.url.endsWith("/consent")) {
+    if (!limit(req, res, "speaker-invite-consent", 30, 15 * 60 * 1000)) return;
+    await handleSpeakerInviteConsent(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/sponsors")) {
+    if (!limit(req, res, "sponsors-list", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSponsorList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/sponsors")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sponsors-create", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSponsorCreate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sponsors/") && req.url.endsWith("/update")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sponsors-update", 60, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSponsorUpdate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sponsors/") && req.url.endsWith("/approve")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sponsors-approve", 60, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSponsorApprove(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sponsors/") && req.url.endsWith("/invite")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sponsors-invite", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSponsorInviteIssue(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/sponsor-invites/")) {
+    if (!limit(req, res, "sponsor-invite-get", 60, 60 * 1000)) return;
+    await handleSponsorInviteGet(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sponsor-invites/") && req.url.endsWith("/kit")) {
+    if (!limit(req, res, "sponsor-invite-kit", 30, 15 * 60 * 1000)) return;
+    await handleSponsorInviteKit(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/sponsor-moments")) {
+    if (!limit(req, res, "sponsor-moments-list", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSponsorMomentList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/sponsor-moments")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sponsor-moments-create", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSponsorMomentCreate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sponsor-moments/") && req.url.endsWith("/status")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sponsor-moments-status", 90, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSponsorMomentStatus(req, res, session);
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/consent")) {
+    if (!limit(req, res, "consent-list", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleConsentList(req, res, session);
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/landing-page")) {
+    if (!limit(req, res, "landing-page-get", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleLandingPageGet(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/landing-page")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "landing-page-set", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleLandingPageUpsert(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/landing-page/publish")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "landing-page-publish", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleLandingPagePublish(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/landing-page/unpublish")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "landing-page-publish", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleLandingPageUnpublish(req, res, session);
+    return;
+  }
+  // Public event page read — no session, this is what a visitor's browser fetches.
+  if (req.method === "GET" && req.url?.startsWith("/api/landing-pages/")) {
+    if (!limit(req, res, "landing-page-public", 120, 60 * 1000)) return;
+    await handleLandingPageGetBySlug(req, res);
+    return;
+  }
+
+  // Audience identity + event stream — public/unauthenticated writes (any visitor's browser), like
+  // /api/presence/*, rate-limited per IP. Reads are organizer-authenticated (this is the analytics data).
+  if (req.method === "POST" && req.url === "/api/audience/identity") {
+    if (!limit(req, res, "audience-identity", 120, 60 * 1000)) return;
+    await handleAudienceIdentityUpsert(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/audience/events") {
+    if (!limit(req, res, "audience-events-record", 180, 60 * 1000)) return;
+    await handleAudienceEventRecord(req, res);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/audience/events")) {
+    if (!limit(req, res, "audience-events-list", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleAudienceEventList(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/audience/summary")) {
+    if (!limit(req, res, "audience-summary", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleAudienceEventSummary(req, res, session);
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/campaign-links")) {
+    if (!limit(req, res, "campaign-links-list", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleCampaignLinkList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/campaign-links")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "campaign-links-create", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleCampaignLinkCreate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/campaign-links/") && req.url.endsWith("/active")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "campaign-links-set-active", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleCampaignLinkSetActive(req, res, session);
+    return;
+  }
+  // Public redirect resolver — toasty.media/r/<slug> resolves through here.
+  if (req.method === "GET" && req.url?.startsWith("/api/r/")) {
+    if (!limit(req, res, "campaign-link-resolve", 180, 60 * 1000)) return;
+    await handleCampaignLinkResolve(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/ai-usage")) {
+    if (!limit(req, res, "ai-usage-summary", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleAiUsageSummary(req, res, session);
+    return;
+  }
+
+  // Moxie Event Growth hook — readiness summary. Same BYOK gate as /api/ai-producer/respond
+  // (findActiveAiCredential/byok_required), same cost-safety switch, same increment_usage accounting —
+  // never a parallel AI billing path. One concrete hook wired end-to-end; the adapter shape (organization
+  // resolution -> BYOK credential -> provider call -> usage accounting) is what the rest (speaker
+  // briefing, sponsor context, post-event artifact suggestions, audience insight summary) reuse.
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/moxie/readiness-summary")) {
+    if (!COST_SAFETY_SWITCHES.ai) return sendJson(req, res, 503, { error: "AI features are temporarily disabled by the platform safety switch." });
+    if (!requireCsrf(req, res) || !limit(req, res, "moxie-readiness-summary", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMoxieReadinessSummary(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/moxie/speaker-briefing")) {
+    if (!COST_SAFETY_SWITCHES.ai) return sendJson(req, res, 503, { error: "AI features are temporarily disabled by the platform safety switch." });
+    if (!requireCsrf(req, res) || !limit(req, res, "moxie-speaker-briefing", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMoxieSpeakerBriefing(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/moxie/session-research")) {
+    if (!COST_SAFETY_SWITCHES.ai) return sendJson(req, res, 503, { error: "AI features are temporarily disabled by the platform safety switch." });
+    if (!requireCsrf(req, res) || !limit(req, res, "moxie-session-research", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMoxieSessionResearch(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/moxie/audience-insights")) {
+    if (!COST_SAFETY_SWITCHES.ai) return sendJson(req, res, 503, { error: "AI features are temporarily disabled by the platform safety switch." });
+    if (!requireCsrf(req, res) || !limit(req, res, "moxie-audience-insights", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMoxieAudienceInsights(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/moxie/post-event-suggestions")) {
+    if (!COST_SAFETY_SWITCHES.ai) return sendJson(req, res, 503, { error: "AI features are temporarily disabled by the platform safety switch." });
+    if (!requireCsrf(req, res) || !limit(req, res, "moxie-post-event-suggestions", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMoxiePostEventSuggestions(req, res, session);
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/artifacts")) {
+    if (!limit(req, res, "post-event-artifacts-list", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handlePostEventArtifactList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/artifacts")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "post-event-artifacts-create", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handlePostEventArtifactCreate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/artifacts/") && req.url.endsWith("/update")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "post-event-artifacts-update", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handlePostEventArtifactUpdate(req, res, session);
+    return;
+  }
+
   if (req.method === "GET" && req.url?.startsWith("/api/sessions/")) {
     if (!limit(req, res, "sessions-get", 60, 60 * 1000)) return;
     const session = await requireSession(req, res);
@@ -3321,7 +3642,8 @@ function parseCookies(header) {
 // (see toasty-auth-db.py's own try/except) and really is a storage failure.
 const DB_EXPECTED_ERRORS = new Set([
   "duplicate_email", "kicked", "full", "invalid_mode", "invalid_brand", "brand_forbidden",
-  "duplicate_slug", "already_member", "invalid_token", "expired_token", "duplicate_reference", "duplicate_signature"
+  "duplicate_slug", "already_member", "invalid_token", "expired_token", "duplicate_reference", "duplicate_signature",
+  "slug_taken"
 ]);
 
 async function db(action, values = {}) {
@@ -3846,6 +4168,1062 @@ async function handleSessionKick(req, res, authSession) {
   if (!sessionResult.session) throw httpError(404, "Session not found.");
   const result = await db("session_kick", { roomId: sessionResult.session.roomId, participantId });
   sendJson(req, res, 200, { roster: result.roster || [] });
+}
+
+// ======================================================================================================
+// EVENT GROWTH LAYER — handlers. Every organizer-facing handler re-checks session ownership via
+// db("session_get", {id, ownerUserId}) before touching a sub-resource, exactly like handleSessionKick
+// above — a sub-resource id alone (speakerId/sponsorId/...) is never trusted as proof of ownership. The
+// session's own organizationId (already present on every session_get result) is what gets stamped onto
+// new child rows — never a client-supplied organizationId.
+// ======================================================================================================
+
+function newId(prefix) {
+  return `${prefix}_${randomUUID().replace(/-/g, "")}`;
+}
+
+async function requireOwnedSession(req, res, authSession, suffix) {
+  const path = req.url.slice("/api/sessions/".length, -suffix.length);
+  const id = decodeURIComponent(path);
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
+  const result = await db("session_get", { id, ownerUserId: authSession.id });
+  if (result.error === "brand_forbidden") throw httpError(403, "This session is outside your account's permitted brand.");
+  if (!result.session) throw httpError(404, "Session not found.");
+  return result.session;
+}
+
+// High-entropy invite tokens: only the SHA-256 hash is ever stored (toasty-auth-db.py's
+// speaker_invites/sponsor_invites.token_hash) or logged. The raw token exists only in this response body
+// (to be emailed) and in the invitee's URL — never written to disk/DB in cleartext.
+function issueInviteToken() {
+  const token = randomBytes(32).toString("base64url");
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  return { token, tokenHash };
+}
+
+function hashInviteToken(token) {
+  return createHash("sha256").update(String(token || "")).digest("hex");
+}
+
+function inviteExpiry(days) {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function inviteIsLive(invite) {
+  if (!invite) return false;
+  if (invite.revokedAt || invite.usedAt) return false;
+  return new Date(invite.expiresAt).getTime() > Date.now();
+}
+
+const SPEAKER_LINK_KEYS = ["linkedin", "x", "website", "instagram", "tiktok", "youtube", "github", "telegram", "other"];
+
+function sanitizeSpeakerFields(input, { profileMode = false } = {}) {
+  const raw = input && typeof input === "object" ? input : {};
+  const fields = {};
+  if ("sessionRole" in raw) fields.sessionRole = sessionText(raw.sessionRole, 120);
+  if ("displayName" in raw) fields.displayName = sessionText(raw.displayName, 120);
+  if ("headshotReference" in raw) fields.headshotReference = sessionText(raw.headshotReference, 2000);
+  if ("title" in raw) fields.title = sessionText(raw.title, 160);
+  if ("company" in raw) fields.company = sessionText(raw.company, 160);
+  if ("bioShort" in raw) fields.bioShort = sessionText(raw.bioShort, 280);
+  if ("bioLong" in raw) fields.bioLong = sessionText(raw.bioLong, 4000);
+  if ("pronunciationNotes" in raw) fields.pronunciationNotes = sessionText(raw.pronunciationNotes, 300);
+  if ("location" in raw) fields.location = sessionText(raw.location, 160);
+  if ("speakerTimezone" in raw) fields.speakerTimezone = sessionText(raw.speakerTimezone, 80);
+  if ("onscreenTitle" in raw) fields.onscreenTitle = sessionText(raw.onscreenTitle, 160);
+  if ("pronouns" in raw) fields.pronouns = sessionText(raw.pronouns, 40);
+  if ("links" in raw && raw.links && typeof raw.links === "object") {
+    const links = {};
+    for (const key of SPEAKER_LINK_KEYS) {
+      const value = sessionText(raw.links[key], 300);
+      if (value) links[key] = value;
+    }
+    fields.links = links;
+  }
+  if ("hiddenFields" in raw && Array.isArray(raw.hiddenFields)) {
+    fields.hiddenFields = raw.hiddenFields.map((v) => sessionText(v, 60)).filter(Boolean).slice(0, 40);
+  }
+  // Organizer-only fields never reachable from the guest profile-submission path — includes the Peeps
+  // bridge fields (Phase 10): a guest completing their own profile never gets to attach/change which
+  // canonical Peeps person this speaker row is linked to, or why they were selected.
+  if (!profileMode) {
+    if ("peepsPersonId" in raw) fields.peepsPersonId = sessionText(raw.peepsPersonId, 80) || null;
+    if ("selectionReason" in raw) fields.selectionReason = sessionText(raw.selectionReason, 300);
+  }
+  return fields;
+}
+
+const CONSENT_KNOWN_KEYS = new Set([
+  "terms_of_service",
+  "privacy_policy",
+  "recording",
+  "transcription",
+  "ai_processing",
+  "distribution_replay",
+  "confidentiality",
+  "research_participation",
+  "data_use",
+  "client_release",
+  "promotional_clips",
+  "retain_profile",
+  "peeps_profile",
+  "marketing_communications"
+]);
+
+function sanitizeConsentKeys(list) {
+  return (Array.isArray(list) ? list : [])
+    .map((v) => sessionText(v, 60))
+    .filter((v) => CONSENT_KNOWN_KEYS.has(v));
+}
+
+async function handleSessionSetPlan(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/plan");
+  const body = await readJson(req);
+  const plan = body.plan && typeof body.plan === "object" ? body.plan : {};
+  const result = await db("session_set_plan", { id: session.id, ownerUserId: authSession.id, plan });
+  sendJson(req, res, 200, { session: result.session });
+}
+
+async function handleSpeakerList(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/speakers");
+  const result = await db("speaker_list", { sessionId: session.id });
+  sendJson(req, res, 200, { speakers: result.speakers || [] });
+}
+
+async function handleSpeakerCreate(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/speakers");
+  const body = await readJson(req);
+  const email = sessionText(body.email, 200);
+  if (!EMAIL_PATTERN.test(email)) throw httpError(400, "A valid speaker email is required.");
+  const result = await db("speaker_create", {
+    id: newId("spk"),
+    sessionId: session.id,
+    organizationId: session.organizationId,
+    email,
+    sessionRole: sessionText(body.sessionRole, 120),
+    displayName: sessionText(body.displayName, 120)
+  });
+  sendJson(req, res, 201, { speaker: result.speaker });
+}
+
+// Ownership is proven by the PARENT SESSION's owner_user_id, not anything stored on the speaker row
+// itself (speakers carry organization_id, not owner_user_id — see toasty-auth-db.py's schema comment).
+async function requireOwnedSpeaker(speakerId, authSession) {
+  if (!SAFE_ID.test(String(speakerId || ""))) throw httpError(400, "Invalid speaker id.");
+  const result = await db("speaker_get", { id: speakerId });
+  if (!result.speaker) throw httpError(404, "Speaker not found.");
+  const owned = await db("session_get", { id: result.speaker.sessionId, ownerUserId: authSession.id });
+  if (!owned.session) throw httpError(404, "Speaker not found.");
+  return result.speaker;
+}
+
+async function handleSpeakerUpdate(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/speakers/".length, -"/update".length));
+  await requireOwnedSpeaker(id, authSession);
+  const body = await readJson(req);
+  const fields = sanitizeSpeakerFields(body.fields, { profileMode: false });
+  const result = await db("speaker_update", { id, fields });
+  sendJson(req, res, 200, { speaker: result.speaker });
+}
+
+async function handleSpeakerInviteIssue(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/speakers/".length, -"/invite".length));
+  const speaker = await requireOwnedSpeaker(id, authSession);
+  const { token, tokenHash } = issueInviteToken();
+  await db("speaker_invite_issue", {
+    id: newId("inv"),
+    speakerId: id,
+    tokenHash,
+    expiresAt: inviteExpiry(30)
+  });
+  const inviteUrl = `${APP_BASE_URL}/studio/speaker-invite.html?token=${token}`;
+  const sessionRow = await db("session_get_public", { id: speaker.sessionId });
+  const eventName = sessionRow.session?.title || "a Toasty session";
+  if (EMAIL_PATTERN.test(speaker.email)) {
+    // Same real transport as every other invite in this codebase (sendOrganizationInviteEmail) —
+    // Resend when configured, console-logged dev transport otherwise. Never a second email system.
+    await sendEmail({
+      to: speaker.email,
+      subject: `You've been invited as a speaker for ${eventName}`,
+      html: `<p>You've been invited as a speaker for <strong>${escapeHtml(eventName)}</strong>.</p><p>Complete your speaker profile so your name, title, links, and on-screen information are accurate. No Toasty account is required.</p><p><a href="${inviteUrl}">${inviteUrl}</a></p><p>This link expires in 30 days.</p>`
+    }).catch((error) => console.error("[Toasty Email] speaker invite send failed", error));
+  }
+  // Raw token/URL is ALSO returned to the organizer (unlike the org-member invite flow) — a speaker may
+  // not be checking email yet, and the organizer routinely hands this link over Slack/text directly.
+  sendJson(req, res, 201, { token, inviteUrl: `/studio/speaker-invite.html?token=${token}` });
+}
+
+async function handleSpeakerTechCheckLatest(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/speakers/".length, -"/tech-check".length));
+  const speaker = await requireOwnedSpeaker(id, authSession);
+  const result = await db("tech_check_latest", { speakerId: speaker.id });
+  sendJson(req, res, 200, { techCheck: result.techCheck });
+}
+
+async function loadSpeakerInvite(token) {
+  const tokenHash = hashInviteToken(token);
+  const result = await db("speaker_invite_get", { tokenHash });
+  if (!result.invite || !result.speaker) throw httpError(404, "Invite not found.");
+  if (!inviteIsLive(result.invite)) throw httpError(410, "This invite has expired or was already used.");
+  return { invite: result.invite, speaker: result.speaker, tokenHash };
+}
+
+function tokenFromInviteUrl(req, prefix, suffix = "") {
+  let rest = req.url.slice(prefix.length);
+  if (suffix) rest = rest.slice(0, -suffix.length);
+  return decodeURIComponent(rest);
+}
+
+async function handleSpeakerInviteGet(req, res) {
+  const token = tokenFromInviteUrl(req, "/api/speaker-invites/");
+  const { speaker } = await loadSpeakerInvite(token);
+  // The guest's invite screen needs the event name — one lookup using the session id we already trust (it
+  // came from the redeemed invite's own speaker row), never anything the guest supplied. Guests never see
+  // organizationId or which organization owns this session — only their own row plus the event title.
+  const { organizationId, ...publicSpeaker } = speaker;
+  const sessionRow = await db("session_get_public", { id: speaker.sessionId });
+  const event = sessionRow.session ? { title: sessionRow.session.title, brandId: sessionRow.session.brandId } : null;
+  sendJson(req, res, 200, { speaker: publicSpeaker, event });
+}
+
+async function handleSpeakerInviteProfile(req, res) {
+  const token = tokenFromInviteUrl(req, "/api/speaker-invites/", "/profile");
+  // Intentionally does NOT redeem the invite token — the guest still needs it for the tech-check and
+  // consent steps in the same visit. The token is only marked used once the full flow completes at
+  // consent submission (see handleSpeakerInviteConsent).
+  const { speaker } = await loadSpeakerInvite(token);
+  const body = await readJson(req);
+  const fields = sanitizeSpeakerFields(body.fields, { profileMode: true });
+  fields.inviteStatus = "accepted";
+  // Session-specific overrides only — never writes back to a canonical Peeps profile (see
+  // docs/HUMAN_INSIGHT_NETWORK.md's data-rights boundary: participant profile data stays participant-owned,
+  // and peepsPersonId itself is organizer-only — see sanitizeSpeakerFields — so a guest can never attach
+  // or repoint which canonical Peeps person this row claims to be).
+  const result = await db("speaker_update", { id: speaker.id, fields, markProfileSubmitted: true });
+  sendJson(req, res, 200, { speaker: result.speaker });
+}
+
+async function handleSpeakerInviteTechCheck(req, res) {
+  const token = tokenFromInviteUrl(req, "/api/speaker-invites/", "/tech-check");
+  const { speaker } = await loadSpeakerInvite(token);
+  const body = await readJson(req);
+  const result = await db("tech_check_record", {
+    id: newId("tc"),
+    speakerId: speaker.id,
+    sessionId: speaker.sessionId,
+    cameraOk: Boolean(body.cameraOk),
+    micOk: Boolean(body.micOk),
+    speakerOk: Boolean(body.speakerOk),
+    browserSupported: Boolean(body.browserSupported),
+    connectionOutcome: sessionText(body.connectionOutcome, 60),
+    // Labels only ("FaceTime HD Camera"), never persistent hardware/device IDs.
+    warnings: (Array.isArray(body.warnings) ? body.warnings : []).map((w) => sessionText(w, 200)).slice(0, 20),
+    deviceLabels: (Array.isArray(body.deviceLabels) ? body.deviceLabels : []).map((l) => sessionText(l, 120)).slice(0, 10)
+  });
+  sendJson(req, res, 201, { techCheck: result.techCheck });
+}
+
+async function handleSpeakerInviteConsent(req, res) {
+  const token = tokenFromInviteUrl(req, "/api/speaker-invites/", "/consent");
+  const { speaker, tokenHash } = await loadSpeakerInvite(token);
+  const result = await recordConsent(req, {
+    organizationId: speaker.organizationId,
+    sessionId: speaker.sessionId,
+    participantType: "speaker",
+    participantId: speaker.id,
+    source: "guest_invite"
+  });
+  // Consent is the last required step of the guest flow (profile -> tech check -> consent) — THIS is
+  // where the invite token actually gets marked used, not at profile submission: the guest needs the same
+  // token live across all three steps.
+  await db("speaker_invite_redeem", { tokenHash, speakerId: speaker.id });
+  sendJson(req, res, 201, { consentRecord: result.consentRecord });
+}
+
+async function recordConsent(req, { organizationId, sessionId, participantType, participantId, source }) {
+  const body = await readJson(req);
+  const requiredAcceptances = sanitizeConsentKeys(body.requiredAcceptances);
+  if (!requiredAcceptances.length) throw httpError(400, "At least one required acceptance must be provided.");
+  const optionalPermissions = sanitizeConsentKeys(body.optionalPermissions);
+  const agreementVersion = sessionText(body.agreementVersion, 40) || "v1";
+  const result = await db("consent_record_create", {
+    id: newId("cr"),
+    organizationId,
+    sessionId,
+    participantType,
+    participantId,
+    agreementVersion,
+    requiredAcceptances,
+    optionalPermissions,
+    source,
+    ipMetadata: String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim().slice(0, 80),
+    userAgent: sessionText(req.headers["user-agent"], 300),
+    documentHash: sessionText(body.documentHash, 128)
+  });
+  return result;
+}
+
+async function handleConsentList(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/consent");
+  const result = await db("consent_record_list", { sessionId: session.id });
+  sendJson(req, res, 200, { consentRecords: result.consentRecords || [] });
+}
+
+async function handleSponsorList(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/sponsors");
+  const result = await db("sponsor_list", { sessionId: session.id });
+  sendJson(req, res, 200, { sponsors: result.sponsors || [] });
+}
+
+async function handleSponsorCreate(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/sponsors");
+  const body = await readJson(req);
+  const result = await db("sponsor_create", {
+    id: newId("spn"),
+    sessionId: session.id,
+    organizationId: session.organizationId,
+    companyName: sessionText(body.companyName, 160),
+    contactName: sessionText(body.contactName, 160),
+    contactEmail: sessionText(body.contactEmail, 200)
+  });
+  sendJson(req, res, 201, { sponsor: result.sponsor });
+}
+
+async function requireOwnedSponsor(sponsorId, authSession) {
+  if (!SAFE_ID.test(String(sponsorId || ""))) throw httpError(400, "Invalid sponsor id.");
+  const result = await db("sponsor_get", { id: sponsorId });
+  if (!result.sponsor) throw httpError(404, "Sponsor not found.");
+  const owned = await db("session_get", { id: result.sponsor.sessionId, ownerUserId: authSession.id });
+  if (!owned.session) throw httpError(404, "Sponsor not found.");
+  return result.sponsor;
+}
+
+const SPONSOR_TEXT_FIELDS = {
+  companyName: 160, contactName: 160, contactEmail: 200, website: 300, logoReference: 2000,
+  campaignUrl: 300, promoCode: 40, qrDestination: 300, talkingPoints: 2000, requiredDisclosure: 500,
+  doNotSay: 1000, sponsorGraphicReference: 2000, videoAssetReference: 2000
+};
+const SPONSOR_SOCIAL_KEYS = ["linkedin", "x", "instagram", "youtube", "tiktok", "website"];
+
+function sanitizeSponsorFields(input) {
+  const raw = input && typeof input === "object" ? input : {};
+  const fields = {};
+  for (const [key, max] of Object.entries(SPONSOR_TEXT_FIELDS)) {
+    if (key in raw) fields[key] = sessionText(raw[key], max);
+  }
+  if ("productImages" in raw && Array.isArray(raw.productImages)) {
+    fields.productImages = raw.productImages.map((v) => sessionText(v, 2000)).slice(0, 20);
+  }
+  if ("socialLinks" in raw && raw.socialLinks && typeof raw.socialLinks === "object") {
+    const links = {};
+    for (const key of SPONSOR_SOCIAL_KEYS) {
+      const value = sessionText(raw.socialLinks[key], 300);
+      if (value) links[key] = value;
+    }
+    fields.socialLinks = links;
+  }
+  return fields;
+}
+
+async function handleSponsorUpdate(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/sponsors/".length, -"/update".length));
+  await requireOwnedSponsor(id, authSession);
+  const body = await readJson(req);
+  const fields = sanitizeSponsorFields(body.fields);
+  const result = await db("sponsor_update", { id, fields });
+  sendJson(req, res, 200, { sponsor: result.sponsor });
+}
+
+const SPONSOR_APPROVAL_STATES = new Set(["pending", "approved", "rejected"]);
+
+async function handleSponsorApprove(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/sponsors/".length, -"/approve".length));
+  await requireOwnedSponsor(id, authSession);
+  const body = await readJson(req);
+  const approvalStatus = SPONSOR_APPROVAL_STATES.has(body.approvalStatus) ? body.approvalStatus : "approved";
+  const result = await db("sponsor_set_approval", { id, approvalStatus });
+  sendJson(req, res, 200, { sponsor: result.sponsor });
+}
+
+async function handleSponsorInviteIssue(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/sponsors/".length, -"/invite".length));
+  const sponsor = await requireOwnedSponsor(id, authSession);
+  const { token, tokenHash } = issueInviteToken();
+  await db("sponsor_invite_issue", { id: newId("inv"), sponsorId: id, tokenHash, expiresAt: inviteExpiry(30) });
+  const inviteUrl = `${APP_BASE_URL}/studio/sponsor-invite.html?token=${token}`;
+  const sessionRow = await db("session_get_public", { id: sponsor.sessionId });
+  const eventName = sessionRow.session?.title || "a Toasty session";
+  if (EMAIL_PATTERN.test(sponsor.contactEmail)) {
+    await sendEmail({
+      to: sponsor.contactEmail,
+      subject: `Complete your sponsor kit for ${eventName}`,
+      html: `<p>You've been added as a sponsor for <strong>${escapeHtml(eventName)}</strong>.</p><p>Complete your sponsor kit (logo, campaign URL, promo code, talking points) so your sponsorship is ready.</p><p><a href="${inviteUrl}">${inviteUrl}</a></p><p>This link expires in 30 days.</p>`
+    }).catch((error) => console.error("[Toasty Email] sponsor invite send failed", error));
+  }
+  sendJson(req, res, 201, { token, inviteUrl: `/studio/sponsor-invite.html?token=${token}` });
+}
+
+async function loadSponsorInvite(token) {
+  const tokenHash = hashInviteToken(token);
+  const result = await db("sponsor_invite_get", { tokenHash });
+  if (!result.invite || !result.sponsor) throw httpError(404, "Invite not found.");
+  if (!inviteIsLive(result.invite)) throw httpError(410, "This invite has expired or was already used.");
+  return { invite: result.invite, sponsor: result.sponsor, tokenHash };
+}
+
+async function handleSponsorInviteGet(req, res) {
+  const token = tokenFromInviteUrl(req, "/api/sponsor-invites/");
+  const { sponsor } = await loadSponsorInvite(token);
+  const { organizationId, ...publicSponsor } = sponsor;
+  const sessionRow = await db("session_get_public", { id: sponsor.sessionId });
+  const event = sessionRow.session ? { title: sessionRow.session.title, brandId: sessionRow.session.brandId } : null;
+  sendJson(req, res, 200, { sponsor: publicSponsor, event });
+}
+
+async function handleSponsorInviteKit(req, res) {
+  const token = tokenFromInviteUrl(req, "/api/sponsor-invites/", "/kit");
+  const { sponsor, tokenHash } = await loadSponsorInvite(token);
+  const body = await readJson(req);
+  const fields = sanitizeSponsorFields(body.fields);
+  const result = await db("sponsor_update", { id: sponsor.id, fields });
+  await db("sponsor_invite_redeem", { tokenHash, sponsorId: sponsor.id });
+  sendJson(req, res, 200, { sponsor: result.sponsor });
+}
+
+const SPONSOR_MOMENT_TREATMENTS = new Set([
+  "host_read", "corner_logo", "lower_third", "side_panel", "full_card", "qr_cta", "sponsor_bug", "canvas_background"
+]);
+const SPONSOR_MOMENT_STATUSES = new Set(["planned", "on_screen", "delivered", "skipped"]);
+
+async function handleSponsorMomentList(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/sponsor-moments");
+  const result = await db("sponsor_moment_list", { sessionId: session.id });
+  sendJson(req, res, 200, { sponsorMoments: result.sponsorMoments || [] });
+}
+
+async function handleSponsorMomentCreate(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/sponsor-moments");
+  const body = await readJson(req);
+  await requireOwnedSponsor(body.sponsorId, authSession);
+  const treatment = SPONSOR_MOMENT_TREATMENTS.has(body.treatment) ? body.treatment : "host_read";
+  const result = await db("sponsor_moment_create", {
+    id: newId("sm"),
+    sessionId: session.id,
+    sponsorId: body.sponsorId,
+    position: Number.isFinite(Number(body.position)) ? Math.max(0, Math.round(Number(body.position))) : 0,
+    label: sessionText(body.label, 160),
+    startOffsetSeconds: Number.isFinite(Number(body.startOffsetSeconds)) ? Math.round(Number(body.startOffsetSeconds)) : null,
+    treatment
+  });
+  sendJson(req, res, 201, { sponsorMoment: result.sponsorMoment });
+}
+
+async function handleSponsorMomentStatus(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/sponsor-moments/".length, -"/status".length));
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid sponsor moment id.");
+  const body = await readJson(req);
+  if (!SPONSOR_MOMENT_STATUSES.has(body.status)) throw httpError(400, "Invalid sponsor moment status.");
+  const existing = await db("sponsor_moment_get", { id });
+  if (!existing.sponsorMoment) throw httpError(404, "Sponsor moment not found.");
+  // Host/Producer parity by design (section 9): either can call this; both act on the same durable row,
+  // so "who actually put it on screen" is whichever call lands, same as other Producer-overridable state.
+  const owned = await db("session_get", { id: existing.sponsorMoment.sessionId, ownerUserId: authSession.id });
+  if (!owned.session) throw httpError(404, "Sponsor moment not found.");
+  const result = await db("sponsor_moment_update", { id, status: body.status });
+  sendJson(req, res, 200, { sponsorMoment: result.sponsorMoment });
+}
+
+const LANDING_BLOCK_TYPES = new Set([
+  "hero", "description", "speakers", "agenda", "countdown", "registration", "sponsors", "faq", "cta",
+  "listener_embed", "prerecorded_player", "replay", "share"
+]);
+
+function safePublicHttpUrl(value, maxLength = 2000) {
+  const raw = sessionText(value, maxLength);
+  if (!raw) return "";
+  let parsed;
+  try { parsed = new URL(raw); } catch { throw httpError(400, "Event page URLs must be valid http/https URLs."); }
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
+    throw httpError(400, "Event page URLs must use http/https and cannot contain credentials.");
+  }
+  return parsed.toString();
+}
+
+function landingText(value, maxLength) {
+  return sessionText(value, maxLength);
+}
+
+function sanitizeLandingBlockContent(type, input) {
+  const raw = input && typeof input === "object" ? input : {};
+  if (type === "hero") {
+    return {
+      title: landingText(raw.title, 160),
+      shortDescription: landingText(raw.shortDescription, 500),
+      heroImageUrl: raw.heroImageUrl ? safePublicHttpUrl(raw.heroImageUrl) : "",
+      scheduledAt: landingText(raw.scheduledAt, 80),
+      timezone: landingText(raw.timezone, 80),
+      sessionType: landingText(raw.sessionType, 80)
+    };
+  }
+  if (type === "description") return { body: landingText(raw.body, 12000) };
+  if (type === "cta") {
+    const cleanCta = (cta) => {
+      if (!cta || typeof cta !== "object") return null;
+      const label = landingText(cta.label, 120);
+      const url = cta.url ? safePublicHttpUrl(cta.url, 2000) : "";
+      return label && url ? { label, url } : null;
+    };
+    return { primary: cleanCta(raw.primary), secondary: cleanCta(raw.secondary) };
+  }
+  if (type === "share") {
+    return {
+      shareTitle: landingText(raw.shareTitle, 180),
+      shareDescription: landingText(raw.shareDescription, 500)
+    };
+  }
+  if (type === "replay") return { enabled: Boolean(raw.enabled) };
+  if (type === "speakers") {
+    const items = (Array.isArray(raw.items) ? raw.items : []).slice(0, 40).map((item) => ({
+      id: landingText(item?.id, 80),
+      displayName: landingText(item?.displayName, 120),
+      sessionRole: landingText(item?.sessionRole, 120),
+      title: landingText(item?.title, 160),
+      company: landingText(item?.company, 160),
+      bioShort: landingText(item?.bioShort, 800),
+      headshotReference: item?.headshotReference ? safePublicHttpUrl(item.headshotReference, 2000) : ""
+    }));
+    return { items };
+  }
+  if (type === "sponsors") {
+    const items = (Array.isArray(raw.items) ? raw.items : []).slice(0, 40).map((item) => ({
+      id: landingText(item?.id, 80),
+      companyName: landingText(item?.companyName, 160),
+      website: item?.website ? safePublicHttpUrl(item.website, 2000) : "",
+      logoReference: item?.logoReference ? safePublicHttpUrl(item.logoReference, 2000) : ""
+    }));
+    return { items };
+  }
+  // Other currently-supported block types are not emitted by the structured editor yet.
+  // Keep them bounded and inert rather than accepting arbitrarily large nested JSON.
+  const json = JSON.stringify(raw);
+  if (json.length > 20000) throw httpError(413, "Event page block content is too large.");
+  return JSON.parse(json);
+}
+
+function sanitizeLandingBlocks(input) {
+  return (Array.isArray(input) ? input : [])
+    .slice(0, 40)
+    .map((block, index) => {
+      const raw = block && typeof block === "object" ? block : {};
+      const type = LANDING_BLOCK_TYPES.has(raw.type) ? raw.type : null;
+      if (!type) return null;
+      return { type, position: index, content: sanitizeLandingBlockContent(type, raw.content) };
+    })
+    .filter(Boolean);
+}
+
+const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{2,79}$/;
+
+// The Event Page editor never shows a BrandProfile picker (item 2's "auto-uses current org BrandProfile"
+// requirement, not a new selector) — this resolves which theme a session's event page renders with,
+// server-side, the same way applyBrandTheme's baseThemeId already themes the rest of Studio.
+async function resolveBaseThemeId(brandProfileId) {
+  if (!brandProfileId) return "toasty";
+  const profile = await db("get_brand_profile", { id: brandProfileId });
+  return profile.brandProfile?.baseThemeId || "toasty";
+}
+
+async function withPublicTheme(landingPage) {
+  if (!landingPage) return landingPage;
+  const baseThemeId = await resolveBaseThemeId(landingPage.brandProfileId);
+  const { organizationId, brandProfileId, ...rest } = landingPage;
+  return { ...rest, baseThemeId };
+}
+
+async function handleLandingPageGet(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/landing-page");
+  const result = await db("landing_page_get_by_session", { sessionId: session.id });
+  const baseThemeId = await resolveBaseThemeId(result.landingPage?.brandProfileId);
+  sendJson(req, res, 200, { landingPage: result.landingPage ? { ...result.landingPage, baseThemeId } : null });
+}
+
+async function handleLandingPageUpsert(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/landing-page");
+  const body = await readJson(req);
+  const slug = sessionText(body.slug, 80).toLowerCase();
+  if (!SLUG_PATTERN.test(slug)) throw httpError(400, "Slug must be 3-80 lowercase letters, numbers, or hyphens.");
+  // brandProfileId is trusted only if it actually belongs to this session's own organization — never a
+  // bare client-supplied id pointing at someone else's brand profile. When the organizer doesn't pick
+  // one (there is no picker in the editor UI), this auto-uses the organization's own first BrandProfile,
+  // exactly like every other "auto-uses current org BrandProfile" surface in this app — never a second,
+  // separate default.
+  let brandProfileId = null;
+  if (body.brandProfileId && session.organizationId) {
+    const profile = await db("get_brand_profile", { id: sessionText(body.brandProfileId, 80) });
+    if (profile.brandProfile?.organizationId === session.organizationId) brandProfileId = profile.brandProfile.id;
+  }
+  if (!brandProfileId && session.organizationId) {
+    const profiles = await db("list_brand_profiles", { organizationId: session.organizationId });
+    brandProfileId = profiles.brandProfiles?.[0]?.id || null;
+  }
+  const result = await db("landing_page_upsert", {
+    id: newId("lp"),
+    sessionId: session.id,
+    organizationId: session.organizationId,
+    brandProfileId,
+    slug,
+    templateId: sessionText(body.templateId, 60) || "default",
+    blocks: sanitizeLandingBlocks(body.blocks)
+  });
+  if (result.error === "slug_taken") throw httpError(409, "That event URL is already taken.");
+  const baseThemeId = await resolveBaseThemeId(result.landingPage?.brandProfileId);
+  sendJson(req, res, 200, { landingPage: result.landingPage ? { ...result.landingPage, baseThemeId } : null });
+}
+
+async function handleLandingPagePublish(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/landing-page/publish");
+  const result = await db("landing_page_publish", { sessionId: session.id });
+  const baseThemeId = await resolveBaseThemeId(result.landingPage?.brandProfileId);
+  sendJson(req, res, 200, { landingPage: result.landingPage ? { ...result.landingPage, baseThemeId } : null });
+}
+
+async function handleLandingPageUnpublish(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/landing-page/unpublish");
+  const result = await db("landing_page_unpublish", { sessionId: session.id });
+  const baseThemeId = await resolveBaseThemeId(result.landingPage?.brandProfileId);
+  sendJson(req, res, 200, { landingPage: result.landingPage ? { ...result.landingPage, baseThemeId } : null });
+}
+
+async function handleLandingPageGetBySlug(req, res) {
+  const slug = decodeURIComponent(req.url.slice("/api/landing-pages/".length)).toLowerCase();
+  if (!SLUG_PATTERN.test(slug)) throw httpError(400, "Invalid event URL.");
+  const result = await db("landing_page_get_by_slug", { slug });
+  if (!result.landingPage || result.landingPage.status !== "published") throw httpError(404, "Event page not found.");
+  sendJson(req, res, 200, { landingPage: await withPublicTheme(result.landingPage) });
+}
+
+const AUDIENCE_EVENT_TYPES = new Set([
+  "PAGE_VIEW", "REGISTERED", "RSVP", "JOINED_LIVE", "LEFT_LIVE", "WATCH_TIME", "RETURNED",
+  "CHAT_MESSAGE", "QUESTION", "POLL_RESPONSE", "REACTION", "CTA_CLICK", "QR_CLICK", "QR_REDIRECT",
+  "REPLAY_VIEW", "CLIP_VIEW", "BOOKING_CLICK", "PEEPS_SIGNUP", "SPONSOR_IMPRESSION", "SPONSOR_CTA",
+  "SHARE", "REFERRAL"
+]);
+
+async function handleAudienceIdentityUpsert(req, res) {
+  const body = await readJson(req);
+  const anonymousId = sessionText(body.anonymousId, 80);
+  if (!SAFE_ID.test(anonymousId)) throw httpError(400, "Invalid identity request.");
+  // Public identity writes must be anchored to a real session. Never accept a bare organization id
+  // from an unauthenticated browser: that would let anyone who learned an org id inject/enrich audience
+  // identities for that tenant. The event page already knows its session id, and organization ownership
+  // is derived server-side from that parent session.
+  const sessionId = sessionText(body.sessionId, 80);
+  if (!SAFE_ID.test(sessionId)) throw httpError(400, "A valid sessionId is required for audience identity.");
+  const owning = await db("session_get_organization", { id: sessionId });
+  if (!owning.organizationId) throw httpError(404, "Session not found.");
+  const organizationId = owning.organizationId;
+  const result = await db("audience_identity_upsert", {
+    id: newId("aid"),
+    organizationId,
+    anonymousId,
+    knownEmail: EMAIL_PATTERN.test(body.knownEmail || "") ? sessionText(body.knownEmail, 200) : null,
+    displayName: sessionText(body.displayName, 120) || null
+  });
+  sendJson(req, res, 200, { identity: result.identity });
+}
+
+async function handleAudienceEventRecord(req, res) {
+  const body = await readJson(req);
+  const sessionId = sessionText(body.sessionId, 80);
+  if (!SAFE_ID.test(sessionId)) throw httpError(400, "Invalid event request.");
+  if (!AUDIENCE_EVENT_TYPES.has(body.eventType)) throw httpError(400, "Unknown audience event type.");
+  // organizationId is always derived server-side from the session, never trusted from the client (the
+  // public event page that fires these never learns its own organizationId), so a client cannot attribute
+  // an event to a different organization than the session it actually names.
+  const owning = await db("session_get_organization", { id: sessionId });
+  if (!owning.organizationId) throw httpError(404, "Session not found.");
+  const organizationId = owning.organizationId;
+  const result = await db("audience_event_record", {
+    id: newId("ae"),
+    organizationId,
+    sessionId,
+    identityId: sessionText(body.identityId, 80) || null,
+    anonymousId: sessionText(body.anonymousId, 80) || null,
+    eventType: body.eventType,
+    source: sessionText(body.source, 60),
+    campaign: sessionText(body.campaign, 120),
+    referrer: sessionText(body.referrer, 300),
+    metadata: body.metadata && typeof body.metadata === "object" ? body.metadata : {}
+  });
+  sendJson(req, res, 201, { event: result.event });
+}
+
+async function handleAudienceEventList(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/audience/events");
+  const result = await db("audience_event_list", { sessionId: session.id });
+  sendJson(req, res, 200, { events: result.events || [] });
+}
+
+async function handleAudienceEventSummary(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/audience/summary");
+  const result = await db("audience_event_summary", { sessionId: session.id });
+  sendJson(req, res, 200, { countsByType: result.countsByType || {}, uniqueVisitors: result.uniqueVisitors || 0 });
+}
+
+async function handleCampaignLinkList(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/campaign-links");
+  const result = await db("campaign_link_list", { sessionId: session.id });
+  sendJson(req, res, 200, { campaignLinks: result.campaignLinks || [] });
+}
+
+async function requireOwnedCampaignLink(campaignLinkId, authSession) {
+  if (!SAFE_ID.test(String(campaignLinkId || ""))) throw httpError(400, "Invalid campaign link id.");
+  const result = await db("campaign_link_get", { id: campaignLinkId });
+  if (!result.campaignLink) throw httpError(404, "Campaign link not found.");
+  const owned = await db("session_get", { id: result.campaignLink.sessionId, ownerUserId: authSession.id });
+  if (!owned.session) throw httpError(404, "Campaign link not found.");
+  return result.campaignLink;
+}
+
+// Disable, not delete: a campaign link may already be printed on physical signage, shared on social,
+// or bookmarked — hard-deleting it would both destroy its real click history and free the slug for
+// reuse (letting a stale shared link silently point somewhere new/unintended later). Disabling is the
+// safely-supported action item 4 asks for; the row and its click_count stay intact either way.
+async function handleCampaignLinkSetActive(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/campaign-links/".length, -"/active".length));
+  await requireOwnedCampaignLink(id, authSession);
+  const body = await readJson(req);
+  const result = await db("campaign_link_set_active", { id, isActive: Boolean(body.isActive) });
+  sendJson(req, res, 200, { campaignLink: result.campaignLink });
+}
+
+// http(s)-only, no credentials/userinfo, no javascript:/data: scheme — a campaign link is a public
+// redirect anyone can click, so its destination gets the same scrutiny an open-redirect vector would need.
+function sanitizeRedirectUrl(value) {
+  const raw = sessionText(value, 500);
+  if (!raw) return "";
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return "";
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
+  if (parsed.username || parsed.password) return "";
+  return parsed.toString();
+}
+
+async function handleCampaignLinkCreate(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/campaign-links");
+  const body = await readJson(req);
+  const slug = sessionText(body.slug, 40).toLowerCase() || randomBytes(4).toString("hex");
+  if (!/^[a-z0-9-]{3,40}$/.test(slug)) throw httpError(400, "Invalid campaign link slug.");
+  const destinationUrl = sanitizeRedirectUrl(body.destinationUrl);
+  if (body.destinationUrl && !destinationUrl) throw httpError(400, "Destination must be a valid http(s) URL.");
+  const result = await db("campaign_link_create", {
+    id: newId("cl"),
+    organizationId: session.organizationId,
+    sessionId: session.id,
+    slug,
+    destinationUrl,
+    campaign: sessionText(body.campaign, 120),
+    source: sessionText(body.source, 120),
+    speakerId: sessionText(body.speakerId, 80) || null,
+    sponsorId: sessionText(body.sponsorId, 80) || null,
+    clipId: sessionText(body.clipId, 80) || null,
+    referralPartner: sessionText(body.referralPartner, 120)
+  });
+  if (result.error === "slug_taken") throw httpError(409, "That campaign link slug is already taken.");
+  sendJson(req, res, 201, { campaignLink: result.campaignLink });
+}
+
+async function handleCampaignLinkResolve(req, res) {
+  const slug = decodeURIComponent(req.url.slice("/api/r/".length)).toLowerCase();
+  const result = await db("campaign_link_resolve", { slug });
+  if (!result.campaignLink) throw httpError(404, "Link not found.");
+  if (!result.campaignLink.destinationUrl) {
+    sendJson(req, res, 200, { campaignLink: result.campaignLink });
+    return;
+  }
+  res.writeHead(302, { Location: result.campaignLink.destinationUrl });
+  res.end();
+}
+
+async function handleAiUsageSummary(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/ai-usage");
+  if (!session.organizationId) return sendJson(req, res, 200, { events: [], byFeature: {}, totalTokens: 0, totalEstimatedCost: 0 });
+  const result = await db("ai_usage_summary", { organizationId: session.organizationId, sessionId: session.id });
+  sendJson(req, res, 200, result);
+}
+
+// Called internally by AI-feature handlers after a real provider call completes — never exposed as a
+// public write route. Never fabricates a token count: a non-token feature passes totalTokens/
+// estimatedCost as null instead. ADDITIVE to the org's usage_counters.ai_requests (see accounts block) —
+// always increments that same counter too, so this never becomes a second, disagreeing source of truth
+// for "how many AI requests has this organization made."
+async function recordAiUsage({ organizationId, sessionId, provider, model, feature, inputTokens, outputTokens, totalTokens, estimatedCost, latencyMs, metadata }) {
+  if (!organizationId) return;
+  try {
+    await db("ai_usage_record", {
+      id: newId("ai"),
+      organizationId,
+      sessionId: sessionId || null,
+      provider: provider || "",
+      model: model || "",
+      feature: feature || "",
+      inputTokens: inputTokens ?? null,
+      outputTokens: outputTokens ?? null,
+      totalTokens: totalTokens ?? null,
+      estimatedCost: estimatedCost ?? null,
+      latencyMs: latencyMs ?? null,
+      metadata: metadata || {}
+    });
+    await db("increment_usage", { organizationId, periodStart: currentPeriodStart("day"), deltas: { aiRequests: 1 } });
+    await db("increment_usage", { organizationId, periodStart: currentPeriodStart("month"), deltas: { aiRequests: 1 } });
+  } catch (error) {
+    console.error("AI usage telemetry write failed", error);
+  }
+}
+
+// One concrete Moxie Event Growth hook (section 9): a short readiness summary for the Host, built from
+// this session's own speakers/sponsors/consent state — reuses the EXACT BYOK gate
+// (findActiveAiCredential/byok_required) and provider dispatch (AI_CALL_BY_PROVIDER) as
+// handleAiProducerRespond, never a parallel AI path or a platform-key fallback.
+async function handleMoxieReadinessSummary(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/moxie/readiness-summary");
+  const credential = await requireMoxieCredential(req, res, session);
+  if (!credential) return;
+  const [speakersResult, sponsorsResult, consentResult] = await Promise.all([
+    db("speaker_list", { sessionId: session.id }),
+    db("sponsor_list", { sessionId: session.id }),
+    db("consent_record_list", { sessionId: session.id })
+  ]);
+  const speakers = speakersResult.speakers || [];
+  const sponsors = sponsorsResult.sponsors || [];
+  const consentRecords = consentResult.consentRecords || [];
+  const factsForModel = {
+    sessionTitle: session.title,
+    plan: session.plan,
+    speakers: speakers.map((s) => ({ displayName: s.displayName || s.email, inviteStatus: s.inviteStatus, profileSubmitted: Boolean(s.profileSubmittedAt) })),
+    sponsors: sponsors.map((s) => ({ companyName: s.companyName, approvalStatus: s.approvalStatus })),
+    consentRecordCount: consentRecords.length
+  };
+  const summary = await callMoxie({
+    session,
+    credential,
+    systemPrompt: "You are Moxie, Toasty's production assistant. Given structured JSON facts about an upcoming session's speakers, sponsors, and consent status, write a short (3-5 sentence) plain-language readiness summary for the Host. Never invent facts not present in the JSON. Respond with prose only, no JSON, no markdown.",
+    userContent: `SESSION READINESS FACTS:\n${JSON.stringify(factsForModel)}`,
+    feature: "moxie_readiness_summary"
+  });
+  sendJson(req, res, 200, { summary });
+}
+
+// Shared BYOK gate for every Moxie Event Growth hook below — same findActiveAiCredential/byok_required
+// shape as handleMoxieReadinessSummary and /api/ai-producer/respond. Returns null (after sending the 402
+// itself) when there's no credential, so callers can `if (!credential) return;`.
+async function requireMoxieCredential(req, res, session) {
+  if (!session.organizationId) throw httpError(402, "This session has no organization context for AI features.");
+  const credential = await findActiveAiCredential(session.organizationId);
+  if (!credential) {
+    sendJson(req, res, 402, {
+      error: "byok_required",
+      message: "Moxie requires an AI provider. Connect your API key to enable research, production intelligence, and live assistance."
+    });
+    return null;
+  }
+  return credential;
+}
+
+async function callMoxie({ session, credential, systemPrompt, userContent, feature }) {
+  const apiKey = decryptSecret(credential.encryptedCredential);
+  const started = Date.now();
+  const { text, usage } = await AI_CALL_BY_PROVIDER[credential.provider](userContent, systemPrompt, apiKey);
+  await recordAiUsage({
+    organizationId: session.organizationId,
+    sessionId: session.id,
+    provider: usage.provider,
+    model: usage.model,
+    feature,
+    inputTokens: usage.promptTokens,
+    outputTokens: usage.completionTokens,
+    totalTokens: usage.totalTokens,
+    estimatedCost: usage.estimatedCostUsd,
+    latencyMs: Date.now() - started
+  });
+  return String(text || "").trim().slice(0, 2500);
+}
+
+// (B) Speaker briefing: prep notes for ONE named speaker, built only from that speaker's own real
+// profile fields plus the session's own plan — never another speaker's data, never guest PII beyond
+// what the speaker themselves submitted.
+async function handleMoxieSpeakerBriefing(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/moxie/speaker-briefing");
+  // Validate the request shape before the (external, credential-gated) AI call — a malformed or
+  // cross-session speakerId is a 400/404 regardless of whether this organization even has BYOK
+  // configured, not something that should hide behind a 402.
+  const body = await readJson(req);
+  const speakerId = sessionText(body.speakerId, 80);
+  if (!SAFE_ID.test(speakerId)) throw httpError(400, "A speakerId is required.");
+  const speakerResult = await db("speaker_get", { id: speakerId });
+  if (!speakerResult.speaker || speakerResult.speaker.sessionId !== session.id) throw httpError(404, "Speaker not found.");
+  const speaker = speakerResult.speaker;
+  const credential = await requireMoxieCredential(req, res, session);
+  if (!credential) return;
+  const facts = {
+    sessionTitle: session.title,
+    sessionType: session.plan?.sessionType,
+    scheduledAt: session.plan?.scheduledAt,
+    speaker: {
+      displayName: speaker.displayName || speaker.email,
+      sessionRole: speaker.sessionRole,
+      title: speaker.title,
+      company: speaker.company,
+      bioShort: (speaker.bioShort || "").slice(0, 600),
+      bioLong: (speaker.bioLong || "").slice(0, 1200),
+      onscreenTitle: speaker.onscreenTitle,
+      pronunciationNotes: speaker.pronunciationNotes
+    }
+  };
+  const summary = await callMoxie({
+    session,
+    credential,
+    systemPrompt: "You are Moxie, Toasty's production assistant. Given structured JSON facts about one confirmed speaker and their session, write a short (4-6 sentence) briefing note for the Host/Producer: how to introduce them, what to ask about, anything to watch for (pronunciation, sensitive topics). Never invent facts not present in the JSON. Respond with prose only, no JSON, no markdown.",
+    userContent: `SPEAKER BRIEFING FACTS:\n${JSON.stringify(facts)}`,
+    feature: "moxie_speaker_briefing"
+  });
+  sendJson(req, res, 200, { briefing: summary });
+}
+
+// (B') Session research: prep angles/questions from the session's own topic + speaker/sponsor roster —
+// never audience data, never a specific speaker's private profile fields.
+async function handleMoxieSessionResearch(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/moxie/session-research");
+  const credential = await requireMoxieCredential(req, res, session);
+  if (!credential) return;
+  const [speakersResult, sponsorsResult] = await Promise.all([
+    db("speaker_list", { sessionId: session.id }),
+    db("sponsor_list", { sessionId: session.id })
+  ]);
+  const facts = {
+    sessionTitle: session.title,
+    sessionType: session.plan?.sessionType,
+    description: (session.plan?.description || "").slice(0, 1500),
+    runOfShow: (session.plan?.runOfShow || []).slice(0, 20).map((item) => ({ label: item.label, notes: item.notes })),
+    speakers: (speakersResult.speakers || []).slice(0, 20).map((s) => ({ displayName: s.displayName || s.email, sessionRole: s.sessionRole, title: s.title, company: s.company })),
+    sponsors: (sponsorsResult.sponsors || []).slice(0, 20).map((s) => ({ companyName: s.companyName }))
+  };
+  const research = await callMoxie({
+    session,
+    credential,
+    systemPrompt: "You are Moxie, Toasty's production assistant. Given structured JSON facts about an upcoming session's topic, run of show, speakers, and sponsors, write 5-8 short research/prep bullet points: good discussion angles, questions to prepare, and connections between the speakers' backgrounds and the topic. Never invent facts not present in the JSON. Respond with plain text bullet points (one per line, starting with '- '), no markdown headers, no JSON.",
+    userContent: `SESSION RESEARCH FACTS:\n${JSON.stringify(facts)}`,
+    feature: "moxie_session_research"
+  });
+  sendJson(req, res, 200, { research });
+}
+
+// (C) Audience insight summary — AGGREGATED DATA ONLY, per the task's own explicit requirement: the
+// model only ever sees countsByType/uniqueVisitors totals, never a single visitor's anonymousId,
+// identityId, email, or any row-level audience_event.
+async function handleMoxieAudienceInsights(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/moxie/audience-insights");
+  const credential = await requireMoxieCredential(req, res, session);
+  if (!credential) return;
+  const summaryResult = await db("audience_event_summary", { sessionId: session.id });
+  const facts = {
+    sessionTitle: session.title,
+    countsByType: summaryResult.countsByType || {},
+    uniqueVisitors: summaryResult.uniqueVisitors || 0
+  };
+  const insight = await callMoxie({
+    session,
+    credential,
+    systemPrompt: "You are Moxie, Toasty's production assistant. Given AGGREGATED audience analytics totals (event-type counts and a unique-visitor count — no individual visitor data), write a short (3-5 sentence) plain-language insight summary for the organizer: what the numbers suggest about engagement, and one concrete suggestion. Never invent numbers not present in the JSON, and never claim to know anything about a specific individual. Respond with prose only, no JSON, no markdown.",
+    userContent: `AGGREGATED AUDIENCE FACTS:\n${JSON.stringify(facts)}`,
+    feature: "moxie_audience_insights"
+  });
+  sendJson(req, res, 200, { insight });
+}
+
+// (D) Post-event suggestions — NEVER auto-creates or auto-publishes a post_event_artifact row itself;
+// this only returns draft-only TEXT ideas. Turning a suggestion into a real artifact stays a separate,
+// explicit organizer action (POST .../artifacts, then POST /api/artifacts/:id/update).
+async function handleMoxiePostEventSuggestions(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/moxie/post-event-suggestions");
+  const credential = await requireMoxieCredential(req, res, session);
+  if (!credential) return;
+  const [summaryResult, sponsorsResult, artifactsResult] = await Promise.all([
+    db("audience_event_summary", { sessionId: session.id }),
+    db("sponsor_list", { sessionId: session.id }),
+    db("post_event_artifact_list", { sessionId: session.id })
+  ]);
+  const facts = {
+    sessionTitle: session.title,
+    sessionType: session.plan?.sessionType,
+    countsByType: summaryResult.countsByType || {},
+    uniqueVisitors: summaryResult.uniqueVisitors || 0,
+    sponsors: (sponsorsResult.sponsors || []).slice(0, 20).map((s) => ({ companyName: s.companyName })),
+    existingArtifactTypes: (artifactsResult.artifacts || []).slice(0, 40).map((a) => a.artifactType)
+  };
+  const suggestions = await callMoxie({
+    session,
+    credential,
+    systemPrompt: "You are Moxie, Toasty's production assistant. Given structured JSON facts about a session that just happened (aggregated audience totals, sponsors, and post-event artifact types already started), suggest 4-6 concrete post-event content ideas the organizer could make (e.g. a clip, a LinkedIn post, a newsletter recap) and briefly why, based on what actually happened. You are NOT creating or publishing anything — only suggesting. Never invent numbers not present in the JSON. Respond with plain text bullet points (one per line, starting with '- '), no markdown headers, no JSON.",
+    userContent: `POST-EVENT FACTS:\n${JSON.stringify(facts)}`,
+    feature: "moxie_post_event_suggestions"
+  });
+  sendJson(req, res, 200, { suggestions });
+}
+
+const POST_EVENT_ARTIFACT_TYPES = new Set([
+  "clip", "quote_card", "article_draft", "linkedin_copy", "x_copy", "youtube_description",
+  "newsletter_summary", "speaker_clip", "highlight_reel", "transcript", "chapters"
+]);
+
+async function handlePostEventArtifactList(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/artifacts");
+  const result = await db("post_event_artifact_list", { sessionId: session.id });
+  sendJson(req, res, 200, { artifacts: result.artifacts || [] });
+}
+
+async function handlePostEventArtifactCreate(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/artifacts");
+  const body = await readJson(req);
+  if (!POST_EVENT_ARTIFACT_TYPES.has(body.artifactType)) throw httpError(400, "Unknown artifact type.");
+  const result = await db("post_event_artifact_create", {
+    id: newId("pea"),
+    sessionId: session.id,
+    organizationId: session.organizationId,
+    artifactType: body.artifactType,
+    sourceMomentRef: sessionText(body.sourceMomentRef, 200),
+    speakerId: sessionText(body.speakerId, 80) || null,
+    sponsorId: sessionText(body.sponsorId, 80) || null,
+    campaign: sessionText(body.campaign, 120),
+    storageReference: sessionText(body.storageReference, 2000)
+  });
+  sendJson(req, res, 201, { artifact: result.artifact });
+}
+
+const POST_EVENT_ARTIFACT_STATUSES = new Set(["draft", "processing", "ready", "unavailable"]);
+
+// Nothing in this app auto-generates a post-event artifact — status only ever moves because the
+// organizer says so, after they've actually produced/uploaded the thing themselves. That is what keeps
+// "Available/Processing/Not generated/Unavailable" honest rather than a fabricated ready state.
+async function handlePostEventArtifactUpdate(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/artifacts/".length, -"/update".length));
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid artifact id.");
+  const existing = await db("post_event_artifact_get", { id });
+  if (!existing.artifact) throw httpError(404, "Artifact not found.");
+  const owned = await db("session_get", { id: existing.artifact.sessionId, ownerUserId: authSession.id });
+  if (!owned.session) throw httpError(404, "Artifact not found.");
+  const body = await readJson(req);
+  if (body.status !== undefined && !POST_EVENT_ARTIFACT_STATUSES.has(body.status)) throw httpError(400, "Invalid artifact status.");
+  const result = await db("post_event_artifact_update", {
+    id,
+    status: body.status,
+    storageReference: body.storageReference !== undefined ? sessionText(body.storageReference, 2000) : undefined
+  });
+  sendJson(req, res, 200, { artifact: result.artifact });
 }
 
 async function writeMediaFiles({ form, workDir }) {

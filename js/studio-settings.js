@@ -1,4 +1,5 @@
 import { studioRequest } from "./studio-api.js";
+import { INTEGRATIONS, IntegrationStatus, isConnectable } from "./integrations.js";
 
 const state = {
   organizations: [],
@@ -26,7 +27,8 @@ async function init() {
     "brandProfileForm", "brandProfileName", "brandProfileTheme", "brandProfileMessage",
     "brandProfilesBody", "brandProfilesEmpty",
     "usageLimits", "usageCounters", "usageMessage", "safetySwitches", "runtimeSafety",
-    "changePasswordForm", "currentPassword", "newPassword", "passwordMessage"
+    "changePasswordForm", "currentPassword", "newPassword", "passwordMessage",
+    "integrationsGrid"
   ].forEach((id) => { els[id] = document.getElementById(id); });
 
   const session = await studioRequest("/auth/session", { method: "GET" }).catch(() => ({ authenticated: false }));
@@ -63,6 +65,7 @@ async function init() {
     const requested = url.searchParams.get("org");
     const initial = state.organizations.find((org) => org.id === requested) || state.organizations[0];
     els.orgSwitcher.value = initial.id;
+    renderIntegrations();
     await setCurrentOrg(initial.id);
     const requestedPanel = window.location.hash.replace(/^#/, "");
     if (requestedPanel && document.querySelector(`.settings-nav button[data-panel="${CSS.escape(requestedPanel)}"]`)) {
@@ -78,6 +81,31 @@ async function init() {
 function selectPanel(name) {
   document.querySelectorAll(".settings-nav button").forEach((btn) => btn.classList.toggle("is-active", btn.dataset.panel === name));
   document.querySelectorAll(".settings-panel").forEach((panel) => panel.classList.toggle("is-active", panel.dataset.panel === name));
+}
+
+// Static registry (js/integrations.js), not org-scoped data — rendered once, not reloaded on org switch.
+function renderIntegrations() {
+  els.integrationsGrid.innerHTML = INTEGRATIONS.map((integration) => {
+    const badge = integration.status === IntegrationStatus.CONNECTED
+      ? `<span class="badge ok">Connected</span>`
+      : integration.status === IntegrationStatus.COMING_SOON
+        ? `<span class="badge warn">Coming soon</span>`
+        : `<span class="badge off">Not connected</span>`;
+    const action = isConnectable(integration)
+      ? `<button class="btn small" data-integration-connect="${integration.id}">Connect</button>`
+      : `<button class="btn small" disabled title="Architecture is ready; this connector isn't live yet">${escapeHtml(integration.connectLabel || "Coming soon")}</button>`;
+    const learnMore = integration.learnMoreUrl ? `<a href="${integration.learnMoreUrl}" target="_blank" rel="noopener">Learn more</a>` : "";
+    return `
+      <article class="integration-card">
+        <div class="integration-card-head">
+          <div><p class="integration-card-eyebrow">${escapeHtml(integration.category.toUpperCase())}</p><h3>${escapeHtml(integration.name)}</h3></div>
+          ${badge}
+        </div>
+        <p>${escapeHtml(integration.description)}</p>
+        <div class="integration-card-actions">${action}${learnMore}</div>
+      </article>
+    `;
+  }).join("");
 }
 
 async function setCurrentOrg(orgId) {

@@ -16,7 +16,10 @@ export async function studioRequest(path, options = {}) {
   } catch {
     // Binary or empty responses are handled by callers.
   }
-  if (!response.ok) throw new Error(payload.error || "Studio request failed.");
+  // Most error responses only ever set `error` (already human-readable — e.g. httpError()'s message).
+  // A few (byok_required) also carry a separate, friendlier `message` alongside a short `error` code —
+  // prefer that one when it's there so callers surface real guidance instead of a bare code string.
+  if (!response.ok) throw new Error(payload.message || payload.error || "Studio request failed.");
   return payload;
 }
 

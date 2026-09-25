@@ -74,7 +74,7 @@ export async function endSession(sessionId) {
   return studioRequest(`/api/sessions/${sessionId}/end`, { method: "POST", body: "{}" });
 }
 
-export async function createSession({ title, brandId, setup, endCard } = {}) {
+export async function createSession({ title, brandId, setup, endCard, organizationId } = {}) {
   const roomId = createDisposableRoomId();
   const result = await studioRequest("/api/sessions", {
     method: "POST",
@@ -83,7 +83,12 @@ export async function createSession({ title, brandId, setup, endCard } = {}) {
       title: title || "",
       brandId: brandId || "",
       ...(setup ? { setup } : {}),
-      ...(endCard ? { endCard } : {})
+      ...(endCard ? { endCard } : {}),
+      // Only sent when a caller (e.g. the Session Planner, which reads the dashboard's selected
+      // organization from ?org=) knows which organization this session belongs in. The server
+      // validates real membership and otherwise falls back to the caller's own owner org — this
+      // client never guesses or defaults on its own.
+      ...(organizationId ? { organizationId } : {})
     })
   });
   return result.session;

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Speaker Invitation — Toasty</title>
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="stylesheet" href="../css/brand.css">
+    <link rel="stylesheet" href="../css/event-growth.css">
+  </head>
+  <body>
+    <main class="eg-shell">
+      <div class="eg-card">
+        <div class="eg-brand">
+          <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Media">
+        </div>
+
+        <section id="stepLoading" class="eg-step is-active">
+          <p>Loading your invitation…</p>
+        </section>
+
+        <section id="stepError" class="eg-step">
+          <p class="eg-kicker">Invite</p>
+          <h1>This link isn't valid</h1>
+          <p id="errorMessage">This invitation has expired, was already used, or the link is incorrect. Ask your organizer to resend it.</p>
+        </section>
+
+        <section id="stepIntro" class="eg-step">
+          <p class="eg-kicker">You're invited</p>
+          <h1 id="introEventName">You've been invited as a speaker</h1>
+          <p>Complete your speaker profile so your name, title, links, and on-screen information are accurate. No Toasty account is required — this takes about three minutes.</p>
+          <div class="eg-actions" style="justify-content:flex-start">
+            <button class="eg-btn" id="startProfileBtn" type="button">Continue as guest</button>
+          </div>
+        </section>
+
+        <section id="stepProfile" class="eg-step">
+          <p class="eg-kicker">Speaker profile</p>
+          <h1>Tell us about you</h1>
+          <form id="profileForm">
+            <div class="eg-field"><label for="fDisplayName">Preferred display name</label><input id="fDisplayName" required maxlength="120"></div>
+            <div class="eg-grid-2">
+              <div class="eg-field"><label for="fTitle">Title</label><input id="fTitle" maxlength="160"></div>
+              <div class="eg-field"><label for="fCompany">Company</label><input id="fCompany" maxlength="160"></div>
+            </div>
+            <div class="eg-field"><label for="fOnscreenTitle">Preferred on-screen title (optional override)</label><input id="fOnscreenTitle" maxlength="160" placeholder="Defaults to Title, Company"></div>
+            <div class="eg-field"><label for="fBioShort">Short bio</label><textarea id="fBioShort" maxlength="280"></textarea></div>
+            <div class="eg-field"><label for="fBioLong">Longer bio (optional)</label><textarea id="fBioLong" maxlength="4000"></textarea></div>
+            <div class="eg-grid-2">
+              <div class="eg-field"><label for="fHeadshot">Headshot URL</label><input id="fHeadshot" type="url" placeholder="https://…"></div>
+              <div class="eg-field"><label for="fPronouns">Pronouns (optional)</label><input id="fPronouns" maxlength="40"></div>
+            </div>
+            <div class="eg-grid-2">
+              <div class="eg-field"><label for="fLocation">Location</label><input id="fLocation" maxlength="160"></div>
+              <div class="eg-field"><label for="fTimezone">Timezone</label><input id="fTimezone" maxlength="80" placeholder="e.g. America/New_York"></div>
+            </div>
+            <div class="eg-field"><label for="fPronunciation">Name pronunciation / notes</label><input id="fPronunciation" maxlength="300"></div>
+            <p class="eg-section-title">Links</p>
+            <div class="eg-grid-2">
+              <div class="eg-field"><label for="lLinkedin">LinkedIn</label><input id="lLinkedin" type="url"></div>
+              <div class="eg-field"><label for="lX">X</label><input id="lX" type="url"></div>
+              <div class="eg-field"><label for="lWebsite">Website</label><input id="lWebsite" type="url"></div>
+              <div class="eg-field"><label for="lInstagram">Instagram</label><input id="lInstagram" type="url"></div>
+              <div class="eg-field"><label for="lTiktok">TikTok</label><input id="lTiktok" type="url"></div>
+              <div class="eg-field"><label for="lYoutube">YouTube</label><input id="lYoutube" type="url"></div>
+              <div class="eg-field"><label for="lGithub">GitHub</label><input id="lGithub" type="url"></div>
+              <div class="eg-field"><label for="lTelegram">Telegram</label><input id="lTelegram" type="url"></div>
+            </div>
+            <p class="eg-section-title">Preview</p>
+            <div class="eg-preview-card">
+              <strong id="previewName">Your name</strong>
+              <small id="previewTitle">Title, Company</small>
+            </div>
+            <div class="eg-actions">
+              <span></span>
+              <button class="eg-btn" type="submit">Save profile & continue</button>
+            </div>
+            <p class="eg-status" id="profileStatus"></p>
+          </form>
+        </section>
+
+        <section id="stepTechCheck" class="eg-step">
+          <p class="eg-kicker">Tech check</p>
+          <h1>Test your setup</h1>
+          <p>We'll check your camera, microphone, and browser support. Nothing is recorded here.</p>
+          <div class="eg-tech-item"><span>Camera</span><span id="tcCamera">Not tested</span></div>
+          <div class="eg-tech-item"><span>Microphone</span><span id="tcMic">Not tested</span></div>
+          <div class="eg-tech-item"><span>Browser support</span><span id="tcBrowser">Not tested</span></div>
+          <div class="eg-actions">
+            <button class="eg-btn eg-btn-ghost" type="button" id="runTechCheckBtn">Run test</button>
+            <button class="eg-btn" type="button" id="techCheckContinueBtn" disabled>Continue</button>
+          </div>
+          <p class="eg-status" id="techCheckStatus"></p>
+        </section>
+
+        <section id="stepConsent" class="eg-step">
+          <p class="eg-kicker">Consent &amp; release</p>
+          <h1>Before you're confirmed</h1>
+          <p class="eg-section-title">Required</p>
+          <div id="requiredConsentList"></div>
+          <p class="eg-section-title">Optional</p>
+          <div id="optionalConsentList"></div>
+          <div class="eg-actions">
+            <span></span>
+            <button class="eg-btn" type="button" id="submitConsentBtn">Submit</button>
+          </div>
+          <p class="eg-status" id="consentStatus"></p>
+        </section>
+
+        <section id="stepReady" class="eg-step">
+          <p class="eg-kicker">All set</p>
+          <h1 id="readyHeadline">You're ready for this event</h1>
+          <div class="eg-readiness" id="readinessList"></div>
+          <p>You'll get a reminder before the session. You can close this page.</p>
+        </section>
+      </div>
+    </main>
+    <script type="module" src="../js/speaker-invite-page.js"></script>
+  </body>
+</html>

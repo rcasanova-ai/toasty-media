@@ -33,6 +33,7 @@
           <button data-panel="billing" type="button">Billing</button>
           <button data-panel="usage" type="button">Usage & Safety</button>
           <button data-panel="ai-providers" type="button">AI Providers</button>
+          <button data-panel="integrations" type="button">Integrations</button>
           <button data-panel="brand-profiles" type="button">Brand Profiles</button>
           <button data-panel="security" type="button">Security</button>
         </nav>
@@ -173,6 +174,16 @@
             <div class="settings-card">
               <p class="hint">Moxie requires an AI provider. Connect your API key to enable research, production intelligence, and live assistance. Toasty never falls back to a shared key — your key is encrypted at rest and used only for your organization's requests.</p>
               <div id="aiProvidersList"></div>
+            </div>
+          </section>
+
+          <!-- Integrations -->
+          <section class="settings-panel" data-panel="integrations">
+            <h1>Integrations</h1>
+            <div id="integrationsGrid" class="integrations-grid"></div>
+            <div class="settings-card">
+              <h2>More integrations</h2>
+              <p class="hint">Slack, YouTube, LinkedIn, X, Telegram, Google Calendar, Stripe, and Solana are planned. Toasty stays the product — every integration here is optional.</p>
             </div>
           </section>
 
