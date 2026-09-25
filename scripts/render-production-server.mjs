@@ -748,6 +748,11 @@ const server = createServer(async (req, res) => {
       sendJson(req, res, 402, { error: "Your daily render limit has been reached." });
       return;
     }
+    const monthly = await db("get_usage_counters", { organizationId: renderOrganizationId, periodStart: currentPeriodStart("month") });
+    if ((monthly.usage?.uploadsBytes || 0) + contentLength > renderLimits.maxUploadsBytesPerMonth) {
+      sendJson(req, res, 402, { error: "Your monthly upload allowance has been reached." });
+      return;
+    }
   }
 
   let workDir;
@@ -1086,6 +1091,12 @@ async function handleRecordingFinalize(req, res, authSession) {
     }
     if (source.size > Math.min(MAX_FILE_BYTES, limits.maxSourceFileBytes, limits.maxUploadBytes)) {
       throw httpError(413, "Source WebM recording exceeds your plan limit.");
+    }
+    if (organizationId) {
+      const monthly = await db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("month") });
+      if ((monthly.usage?.uploadsBytes || 0) + source.size > limits.maxUploadsBytesPerMonth) {
+        throw httpError(402, "Your monthly upload allowance has been reached.");
+      }
     }
     const sourcePath = join(workDir, `${safeFileName(manifest.recordingId)}-source.webm`);
     const outputPath = join(workDir, `${safeFileName(manifest.recordingId)}-master.mp4`);
