@@ -117,21 +117,24 @@ async function main() {
   assert(profileSubmit.data.speaker.profileSubmittedAt, "profile submission timestamp is set");
 
   const afterProfile = await jsonFetch(`/api/sessions/${sessionId}/speakers`, { cookie: organizer.cookie });
-  assertEqual(afterProfile.data.speakers[0].inviteStatus, "accepted", "invite redemption marks speaker accepted");
+  assertEqual(afterProfile.data.speakers[0].inviteStatus, "accepted", "profile submission marks speaker accepted");
 
-  const reuseToken = await jsonFetch(`/api/speaker-invites/${token}/profile`, { method: "POST", body: { fields: { displayName: "Should not land" } } });
-  assertEqual(reuseToken.status, 410, "used invite token cannot be redeemed twice");
+  // Same token, still live: profile submission must NOT consume it — the guest needs it again for
+  // tech-check and consent in the same visit.
+  const reReadAfterProfile = await jsonFetch(`/api/speaker-invites/${token}`, {});
+  assertEqual(reReadAfterProfile.status, 200, "the same invite token still works right after profile submission");
 
-  const techCheckReissue = await jsonFetch(`/api/speakers/${speakerId}/invite`, { method: "POST", cookie: organizer.cookie, body: {} });
-  const token2 = techCheckReissue.data.token;
-  const techCheck = await jsonFetch(`/api/speaker-invites/${token2}/tech-check`, {
+  const techCheck = await jsonFetch(`/api/speaker-invites/${token}/tech-check`, {
     method: "POST",
     body: { cameraOk: true, micOk: true, speakerOk: false, browserSupported: true, connectionOutcome: "good", deviceLabels: ["FaceTime HD Camera"] }
   });
   assertEqual(techCheck.status, 201, "tech check records");
   assertEqual(techCheck.data.techCheck.speakerOk, false, "tech check preserves a real failure, not just happy path");
 
-  const consentSubmit = await jsonFetch(`/api/speaker-invites/${token2}/consent`, {
+  const consentMissing = await jsonFetch(`/api/speaker-invites/${token}/consent`, { method: "POST", body: { requiredAcceptances: [] } });
+  assertEqual(consentMissing.status, 400, "empty required acceptances is rejected");
+
+  const consentSubmit = await jsonFetch(`/api/speaker-invites/${token}/consent`, {
     method: "POST",
     body: {
       requiredAcceptances: ["terms_of_service", "privacy_policy", "recording", "distribution_replay"],
@@ -143,8 +146,9 @@ async function main() {
   assertEqual(consentSubmit.data.consentRecord.requiredAcceptances.length, 4, "all required acceptances stored");
   assert(!consentSubmit.data.consentRecord.optionalPermissions.includes("marketing_communications"), "optional permissions stay separate, not bundled");
 
-  const consentMissing = await jsonFetch(`/api/speaker-invites/${token2}/consent`, { method: "POST", body: { requiredAcceptances: [] } });
-  assertEqual(consentMissing.status, 400, "empty required acceptances is rejected");
+  // Consent is the last step of the guest flow — THIS is where the token finally gets consumed.
+  const reuseToken = await jsonFetch(`/api/speaker-invites/${token}/profile`, { method: "POST", body: { fields: { displayName: "Should not land" } } });
+  assertEqual(reuseToken.status, 410, "invite token is consumed once the full guest flow (profile -> tech check -> consent) completes");
 
   const consentList = await jsonFetch(`/api/sessions/${sessionId}/consent`, { cookie: organizer.cookie });
   assertEqual(consentList.data.consentRecords.length, 1, "organizer can list consent records for the session");

@@ -2507,6 +2507,7 @@ def main():
             "onscreenTitle": "onscreen_title",
             "pronouns": "pronouns",
             "peepsUserId": "peeps_user_id",
+            "inviteStatus": "invite_status",
         }
         sets = []
         values = []

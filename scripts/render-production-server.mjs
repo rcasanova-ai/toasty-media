@@ -2591,20 +2591,30 @@ function tokenFromInviteUrl(req, prefix, suffix = "") {
 async function handleSpeakerInviteGet(req, res) {
   const token = tokenFromInviteUrl(req, "/api/speaker-invites/");
   const { speaker } = await loadSpeakerInvite(token);
-  // Guests never see ownerUserId/peepsUserId of the organizer's account — only their own row.
+  // The guest's invite screen needs the event name/brand ("You've been invited as a speaker for EVENT
+  // NAME") — one lookup using the owner id we already trust (it came from the redeemed invite's own
+  // speaker row), never anything the guest supplied. ownerUserId itself is still stripped below.
+  const sessionResult = await db("session_get", { id: speaker.sessionId, ownerUserId: speaker.ownerUserId });
   const { ownerUserId, ...publicSpeaker } = speaker;
-  sendJson(req, res, 200, { speaker: publicSpeaker });
+  sendJson(req, res, 200, {
+    speaker: publicSpeaker,
+    event: sessionResult.session ? { title: sessionResult.session.title, brandId: sessionResult.session.brandId } : null
+  });
 }
 
 async function handleSpeakerInviteProfile(req, res) {
   const token = tokenFromInviteUrl(req, "/api/speaker-invites/", "/profile");
-  const { speaker, tokenHash } = await loadSpeakerInvite(token);
+  // Intentionally does NOT redeem the invite token — the guest still needs it for the tech-check and
+  // consent steps in the same visit. The token is only marked used once the full flow completes at
+  // consent submission (see handleSpeakerInviteConsent) — see loadSpeakerInvite's expiry/revocation
+  // check for what DOES still gate every one of these calls in the meantime.
+  const { speaker } = await loadSpeakerInvite(token);
   const body = await readJson(req);
   const fields = sanitizeSpeakerFields(body.fields, { profileMode: true });
+  fields.inviteStatus = "accepted";
   // Session-specific overrides only — never writes back to a canonical Peeps profile (see
   // docs/HUMAN_INSIGHT_NETWORK.md's data-rights boundary: participant profile data stays participant-owned).
   const result = await db("speaker_update", { id: speaker.id, fields, markProfileSubmitted: true });
-  await db("speaker_invite_redeem", { tokenHash, speakerId: speaker.id });
   sendJson(req, res, 200, { speaker: result.speaker });
 }
 
@@ -2630,17 +2640,22 @@ async function handleSpeakerInviteTechCheck(req, res) {
 
 async function handleSpeakerInviteConsent(req, res) {
   const token = tokenFromInviteUrl(req, "/api/speaker-invites/", "/consent");
-  const { speaker } = await loadSpeakerInvite(token);
-  await recordConsent(req, res, {
+  const { speaker, tokenHash } = await loadSpeakerInvite(token);
+  const result = await recordConsent(req, {
     ownerUserId: speaker.ownerUserId,
     sessionId: speaker.sessionId,
     participantType: "speaker",
     participantId: speaker.id,
     source: "guest_invite"
   });
+  // Consent is the last required step of the guest flow (profile -> tech check -> consent) — THIS is
+  // where the invite token actually gets marked used, not at profile submission (see
+  // handleSpeakerInviteProfile's comment): the guest needs the same token live across all three steps.
+  await db("speaker_invite_redeem", { tokenHash, speakerId: speaker.id });
+  sendJson(req, res, 201, { consentRecord: result.consentRecord });
 }
 
-async function recordConsent(req, res, { ownerUserId, sessionId, participantType, participantId, source }) {
+async function recordConsent(req, { ownerUserId, sessionId, participantType, participantId, source }) {
   const body = await readJson(req);
   const requiredAcceptances = sanitizeConsentKeys(body.requiredAcceptances);
   if (!requiredAcceptances.length) throw httpError(400, "At least one required acceptance must be provided.");
@@ -2660,7 +2675,7 @@ async function recordConsent(req, res, { ownerUserId, sessionId, participantType
     userAgent: sessionText(req.headers["user-agent"], 300),
     documentHash: sessionText(body.documentHash, 128)
   });
-  sendJson(req, res, 201, { consentRecord: result.consentRecord });
+  return result;
 }
 
 async function handleConsentList(req, res, authSession) {
