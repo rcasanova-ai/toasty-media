@@ -63,6 +63,10 @@ async function init() {
     const initial = state.organizations.find((org) => org.id === requested) || state.organizations[0];
     els.orgSwitcher.value = initial.id;
     await setCurrentOrg(initial.id);
+    const requestedPanel = window.location.hash.replace(/^#/, "");
+    if (requestedPanel && document.querySelector(`.settings-nav button[data-panel="${CSS.escape(requestedPanel)}"]`)) {
+      selectPanel(requestedPanel);
+    }
     els.loadingState.hidden = true;
     els.settingsApp.hidden = false;
   } catch (error) {

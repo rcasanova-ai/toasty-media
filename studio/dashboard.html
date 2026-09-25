@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Dashboard | Toasty Studio</title>
+  <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/studio-public.css">
+  <link rel="stylesheet" href="../css/studio-dashboard.css">
+  <script type="module" src="../js/studio-dashboard.js"></script>
+</head>
+<body class="dashboard-shell">
+  <div id="dashboardLoading" class="dashboard-loading">Opening Toasty...</div>
+
+  <div id="dashboardApp" hidden>
+    <header class="dashboard-topbar">
+      <a class="dashboard-brand" href="./dashboard.html" aria-label="Toasty home">
+        <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Studio">
+      </a>
+      <nav class="dashboard-nav" aria-label="Primary">
+        <a class="is-active" href="./dashboard.html">Home</a>
+        <a id="sessionsNav" href="./director.html">Sessions</a>
+        <a id="studioNav" href="./director.html">Studio</a>
+        <a id="settingsNav" href="./settings.html">Settings</a>
+      </nav>
+      <div class="dashboard-account">
+        <select id="orgSwitcher" aria-label="Organization"></select>
+        <span id="roleBadge" class="role-badge">Member</span>
+      </div>
+    </header>
+
+    <main class="dashboard-main">
+      <section class="dashboard-hero">
+        <div>
+          <p class="eyebrow" id="orgEyebrow">ORGANIZATION</p>
+          <h1 id="welcomeTitle">Your Toasty dashboard</h1>
+          <p id="welcomeCopy">Everything happening across your organization, with Studio one click away.</p>
+        </div>
+        <div class="hero-actions">
+          <a class="action primary" id="openStudioBtn" href="./director.html">Open Studio</a>
+          <a class="action" id="manageSettingsBtn" href="./settings.html">Organization settings</a>
+        </div>
+      </section>
+
+      <section id="platformAdminSection" class="platform-admin" hidden>
+        <div>
+          <p class="eyebrow">PLATFORM ADMIN</p>
+          <h2>Toasty platform</h2>
+          <p>Platform-wide controls stay separate from client organization administration.</p>
+        </div>
+        <div class="platform-admin-actions">
+          <span>Platform controls available</span>
+        </div>
+      </section>
+
+      <section class="metric-grid" aria-label="Organization summary">
+        <article><span>Live now</span><strong id="liveCount">0</strong><small id="liveDetail">No active sessions</small></article>
+        <article><span>Upcoming / open</span><strong id="openCount">0</strong><small>Ready to continue</small></article>
+        <article><span>Completed</span><strong id="endedCount">0</strong><small>Recent session history</small></article>
+        <article class="health-card"><span>Organization</span><strong id="planLabel">Demo</strong><small id="orgHealth">Checking status...</small></article>
+      </section>
+
+      <section class="dashboard-layout">
+        <div class="dashboard-primary">
+          <section class="panel live-panel" id="livePanel" hidden>
+            <div class="panel-heading">
+              <div><p class="eyebrow">LIVE NOW</p><h2>Sessions in progress</h2></div>
+            </div>
+            <div id="liveSessions" class="session-list"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">SESSIONS</p><h2>Continue where you left off</h2></div>
+              <a id="allSessionsLink" href="./director.html">All sessions</a>
+            </div>
+            <div id="recentSessions" class="session-list"></div>
+            <div id="sessionsEmpty" class="empty-state" hidden>
+              <strong>No sessions yet.</strong>
+              <span>Open Studio to create your first session.</span>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">CREATE</p><h2>Start something</h2></div>
+            </div>
+            <div class="create-grid">
+              <a id="quickSessionBtn" class="create-card primary-create" href="./director.html"><b>Quick session</b><span>Open Studio and get people in the room.</span></a>
+              <a id="panelSessionBtn" class="create-card" href="./director.html"><b>Panel / meeting</b><span>Start from the existing session workspace.</span></a>
+              <a id="focusSessionBtn" class="create-card" href="./director.html"><b>Focus group</b><span>Launch the Studio workflow for a research session.</span></a>
+              <div class="create-card is-coming"><b>Plan session</b><span>Full planner and readiness workflow is coming next.</span></div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="dashboard-side">
+          <section class="panel">
+            <div class="panel-heading compact"><div><p class="eyebrow">ORGANIZATION</p><h2 id="orgName">Loading...</h2></div></div>
+            <dl class="org-summary">
+              <div><dt>Role</dt><dd id="orgRole">...</dd></div>
+              <div><dt>Plan</dt><dd id="orgPlan">...</dd></div>
+              <div><dt>Status</dt><dd id="orgStatus">...</dd></div>
+            </dl>
+            <a class="text-action admin-only" id="orgAdminLink" href="./settings.html">Manage organization</a>
+          </section>
+
+          <section class="panel admin-only" id="adminPanel">
+            <div class="panel-heading compact"><div><p class="eyebrow">ADMIN</p><h2>Organization controls</h2></div></div>
+            <div class="admin-links">
+              <a id="membersLink" href="./settings.html#members">Members <span>→</span></a>
+              <a id="billingLink" href="./settings.html#billing">Billing <span>→</span></a>
+              <a id="aiLink" href="./settings.html#ai-providers">AI providers <span>→</span></a>
+              <a id="brandLink" href="./settings.html#brand-profiles">Brand profiles <span>→</span></a>
+              <a id="securityLink" href="./settings.html#security">Security <span>→</span></a>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading compact"><div><p class="eyebrow">STATUS</p><h2>Ready to produce</h2></div></div>
+            <div class="status-list">
+              <div><i class="status-dot ok"></i><span>Studio available</span></div>
+              <div><i id="aiDot" class="status-dot"></i><span id="aiStatus">AI provider status in Settings</span></div>
+              <div><i class="status-dot ok"></i><span>Private recordings</span></div>
+            </div>
+          </section>
+        </aside>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
