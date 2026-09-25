@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Studio Sessions | Toasty Studio</title>
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=Manrope:wght@500;700;800&family=Montserrat:wght@700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/brand.css">
+    <link rel="stylesheet" href="../css/studio-public.css">
+    <link rel="stylesheet" href="../css/studio-white-label.css">
+    <link rel="stylesheet" href="../css/studio-shell-v2.css">
+    <style id="studio-entry-curtain-css">
+      #studioEntryCurtain{position:fixed;inset:0;z-index:2147483647;display:grid;place-items:center;background:radial-gradient(circle at 50% 43%,#2a1209 0,#120907 35%,#070504 74%);color:#fff4e5;font-family:Inter,system-ui,sans-serif;transition:opacity .28s ease,visibility .28s ease}
+      #studioEntryCurtain.is-leaving{opacity:0;visibility:hidden;pointer-events:none}.entry-fire{position:relative;width:120px;height:140px;margin:0 auto 22px;filter:drop-shadow(0 0 20px rgba(255,92,25,.6)) drop-shadow(0 0 48px rgba(255,64,0,.28))}.entry-flame{position:absolute;left:50%;bottom:10px;transform-origin:50% 100%;clip-path:polygon(50% 0,72% 25%,91% 55%,82% 82%,61% 100%,34% 96%,11% 76%,17% 45%);animation:entryFlame 1s ease-in-out infinite alternate}.entry-flame.o{width:90px;height:120px;margin-left:-45px;background:linear-gradient(#ff3b0a,#ff6a00 55%,#ff9d19)}.entry-flame.m{width:60px;height:84px;margin-left:-30px;background:linear-gradient(#ff8a00,#ffc229 68%,#ffe083);animation-duration:.78s;animation-delay:-.25s}.entry-flame.c{width:31px;height:49px;margin-left:-15px;background:linear-gradient(#fff3b0,#ffd64a);animation-duration:.62s;animation-delay:-.4s}.entry-spark{position:absolute;bottom:95px;left:50%;width:5px;height:5px;border-radius:50%;background:#ffb126;box-shadow:0 0 10px #ff6a00;animation:entrySpark 1.4s ease-out infinite}.entry-spark.s2{margin-left:-30px;animation-delay:-.5s}.entry-spark.s3{margin-left:28px;animation-delay:-1s}.entry-loading{text-align:center}.entry-brand{font:800 13px Manrope,Inter,sans-serif;letter-spacing:.22em;text-transform:uppercase;color:#ff9a42;margin-bottom:10px}.entry-copy{font:700 clamp(20px,2.3vw,30px) Manrope,Inter,sans-serif}@keyframes entryFlame{from{transform:translateX(-2px) rotate(-2deg) scale(.96,1.04)}to{transform:translateX(2px) rotate(2deg) scale(1.03,.97)}}@keyframes entrySpark{0%{opacity:0;transform:translateY(8px) scale(.5)}20%{opacity:1}100%{opacity:0;transform:translate(12px,-75px) scale(0)}}@media(prefers-reduced-motion:reduce){.entry-flame,.entry-spark{animation:none}}
+    </style>
+    <script type="module" src="../js/studio-auth.js"></script>
+  </head>
+  <body class="studio-public-shell">
+    <div id="studioEntryCurtain" role="status" aria-live="polite"><div class="entry-loading"><div class="entry-fire" aria-hidden="true"><span class="entry-spark"></span><span class="entry-spark s2"></span><span class="entry-spark s3"></span><span class="entry-flame o"></span><span class="entry-flame m"></span><span class="entry-flame c"></span></div><div class="entry-brand">Toasty Studio</div><div class="entry-copy">Loading your experience...</div></div></div>
+    <main id="studioPublicPage" class="studio-public-page" aria-live="polite">
+      <header class="public-nav">
+        <a class="public-brand" href="../" data-brand-home>
+          <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Media Studio" data-brand-logo>
+        </a>
+        <nav aria-label="Studio sections">
+          <a href="#quick-toast" data-brand-copy="quickLabel">Fast Production</a>
+          <a href="#live-studio">Live Studio</a>
+          <a href="#ai-production">AI Production</a>
+        </nav>
+      </header>
+
+      <section class="studio-hero">
+        <div class="hero-copy">
+          <p class="public-kicker" data-brand-copy="studioName">Production Studio</p>
+          <h1 data-brand-copy="publicHeroTitle">Your content. Professionally produced.</h1>
+          <p class="hero-support" data-brand-copy="publicHeroSupport">Bring footage, clips, photos, or audio and turn it into polished, on-brand content.</p>
+          <strong data-brand-copy="publicHeroTagline">Create the source. The Studio produces.</strong>
+          <div class="hero-proof" aria-label="Studio capabilities">
+            <span><b>01</b> Record</span>
+            <span><b>02</b> Produce</span>
+            <span><b>03</b> Publish</span>
+          </div>
+        </div>
+
+        <section class="auth-card" aria-labelledby="authTitle">
+          <div class="auth-intro">
+            <span class="auth-status-dot" aria-hidden="true"></span>
+            <span>Private production workspace</span>
+          </div>
+          <div class="auth-tabs" role="tablist" aria-label="Studio access">
+            <button id="showSignup" class="auth-tab" type="button" role="tab" aria-selected="false">Create Account</button>
+            <button id="showLogin" class="auth-tab is-active" type="button" role="tab" aria-selected="true">Sign In</button>
+          </div>
+
+          <form id="signupForm" class="auth-form" autocomplete="on" hidden>
+            <h2 id="authTitle">Create your Studio account</h2>
+            <label>Name<input id="signupName" name="name" autocomplete="name" required></label>
+            <label>Email<input id="signupEmail" name="email" type="email" autocomplete="email" required></label>
+            <label>Password<input id="signupPassword" name="password" type="password" autocomplete="new-password" minlength="10" required></label>
+            <button class="public-button" type="submit">Create account</button>
+          </form>
+
+          <form id="loginForm" class="auth-form" autocomplete="on">
+            <h2>Sign in to Studio</h2>
+            <label>Email<input id="loginEmail" name="email" type="email" autocomplete="email" required></label>
+            <label>Password<input id="loginPassword" name="password" type="password" autocomplete="current-password" required></label>
+            <button class="public-button" type="submit">Sign in</button>
+          </form>
+
+          <p id="authMessage" class="auth-message" role="status"></p>
+        </section>
+      </section>
+
+      <section class="studio-showcase" aria-label="Studio interface preview">
+        <div class="section-heading">
+          <div>
+            <p class="public-kicker">One production system</p>
+            <h2>Everything stays in one clear workflow.</h2>
+          </div>
+          <p>Move from raw material to a finished, branded program without stitching together a dozen tools.</p>
+        </div>
+        <div class="showcase-frame">
+          <div class="showcase-topbar"><span></span><span></span><span></span></div>
+          <div class="showcase-grid">
+            <aside>
+              <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="" data-brand-logo>
+              <b>ON AIR</b>
+              <small>Brand</small>
+              <small>Invite Guest</small>
+              <small>Quick Actions</small>
+            </aside>
+            <div class="showcase-main">
+              <div class="mode-pills"><span>Live Studio</span><span>AI Production</span></div>
+              <div class="drop-preview">Drop your content here</div>
+              <div class="stage-preview"><span></span><span></span><span></span><span></span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="product-sections">
+        <div class="section-heading product-heading">
+          <div>
+            <p class="public-kicker">Built for repeatable output</p>
+            <h2>Three ways to produce. One brand system.</h2>
+          </div>
+        </div>
+        <article id="quick-toast">
+          <span class="feature-number">01</span>
+          <p data-brand-copy="quickLabel">Fast Production</p>
+          <h2 data-brand-copy="quickTitle">Drop it in. We'll produce it.</h2>
+          <span data-brand-copy="quickBody">Upload raw media and turn it into a branded production with intros, outros, lower thirds, captions, watermarks, and export-ready formats.</span>
+        </article>
+        <article id="live-studio">
+          <span class="feature-number">02</span>
+          <p>Live Studio</p>
+          <h2>Record the room, guests, and the moment.</h2>
+          <span data-brand-copy="liveBody">Invite guests, manage the session, record, and keep the production flow in one workspace.</span>
+        </article>
+        <article id="ai-production">
+          <span class="feature-number">03</span>
+          <p>AI Production</p>
+          <h2>Create something worth watching.</h2>
+          <span data-brand-copy="aiBody">Start from an idea, a link, notes, or raw material, then move through idea, script, record, scenes, assets, assemble, review, and export.</span>
+        </article>
+        <article>
+          <span class="feature-number">04</span>
+          <p>Brand memory</p>
+          <h2>Your production system remembers the brand.</h2>
+          <span data-brand-copy="memoryBody">Keep colors, logo behavior, lower thirds, voice, creator context, and calls to action consistent across repeatable work.</span>
+        </article>
+        <article>
+          <span class="feature-number">05</span>
+          <p>Coming</p>
+          <h2>One recording. More content.</h2>
+          <span>Future workflows will help turn a single recording into more social cuts, summaries, and repurposed campaign assets.</span>
+        </article>
+      </section>
+    </main>
+
+    <span class="powered-by public-powered-by" id="publicPoweredBy" hidden>
+      <span>Powered by</span>
+      <img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Media Studio">
+    </span>
+
+    <section id="studioAppShell" class="studio-app-shell" hidden>
+      <button id="studioLogout" class="studio-logout" type="button">Sign out</button>
+      <!-- allow: without this, the Host's own native getUserMedia call in js/host-prejoin.js — which runs
+           inside THIS iframe once studio-auth.js sets its src to director.html — has no delegated
+           permission to request camera/microphone at all, same-origin or not. Every VDO.Ninja iframe
+           already gets this (see video-engine.js's IFRAME_ALLOW); this same-origin app-shell iframe was
+           the one place it was missing, which is a real, provable explanation for "camera never turns on
+           during prejoin" independent of anything in the prejoin code itself. -->
+      <iframe id="studioAppFrame" title="Studio application" src="about:blank" allow="camera; microphone; autoplay"></iframe>
+    </section>
+  </body>
+</html>
