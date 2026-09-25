@@ -80,7 +80,7 @@
          js/ai-production.js's AIProductionController (#aiStudioMasthead, [data-studio-mode]) and
          js/brand-themes.js's module-visibility logic (.studio-mode-switcher) both actively query it —
          removing it silently broke Live Studio / AI Production mode switching. Restored verbatim. -->
-    <header class="studio-global-nav" aria-label="Studio navigation">
+    <header class="studio-global-nav" aria-label="Legacy Studio navigation" hidden style="display:none!important" aria-hidden="true">
       <div class="ai-studio-masthead" id="aiStudioMasthead" hidden>
         <img
           src="../shared/brand/toasty-media/ToastyMediaStudio.png"
@@ -173,7 +173,7 @@
           </button>
           <button id="openSettingsQuick" type="button" class="quick-action-row">
             <span class="quick-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span>
-            Settings
+            Dashboard
           </button>
         </nav>
       </aside>
@@ -427,7 +427,7 @@
               <span class="lv-identity-chip" id="lvTopHost">Host: Not joined</span>
               <span class="lv-identity-chip" id="lvTopProducer">Producer: Local</span>
               <button type="button" class="lv-mini-btn" id="lvTopProgramOutput">Program Output</button>
-              <button type="button" class="lv-mini-btn" id="lvTopSettings">Settings</button>
+              <button type="button" class="lv-mini-btn" id="lvTopSettings">Dashboard</button>
               <button type="button" class="lv-mini-btn lv-mini-btn-danger" id="lvTopEndSession">End Session</button>
             </div>
           </header>
@@ -862,7 +862,7 @@
         </section>
       </section>
 
-      <aside class="rail rail-right" aria-label="Advanced">
+      <aside class="rail rail-right" aria-label="Legacy advanced controls" hidden style="display:none!important" aria-hidden="true">
         <details class="production-panel lv-advanced-drawer">
           <summary class="rail-eyebrow">Advanced / Settings</summary>
 

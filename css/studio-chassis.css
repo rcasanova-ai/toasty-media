@@ -800,3 +800,20 @@ body.studio-settings-open .studio-mode-switcher {
 @media(max-width:1100px){
   .studio-chassis[data-lv-view="producer"] .producer-tool-nav{grid-template-columns:repeat(4,minmax(0,1fr))}
 }
+
+/* Current product shell: AI Production and the legacy Advanced drawer are retired from the visible
+   Studio. Keep their DOM available for legacy controller dependencies until those modules are removed,
+   but no runtime/body class may resurrect them. Organization/admin settings live in the dashboard. */
+.studio-global-nav,
+.studio-mode-switcher,
+.studio-workflow-nav,
+.director-shell .rail-right,
+body.studio-settings-open .rail-right,
+body.studio-settings-open .studio-workflow-nav,
+body.studio-settings-open .studio-mode-switcher {
+  display: none !important;
+}
+
+.director-shell .studio-grid {
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) !important;
+}
