@@ -54,7 +54,11 @@
 
         <div class="session-gate-new">
           <input type="text" id="sessionGateTitle" placeholder="New session title (optional)">
-          <button type="button" id="sessionGateCreate" class="btn btn-primary">+ New Session</button>
+          <button type="button" id="sessionGateCreate" class="btn">+ Quick Session</button>
+          <!-- Preferred flow for anything that isn't a throwaway room: Session Planner (js/session-
+               planner-page.js) creates the same durable live_sessions row Quick Session does, but attaches
+               speakers/sponsors/consent/landing-page/readiness to it BEFORE the Host ever opens Studio. -->
+          <a href="./plan.html" class="btn btn-primary">Plan Session</a>
         </div>
 
         <p class="session-gate-status" id="sessionGateStatus"></p>
