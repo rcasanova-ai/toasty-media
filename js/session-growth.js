@@ -32,6 +32,7 @@ let campaignLinks = [];
 let audienceSummary = { countsByType: {}, uniqueVisitors: 0 };
 let audienceEvents = [];
 let artifacts = [];
+let aiUsage = { events: [], byFeature: {}, totalTokens: 0, totalEstimatedCost: 0 };
 
 async function init() {
   if (!sessionId) {
@@ -51,19 +52,21 @@ async function init() {
   renderAudience();
   renderCampaign();
   renderSponsors();
+  renderAiUsage();
   renderPostEvent();
   document.getElementById("growthLoading").hidden = true;
   document.getElementById("growthApp").hidden = false;
 }
 
 async function refreshAll() {
-  const [sessionResult, sponsorsResult, linksResult, summaryResult, eventsResult, artifactsResult] = await Promise.all([
+  const [sessionResult, sponsorsResult, linksResult, summaryResult, eventsResult, artifactsResult, aiUsageResult] = await Promise.all([
     studioRequest(`/api/sessions/${sessionId}`),
     studioRequest(`/api/sessions/${sessionId}/sponsors`),
     studioRequest(`/api/sessions/${sessionId}/campaign-links`),
     studioRequest(`/api/sessions/${sessionId}/audience/summary`),
     studioRequest(`/api/sessions/${sessionId}/audience/events`),
-    studioRequest(`/api/sessions/${sessionId}/artifacts`)
+    studioRequest(`/api/sessions/${sessionId}/artifacts`),
+    studioRequest(`/api/sessions/${sessionId}/ai-usage`)
   ]);
   session = sessionResult.session;
   sponsors = sponsorsResult.sponsors || [];
@@ -71,6 +74,7 @@ async function refreshAll() {
   audienceSummary = summaryResult;
   audienceEvents = eventsResult.events || [];
   artifacts = artifactsResult.artifacts || [];
+  aiUsage = aiUsageResult || { events: [], byFeature: {}, totalTokens: 0, totalEstimatedCost: 0 };
 }
 
 function wireTabs() {
@@ -235,6 +239,72 @@ function renderSponsorCard(sponsor) {
       </div>
       ${links.length ? `<table class="growth-table"><thead><tr><th>Slug</th><th>Clicks</th><th>Status</th></tr></thead><tbody>${links.map((l) => `<tr><td><code>${escapeHtml(l.slug)}</code></td><td>${l.clickCount}</td><td><span class="g-badge ${l.isActive ? "ok" : "off"}">${l.isActive ? "Active" : "Disabled"}</span></td></tr>`).join("")}</tbody></table>` : `<p class="hint">No campaign links tagged to this sponsor yet — tag one in the Campaign Links tab.</p>`}
     </div>`;
+}
+
+// ---------- AI Usage ----------
+function fmtAiTokens(value) { return Number(value || 0).toLocaleString(); }
+function fmtAiCost(value) {
+  const n = Number(value || 0);
+  return n === 0 ? "$0.00" : n < 0.01 ? "$" + n.toFixed(4) : "$" + n.toFixed(2);
+}
+function fmtAiLatency(value) { const n = Number(value || 0); return n ? Math.round(n).toLocaleString() + " ms" : "—"; }
+
+function renderAiUsage() {
+  const panel = document.getElementById("panelAiUsage");
+  const events = aiUsage.events || [];
+  const inputTokens = events.reduce((sum, ev) => sum + Number(ev.inputTokens || 0), 0);
+  const outputTokens = events.reduce((sum, ev) => sum + Number(ev.outputTokens || 0), 0);
+  const avgLatency = events.length ? events.reduce((sum, ev) => sum + Number(ev.latencyMs || 0), 0) / events.length : 0;
+
+  const modelMap = new Map();
+  events.forEach((ev) => {
+    const key = (ev.provider || "unknown") + "::" + (ev.model || "unknown");
+    const row = modelMap.get(key) || { provider: ev.provider || "unknown", model: ev.model || "unknown", calls: 0, input: 0, output: 0, total: 0, cost: 0, latency: 0 };
+    row.calls += 1;
+    row.input += Number(ev.inputTokens || 0);
+    row.output += Number(ev.outputTokens || 0);
+    row.total += Number(ev.totalTokens || 0);
+    row.cost += Number(ev.estimatedCost || 0);
+    row.latency += Number(ev.latencyMs || 0);
+    modelMap.set(key, row);
+  });
+  const models = [...modelMap.values()].sort((a, b) => b.total - a.total);
+
+  panel.innerHTML = `
+    <div class="metric-row">
+      <div class="metric-box"><span>AI calls</span><strong>${events.length}</strong></div>
+      <div class="metric-box"><span>Total tokens</span><strong>${fmtAiTokens(aiUsage.totalTokens || 0)}</strong></div>
+      <div class="metric-box"><span>Input / output</span><strong style="font-size:1rem">${fmtAiTokens(inputTokens)} / ${fmtAiTokens(outputTokens)}</strong></div>
+      <div class="metric-box"><span>Estimated cost</span><strong>${fmtAiCost(aiUsage.totalEstimatedCost || 0)}</strong></div>
+      <div class="metric-box"><span>Average latency</span><strong style="font-size:1rem">${fmtAiLatency(avgLatency)}</strong></div>
+    </div>
+
+    <div class="growth-card">
+      <h3>Provider / model</h3>
+      <table class="growth-table">
+        <thead><tr><th>Provider / model</th><th>Calls</th><th>Input</th><th>Output</th><th>Total</th><th>Est. cost</th><th>Avg latency</th></tr></thead>
+        <tbody>
+          ${models.map(row => `<tr><td><strong>${escapeHtml(row.provider)}</strong><br><small>${escapeHtml(row.model)}</small></td><td>${row.calls}</td><td>${fmtAiTokens(row.input)}</td><td>${fmtAiTokens(row.output)}</td><td>${fmtAiTokens(row.total)}</td><td>${fmtAiCost(row.cost)}</td><td>${fmtAiLatency(row.latency / Math.max(1, row.calls))}</td></tr>`).join("") || '<tr><td colspan="7">No AI model usage recorded for this session yet.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="growth-card">
+      <h3>Usage by feature</h3>
+      ${Object.entries(aiUsage.byFeature || {}).map(([feature, row]) => `<div class="timeline-row"><span>${escapeHtml(feature.replace(/_/g, " "))} · ${row.count || 0} calls</span><small>${fmtAiTokens(row.totalTokens || 0)} tokens · ${fmtAiCost(row.estimatedCost || 0)}</small></div>`).join("") || '<p class="hint">No feature-level usage recorded yet.</p>'}
+    </div>
+
+    <div class="growth-card">
+      <h3>Recent AI calls</h3>
+      <table class="growth-table">
+        <thead><tr><th>When</th><th>Feature</th><th>Provider / model</th><th>Input</th><th>Output</th><th>Total</th><th>Est. cost</th><th>Latency</th></tr></thead>
+        <tbody>
+          ${events.slice(0, 100).map(ev => `<tr><td>${escapeHtml(fmtRelative(ev.occurredAt))}</td><td>${escapeHtml((ev.feature || "unspecified").replace(/_/g, " "))}</td><td>${escapeHtml(ev.provider || "unknown")}<br><small>${escapeHtml(ev.model || "")}</small></td><td>${fmtAiTokens(ev.inputTokens)}</td><td>${fmtAiTokens(ev.outputTokens)}</td><td>${fmtAiTokens(ev.totalTokens)}</td><td>${fmtAiCost(ev.estimatedCost)}</td><td>${fmtAiLatency(ev.latencyMs)}</td></tr>`).join("") || '<tr><td colspan="8">No AI calls recorded yet.</td></tr>'}
+        </tbody>
+      </table>
+      <p class="hint">This shows actual provider-reported usage associated with this session. Estimated cost is informational and may differ from the provider's final invoice.</p>
+    </div>
+  `;
 }
 
 // ---------- Post-Event Session Results ----------
