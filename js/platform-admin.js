@@ -81,7 +81,7 @@ function renderAll(){
   $("paDefaultSession").value=pretty(s.defaultSessionSettings);$("paDefaultCTA").value=pretty(s.defaultCTA);$("paDefaultEndCard").value=pretty(s.defaultEndCard);
   $("paSocialLinks").value=pretty(s.socialLinks);$("paDomainConfig").value=pretty(s.customDomainConfig);
 
-  renderMembers();renderBrands();renderAi();renderSessions();renderUsage();renderBilling();
+  renderMembers();renderPendingInvites();renderBrands();renderAi();renderSessions();renderUsage();renderBilling();
 }
 
 function renderPlatformStatus(){
@@ -112,6 +112,12 @@ async function saveMember(userId){
 async function removeMember(userId){
   const m=memberById(userId);if(!confirm("Remove "+(m?.userEmail||"this member")+" from this organization?"))return;
   try{await post(orgPath("/member-remove"),{userId});await loadDetail();setMessage("Member removed.");}catch(e){setMessage(e.message,true);}
+}
+
+function renderPendingInvites(){
+  const root=$("paPendingInvites"),items=state.detail.pendingInvites||[];
+  root.innerHTML=items.map(i=>'<div class="platform-row"><div><strong>'+esc(i.email)+'</strong><br><small>'+esc(human(i.role))+' · expires '+esc(shortDate(i.expiresAt))+'</small></div><button class="btn" data-revoke-invite="'+esc(i.id)+'">Revoke</button></div>').join("")||'<p class="hint">No pending invites.</p>';
+  document.querySelectorAll("[data-revoke-invite]").forEach(b=>b.onclick=async()=>{if(!confirm("Revoke this invitation?"))return;try{await post(orgPath("/invite-revoke"),{id:b.dataset.revokeInvite});await loadDetail();setMessage("Invitation revoked.");}catch(e){setMessage(e.message,true);}});
 }
 
 function renderBrands(){
