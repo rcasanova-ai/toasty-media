@@ -819,6 +819,28 @@ def migrate(conn):
     ensure_columns(conn, "live_sessions", {"organization_id": "TEXT REFERENCES organizations(id)"})
     conn.execute("CREATE INDEX IF NOT EXISTS idx_live_sessions_org ON live_sessions(organization_id)")
 
+    # Pending invites for an email that may not have a Toasty account yet — resolved into a real
+    # membership (see accept_invite) once that email signs up or logs in. Only a token hash is stored,
+    # same rationale as the password/email-verification tokens above.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS organization_invites (
+          id TEXT PRIMARY KEY,
+          organization_id TEXT NOT NULL REFERENCES organizations(id),
+          email TEXT NOT NULL,
+          role TEXT NOT NULL DEFAULT 'member',
+          token_hash TEXT NOT NULL,
+          invited_by_user_id TEXT NOT NULL REFERENCES users(id),
+          status TEXT NOT NULL DEFAULT 'pending',
+          expires_at TEXT NOT NULL,
+          accepted_at TEXT,
+          revoked_at TEXT,
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_org_invites_org ON organization_invites(organization_id, status)")
+
     conn.commit()
 
 
@@ -1031,6 +1053,21 @@ def payment_intent_public(row):
         "expiresAt": row["expires_at"],
         "paidAt": row["paid_at"],
         "metadata": _json_field(row, "metadata_json", {}),
+        "createdAt": row["created_at"],
+    }
+
+
+def invite_public(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "organizationId": row["organization_id"],
+        "email": row["email"],
+        "role": row["role"],
+        "invitedByUserId": row["invited_by_user_id"],
+        "status": row["status"],
+        "expiresAt": row["expires_at"],
         "createdAt": row["created_at"],
     }
 
@@ -2855,6 +2892,72 @@ def main():
         conn.commit()
         user_row = conn.execute("SELECT * FROM users WHERE id = ?", (payload["id"],)).fetchone()
         print(json.dumps({"user": public_user(user_row)}))
+        return
+
+    # ---- Organization invites ----
+
+    if action == "create_invite":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO organization_invites (id, organization_id, email, role, token_hash, invited_by_user_id, status, expires_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+            """,
+            (payload["id"], payload["organizationId"], payload["email"], payload.get("role", "member"), payload["tokenHash"], payload["invitedByUserId"], payload["expiresAt"], now),
+        )
+        conn.commit()
+        print(json.dumps({"invite": invite_public(conn.execute("SELECT * FROM organization_invites WHERE id = ?", (payload["id"],)).fetchone())}))
+        return
+
+    if action == "list_invites":
+        rows = conn.execute(
+            "SELECT * FROM organization_invites WHERE organization_id = ? AND status = 'pending' ORDER BY created_at DESC",
+            (payload["organizationId"],),
+        ).fetchall()
+        print(json.dumps({"invites": [invite_public(row) for row in rows]}))
+        return
+
+    if action == "get_invite_by_token":
+        row = conn.execute(
+            "SELECT * FROM organization_invites WHERE token_hash = ? AND status = 'pending'",
+            (payload["tokenHash"],),
+        ).fetchone()
+        print(json.dumps({"invite": invite_public(row)}))
+        return
+
+    if action == "accept_invite":
+        now = utc_now()
+        row = conn.execute(
+            "SELECT * FROM organization_invites WHERE token_hash = ? AND status = 'pending'",
+            (payload["tokenHash"],),
+        ).fetchone()
+        if not row:
+            print(json.dumps({"error": "invalid_token"}))
+            return
+        if row["expires_at"] < now:
+            print(json.dumps({"error": "expired_token"}))
+            return
+        try:
+            conn.execute(
+                "INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (payload["membershipId"], row["organization_id"], payload["userId"], row["role"], now, now),
+            )
+        except sqlite3.IntegrityError:
+            print(json.dumps({"error": "already_member"}))
+            return
+        conn.execute("UPDATE organization_invites SET status = 'accepted', accepted_at = ? WHERE id = ?", (now, row["id"]))
+        conn.commit()
+        print(json.dumps({"organizationId": row["organization_id"], "role": row["role"]}))
+        return
+
+    if action == "revoke_invite":
+        now = utc_now()
+        conn.execute(
+            "UPDATE organization_invites SET status = 'revoked', revoked_at = ? WHERE id = ? AND organization_id = ?",
+            (now, payload["id"], payload["organizationId"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
         return
 
     raise ValueError(f"Unknown action: {action}")

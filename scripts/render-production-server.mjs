@@ -296,6 +296,110 @@ const server = createServer(async (req, res) => {
     await handleChangePassword(req, res);
     return;
   }
+
+  // ---- Organizations ----
+  if (req.method === "GET" && req.url === "/api/organizations") {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const result = await db("list_user_organizations", { userId: session.id });
+    sendJson(req, res, 200, { organizations: result.organizations || [] });
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/organizations") {
+    if (!requireCsrf(req, res) || !limit(req, res, "org-create", 10, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleOrganizationCreate(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/settings")) {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleOrganizationSettingsGet(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/settings")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "org-settings", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleOrganizationSettingsUpdate(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/members")) {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMembersList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/members/invite")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "org-invite", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMemberInvite(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/members/role")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "org-member-role", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMemberRoleUpdate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/members/remove")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "org-member-remove", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMemberRemove(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/brand-profiles")) {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleBrandProfilesList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/brand-profiles")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "brand-profile-create", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleBrandProfileCreate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/update")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "org-update", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleOrganizationUpdate(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/organizations/") && !req.url.includes("/", "/api/organizations/".length)) {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleOrganizationGet(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/brand-profiles/") && req.url.endsWith("/update")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "brand-profile-update", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleBrandProfileUpdate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/brand-profiles/") && req.url.endsWith("/delete")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "brand-profile-delete", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleBrandProfileDelete(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/invites/accept") {
+    if (!requireCsrf(req, res) || !limit(req, res, "invite-accept", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleInviteAccept(req, res, session);
+    return;
+  }
+
   if (req.method === "GET" && req.url === "/integrations/google-drive/status") {
     const session = await requireSession(req, res);
     if (!session) return;
@@ -1585,11 +1689,12 @@ async function sendPasswordResetEmail(user) {
   });
 }
 
-async function sendOrganizationInviteEmail({ toEmail, inviterName, organizationName, role }) {
+async function sendOrganizationInviteEmail({ toEmail, inviterName, organizationName, role, rawToken }) {
+  const acceptUrl = `${APP_BASE_URL}/studio/accept-invite.html?token=${rawToken}`;
   await sendEmail({
     to: toEmail,
     subject: `You've been invited to ${organizationName} on Toasty Studio`,
-    html: `<p>${escapeHtml(inviterName || "A teammate")} invited you to join <strong>${escapeHtml(organizationName)}</strong> on Toasty Studio as ${escapeHtml(role)}.</p><p><a href="${APP_BASE_URL}/studio/">Sign in or create an account</a> with this email address to accept.</p>`
+    html: `<p>${escapeHtml(inviterName || "A teammate")} invited you to join <strong>${escapeHtml(organizationName)}</strong> on Toasty Studio as ${escapeHtml(role)}.</p><p><a href="${acceptUrl}">${acceptUrl}</a></p><p>Sign in or create an account with this email address (${escapeHtml(toEmail)}) to accept — this invite expires in 7 days.</p>`
   });
 }
 
@@ -1678,6 +1783,258 @@ async function handleChangePassword(req, res) {
 
 function authConfigured() {
   return Boolean(SESSION_SECRET);
+}
+
+// ---- Organizations / Members / Settings / Brand Profiles ----
+// One role hierarchy, checked in exactly one place (requireMembership) — every route below calls it
+// instead of re-implementing "is this person allowed to do this" per handler. A non-member gets a 404,
+// not a 403, for the same reason js/live-session.js's session ownership checks do: a 403 on someone else's
+// organization would confirm that organization id/slug exists to a caller with no business knowing that.
+const ORG_ROLE_RANK = { viewer: 1, member: 2, admin: 3, owner: 4 };
+
+async function requireMembership(req, res, organizationId, minRole, session) {
+  if (!SAFE_ID.test(organizationId)) {
+    sendJson(req, res, 404, { error: "Organization not found." });
+    return null;
+  }
+  const result = await db("get_membership", { organizationId, userId: session.id });
+  if (!result.membership) {
+    sendJson(req, res, 404, { error: "Organization not found." });
+    return null;
+  }
+  if ((ORG_ROLE_RANK[result.membership.role] || 0) < (ORG_ROLE_RANK[minRole] || 0)) {
+    sendJson(req, res, 403, { error: "You don't have permission to do that." });
+    return null;
+  }
+  return result.membership;
+}
+
+function organizationIdFromUrl(req, suffix = "") {
+  const prefix = "/api/organizations/";
+  const path = suffix ? req.url.slice(prefix.length, -suffix.length) : req.url.slice(prefix.length);
+  return decodeURIComponent(path);
+}
+
+async function handleOrganizationCreate(req, res, session) {
+  const body = await readJson(req);
+  const name = cleanName(body?.name);
+  if (!name) return sendJson(req, res, 400, { error: "Organization name is required." });
+  const requestedSlug = body?.slug ? slugify(body.slug) : slugify(name);
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const slug = attempt === 0 ? requestedSlug : `${requestedSlug}-${randomBytes(3).toString("hex")}`;
+    const result = await db("create_organization", { id: randomUUID(), name, slug, ownerUserId: session.id, membershipId: randomUUID() });
+    if (result.organization) return sendJson(req, res, 201, { organization: result.organization });
+    if (result.error !== "duplicate_slug") return sendJson(req, res, 500, { error: "Could not create organization." });
+  }
+  sendJson(req, res, 500, { error: "Could not create organization." });
+}
+
+async function handleOrganizationGet(req, res, session) {
+  const organizationId = organizationIdFromUrl(req);
+  const membership = await requireMembership(req, res, organizationId, "viewer", session);
+  if (!membership) return;
+  const result = await db("get_organization", { id: organizationId });
+  if (!result.organization) return sendJson(req, res, 404, { error: "Organization not found." });
+  sendJson(req, res, 200, { organization: result.organization, role: membership.role });
+}
+
+async function handleOrganizationUpdate(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/update");
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  const body = await readJson(req);
+  // plan/subscriptionStatus are deliberately NOT settable here — those only ever change via the billing
+  // webhooks/payment-confirmation code paths (Stripe webhook, Solana payment verification), never a
+  // direct user-facing edit, so an org can never grant itself entitlements it hasn't paid for.
+  const patch = {};
+  if (typeof body?.name === "string") patch.name = cleanName(body.name) || undefined;
+  if (typeof body?.slug === "string") patch.slug = slugify(body.slug);
+  if (typeof body?.activeBrandProfileId === "string") patch.activeBrandProfileId = body.activeBrandProfileId;
+  if (Object.keys(patch).length === 0) return sendJson(req, res, 400, { error: "Nothing to update." });
+  const result = await db("update_organization", { id: organizationId, ...patch });
+  if (result.error === "duplicate_slug") return sendJson(req, res, 409, { error: "That URL slug is already taken." });
+  sendJson(req, res, 200, { organization: result.organization });
+}
+
+async function handleOrganizationSettingsGet(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/settings");
+  const membership = await requireMembership(req, res, organizationId, "viewer", session);
+  if (!membership) return;
+  const result = await db("get_organization_settings", { organizationId });
+  sendJson(req, res, 200, { settings: result.settings });
+}
+
+async function handleOrganizationSettingsUpdate(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/settings");
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  const body = await readJson(req);
+  const patch = { organizationId };
+  for (const key of ["websiteUrl", "bookingUrl", "supportEmail", "timezone"]) {
+    if (typeof body?.[key] === "string") patch[key] = body[key].slice(0, 500);
+  }
+  for (const key of ["defaultSessionSettings", "defaultCTA", "defaultEndCard", "socialLinks", "customDomainConfig"]) {
+    if (body?.[key] && typeof body[key] === "object") patch[key] = body[key];
+  }
+  if (body?.onboardingCompleted) patch.onboardingCompleted = true;
+  const result = await db("update_organization_settings", patch);
+  sendJson(req, res, 200, { settings: result.settings });
+}
+
+async function handleMembersList(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/members");
+  const membership = await requireMembership(req, res, organizationId, "viewer", session);
+  if (!membership) return;
+  const result = await db("list_memberships", { organizationId });
+  const invites = await db("list_invites", { organizationId });
+  sendJson(req, res, 200, { members: result.memberships || [], pendingInvites: invites.invites || [] });
+}
+
+async function handleMemberInvite(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/members/invite");
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  const body = await readJson(req);
+  const email = normalizeEmail(body?.email);
+  const role = ["viewer", "member", "admin"].includes(body?.role) ? body.role : "member";
+  if (!email || !EMAIL_PATTERN.test(email)) return sendJson(req, res, 400, { error: "Enter a valid email address." });
+  // Admins can invite viewer/member/admin but never owner — ownership only transfers explicitly (not
+  // implemented yet), never via a generic invite.
+  const org = await db("get_organization", { id: organizationId });
+  const rawToken = randomBytes(32).toString("base64url");
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  await db("create_invite", {
+    id: randomUUID(),
+    organizationId,
+    email,
+    role,
+    tokenHash,
+    invitedByUserId: session.id,
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+  });
+  await sendOrganizationInviteEmail({ toEmail: email, inviterName: session.name, organizationName: org.organization?.name || "Toasty Studio", role, rawToken }).catch((error) => {
+    console.error("[Toasty Auth] Failed to send invite email", error);
+  });
+  sendJson(req, res, 201, { ok: true });
+}
+
+async function handleInviteAccept(req, res, session) {
+  const body = await readJson(req);
+  const rawToken = String(body?.token || "");
+  if (!rawToken) return sendJson(req, res, 400, { error: "Missing invite token." });
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  const invite = await db("get_invite_by_token", { tokenHash });
+  if (!invite.invite) return sendJson(req, res, 400, { error: "This invite is invalid or was already used." });
+  if (normalizeEmail(invite.invite.email) !== normalizeEmail(session.email)) {
+    return sendJson(req, res, 403, { error: "This invite was sent to a different email address. Sign in with that email to accept it." });
+  }
+  const result = await db("accept_invite", { tokenHash, userId: session.id, membershipId: randomUUID() });
+  if (result.error === "invalid_token") return sendJson(req, res, 400, { error: "This invite is invalid or was already used." });
+  if (result.error === "expired_token") return sendJson(req, res, 400, { error: "This invite has expired." });
+  if (result.error === "already_member") return sendJson(req, res, 409, { error: "You're already a member of that organization." });
+  sendJson(req, res, 200, { organizationId: result.organizationId, role: result.role });
+}
+
+async function handleMemberRoleUpdate(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/members/role");
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  const body = await readJson(req);
+  const targetUserId = String(body?.userId || "");
+  const newRole = body?.role;
+  if (!["viewer", "member", "admin", "owner"].includes(newRole)) return sendJson(req, res, 400, { error: "Invalid role." });
+  if (newRole === "owner" && membership.role !== "owner") return sendJson(req, res, 403, { error: "Only an owner can grant ownership." });
+  if (!(await guardLastOwner(req, res, organizationId, targetUserId, newRole))) return;
+  const result = await db("update_membership_role", { organizationId, userId: targetUserId, role: newRole });
+  sendJson(req, res, 200, { membership: result.membership });
+}
+
+async function handleMemberRemove(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/members/remove");
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  const body = await readJson(req);
+  const targetUserId = String(body?.userId || "");
+  if (targetUserId === session.id) return sendJson(req, res, 400, { error: "Use account settings to leave an organization yourself." });
+  if (!(await guardLastOwner(req, res, organizationId, targetUserId, null))) return;
+  await db("remove_membership", { organizationId, userId: targetUserId });
+  sendJson(req, res, 200, { ok: true });
+}
+
+// Refuses a role change/removal that would leave an organization with zero owners. `newRole` is the role
+// being assigned (null means "being removed entirely").
+async function guardLastOwner(req, res, organizationId, targetUserId, newRole) {
+  const current = await db("get_membership", { organizationId, userId: targetUserId });
+  if (!current.membership) {
+    sendJson(req, res, 404, { error: "That person is not a member of this organization." });
+    return false;
+  }
+  if (current.membership.role !== "owner" || newRole === "owner") return true;
+  const all = await db("list_memberships", { organizationId });
+  const ownerCount = (all.memberships || []).filter((m) => m.role === "owner").length;
+  if (ownerCount <= 1) {
+    sendJson(req, res, 400, { error: "An organization must always have at least one owner." });
+    return false;
+  }
+  return true;
+}
+
+async function handleBrandProfilesList(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/brand-profiles");
+  const membership = await requireMembership(req, res, organizationId, "viewer", session);
+  if (!membership) return;
+  const result = await db("list_brand_profiles", { organizationId });
+  sendJson(req, res, 200, { brandProfiles: result.brandProfiles || [] });
+}
+
+async function handleBrandProfileCreate(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/brand-profiles");
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  const body = await readJson(req);
+  const result = await db("create_brand_profile", {
+    id: randomUUID(),
+    organizationId,
+    name: cleanName(body?.name) || "Default",
+    baseThemeId: typeof body?.baseThemeId === "string" ? body.baseThemeId : "toasty",
+    overrides: body?.overrides && typeof body.overrides === "object" ? body.overrides : {}
+  });
+  sendJson(req, res, 201, { brandProfile: result.brandProfile });
+}
+
+// Brand profiles are addressed by their own id (not nested under an organization id in the URL), so
+// authorization has to resolve the owning organization first, then run the SAME membership check as
+// every other admin-only route — never trust a profile id alone.
+async function resolveBrandProfileMembership(req, res, profileId, minRole, session) {
+  const profile = await db("get_brand_profile", { id: profileId });
+  if (!profile.brandProfile) {
+    sendJson(req, res, 404, { error: "Brand profile not found." });
+    return null;
+  }
+  const membership = await requireMembership(req, res, profile.brandProfile.organizationId, minRole, session);
+  if (!membership) return null;
+  return profile.brandProfile;
+}
+
+async function handleBrandProfileUpdate(req, res, session) {
+  const profileId = decodeURIComponent(req.url.slice("/api/brand-profiles/".length, -"/update".length));
+  const brandProfile = await resolveBrandProfileMembership(req, res, profileId, "admin", session);
+  if (!brandProfile) return;
+  const body = await readJson(req);
+  const patch = { id: brandProfile.id };
+  if (typeof body?.name === "string") patch.name = cleanName(body.name);
+  if (typeof body?.baseThemeId === "string") patch.baseThemeId = body.baseThemeId;
+  if (body?.overrides && typeof body.overrides === "object") patch.overrides = body.overrides;
+  const result = await db("update_brand_profile", patch);
+  sendJson(req, res, 200, { brandProfile: result.brandProfile });
+}
+
+async function handleBrandProfileDelete(req, res, session) {
+  const profileId = decodeURIComponent(req.url.slice("/api/brand-profiles/".length, -"/delete".length));
+  const brandProfile = await resolveBrandProfileMembership(req, res, profileId, "admin", session);
+  if (!brandProfile) return;
+  await db("delete_brand_profile", { id: brandProfile.id });
+  sendJson(req, res, 200, { ok: true });
 }
 
 async function hashPassword(password) {
