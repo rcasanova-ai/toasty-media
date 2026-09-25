@@ -915,6 +915,38 @@ const server = createServer(async (req, res) => {
     await handleMoxieReadinessSummary(req, res, session);
     return;
   }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/moxie/speaker-briefing")) {
+    if (!COST_SAFETY_SWITCHES.ai) return sendJson(req, res, 503, { error: "AI features are temporarily disabled by the platform safety switch." });
+    if (!requireCsrf(req, res) || !limit(req, res, "moxie-speaker-briefing", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMoxieSpeakerBriefing(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/moxie/session-research")) {
+    if (!COST_SAFETY_SWITCHES.ai) return sendJson(req, res, 503, { error: "AI features are temporarily disabled by the platform safety switch." });
+    if (!requireCsrf(req, res) || !limit(req, res, "moxie-session-research", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMoxieSessionResearch(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/moxie/audience-insights")) {
+    if (!COST_SAFETY_SWITCHES.ai) return sendJson(req, res, 503, { error: "AI features are temporarily disabled by the platform safety switch." });
+    if (!requireCsrf(req, res) || !limit(req, res, "moxie-audience-insights", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMoxieAudienceInsights(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/moxie/post-event-suggestions")) {
+    if (!COST_SAFETY_SWITCHES.ai) return sendJson(req, res, 503, { error: "AI features are temporarily disabled by the platform safety switch." });
+    if (!requireCsrf(req, res) || !limit(req, res, "moxie-post-event-suggestions", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMoxiePostEventSuggestions(req, res, session);
+    return;
+  }
 
   if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/artifacts")) {
     if (!limit(req, res, "post-event-artifacts-list", 60, 60 * 1000)) return;
@@ -4944,6 +4976,163 @@ async function handleMoxieReadinessSummary(req, res, authSession) {
     latencyMs: Date.now() - started
   });
   sendJson(req, res, 200, { summary: String(text || "").trim().slice(0, 2000) });
+}
+
+// Shared BYOK gate for every Moxie Event Growth hook below — same findActiveAiCredential/byok_required
+// shape as handleMoxieReadinessSummary and /api/ai-producer/respond. Returns null (after sending the 402
+// itself) when there's no credential, so callers can `if (!credential) return;`.
+async function requireMoxieCredential(req, res, session) {
+  if (!session.organizationId) throw httpError(402, "This session has no organization context for AI features.");
+  const credential = await findActiveAiCredential(session.organizationId);
+  if (!credential) {
+    sendJson(req, res, 402, {
+      error: "byok_required",
+      message: "Moxie requires an AI provider. Connect your API key to enable research, production intelligence, and live assistance."
+    });
+    return null;
+  }
+  return credential;
+}
+
+async function callMoxie({ session, credential, systemPrompt, userContent, feature }) {
+  const apiKey = decryptSecret(credential.encryptedCredential);
+  const started = Date.now();
+  const { text, usage } = await AI_CALL_BY_PROVIDER[credential.provider](userContent, systemPrompt, apiKey);
+  await recordAiUsage({
+    organizationId: session.organizationId,
+    sessionId: session.id,
+    provider: usage.provider,
+    model: usage.model,
+    feature,
+    inputTokens: usage.promptTokens,
+    outputTokens: usage.completionTokens,
+    totalTokens: usage.totalTokens,
+    estimatedCost: usage.estimatedCostUsd,
+    latencyMs: Date.now() - started
+  });
+  return String(text || "").trim().slice(0, 2500);
+}
+
+// (B) Speaker briefing: prep notes for ONE named speaker, built only from that speaker's own real
+// profile fields plus the session's own plan — never another speaker's data, never guest PII beyond
+// what the speaker themselves submitted.
+async function handleMoxieSpeakerBriefing(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/moxie/speaker-briefing");
+  // Validate the request shape before the (external, credential-gated) AI call — a malformed or
+  // cross-session speakerId is a 400/404 regardless of whether this organization even has BYOK
+  // configured, not something that should hide behind a 402.
+  const body = await readJson(req);
+  const speakerId = sessionText(body.speakerId, 80);
+  if (!SAFE_ID.test(speakerId)) throw httpError(400, "A speakerId is required.");
+  const speakerResult = await db("speaker_get", { id: speakerId });
+  if (!speakerResult.speaker || speakerResult.speaker.sessionId !== session.id) throw httpError(404, "Speaker not found.");
+  const speaker = speakerResult.speaker;
+  const credential = await requireMoxieCredential(req, res, session);
+  if (!credential) return;
+  const facts = {
+    sessionTitle: session.title,
+    sessionType: session.plan?.sessionType,
+    scheduledAt: session.plan?.scheduledAt,
+    speaker: {
+      displayName: speaker.displayName || speaker.email,
+      sessionRole: speaker.sessionRole,
+      title: speaker.title,
+      company: speaker.company,
+      bioShort: (speaker.bioShort || "").slice(0, 600),
+      bioLong: (speaker.bioLong || "").slice(0, 1200),
+      onscreenTitle: speaker.onscreenTitle,
+      pronunciationNotes: speaker.pronunciationNotes
+    }
+  };
+  const summary = await callMoxie({
+    session,
+    credential,
+    systemPrompt: "You are Moxie, Toasty's production assistant. Given structured JSON facts about one confirmed speaker and their session, write a short (4-6 sentence) briefing note for the Host/Producer: how to introduce them, what to ask about, anything to watch for (pronunciation, sensitive topics). Never invent facts not present in the JSON. Respond with prose only, no JSON, no markdown.",
+    userContent: `SPEAKER BRIEFING FACTS:\n${JSON.stringify(facts)}`,
+    feature: "moxie_speaker_briefing"
+  });
+  sendJson(req, res, 200, { briefing: summary });
+}
+
+// (B') Session research: prep angles/questions from the session's own topic + speaker/sponsor roster —
+// never audience data, never a specific speaker's private profile fields.
+async function handleMoxieSessionResearch(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/moxie/session-research");
+  const credential = await requireMoxieCredential(req, res, session);
+  if (!credential) return;
+  const [speakersResult, sponsorsResult] = await Promise.all([
+    db("speaker_list", { sessionId: session.id }),
+    db("sponsor_list", { sessionId: session.id })
+  ]);
+  const facts = {
+    sessionTitle: session.title,
+    sessionType: session.plan?.sessionType,
+    description: (session.plan?.description || "").slice(0, 1500),
+    runOfShow: (session.plan?.runOfShow || []).slice(0, 20).map((item) => ({ label: item.label, notes: item.notes })),
+    speakers: (speakersResult.speakers || []).slice(0, 20).map((s) => ({ displayName: s.displayName || s.email, sessionRole: s.sessionRole, title: s.title, company: s.company })),
+    sponsors: (sponsorsResult.sponsors || []).slice(0, 20).map((s) => ({ companyName: s.companyName }))
+  };
+  const research = await callMoxie({
+    session,
+    credential,
+    systemPrompt: "You are Moxie, Toasty's production assistant. Given structured JSON facts about an upcoming session's topic, run of show, speakers, and sponsors, write 5-8 short research/prep bullet points: good discussion angles, questions to prepare, and connections between the speakers' backgrounds and the topic. Never invent facts not present in the JSON. Respond with plain text bullet points (one per line, starting with '- '), no markdown headers, no JSON.",
+    userContent: `SESSION RESEARCH FACTS:\n${JSON.stringify(facts)}`,
+    feature: "moxie_session_research"
+  });
+  sendJson(req, res, 200, { research });
+}
+
+// (C) Audience insight summary — AGGREGATED DATA ONLY, per the task's own explicit requirement: the
+// model only ever sees countsByType/uniqueVisitors totals, never a single visitor's anonymousId,
+// identityId, email, or any row-level audience_event.
+async function handleMoxieAudienceInsights(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/moxie/audience-insights");
+  const credential = await requireMoxieCredential(req, res, session);
+  if (!credential) return;
+  const summaryResult = await db("audience_event_summary", { sessionId: session.id });
+  const facts = {
+    sessionTitle: session.title,
+    countsByType: summaryResult.countsByType || {},
+    uniqueVisitors: summaryResult.uniqueVisitors || 0
+  };
+  const insight = await callMoxie({
+    session,
+    credential,
+    systemPrompt: "You are Moxie, Toasty's production assistant. Given AGGREGATED audience analytics totals (event-type counts and a unique-visitor count — no individual visitor data), write a short (3-5 sentence) plain-language insight summary for the organizer: what the numbers suggest about engagement, and one concrete suggestion. Never invent numbers not present in the JSON, and never claim to know anything about a specific individual. Respond with prose only, no JSON, no markdown.",
+    userContent: `AGGREGATED AUDIENCE FACTS:\n${JSON.stringify(facts)}`,
+    feature: "moxie_audience_insights"
+  });
+  sendJson(req, res, 200, { insight });
+}
+
+// (D) Post-event suggestions — NEVER auto-creates or auto-publishes a post_event_artifact row itself;
+// this only returns draft-only TEXT ideas. Turning a suggestion into a real artifact stays a separate,
+// explicit organizer action (POST .../artifacts, then POST /api/artifacts/:id/update).
+async function handleMoxiePostEventSuggestions(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/moxie/post-event-suggestions");
+  const credential = await requireMoxieCredential(req, res, session);
+  if (!credential) return;
+  const [summaryResult, sponsorsResult, artifactsResult] = await Promise.all([
+    db("audience_event_summary", { sessionId: session.id }),
+    db("sponsor_list", { sessionId: session.id }),
+    db("post_event_artifact_list", { sessionId: session.id })
+  ]);
+  const facts = {
+    sessionTitle: session.title,
+    sessionType: session.plan?.sessionType,
+    countsByType: summaryResult.countsByType || {},
+    uniqueVisitors: summaryResult.uniqueVisitors || 0,
+    sponsors: (sponsorsResult.sponsors || []).slice(0, 20).map((s) => ({ companyName: s.companyName })),
+    existingArtifactTypes: (artifactsResult.artifacts || []).slice(0, 40).map((a) => a.artifactType)
+  };
+  const suggestions = await callMoxie({
+    session,
+    credential,
+    systemPrompt: "You are Moxie, Toasty's production assistant. Given structured JSON facts about a session that just happened (aggregated audience totals, sponsors, and post-event artifact types already started), suggest 4-6 concrete post-event content ideas the organizer could make (e.g. a clip, a LinkedIn post, a newsletter recap) and briefly why, based on what actually happened. You are NOT creating or publishing anything — only suggesting. Never invent numbers not present in the JSON. Respond with plain text bullet points (one per line, starting with '- '), no markdown headers, no JSON.",
+    userContent: `POST-EVENT FACTS:\n${JSON.stringify(facts)}`,
+    feature: "moxie_post_event_suggestions"
+  });
+  sendJson(req, res, 200, { suggestions });
 }
 
 const POST_EVENT_ARTIFACT_TYPES = new Set([

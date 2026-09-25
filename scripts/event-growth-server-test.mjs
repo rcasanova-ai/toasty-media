@@ -382,6 +382,33 @@ async function main() {
   const usageAfter = await jsonFetch(`/api/organizations/${organizer.organizationId}/usage`, { cookie: organizer.cookie });
   assertEqual(usageAfter.data.usage?.month?.aiRequests || 0, aiRequestsBefore, "a refused (no-credential) AI call never increments usage_counters.ai_requests");
 
+  console.log("\nThe other four Moxie Event Growth hooks — same BYOK gate, same canonical message, never a platform-key fallback");
+  const otherMoxieHooks = [
+    { path: "moxie/speaker-briefing", body: { speakerId } },
+    { path: "moxie/session-research", body: {} },
+    { path: "moxie/audience-insights", body: {} },
+    { path: "moxie/post-event-suggestions", body: {} }
+  ];
+  for (const hook of otherMoxieHooks) {
+    const refusal = await jsonFetch(`/api/sessions/${sessionId}/${hook.path}`, { method: "POST", cookie: organizer.cookie, body: hook.body });
+    assertEqual(refusal.status, 402, `${hook.path} refuses without an organization AI credential`);
+    assertEqual(refusal.data.error, "byok_required", `${hook.path} refusal uses the byok_required error shape`);
+    assertEqual(
+      refusal.data.message,
+      "Moxie requires an AI provider. Connect your API key to enable research, production intelligence, and live assistance.",
+      `${hook.path} refusal uses the exact canonical BYOK message, word for word`
+    );
+  }
+  const usageAfterOthers = await jsonFetch(`/api/organizations/${organizer.organizationId}/usage`, { cookie: organizer.cookie });
+  assertEqual(usageAfterOthers.data.usage?.month?.aiRequests || 0, aiRequestsBefore, "none of the four refused (no-credential) hooks incremented usage_counters.ai_requests");
+
+  const briefingBadSpeaker = await jsonFetch(`/api/sessions/${sessionId}/moxie/speaker-briefing`, { method: "POST", cookie: organizer.cookie, body: {} });
+  assertEqual(briefingBadSpeaker.status, 400, "speaker briefing requires a speakerId (validated before the BYOK gate, so this isn't hidden behind a 402)");
+  // organizer legitimately owns BOTH sessionId (which speakerId actually belongs to) and
+  // createdInSecondOrg (org B) — proves the cross-session speaker check, not just an ownership check.
+  const briefingOtherSpeaker = await jsonFetch(`/api/sessions/${createdInSecondOrg.data.session.id}/moxie/speaker-briefing`, { method: "POST", cookie: organizer.cookie, body: { speakerId } });
+  assertEqual(briefingOtherSpeaker.status, 404, "speaker briefing rejects a speakerId that belongs to a different session, even one the same organizer owns");
+
   console.log("\nPost-event content hooks");
   const artifactCreate = await jsonFetch(`/api/sessions/${sessionId}/artifacts`, {
     method: "POST",
