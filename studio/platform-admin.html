@@ -90,6 +90,11 @@
         <section class="platform-panel" data-panel-view="members">
           <div class="settings-card">
             <div class="panel-heading"><div><h2>Members & access</h2><p class="hint">Roles and account status are platform-authoritative here.</p></div></div>
+            <div class="form-grid three">
+              <label>Invite email<input id="paInviteEmail" type="email" placeholder="name@example.com"></label>
+              <label>Role<select id="paInviteRole"><option value="member">Member</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></label>
+              <label>&nbsp;<button id="paInviteMember" class="btn primary" type="button">Send invite</button></label>
+            </div>
             <div class="table-wrap">
               <table class="settings-table">
                 <thead><tr><th>Person</th><th>Role</th><th>Account</th><th>Actions</th></tr></thead>
@@ -109,7 +114,12 @@
         <section class="platform-panel" data-panel-view="ai">
           <div class="settings-card">
             <h2>AI providers</h2>
-            <p class="hint">You can activate, revoke or delete customer BYOK credentials. Keys are never revealed here. Your founder DeepSeek key remains a platform-admin-only fallback for your own requests.</p>
+            <p class="hint">You can add, replace, activate, revoke or delete customer BYOK credentials. Saved keys are never revealed here. Your founder DeepSeek key remains a platform-admin-only fallback for your own requests.</p>
+            <div class="form-grid three">
+              <label>Provider<select id="paAiProvider"><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Gemini</option></select></label>
+              <label>API key<input id="paAiKey" type="password" autocomplete="new-password" placeholder="Paste key"></label>
+              <label>&nbsp;<button id="paSaveAiKey" class="btn primary" type="button">Save / replace key</button></label>
+            </div>
             <div id="paAiProviders" class="platform-stack"></div>
           </div>
         </section>
