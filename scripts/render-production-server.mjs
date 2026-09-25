@@ -426,6 +426,28 @@ const server = createServer(async (req, res) => {
       return;
     }
   }
+  // ---- Stripe billing ----
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/billing/checkout")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "billing-checkout", 10, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleBillingCheckout(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/billing/portal")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "billing-portal", 10, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleBillingPortal(req, res, session);
+    return;
+  }
+  // No requireCsrf/requireSession here on purpose — Stripe's own servers call this directly (no browser,
+  // no cookie, no Origin header Toasty controls). verifyStripeSignature inside the handler IS the auth.
+  if (req.method === "POST" && req.url === "/webhooks/stripe") {
+    if (!limit(req, res, "stripe-webhook", 100, 60 * 1000)) return;
+    await handleStripeWebhook(req, res);
+    return;
+  }
 
   if (req.method === "GET" && req.url === "/integrations/google-drive/status") {
     const session = await requireSession(req, res);
@@ -2261,6 +2283,190 @@ async function handleAiProviderDelete(req, res, session, organizationId, provide
   sendJson(req, res, 200, { ok: true });
 }
 
+// ---- Stripe billing ----
+// A thin adapter, not Toasty business logic hardwired to Stripe objects — every call goes through
+// stripeRequest()/verifyStripeSignature() below, and every entitlement-affecting write goes through the
+// SAME db("update_organization"/"create_subscription"/"update_subscription") actions a future
+// SolanaBillingAdapter also uses (see Phase 8), so "how a plan gets activated" has one shape regardless of
+// payment rail. No SDK — raw fetch + form-encoding, matching this file's zero-dependency deploy model.
+function stripeConfigured() {
+  return Boolean(STRIPE_SECRET_KEY);
+}
+
+// Stripe's API takes application/x-www-form-urlencoded with bracket notation for nested values
+// (line_items[0][price]=x), not JSON.
+function stripeFormEncode(params, prefix = "") {
+  const pairs = [];
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null) continue;
+    const fullKey = prefix ? `${prefix}[${key}]` : key;
+    if (typeof value === "object" && !Array.isArray(value)) {
+      pairs.push(...stripeFormEncode(value, fullKey).split("&").filter(Boolean));
+    } else if (Array.isArray(value)) {
+      value.forEach((item, index) => {
+        if (typeof item === "object") pairs.push(...stripeFormEncode(item, `${fullKey}[${index}]`).split("&").filter(Boolean));
+        else pairs.push(`${encodeURIComponent(`${fullKey}[${index}]`)}=${encodeURIComponent(item)}`);
+      });
+    } else {
+      pairs.push(`${encodeURIComponent(fullKey)}=${encodeURIComponent(value)}`);
+    }
+  }
+  return pairs.join("&");
+}
+
+async function stripeRequest(path, params, { method = "POST" } = {}) {
+  const body = method === "GET" ? undefined : stripeFormEncode(params);
+  const url = method === "GET" && params ? `https://api.stripe.com/v1${path}?${stripeFormEncode(params)}` : `https://api.stripe.com/v1${path}`;
+  let response;
+  try {
+    response = await fetch(url, {
+      method,
+      signal: AbortSignal.timeout(15000),
+      headers: {
+        authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+        ...(body ? { "content-type": "application/x-www-form-urlencoded" } : {})
+      },
+      body
+    });
+  } catch (error) {
+    console.error("[Toasty Billing] Stripe request failed:", error);
+    throw httpError(502, "Billing provider request failed.");
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    console.error("[Toasty Billing] Stripe error:", response.status, data?.error?.message || data);
+    throw httpError(502, data?.error?.message || "Billing provider request failed.");
+  }
+  return data;
+}
+
+// Stripe's documented scheme (https://stripe.com/docs/webhooks#verify-manually): header is
+// "t=<timestamp>,v1=<signature>[,v1=<signature>...]" (multiple v1 values during secret rotation), the
+// signed payload is "<timestamp>.<raw body>", and the signature is HMAC-SHA256 of that payload with the
+// webhook secret, hex-encoded. A timestamp outside the tolerance window is rejected even with a valid
+// signature, to block replay of an old captured request.
+function verifyStripeSignature(rawBody, signatureHeader, secret, toleranceSeconds = 300) {
+  const parsed = String(signatureHeader || "").split(",").reduce((acc, part) => {
+    const [key, value] = part.split("=");
+    if (key === "t") acc.timestamp = value;
+    if (key === "v1" && value) acc.signatures.push(value);
+    return acc;
+  }, { timestamp: null, signatures: [] });
+  if (!parsed.timestamp || !parsed.signatures.length) return false;
+  const expected = createHmac("sha256", secret).update(`${parsed.timestamp}.${rawBody}`).digest("hex");
+  const expectedBuf = Buffer.from(expected, "utf8");
+  const signatureMatches = parsed.signatures.some((sig) => {
+    const sigBuf = Buffer.from(sig, "utf8");
+    return sigBuf.length === expectedBuf.length && timingSafeEqual(sigBuf, expectedBuf);
+  });
+  if (!signatureMatches) return false;
+  const ageSeconds = Math.abs(Date.now() / 1000 - Number(parsed.timestamp));
+  return ageSeconds <= toleranceSeconds;
+}
+
+async function ensureStripeCustomer(organizationId, session) {
+  const billing = await db("get_billing_account", { organizationId });
+  if (billing.billingAccount?.stripeCustomerId) return billing.billingAccount.stripeCustomerId;
+  const org = await db("get_organization", { id: organizationId });
+  const customer = await stripeRequest("/customers", { email: session.email, name: org.organization?.name || undefined, metadata: { organizationId } });
+  await db("upsert_billing_account", { organizationId, stripeCustomerId: customer.id, billingEmail: session.email });
+  return customer.id;
+}
+
+async function handleBillingCheckout(req, res, session) {
+  // Authorization is checked BEFORE revealing whether billing is even configured — a non-owner probing
+  // this route should not be able to learn server configuration state they have no business asking about.
+  const organizationId = organizationIdFromUrl(req, "/billing/checkout");
+  const membership = await requireMembership(req, res, organizationId, "owner", session);
+  if (!membership) return;
+  if (!stripeConfigured()) return sendJson(req, res, 503, { error: "Card billing isn't configured on the server yet." });
+  const body = await readJson(req);
+  const plan = body?.plan;
+  const priceId = STRIPE_PRICE_IDS[plan];
+  if (!priceId) return sendJson(req, res, 400, { error: "Unknown or unpriced plan." });
+  const customerId = await ensureStripeCustomer(organizationId, session);
+  const checkoutSession = await stripeRequest("/checkout/sessions", {
+    mode: "subscription",
+    customer: customerId,
+    line_items: [{ price: priceId, quantity: 1 }],
+    client_reference_id: organizationId,
+    metadata: { organizationId, plan },
+    subscription_data: { metadata: { organizationId, plan } },
+    success_url: `${APP_BASE_URL}/studio/?billing=success`,
+    cancel_url: `${APP_BASE_URL}/studio/?billing=cancelled`
+  });
+  sendJson(req, res, 200, { url: checkoutSession.url });
+}
+
+async function handleBillingPortal(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/billing/portal");
+  const membership = await requireMembership(req, res, organizationId, "owner", session);
+  if (!membership) return;
+  if (!stripeConfigured()) return sendJson(req, res, 503, { error: "Card billing isn't configured on the server yet." });
+  const billing = await db("get_billing_account", { organizationId });
+  if (!billing.billingAccount?.stripeCustomerId) return sendJson(req, res, 400, { error: "No billing account on file yet — subscribe first." });
+  const portalSession = await stripeRequest("/billing_portal/sessions", {
+    customer: billing.billingAccount.stripeCustomerId,
+    return_url: `${APP_BASE_URL}/studio/`
+  });
+  sendJson(req, res, 200, { url: portalSession.url });
+}
+
+// Webhook handlers activate/deactivate entitlements — this is the ONE place client-side payment state
+// becomes real. Nothing in the checkout/portal routes above ever grants a plan directly; they only ever
+// redirect to Stripe, which redirects back, and Stripe separately (and asynchronously) calls THIS route
+// server-to-server once it has actually confirmed payment. See the brief's "Never trust client-side
+// payment state" requirement.
+async function handleStripeWebhook(req, res) {
+  if (!STRIPE_WEBHOOK_SECRET) return sendJson(req, res, 503, { error: "Stripe webhook is not configured." });
+  const rawBody = await readRawBody(req);
+  const signature = req.headers["stripe-signature"];
+  if (!verifyStripeSignature(rawBody, signature, STRIPE_WEBHOOK_SECRET)) {
+    console.error("[Toasty Billing] Rejected a Stripe webhook with an invalid or stale signature.");
+    return sendJson(req, res, 400, { error: "Invalid signature." });
+  }
+  let event;
+  try {
+    event = JSON.parse(rawBody);
+  } catch {
+    return sendJson(req, res, 400, { error: "Invalid payload." });
+  }
+
+  const obj = event.data?.object || {};
+  if (event.type === "checkout.session.completed") {
+    const organizationId = obj.client_reference_id || obj.metadata?.organizationId;
+    const plan = obj.metadata?.plan;
+    if (organizationId && plan) {
+      await db("upsert_billing_account", { organizationId, stripeCustomerId: obj.customer });
+      await db("create_subscription", { id: randomUUID(), organizationId, provider: "stripe", plan, status: "active", externalSubscriptionId: obj.subscription });
+      await db("update_organization", { id: organizationId, plan, subscriptionStatus: "active" });
+    }
+  } else if (event.type === "customer.subscription.updated" || event.type === "customer.subscription.deleted") {
+    const organizationId = obj.metadata?.organizationId;
+    const status = event.type === "customer.subscription.deleted" ? "canceled" : (obj.status || "active");
+    if (organizationId) {
+      // A webhook only ever knows STRIPE's subscription id (obj.id) — never this table's own row id — so
+      // the matching row has to be found by external_subscription_id first (see the note on
+      // get_subscription_by_external_id in toasty-auth-db.py).
+      const existing = await db("get_subscription_by_external_id", { provider: "stripe", externalSubscriptionId: obj.id });
+      if (existing.subscription) {
+        await db("update_subscription", {
+          id: existing.subscription.id,
+          status,
+          currentPeriodEnd: obj.current_period_end ? new Date(obj.current_period_end * 1000).toISOString() : undefined,
+          cancelAtPeriodEnd: Boolean(obj.cancel_at_period_end)
+        });
+      }
+      const downgradedPlan = status === "canceled" ? "demo" : undefined;
+      await db("update_organization", { id: organizationId, subscriptionStatus: status, ...(downgradedPlan ? { plan: downgradedPlan } : {}) });
+    }
+  } else if (event.type === "invoice.payment_failed") {
+    const organizationId = obj.subscription_details?.metadata?.organizationId || obj.metadata?.organizationId;
+    if (organizationId) await db("update_organization", { id: organizationId, subscriptionStatus: "past_due" });
+  }
+  sendJson(req, res, 200, { received: true });
+}
+
 async function hashPassword(password) {
   const salt = randomBytes(16).toString("hex");
   const key = await scryptAsync(password, salt, 64);
@@ -3630,6 +3836,19 @@ async function readJson(req, maxBytes = 64 * 1024) {
   } catch {
     throw httpError(400, "Invalid JSON request.");
   }
+}
+
+// Stripe webhook signature verification needs the EXACT bytes Stripe signed — readJson's parse-and-discard
+// would make that impossible to recover, so this is a separate raw reader used only by the webhook route.
+async function readRawBody(req, maxBytes = 256 * 1024) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maxBytes) throw httpError(413, "Request is too large.");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 function cleanName(value) {

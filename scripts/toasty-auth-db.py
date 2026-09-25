@@ -2663,6 +2663,16 @@ def main():
         print(json.dumps({"subscriptions": [subscription_public(row) for row in rows]}))
         return
 
+    # A webhook (Stripe or, later, a Solana confirmation job) only ever knows the PROVIDER's own
+    # subscription/payment id, never this table's internal row id — this is how it finds the row to update.
+    if action == "get_subscription_by_external_id":
+        row = conn.execute(
+            "SELECT * FROM subscriptions WHERE provider = ? AND external_subscription_id = ? ORDER BY created_at DESC LIMIT 1",
+            (payload["provider"], payload["externalSubscriptionId"]),
+        ).fetchone()
+        print(json.dumps({"subscription": subscription_public(row)}))
+        return
+
     # ---- AI provider credentials ----
     # encrypted_credential is opaque ciphertext to this script — it never decrypts it, only stores/returns
     # it for the Node process (which holds TOASTY_TOKEN_ENCRYPTION_KEY) to decrypt at the moment of use.
