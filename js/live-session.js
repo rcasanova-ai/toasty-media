@@ -557,7 +557,17 @@ export class LiveSession {
     this.presence.onRejected((status, errorMessage) => this._handleHostPresenceRejected(status, errorMessage));
     this.presence.start(transportSourceId);
     this._startHostActivityMeter();
-    this.audioMixer.addParticipant({ participantId: "host", stream: this._hostPreviewStream, label: name });
+    // ROOT CAUSE of severe self-echo/feedback (matches js/listener.js's identically-named fix, never
+    // ported here): passing a real `stream` connects the Host's own live mic into this.programAudio's
+    // shared graph (programGain -> monitorGain -> ctx.destination), which is the Host's own speakers.
+    // The AudioContext starts suspended (silent) but ANY soundboard PLAY_AUDIO resumes it via
+    // ProgramAudioBus.play() — from that moment the Host hears their own voice played back locally,
+    // which their live mic (VDO's independent capture) picks up again and republishes: a genuine
+    // feedback loop, not just wasted CPU. No stream here (transportLimited bookkeeping only, exactly
+    // listener.js's syncProgramAudio pattern) never affects recording — startRecording() below always
+    // passes video:null, so composed mode (the only consumer of audioMixer.masterStream()) never
+    // activates; recording is a tab-capture of the separate Program Output window instead.
+    this.audioMixer.addParticipant({ participantId: "host", label: name, transportLimited: true });
     this.timeline.record(ProductionEventType.PARTICIPANT_JOINED, { role: "host" }, { participantId: "host", sessionId: this.durableSession?.id || this.roomId });
     this.setHostState(HostState.IN_STUDIO);
     this.exposeProgramSources();
