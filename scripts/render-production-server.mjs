@@ -4813,24 +4813,15 @@ async function handleAudienceIdentityUpsert(req, res) {
   const body = await readJson(req);
   const anonymousId = sessionText(body.anonymousId, 80);
   if (!SAFE_ID.test(anonymousId)) throw httpError(400, "Invalid identity request.");
-  // A visitor's very first identity write may happen before any session is known (organization-wide
-  // visitor identity), so a bare organizationId is still accepted directly here — but when a sessionId
-  // is given (the normal case: a visitor landed on one specific event page), the organization is always
-  // derived server-side from that session, exactly like every other Event Growth child row, rather than
-  // trusted from the client — the public event page itself is never told its own organizationId.
-  let organizationId = null;
+  // Public identity writes must be anchored to a real session. Never accept a bare organization id
+  // from an unauthenticated browser: that would let anyone who learned an org id inject/enrich audience
+  // identities for that tenant. The event page already knows its session id, and organization ownership
+  // is derived server-side from that parent session.
   const sessionId = sessionText(body.sessionId, 80);
-  if (sessionId) {
-    if (!SAFE_ID.test(sessionId)) throw httpError(400, "Invalid identity request.");
-    const owning = await db("session_get_organization", { id: sessionId });
-    if (!owning.organizationId) throw httpError(404, "Session not found.");
-    organizationId = owning.organizationId;
-  } else {
-    organizationId = sessionText(body.organizationId, 80);
-    if (!SAFE_ID.test(organizationId)) throw httpError(400, "Invalid identity request.");
-    const orgCheck = await db("get_organization", { id: organizationId });
-    if (!orgCheck.organization) throw httpError(404, "Organization not found.");
-  }
+  if (!SAFE_ID.test(sessionId)) throw httpError(400, "A valid sessionId is required for audience identity.");
+  const owning = await db("session_get_organization", { id: sessionId });
+  if (!owning.organizationId) throw httpError(404, "Session not found.");
+  const organizationId = owning.organizationId;
   const result = await db("audience_identity_upsert", {
     id: newId("aid"),
     organizationId,
