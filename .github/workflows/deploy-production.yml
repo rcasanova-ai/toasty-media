@@ -43,7 +43,7 @@ jobs:
         id: changes
         run: |
           set -euo pipefail
-          FILTER='^(\.htaccess$|index\.html$|site/|ricardo/|studio/|admin/|peeps/|css/|js/|shared/|assets/|articles/|eloquencebonus/|thank-you\.html$|5-Day Executive Program\.pdf$|Eloquence Cheat Sheet\.pdf$|casanova_case_study\.pdf$|ricardo_casanova_resumeJune2026\.pdf$)'
+          FILTER='^(\.htaccess$|index\.html$|site/|ricardo/|studio/|admin/|app/|experts/|peeps/|css/|js/|shared/|assets/|articles/|eloquencebonus/|thank-you\.html$|5-Day Executive Program\.pdf$|Eloquence Cheat Sheet\.pdf$|casanova_case_study\.pdf$|ricardo_casanova_resumeJune2026\.pdf$)'
           # scripts/ is intentionally excluded: this job SSHes to the LiteSpeed static host
           # (toasty.media). The canonical auth helper belongs on the Ubuntu render host
           # (render.toasty.media → 127.0.0.1:4174). Shipping Python onto the public web root
@@ -105,6 +105,8 @@ jobs:
           curl --fail --silent --show-error --location https://toasty.media/studio/ >/dev/null
           curl --fail --silent --show-error --location https://toasty.media/studio/experts.html >/tmp/guest.html
           curl --fail --silent --show-error --location https://toasty.media/admin/ >/dev/null
+          curl --fail --silent --show-error --location https://toasty.media/app/ >/tmp/legacy-app.html
+          curl --fail --silent --show-error --location https://toasty.media/experts/ >/tmp/legacy-experts.html
           if [[ -f peeps/index.html ]]; then
             curl --fail --silent --show-error --location https://toasty.media/peeps/ >/tmp/peeps.html
             curl --fail --silent --show-error --location https://toasty.media/peeps/app/ >/tmp/peeps-app.html
