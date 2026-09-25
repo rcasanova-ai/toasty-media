@@ -2791,8 +2791,12 @@ async function loadSponsorInvite(token) {
 async function handleSponsorInviteGet(req, res) {
   const token = tokenFromInviteUrl(req, "/api/sponsor-invites/");
   const { sponsor } = await loadSponsorInvite(token);
+  const sessionResult = await db("session_get", { id: sponsor.sessionId, ownerUserId: sponsor.ownerUserId });
   const { ownerUserId, ...publicSponsor } = sponsor;
-  sendJson(req, res, 200, { sponsor: publicSponsor });
+  sendJson(req, res, 200, {
+    sponsor: publicSponsor,
+    event: sessionResult.session ? { title: sessionResult.session.title, brandId: sessionResult.session.brandId } : null
+  });
 }
 
 async function handleSponsorInviteKit(req, res) {
