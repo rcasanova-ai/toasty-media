@@ -2,7 +2,7 @@ import { studioApiEndpoint } from "./studio-api.js";
 import { applyBrandTheme, getInitialBrandTheme, normalizeBrandTheme } from "./brand-themes.js";
 
 const state = {
-  mode: "signup",
+  mode: "login",
   appLoaded: false,
   // useStorage:false on purpose: this is the LOGGED-OUT public gate. localStorage's saved brand is
   // authenticated-session state (set when a signed-in host picks a brand inside director.js) — reading

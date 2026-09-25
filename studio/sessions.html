@@ -51,11 +51,11 @@
             <span>Private production workspace</span>
           </div>
           <div class="auth-tabs" role="tablist" aria-label="Studio access">
-            <button id="showSignup" class="auth-tab is-active" type="button" role="tab" aria-selected="true">Create Account</button>
-            <button id="showLogin" class="auth-tab" type="button" role="tab" aria-selected="false">Sign In</button>
+            <button id="showSignup" class="auth-tab" type="button" role="tab" aria-selected="false">Create Account</button>
+            <button id="showLogin" class="auth-tab is-active" type="button" role="tab" aria-selected="true">Sign In</button>
           </div>
 
-          <form id="signupForm" class="auth-form" autocomplete="on">
+          <form id="signupForm" class="auth-form" autocomplete="on" hidden>
             <h2 id="authTitle">Create your Studio account</h2>
             <label>Name<input id="signupName" name="name" autocomplete="name" required></label>
             <label>Email<input id="signupEmail" name="email" type="email" autocomplete="email" required></label>
@@ -63,7 +63,7 @@
             <button class="public-button" type="submit">Create account</button>
           </form>
 
-          <form id="loginForm" class="auth-form" autocomplete="on" hidden>
+          <form id="loginForm" class="auth-form" autocomplete="on">
             <h2>Sign in to Studio</h2>
             <label>Email<input id="loginEmail" name="email" type="email" autocomplete="email" required></label>
             <label>Password<input id="loginPassword" name="password" type="password" autocomplete="current-password" required></label>
