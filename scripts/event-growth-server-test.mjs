@@ -131,6 +131,10 @@ async function main() {
   assertEqual(techCheck.status, 201, "tech check records");
   assertEqual(techCheck.data.techCheck.speakerOk, false, "tech check preserves a real failure, not just happy path");
 
+  const orgTechCheckRead = await jsonFetch(`/api/speakers/${speakerId}/tech-check`, { cookie: organizer.cookie });
+  assertEqual(orgTechCheckRead.status, 200, "organizer can read a speaker's latest tech check");
+  assertEqual(orgTechCheckRead.data.techCheck.speakerOk, false, "organizer sees the same real result the guest submitted");
+
   const consentMissing = await jsonFetch(`/api/speaker-invites/${token}/consent`, { method: "POST", body: { requiredAcceptances: [] } });
   assertEqual(consentMissing.status, 400, "empty required acceptances is rejected");
 

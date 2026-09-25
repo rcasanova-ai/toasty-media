@@ -337,6 +337,13 @@ const server = createServer(async (req, res) => {
     await handleSpeakerInviteIssue(req, res, session);
     return;
   }
+  if (req.method === "GET" && req.url?.startsWith("/api/speakers/") && req.url.endsWith("/tech-check")) {
+    if (!limit(req, res, "speakers-tech-check-get", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSpeakerTechCheckLatest(req, res, session);
+    return;
+  }
   // Guest path — no account. Token in the URL is the only credential; rate-limited per IP, expiring,
   // single-use-at-redemption (see toasty-auth-db.py's speaker_invite_redeem).
   if (req.method === "GET" && req.url?.startsWith("/api/speaker-invites/")) {
@@ -2676,6 +2683,13 @@ async function recordConsent(req, { ownerUserId, sessionId, participantType, par
     documentHash: sessionText(body.documentHash, 128)
   });
   return result;
+}
+
+async function handleSpeakerTechCheckLatest(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/speakers/".length, -"/tech-check".length));
+  const speaker = await requireOwnedSpeaker(id, authSession);
+  const result = await db("tech_check_latest", { speakerId: speaker.id });
+  sendJson(req, res, 200, { techCheck: result.techCheck });
 }
 
 async function handleConsentList(req, res, authSession) {
