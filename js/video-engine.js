@@ -415,12 +415,13 @@ function normalizeGuestListEntries(raw) {
 
 // URL/query surface for one guest publisher. Exported so tests can prove two guests in the same
 // room differ only by push id — no shared password/hash/scene/director/iframe name.
-export function buildGuestPublisherParams({roomId,guestName,backgroundMode,videoDeviceLabel,audioDeviceLabel,streamId,micMuted,isMobile}={}) {
+export function buildGuestPublisherParams({roomId,password,guestName,backgroundMode,videoDeviceLabel,audioDeviceLabel,streamId,micMuted,isMobile}={}) {
   const id=streamId||createGuestStreamId(roomId);
   return {
     streamId: id,
     params: {
       room:roomId,
+      password:password||undefined,
       push:id,
       label:guestName||"Guest",
       webcam:"1",
