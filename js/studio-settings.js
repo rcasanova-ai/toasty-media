@@ -30,7 +30,7 @@ async function init() {
 
   const session = await studioRequest("/auth/session", { method: "GET" }).catch(() => ({ authenticated: false }));
   if (!session.authenticated) {
-    window.location.href = "./";
+    window.location.href = "./sessions.html";
     return;
   }
 
@@ -413,7 +413,7 @@ async function signOut() {
   } catch (_) {
     // Navigate away regardless.
   }
-  window.location.href = "./";
+  window.location.href = "./sessions.html";
 }
 
 function setBadge(el, text, cls) {

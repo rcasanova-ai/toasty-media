@@ -1,6 +1,10 @@
 // Shared logic for the small account-flow landing pages that real emails link to: verify-email.html,
-// reset-password.html, accept-invite.html, and the "forgot password" mode on studio/index.html. Each page
-// calls exactly one of the exported init functions.
+// reset-password.html, accept-invite.html, and the "forgot password" mode on studio/sessions.html. Each
+// page calls exactly one of the exported init functions.
+//
+// Every link back into the app points at sessions.html, not "./" — studio/index.html is now a pure
+// marketing page (see the "Split Studio sales page from sessions workspace" commit on main); sessions.html
+// is where sign-in/sign-up and the authenticated app shell actually live.
 import { studioRequest } from "./studio-api.js";
 
 function readToken() {
@@ -23,7 +27,7 @@ export async function initVerifyEmail() {
   try {
     await studioRequest("/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) });
     setStatus(statusEl, "Your email is verified.");
-    actionEl.innerHTML = `<a class="public-button" href="./">Go to Studio</a>`;
+    actionEl.innerHTML = `<a class="public-button" href="./sessions.html">Go to Studio</a>`;
   } catch (error) {
     setStatus(statusEl, error.message, true);
   }
@@ -52,7 +56,7 @@ export function initResetPassword() {
       await studioRequest("/auth/reset-password", { method: "POST", body: JSON.stringify({ token, newPassword }) });
       setStatus(statusEl, "Password updated. You can sign in now.");
       form.hidden = true;
-      document.getElementById("flowAction").innerHTML = `<a class="public-button" href="./">Sign in</a>`;
+      document.getElementById("flowAction").innerHTML = `<a class="public-button" href="./sessions.html">Sign in</a>`;
     } catch (error) {
       setStatus(statusEl, error.message, true);
       form.querySelectorAll("input, button").forEach((el) => { el.disabled = false; });
@@ -71,14 +75,14 @@ export async function initAcceptInvite() {
   const session = await studioRequest("/auth/session", { method: "GET" }).catch(() => ({ authenticated: false }));
   if (!session.authenticated) {
     setStatus(statusEl, "Sign in or create a Studio account with the email this invite was sent to, then return to this link to accept it.");
-    actionEl.innerHTML = `<a class="public-button" href="./?next=${encodeURIComponent(window.location.href)}">Go to sign in</a>`;
+    actionEl.innerHTML = `<a class="public-button" href="./sessions.html?next=${encodeURIComponent(window.location.href)}">Go to sign in</a>`;
     return;
   }
   setStatus(statusEl, "Accepting invite...");
   try {
     await studioRequest("/api/invites/accept", { method: "POST", body: JSON.stringify({ token }) });
     setStatus(statusEl, "You've joined the organization.");
-    actionEl.innerHTML = `<a class="public-button" href="./">Go to Studio</a>`;
+    actionEl.innerHTML = `<a class="public-button" href="./sessions.html">Go to Studio</a>`;
   } catch (error) {
     setStatus(statusEl, error.message, true);
   }

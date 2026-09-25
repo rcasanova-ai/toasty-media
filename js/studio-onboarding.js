@@ -39,7 +39,7 @@ async function init() {
 
   const session = await studioRequest("/auth/session", { method: "GET" }).catch(() => ({ authenticated: false }));
   if (!session.authenticated) {
-    window.location.href = "./";
+    window.location.href = "./sessions.html";
     return;
   }
 
