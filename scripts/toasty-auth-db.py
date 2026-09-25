@@ -592,6 +592,224 @@ def migrate(conn):
     # Reusable production setup (brand/type/layouts/policy/ROS template). Distinct from session_program,
     # which is the live scene and must never be copied as history on duplicate.
     ensure_columns(conn, "live_sessions", {"setup_json": "TEXT NOT NULL DEFAULT '{}'"})
+
+    # ---- Accounts / Organizations / Billing / Entitlements ----
+    # A user can belong to N organizations (memberships); an organization owns branding, billing, AI
+    # credentials, and usage — never a single user. Existing single-user concepts (live_sessions.
+    # owner_user_id, users.locked_brand_id/brand_mode) are left untouched for backward compatibility;
+    # live_sessions gains an ADDITIONAL nullable organization_id below rather than replacing owner_user_id,
+    # so every route written against the old column keeps working unchanged during the tenancy rollout.
+    ensure_columns(conn, "users", {"email_verified_at": "TEXT"})
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS organizations (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          slug TEXT NOT NULL UNIQUE,
+          owner_user_id TEXT NOT NULL REFERENCES users(id),
+          active_brand_profile_id TEXT,
+          plan TEXT NOT NULL DEFAULT 'demo',
+          subscription_status TEXT NOT NULL DEFAULT 'none',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_organizations_slug ON organizations(slug)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_organizations_owner ON organizations(owner_user_id)")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS memberships (
+          id TEXT PRIMARY KEY,
+          organization_id TEXT NOT NULL REFERENCES organizations(id),
+          user_id TEXT NOT NULL REFERENCES users(id),
+          role TEXT NOT NULL DEFAULT 'member',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_memberships_org_user ON memberships(organization_id, user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id)")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS organization_settings (
+          organization_id TEXT PRIMARY KEY REFERENCES organizations(id),
+          website_url TEXT NOT NULL DEFAULT '',
+          booking_url TEXT NOT NULL DEFAULT '',
+          support_email TEXT NOT NULL DEFAULT '',
+          timezone TEXT NOT NULL DEFAULT 'UTC',
+          default_session_settings_json TEXT NOT NULL DEFAULT '{}',
+          default_cta_json TEXT NOT NULL DEFAULT '{}',
+          default_end_card_json TEXT NOT NULL DEFAULT '{}',
+          social_links_json TEXT NOT NULL DEFAULT '{}',
+          custom_domain_config_json TEXT NOT NULL DEFAULT '{}',
+          onboarding_completed_at TEXT,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+    # Organization-owned brand content. base_theme_id is one of js/brand-themes.js's hardcoded ids
+    # (client-side fallback for every field an org hasn't overridden yet); overrides_json layers org-
+    # specific vars/copy/artwork on top. This is intentionally additive to, not a replacement of, the
+    # existing hardcoded BRAND_THEMES table — see docs findings on brand-themes.js/brand-profile.js.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS brand_profiles (
+          id TEXT PRIMARY KEY,
+          organization_id TEXT NOT NULL REFERENCES organizations(id),
+          name TEXT NOT NULL DEFAULT 'Default',
+          base_theme_id TEXT NOT NULL DEFAULT 'toasty',
+          overrides_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_brand_profiles_org ON brand_profiles(organization_id)")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS billing_accounts (
+          organization_id TEXT PRIMARY KEY REFERENCES organizations(id),
+          stripe_customer_id TEXT,
+          preferred_payment_method TEXT NOT NULL DEFAULT '',
+          billing_email TEXT NOT NULL DEFAULT '',
+          currency TEXT NOT NULL DEFAULT 'usd',
+          billing_metadata_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS subscriptions (
+          id TEXT PRIMARY KEY,
+          organization_id TEXT NOT NULL REFERENCES organizations(id),
+          provider TEXT NOT NULL,
+          plan TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'inactive',
+          current_period_start TEXT,
+          current_period_end TEXT,
+          cancel_at_period_end INTEGER NOT NULL DEFAULT 0,
+          external_subscription_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_subscriptions_org ON subscriptions(organization_id, status)")
+
+    # encrypted_credential is ciphertext only (see render-production-server.mjs's encryptSecret, the same
+    # AES-256-GCM helper already used for Google OAuth tokens) — the plaintext key is NEVER stored and
+    # never returned to the browser after the initial save. key_last4 is display-only.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ai_provider_credentials (
+          id TEXT PRIMARY KEY,
+          organization_id TEXT NOT NULL REFERENCES organizations(id),
+          provider TEXT NOT NULL,
+          encrypted_credential TEXT NOT NULL,
+          key_last4 TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'active',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_credentials_org_provider ON ai_provider_credentials(organization_id, provider)")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS usage_counters (
+          organization_id TEXT NOT NULL REFERENCES organizations(id),
+          period_start TEXT NOT NULL,
+          sessions_created INTEGER NOT NULL DEFAULT 0,
+          render_jobs INTEGER NOT NULL DEFAULT 0,
+          render_minutes REAL NOT NULL DEFAULT 0,
+          recording_minutes REAL NOT NULL DEFAULT 0,
+          storage_bytes INTEGER NOT NULL DEFAULT 0,
+          ai_requests INTEGER NOT NULL DEFAULT 0,
+          participant_minutes REAL NOT NULL DEFAULT 0,
+          uploads_bytes INTEGER NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (organization_id, period_start)
+        )
+        """
+    )
+
+    # Solana (and future Stripe-adjacent) payment intents for organization billing — deliberately separate
+    # from the existing `payments` table above, which is the expert-marketplace booking/settlement ledger
+    # (different lifecycle: one-off x402 booking payment vs. a prepaid subscription term). `reference` is
+    # the unique on-chain memo/reference key used to find and verify the matching transaction server-side;
+    # `transaction_signature` is UNIQUE so a signature can never be credited to two intents.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS billing_payment_intents (
+          id TEXT PRIMARY KEY,
+          organization_id TEXT NOT NULL REFERENCES organizations(id),
+          provider TEXT NOT NULL DEFAULT 'solana',
+          asset TEXT NOT NULL,
+          network TEXT NOT NULL,
+          fiat_reference_amount REAL NOT NULL,
+          crypto_amount REAL NOT NULL,
+          recipient_wallet TEXT NOT NULL,
+          reference TEXT NOT NULL UNIQUE,
+          transaction_signature TEXT UNIQUE,
+          status TEXT NOT NULL DEFAULT 'pending',
+          plan TEXT NOT NULL,
+          term_days INTEGER NOT NULL,
+          expires_at TEXT NOT NULL,
+          paid_at TEXT,
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_payment_intents_org ON billing_payment_intents(organization_id, status)")
+
+    # One-time tokens: only a hash is ever stored (scrypt via the same helper as passwords), matching the
+    # brief's explicit "store token hash, not raw token" requirement for both email verification and
+    # password reset. consumed_at makes a token single-use; expires_at is enforced by the caller.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS email_verification_tokens (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          token_hash TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          consumed_at TEXT,
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_email_verification_user ON email_verification_tokens(user_id)")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          token_hash TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          consumed_at TEXT,
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_password_reset_user ON password_reset_tokens(user_id)")
+
+    # Additive tenancy link on the existing broadcast-room table — nullable so every pre-existing row
+    # (and every route that doesn't yet pass an organizationId) keeps working unchanged.
+    ensure_columns(conn, "live_sessions", {"organization_id": "TEXT REFERENCES organizations(id)"})
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_live_sessions_org ON live_sessions(organization_id)")
+
     conn.commit()
 
 
@@ -625,6 +843,7 @@ def public_user(row):
         "status": row["status"],
         "branding": user_branding(row),
         "endCard": user_end_card(row),
+        "emailVerifiedAt": row["email_verified_at"] if _row_has(row, "email_verified_at") else None,
     }
 
 
@@ -633,6 +852,176 @@ def _row_has(row, key):
         return key in row.keys()
     except Exception:
         return False
+
+
+def _json_field(row, key, default):
+    if not row or not _row_has(row, key) or row[key] is None:
+        return default
+    try:
+        return json.loads(row[key])
+    except (TypeError, ValueError):
+        return default
+
+
+def org_public(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "slug": row["slug"],
+        "ownerUserId": row["owner_user_id"],
+        "activeBrandProfileId": row["active_brand_profile_id"],
+        "plan": row["plan"],
+        "subscriptionStatus": row["subscription_status"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def membership_public(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "organizationId": row["organization_id"],
+        "userId": row["user_id"],
+        "role": row["role"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def org_settings_public(row):
+    if not row:
+        return None
+    return {
+        "organizationId": row["organization_id"],
+        "websiteUrl": row["website_url"],
+        "bookingUrl": row["booking_url"],
+        "supportEmail": row["support_email"],
+        "timezone": row["timezone"],
+        "defaultSessionSettings": _json_field(row, "default_session_settings_json", {}),
+        "defaultCTA": _json_field(row, "default_cta_json", {}),
+        "defaultEndCard": _json_field(row, "default_end_card_json", {}),
+        "socialLinks": _json_field(row, "social_links_json", {}),
+        "customDomainConfig": _json_field(row, "custom_domain_config_json", {}),
+        "onboardingCompletedAt": row["onboarding_completed_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def brand_profile_public(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "organizationId": row["organization_id"],
+        "name": row["name"],
+        "baseThemeId": row["base_theme_id"],
+        "overrides": _json_field(row, "overrides_json", {}),
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def billing_account_public(row):
+    if not row:
+        return None
+    return {
+        "organizationId": row["organization_id"],
+        "stripeCustomerId": row["stripe_customer_id"],
+        "preferredPaymentMethod": row["preferred_payment_method"],
+        "billingEmail": row["billing_email"],
+        "currency": row["currency"],
+        "billingMetadata": _json_field(row, "billing_metadata_json", {}),
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def subscription_public(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "organizationId": row["organization_id"],
+        "provider": row["provider"],
+        "plan": row["plan"],
+        "status": row["status"],
+        "currentPeriodStart": row["current_period_start"],
+        "currentPeriodEnd": row["current_period_end"],
+        "cancelAtPeriodEnd": bool(row["cancel_at_period_end"]),
+        "externalSubscriptionId": row["external_subscription_id"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+# include_secret=True returns encrypted_credential (still ciphertext — see migrate()'s comment); this is
+# ONLY used by get_ai_provider_credential, which is only ever called server-side at the moment an AI
+# request is about to be proxied. Every other caller (list/upsert response) passes include_secret=False.
+def ai_credential_public(row, include_secret=False):
+    if not row:
+        return None
+    out = {
+        "id": row["id"],
+        "organizationId": row["organization_id"],
+        "provider": row["provider"],
+        "keyLast4": row["key_last4"],
+        "status": row["status"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+    if include_secret:
+        out["encryptedCredential"] = row["encrypted_credential"]
+    return out
+
+
+def usage_public(row, organization_id, period_start):
+    if not row:
+        return {
+            "organizationId": organization_id,
+            "periodStart": period_start,
+            "sessionsCreated": 0, "renderJobs": 0, "renderMinutes": 0, "recordingMinutes": 0,
+            "storageBytes": 0, "aiRequests": 0, "participantMinutes": 0, "uploadsBytes": 0,
+        }
+    return {
+        "organizationId": row["organization_id"],
+        "periodStart": row["period_start"],
+        "sessionsCreated": row["sessions_created"],
+        "renderJobs": row["render_jobs"],
+        "renderMinutes": row["render_minutes"],
+        "recordingMinutes": row["recording_minutes"],
+        "storageBytes": row["storage_bytes"],
+        "aiRequests": row["ai_requests"],
+        "participantMinutes": row["participant_minutes"],
+        "uploadsBytes": row["uploads_bytes"],
+    }
+
+
+def payment_intent_public(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "organizationId": row["organization_id"],
+        "provider": row["provider"],
+        "asset": row["asset"],
+        "network": row["network"],
+        "fiatReferenceAmount": row["fiat_reference_amount"],
+        "cryptoAmount": row["crypto_amount"],
+        "recipientWallet": row["recipient_wallet"],
+        "reference": row["reference"],
+        "transactionSignature": row["transaction_signature"],
+        "status": row["status"],
+        "plan": row["plan"],
+        "termDays": row["term_days"],
+        "expiresAt": row["expires_at"],
+        "paidAt": row["paid_at"],
+        "metadata": _json_field(row, "metadata_json", {}),
+        "createdAt": row["created_at"],
+    }
 
 
 def user_branding(row):
@@ -1862,6 +2251,584 @@ def main():
         )
         conn.commit()
         print(json.dumps({"ok": True, "roster": presence_roster(conn, room_id)}))
+        return
+
+    # ---- Organizations ----
+
+    if action == "create_organization":
+        now = utc_now()
+        org_id = payload["id"]
+        try:
+            conn.execute(
+                """
+                INSERT INTO organizations (id, name, slug, owner_user_id, plan, subscription_status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 'demo', 'none', ?, ?)
+                """,
+                (org_id, payload["name"], payload["slug"], payload["ownerUserId"], now, now),
+            )
+            conn.execute(
+                "INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 'owner', ?, ?)",
+                (payload["membershipId"], org_id, payload["ownerUserId"], now, now),
+            )
+            conn.execute(
+                "INSERT INTO organization_settings (organization_id, updated_at) VALUES (?, ?)",
+                (org_id, now),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            print(json.dumps({"error": "duplicate_slug"}))
+            return
+        print(json.dumps({"organization": org_public(conn.execute("SELECT * FROM organizations WHERE id = ?", (org_id,)).fetchone())}))
+        return
+
+    if action == "get_organization":
+        row = conn.execute("SELECT * FROM organizations WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"organization": org_public(row)}))
+        return
+
+    if action == "get_organization_by_slug":
+        row = conn.execute("SELECT * FROM organizations WHERE slug = ?", (payload["slug"],)).fetchone()
+        print(json.dumps({"organization": org_public(row)}))
+        return
+
+    if action == "list_user_organizations":
+        rows = conn.execute(
+            """
+            SELECT o.*, m.role AS member_role FROM organizations o
+            JOIN memberships m ON m.organization_id = o.id
+            WHERE m.user_id = ?
+            ORDER BY o.created_at ASC
+            """,
+            (payload["userId"],),
+        ).fetchall()
+        out = []
+        for row in rows:
+            item = org_public(row)
+            item["role"] = row["member_role"]
+            out.append(item)
+        print(json.dumps({"organizations": out}))
+        return
+
+    if action == "update_organization":
+        now = utc_now()
+        fields = []
+        values = []
+        for key, column in (("name", "name"), ("slug", "slug"), ("activeBrandProfileId", "active_brand_profile_id"), ("plan", "plan"), ("subscriptionStatus", "subscription_status")):
+            if key in payload:
+                fields.append(f"{column} = ?")
+                values.append(payload[key])
+        if not fields:
+            print(json.dumps({"organization": org_public(conn.execute("SELECT * FROM organizations WHERE id = ?", (payload["id"],)).fetchone())}))
+            return
+        fields.append("updated_at = ?")
+        values.append(now)
+        values.append(payload["id"])
+        try:
+            conn.execute(f"UPDATE organizations SET {', '.join(fields)} WHERE id = ?", values)
+            conn.commit()
+        except sqlite3.IntegrityError:
+            print(json.dumps({"error": "duplicate_slug"}))
+            return
+        print(json.dumps({"organization": org_public(conn.execute("SELECT * FROM organizations WHERE id = ?", (payload["id"],)).fetchone())}))
+        return
+
+    # ---- Memberships ----
+
+    if action == "create_membership":
+        now = utc_now()
+        try:
+            conn.execute(
+                "INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (payload["id"], payload["organizationId"], payload["userId"], payload.get("role", "member"), now, now),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            print(json.dumps({"error": "already_member"}))
+            return
+        print(json.dumps({"membership": membership_public(conn.execute("SELECT * FROM memberships WHERE id = ?", (payload["id"],)).fetchone())}))
+        return
+
+    if action == "list_memberships":
+        rows = conn.execute(
+            """
+            SELECT m.*, u.name AS user_name, u.email AS user_email, u.status AS user_status
+            FROM memberships m JOIN users u ON u.id = m.user_id
+            WHERE m.organization_id = ?
+            ORDER BY m.created_at ASC
+            """,
+            (payload["organizationId"],),
+        ).fetchall()
+        out = []
+        for row in rows:
+            item = membership_public(row)
+            item["userName"] = row["user_name"]
+            item["userEmail"] = row["user_email"]
+            item["userStatus"] = row["user_status"]
+            out.append(item)
+        print(json.dumps({"memberships": out}))
+        return
+
+    if action == "get_membership":
+        row = conn.execute(
+            "SELECT * FROM memberships WHERE organization_id = ? AND user_id = ?",
+            (payload["organizationId"], payload["userId"]),
+        ).fetchone()
+        print(json.dumps({"membership": membership_public(row)}))
+        return
+
+    if action == "update_membership_role":
+        now = utc_now()
+        conn.execute(
+            "UPDATE memberships SET role = ?, updated_at = ? WHERE organization_id = ? AND user_id = ?",
+            (payload["role"], now, payload["organizationId"], payload["userId"]),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM memberships WHERE organization_id = ? AND user_id = ?",
+            (payload["organizationId"], payload["userId"]),
+        ).fetchone()
+        print(json.dumps({"membership": membership_public(row)}))
+        return
+
+    if action == "remove_membership":
+        conn.execute(
+            "DELETE FROM memberships WHERE organization_id = ? AND user_id = ?",
+            (payload["organizationId"], payload["userId"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    # ---- Organization settings ----
+
+    if action == "get_organization_settings":
+        row = conn.execute("SELECT * FROM organization_settings WHERE organization_id = ?", (payload["organizationId"],)).fetchone()
+        print(json.dumps({"settings": org_settings_public(row)}))
+        return
+
+    if action == "update_organization_settings":
+        now = utc_now()
+        existing = conn.execute("SELECT * FROM organization_settings WHERE organization_id = ?", (payload["organizationId"],)).fetchone()
+        if not existing:
+            conn.execute("INSERT INTO organization_settings (organization_id, updated_at) VALUES (?, ?)", (payload["organizationId"], now))
+        column_map = {
+            "websiteUrl": "website_url",
+            "bookingUrl": "booking_url",
+            "supportEmail": "support_email",
+            "timezone": "timezone",
+        }
+        json_column_map = {
+            "defaultSessionSettings": "default_session_settings_json",
+            "defaultCTA": "default_cta_json",
+            "defaultEndCard": "default_end_card_json",
+            "socialLinks": "social_links_json",
+            "customDomainConfig": "custom_domain_config_json",
+        }
+        fields = []
+        values = []
+        for key, column in column_map.items():
+            if key in payload:
+                fields.append(f"{column} = ?")
+                values.append(payload[key])
+        for key, column in json_column_map.items():
+            if key in payload:
+                fields.append(f"{column} = ?")
+                values.append(json.dumps(payload[key]))
+        if payload.get("onboardingCompleted"):
+            fields.append("onboarding_completed_at = ?")
+            values.append(now)
+        if fields:
+            fields.append("updated_at = ?")
+            values.append(now)
+            values.append(payload["organizationId"])
+            conn.execute(f"UPDATE organization_settings SET {', '.join(fields)} WHERE organization_id = ?", values)
+        conn.commit()
+        row = conn.execute("SELECT * FROM organization_settings WHERE organization_id = ?", (payload["organizationId"],)).fetchone()
+        print(json.dumps({"settings": org_settings_public(row)}))
+        return
+
+    # ---- Brand profiles ----
+
+    if action == "create_brand_profile":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO brand_profiles (id, organization_id, name, base_theme_id, overrides_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (payload["id"], payload["organizationId"], payload.get("name", "Default"), payload.get("baseThemeId", "toasty"), json.dumps(payload.get("overrides", {})), now, now),
+        )
+        conn.commit()
+        print(json.dumps({"brandProfile": brand_profile_public(conn.execute("SELECT * FROM brand_profiles WHERE id = ?", (payload["id"],)).fetchone())}))
+        return
+
+    if action == "get_brand_profile":
+        row = conn.execute("SELECT * FROM brand_profiles WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"brandProfile": brand_profile_public(row)}))
+        return
+
+    if action == "list_brand_profiles":
+        rows = conn.execute("SELECT * FROM brand_profiles WHERE organization_id = ? ORDER BY created_at ASC", (payload["organizationId"],)).fetchall()
+        print(json.dumps({"brandProfiles": [brand_profile_public(row) for row in rows]}))
+        return
+
+    if action == "update_brand_profile":
+        now = utc_now()
+        fields = []
+        values = []
+        if "name" in payload:
+            fields.append("name = ?")
+            values.append(payload["name"])
+        if "baseThemeId" in payload:
+            fields.append("base_theme_id = ?")
+            values.append(payload["baseThemeId"])
+        if "overrides" in payload:
+            fields.append("overrides_json = ?")
+            values.append(json.dumps(payload["overrides"]))
+        if fields:
+            fields.append("updated_at = ?")
+            values.append(now)
+            values.append(payload["id"])
+            conn.execute(f"UPDATE brand_profiles SET {', '.join(fields)} WHERE id = ?", values)
+            conn.commit()
+        print(json.dumps({"brandProfile": brand_profile_public(conn.execute("SELECT * FROM brand_profiles WHERE id = ?", (payload["id"],)).fetchone())}))
+        return
+
+    if action == "delete_brand_profile":
+        conn.execute("DELETE FROM brand_profiles WHERE id = ?", (payload["id"],))
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    # ---- Billing account ----
+
+    if action == "get_billing_account":
+        row = conn.execute("SELECT * FROM billing_accounts WHERE organization_id = ?", (payload["organizationId"],)).fetchone()
+        print(json.dumps({"billingAccount": billing_account_public(row)}))
+        return
+
+    if action == "upsert_billing_account":
+        now = utc_now()
+        existing = conn.execute("SELECT * FROM billing_accounts WHERE organization_id = ?", (payload["organizationId"],)).fetchone()
+        if existing:
+            fields = []
+            values = []
+            for key, column in (("stripeCustomerId", "stripe_customer_id"), ("preferredPaymentMethod", "preferred_payment_method"), ("billingEmail", "billing_email"), ("currency", "currency")):
+                if key in payload:
+                    fields.append(f"{column} = ?")
+                    values.append(payload[key])
+            if "billingMetadata" in payload:
+                fields.append("billing_metadata_json = ?")
+                values.append(json.dumps(payload["billingMetadata"]))
+            fields.append("updated_at = ?")
+            values.append(now)
+            values.append(payload["organizationId"])
+            conn.execute(f"UPDATE billing_accounts SET {', '.join(fields)} WHERE organization_id = ?", values)
+        else:
+            conn.execute(
+                """
+                INSERT INTO billing_accounts (organization_id, stripe_customer_id, preferred_payment_method, billing_email, currency, billing_metadata_json, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload["organizationId"],
+                    payload.get("stripeCustomerId"),
+                    payload.get("preferredPaymentMethod", ""),
+                    payload.get("billingEmail", ""),
+                    payload.get("currency", "usd"),
+                    json.dumps(payload.get("billingMetadata", {})),
+                    now,
+                    now,
+                ),
+            )
+        conn.commit()
+        row = conn.execute("SELECT * FROM billing_accounts WHERE organization_id = ?", (payload["organizationId"],)).fetchone()
+        print(json.dumps({"billingAccount": billing_account_public(row)}))
+        return
+
+    # ---- Subscriptions ----
+
+    if action == "create_subscription":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO subscriptions (id, organization_id, provider, plan, status, current_period_start, current_period_end, cancel_at_period_end, external_subscription_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"], payload["organizationId"], payload["provider"], payload["plan"], payload.get("status", "inactive"),
+                payload.get("currentPeriodStart"), payload.get("currentPeriodEnd"), 1 if payload.get("cancelAtPeriodEnd") else 0,
+                payload.get("externalSubscriptionId"), now, now,
+            ),
+        )
+        conn.commit()
+        print(json.dumps({"subscription": subscription_public(conn.execute("SELECT * FROM subscriptions WHERE id = ?", (payload["id"],)).fetchone())}))
+        return
+
+    if action == "update_subscription":
+        now = utc_now()
+        column_map = {
+            "plan": "plan", "status": "status", "currentPeriodStart": "current_period_start",
+            "currentPeriodEnd": "current_period_end", "externalSubscriptionId": "external_subscription_id",
+        }
+        fields = []
+        values = []
+        for key, column in column_map.items():
+            if key in payload:
+                fields.append(f"{column} = ?")
+                values.append(payload[key])
+        if "cancelAtPeriodEnd" in payload:
+            fields.append("cancel_at_period_end = ?")
+            values.append(1 if payload["cancelAtPeriodEnd"] else 0)
+        fields.append("updated_at = ?")
+        values.append(now)
+        values.append(payload["id"])
+        conn.execute(f"UPDATE subscriptions SET {', '.join(fields)} WHERE id = ?", values)
+        conn.commit()
+        print(json.dumps({"subscription": subscription_public(conn.execute("SELECT * FROM subscriptions WHERE id = ?", (payload["id"],)).fetchone())}))
+        return
+
+    if action == "get_active_subscription":
+        row = conn.execute(
+            """
+            SELECT * FROM subscriptions WHERE organization_id = ? AND status IN ('active', 'trialing')
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            (payload["organizationId"],),
+        ).fetchone()
+        print(json.dumps({"subscription": subscription_public(row)}))
+        return
+
+    if action == "list_subscriptions":
+        rows = conn.execute("SELECT * FROM subscriptions WHERE organization_id = ? ORDER BY created_at DESC", (payload["organizationId"],)).fetchall()
+        print(json.dumps({"subscriptions": [subscription_public(row) for row in rows]}))
+        return
+
+    # ---- AI provider credentials ----
+    # encrypted_credential is opaque ciphertext to this script — it never decrypts it, only stores/returns
+    # it for the Node process (which holds TOASTY_TOKEN_ENCRYPTION_KEY) to decrypt at the moment of use.
+
+    if action == "upsert_ai_provider_credential":
+        now = utc_now()
+        existing = conn.execute(
+            "SELECT * FROM ai_provider_credentials WHERE organization_id = ? AND provider = ?",
+            (payload["organizationId"], payload["provider"]),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE ai_provider_credentials SET encrypted_credential = ?, key_last4 = ?, status = 'active', updated_at = ? WHERE organization_id = ? AND provider = ?",
+                (payload["encryptedCredential"], payload.get("keyLast4", ""), now, payload["organizationId"], payload["provider"]),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO ai_provider_credentials (id, organization_id, provider, encrypted_credential, key_last4, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+                """,
+                (payload["id"], payload["organizationId"], payload["provider"], payload["encryptedCredential"], payload.get("keyLast4", ""), now, now),
+            )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM ai_provider_credentials WHERE organization_id = ? AND provider = ?",
+            (payload["organizationId"], payload["provider"]),
+        ).fetchone()
+        print(json.dumps({"credential": ai_credential_public(row, include_secret=False)}))
+        return
+
+    if action == "get_ai_provider_credential":
+        row = conn.execute(
+            "SELECT * FROM ai_provider_credentials WHERE organization_id = ? AND provider = ? AND status = 'active'",
+            (payload["organizationId"], payload["provider"]),
+        ).fetchone()
+        print(json.dumps({"credential": ai_credential_public(row, include_secret=True)}))
+        return
+
+    if action == "list_ai_provider_credentials":
+        rows = conn.execute("SELECT * FROM ai_provider_credentials WHERE organization_id = ? ORDER BY created_at ASC", (payload["organizationId"],)).fetchall()
+        print(json.dumps({"credentials": [ai_credential_public(row, include_secret=False) for row in rows]}))
+        return
+
+    if action == "delete_ai_provider_credential":
+        conn.execute("DELETE FROM ai_provider_credentials WHERE organization_id = ? AND provider = ?", (payload["organizationId"], payload["provider"]))
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "set_ai_provider_credential_status":
+        now = utc_now()
+        conn.execute(
+            "UPDATE ai_provider_credentials SET status = ?, updated_at = ? WHERE organization_id = ? AND provider = ?",
+            (payload["status"], now, payload["organizationId"], payload["provider"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    # ---- Usage ----
+
+    if action == "get_usage_counters":
+        row = conn.execute(
+            "SELECT * FROM usage_counters WHERE organization_id = ? AND period_start = ?",
+            (payload["organizationId"], payload["periodStart"]),
+        ).fetchone()
+        print(json.dumps({"usage": usage_public(row, payload["organizationId"], payload["periodStart"])}))
+        return
+
+    if action == "increment_usage":
+        now = utc_now()
+        deltas = payload.get("deltas", {})
+        column_map = {
+            "sessionsCreated": "sessions_created", "renderJobs": "render_jobs", "renderMinutes": "render_minutes",
+            "recordingMinutes": "recording_minutes", "storageBytes": "storage_bytes", "aiRequests": "ai_requests",
+            "participantMinutes": "participant_minutes", "uploadsBytes": "uploads_bytes",
+        }
+        conn.execute(
+            "INSERT INTO usage_counters (organization_id, period_start, updated_at) VALUES (?, ?, ?) ON CONFLICT (organization_id, period_start) DO NOTHING",
+            (payload["organizationId"], payload["periodStart"], now),
+        )
+        for key, column in column_map.items():
+            if key in deltas and deltas[key]:
+                conn.execute(
+                    f"UPDATE usage_counters SET {column} = {column} + ?, updated_at = ? WHERE organization_id = ? AND period_start = ?",
+                    (deltas[key], now, payload["organizationId"], payload["periodStart"]),
+                )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM usage_counters WHERE organization_id = ? AND period_start = ?",
+            (payload["organizationId"], payload["periodStart"]),
+        ).fetchone()
+        print(json.dumps({"usage": usage_public(row, payload["organizationId"], payload["periodStart"])}))
+        return
+
+    # ---- Billing payment intents (Solana) ----
+
+    if action == "create_payment_intent":
+        now = utc_now()
+        try:
+            conn.execute(
+                """
+                INSERT INTO billing_payment_intents (
+                  id, organization_id, provider, asset, network, fiat_reference_amount, crypto_amount,
+                  recipient_wallet, reference, status, plan, term_days, expires_at, metadata_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload["id"], payload["organizationId"], payload.get("provider", "solana"), payload["asset"],
+                    payload["network"], payload["fiatReferenceAmount"], payload["cryptoAmount"], payload["recipientWallet"],
+                    payload["reference"], payload["plan"], payload["termDays"], payload["expiresAt"],
+                    json.dumps(payload.get("metadata", {})), now,
+                ),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            print(json.dumps({"error": "duplicate_reference"}))
+            return
+        print(json.dumps({"paymentIntent": payment_intent_public(conn.execute("SELECT * FROM billing_payment_intents WHERE id = ?", (payload["id"],)).fetchone())}))
+        return
+
+    if action == "get_payment_intent":
+        row = conn.execute("SELECT * FROM billing_payment_intents WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"paymentIntent": payment_intent_public(row)}))
+        return
+
+    if action == "get_payment_intent_by_reference":
+        row = conn.execute("SELECT * FROM billing_payment_intents WHERE reference = ?", (payload["reference"],)).fetchone()
+        print(json.dumps({"paymentIntent": payment_intent_public(row)}))
+        return
+
+    if action == "update_payment_intent_status":
+        now = utc_now()
+        fields = ["status = ?"]
+        values = [payload["status"]]
+        if payload.get("transactionSignature"):
+            fields.append("transaction_signature = ?")
+            values.append(payload["transactionSignature"])
+        if payload["status"] == "paid":
+            fields.append("paid_at = ?")
+            values.append(now)
+        values.append(payload["id"])
+        try:
+            conn.execute(f"UPDATE billing_payment_intents SET {', '.join(fields)} WHERE id = ?", values)
+            conn.commit()
+        except sqlite3.IntegrityError:
+            print(json.dumps({"error": "duplicate_signature"}))
+            return
+        print(json.dumps({"paymentIntent": payment_intent_public(conn.execute("SELECT * FROM billing_payment_intents WHERE id = ?", (payload["id"],)).fetchone())}))
+        return
+
+    if action == "list_payment_intents":
+        rows = conn.execute("SELECT * FROM billing_payment_intents WHERE organization_id = ? ORDER BY created_at DESC", (payload["organizationId"],)).fetchall()
+        print(json.dumps({"paymentIntents": [payment_intent_public(row) for row in rows]}))
+        return
+
+    # ---- Email verification / password reset tokens ----
+    # Both token families only ever store a hash (see migrate()'s comment) — the raw token exists only in
+    # the emailed link and, briefly, in the Node process's memory before hashing.
+
+    if action == "create_email_verification_token":
+        now = utc_now()
+        conn.execute("DELETE FROM email_verification_tokens WHERE user_id = ? AND consumed_at IS NULL", (payload["userId"],))
+        conn.execute(
+            "INSERT INTO email_verification_tokens (id, user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)",
+            (payload["id"], payload["userId"], payload["tokenHash"], payload["expiresAt"], now),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "consume_email_verification_token":
+        now = utc_now()
+        row = conn.execute(
+            "SELECT * FROM email_verification_tokens WHERE token_hash = ? AND consumed_at IS NULL",
+            (payload["tokenHash"],),
+        ).fetchone()
+        if not row:
+            print(json.dumps({"error": "invalid_token"}))
+            return
+        if row["expires_at"] < now:
+            print(json.dumps({"error": "expired_token"}))
+            return
+        conn.execute("UPDATE email_verification_tokens SET consumed_at = ? WHERE id = ?", (now, row["id"]))
+        conn.execute("UPDATE users SET email_verified_at = ?, updated_at = ? WHERE id = ?", (now, now, row["user_id"]))
+        conn.commit()
+        user_row = conn.execute("SELECT * FROM users WHERE id = ?", (row["user_id"],)).fetchone()
+        print(json.dumps({"user": public_user(user_row)}))
+        return
+
+    if action == "create_password_reset_token":
+        now = utc_now()
+        conn.execute("DELETE FROM password_reset_tokens WHERE user_id = ? AND consumed_at IS NULL", (payload["userId"],))
+        conn.execute(
+            "INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)",
+            (payload["id"], payload["userId"], payload["tokenHash"], payload["expiresAt"], now),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "consume_password_reset_token":
+        now = utc_now()
+        row = conn.execute(
+            "SELECT * FROM password_reset_tokens WHERE token_hash = ? AND consumed_at IS NULL",
+            (payload["tokenHash"],),
+        ).fetchone()
+        if not row:
+            print(json.dumps({"error": "invalid_token"}))
+            return
+        if row["expires_at"] < now:
+            print(json.dumps({"error": "expired_token"}))
+            return
+        conn.execute("UPDATE password_reset_tokens SET consumed_at = ? WHERE id = ?", (now, row["id"]))
+        # Invalidate every other outstanding reset token for this user — a used/expired reset link should
+        # never leave a second valid one lying around.
+        conn.execute(
+            "UPDATE password_reset_tokens SET consumed_at = ? WHERE user_id = ? AND consumed_at IS NULL",
+            (now, row["user_id"]),
+        )
+        conn.execute("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?", (payload["newPasswordHash"], now, row["user_id"]))
+        conn.commit()
+        user_row = conn.execute("SELECT * FROM users WHERE id = ?", (row["user_id"],)).fetchone()
+        print(json.dumps({"user": public_user(user_row)}))
         return
 
     raise ValueError(f"Unknown action: {action}")
