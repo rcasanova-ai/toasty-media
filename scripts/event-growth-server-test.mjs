@@ -337,6 +337,31 @@ async function main() {
   await jsonFetch(`/api/r/ricardo-ref`, {});
   const links = await jsonFetch(`/api/sessions/${sessionId}/campaign-links`, { cookie: organizer.cookie });
   assertEqual(links.data.campaignLinks[0].clickCount, 2, "each resolve increments click_count — this is what 'Ricardo -> 42 registrations' style attribution is built from");
+  assertEqual(links.data.campaignLinks[0].isActive, true, "campaign links start active");
+
+  const sponsorLinkCreate = await jsonFetch(`/api/sessions/${sessionId}/campaign-links`, {
+    method: "POST",
+    cookie: organizer.cookie,
+    body: { slug: "sponsor-ref", sponsorId, destinationUrl: "https://acme.example.com/promo" }
+  });
+  assertEqual(sponsorLinkCreate.data.campaignLink.sponsorId, sponsorId, "a campaign link can be tagged to a sponsor, for basic per-sponsor attribution");
+  const sponsorLinkId = sponsorLinkCreate.data.campaignLink.id;
+
+  const disableNoAuth = await jsonFetch(`/api/campaign-links/${sponsorLinkId}/active`, { method: "POST", body: { isActive: false } });
+  assertEqual(disableNoAuth.status, 401, "disabling a campaign link requires the organizer's session");
+  const disableWrongOwner = await jsonFetch(`/api/campaign-links/${sponsorLinkId}/active`, { method: "POST", cookie: otherOrganizer.cookie, body: { isActive: false } });
+  assertEqual(disableWrongOwner.status, 404, "a different organizer cannot disable this session's campaign link");
+
+  const disable = await jsonFetch(`/api/campaign-links/${sponsorLinkId}/active`, { method: "POST", cookie: organizer.cookie, body: { isActive: false } });
+  assertEqual(disable.status, 200, "organizer can disable their own campaign link");
+  assertEqual(disable.data.campaignLink.isActive, false, "disable flips isActive");
+  const disabledResolve = await jsonFetch(`/api/r/sponsor-ref`, {});
+  assertEqual(disabledResolve.status, 404, "a disabled campaign link 404s on resolve — exactly like a link that never existed");
+
+  const reenable = await jsonFetch(`/api/campaign-links/${sponsorLinkId}/active`, { method: "POST", cookie: organizer.cookie, body: { isActive: true } });
+  assertEqual(reenable.data.campaignLink.isActive, true, "re-enabling works");
+  const reenabledResolve = await jsonFetch(`/api/r/sponsor-ref`, {});
+  assertEqual(reenabledResolve.status, 302, "a re-enabled campaign link resolves again, with its click_count/history intact (disable is never a delete)");
 
   console.log("\nAI usage detail (additive to the org's real usage_counters.ai_requests, never a parallel system)");
   const usageBefore = await jsonFetch(`/api/organizations/${organizer.organizationId}/usage`, { cookie: organizer.cookie });

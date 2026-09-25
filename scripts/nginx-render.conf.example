@@ -519,6 +519,32 @@ server {
         proxy_send_timeout 20s;
     }
 
+    # Organizer-authenticated: disable/re-enable one campaign link (never a hard delete — see the Node
+    # handler's own comment on why).
+    location ~ ^/api/campaign-links/[^/]+/active$ {
+        limit_req zone=toasty_settings burst=20 nodelay;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 20s;
+        proxy_send_timeout 20s;
+    }
+
     location ~ ^/api/billing/solana/intents/[^/]+(/confirm)?$ {
         limit_req zone=toasty_settings burst=20 nodelay;
 

@@ -880,6 +880,13 @@ const server = createServer(async (req, res) => {
     await handleCampaignLinkCreate(req, res, session);
     return;
   }
+  if (req.method === "POST" && req.url?.startsWith("/api/campaign-links/") && req.url.endsWith("/active")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "campaign-links-set-active", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleCampaignLinkSetActive(req, res, session);
+    return;
+  }
   // Public redirect resolver — toasty.media/r/<slug> resolves through here.
   if (req.method === "GET" && req.url?.startsWith("/api/r/")) {
     if (!limit(req, res, "campaign-link-resolve", 180, 60 * 1000)) return;
@@ -4771,6 +4778,27 @@ async function handleCampaignLinkList(req, res, authSession) {
   const session = await requireOwnedSession(req, res, authSession, "/campaign-links");
   const result = await db("campaign_link_list", { sessionId: session.id });
   sendJson(req, res, 200, { campaignLinks: result.campaignLinks || [] });
+}
+
+async function requireOwnedCampaignLink(campaignLinkId, authSession) {
+  if (!SAFE_ID.test(String(campaignLinkId || ""))) throw httpError(400, "Invalid campaign link id.");
+  const result = await db("campaign_link_get", { id: campaignLinkId });
+  if (!result.campaignLink) throw httpError(404, "Campaign link not found.");
+  const owned = await db("session_get", { id: result.campaignLink.sessionId, ownerUserId: authSession.id });
+  if (!owned.session) throw httpError(404, "Campaign link not found.");
+  return result.campaignLink;
+}
+
+// Disable, not delete: a campaign link may already be printed on physical signage, shared on social,
+// or bookmarked — hard-deleting it would both destroy its real click history and free the slug for
+// reuse (letting a stale shared link silently point somewhere new/unintended later). Disabling is the
+// safely-supported action item 4 asks for; the row and its click_count stay intact either way.
+async function handleCampaignLinkSetActive(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/campaign-links/".length, -"/active".length));
+  await requireOwnedCampaignLink(id, authSession);
+  const body = await readJson(req);
+  const result = await db("campaign_link_set_active", { id, isActive: Boolean(body.isActive) });
+  sendJson(req, res, 200, { campaignLink: result.campaignLink });
 }
 
 // http(s)-only, no credentials/userinfo, no javascript:/data: scheme — a campaign link is a public

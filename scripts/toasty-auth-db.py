@@ -1105,6 +1105,7 @@ def migrate(conn):
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_campaign_links_session ON campaign_links(session_id)")
+    ensure_columns(conn, "campaign_links", {"is_active": "INTEGER NOT NULL DEFAULT 1"})
 
     # BYOK AI usage detail log — ADDITIVE to usage_counters.ai_requests (see accounts block above), never a
     # replacement or a parallel billing system. render-production-server.mjs calls increment_usage with
@@ -1973,6 +1974,7 @@ def public_campaign_link(row):
         "clipId": row["clip_id"],
         "referralPartner": row["referral_partner"],
         "clickCount": row["click_count"],
+        "isActive": bool(row["is_active"]),
         "createdAt": row["created_at"],
     }
 
@@ -4272,8 +4274,27 @@ def main():
         print(json.dumps({"campaignLinks": [public_campaign_link(row) for row in rows]}))
         return
 
+    if action == "campaign_link_get":
+        row = conn.execute("SELECT * FROM campaign_links WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"campaignLink": public_campaign_link(row)}))
+        return
+
+    if action == "campaign_link_set_active":
+        conn.execute(
+            "UPDATE campaign_links SET is_active = ? WHERE id = ?",
+            (1 if payload.get("isActive") else 0, payload["id"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM campaign_links WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"campaignLink": public_campaign_link(row)}))
+        return
+
     if action == "campaign_link_resolve":
-        row = conn.execute("SELECT * FROM campaign_links WHERE slug = ?", (payload["slug"],)).fetchone()
+        # A disabled link resolves exactly like a non-existent one — the redirect route never reveals
+        # whether a slug was disabled vs. never created.
+        row = conn.execute(
+            "SELECT * FROM campaign_links WHERE slug = ? AND is_active = 1", (payload["slug"],)
+        ).fetchone()
         if not row:
             print(json.dumps({"campaignLink": None}))
             return
