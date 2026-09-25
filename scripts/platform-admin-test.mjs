@@ -41,7 +41,7 @@ async function main(){
   assert(founderSession.data.user?.platformRole==="platform_admin","platform role is exposed to the authenticated UI");
   assert(scalar("SELECT COUNT(*) FROM users WHERE platform_role='platform_admin'")==="1","exactly one platform admin is bootstrapped");
 
-  const status=await req("/api/platform/status",{cookie:founder.cookie});
+  const status=await req("/api/organizations/platform-admin/status",{cookie:founder.cookie});
   assert(status.status===200,"platform admin can read operator status");
   assert(status.data.providers?.deepseek?.configured===true,"server DeepSeek key is visible as configured without exposing the key");
   assert(status.data.founderAiFallback===true,"founder DeepSeek path is enabled");
@@ -50,17 +50,17 @@ async function main(){
   assert(second.status===201,"second user registers");
   const secondSession=await req("/auth/session",{cookie:second.cookie});
   assert(secondSession.data.user?.isPlatformAdmin===false,"later customers are not platform admins");
-  const forbidden=await req("/api/platform/status",{cookie:second.cookie});
+  const forbidden=await req("/api/organizations/platform-admin/status",{cookie:second.cookie});
   assert(forbidden.status===403,"normal customer cannot access platform admin APIs");
 
-  const orgs=await req("/api/platform/organizations",{cookie:founder.cookie});
+  const orgs=await req("/api/organizations/platform-admin/organizations",{cookie:founder.cookie});
   assert(orgs.status===200 && orgs.data.organizations.length===2,"platform admin can list all organizations");
   const customerOrg=orgs.data.organizations.find(o=>o.ownerUserId===second.data.user.id);
   assert(Boolean(customerOrg),"customer organization is visible to operator");
 
-  const setPlan=await req(`/api/platform/organizations/${customerOrg.id}/plan`,{method:"POST",cookie:founder.cookie,body:{plan:"pro",subscriptionStatus:"active"}});
+  const setPlan=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/plan`,{method:"POST",cookie:founder.cookie,body:{plan:"pro",subscriptionStatus:"active"}});
   assert(setPlan.status===200 && setPlan.data.organization.plan==="pro","platform admin can change an organization plan");
-  const reset=await req(`/api/platform/organizations/${customerOrg.id}/reset-usage`,{method:"POST",cookie:founder.cookie,body:{}});
+  const reset=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/reset-usage`,{method:"POST",cookie:founder.cookie,body:{}});
   assert(reset.status===200,"platform admin can reset organization usage");
 
   const founderOrgs=orgs.data.organizations.find(o=>o.ownerUserId===founder.data.user.id);
