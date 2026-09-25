@@ -592,6 +592,323 @@ def migrate(conn):
     # Reusable production setup (brand/type/layouts/policy/ROS template). Distinct from session_program,
     # which is the live scene and must never be copied as history on duplicate.
     ensure_columns(conn, "live_sessions", {"setup_json": "TEXT NOT NULL DEFAULT '{}'"})
+
+    # Event Growth layer — Session Planner. plan_json follows the same precedent as setup_json/
+    # end_card_json above: resolution/validation happens client-side, the server just stores and returns
+    # whatever JSON blob was last saved (sessionType, deliveryMode, description, scheduledAt, timezone,
+    # expectedDurationMinutes, hostUserId, producerUserId, registrationRequired, wizardStep, audience{},
+    # readiness{}). Kept on live_sessions (not a separate table) because it is genuinely 1:1 with a
+    # session, same as setup/end-card.
+    ensure_columns(conn, "live_sessions", {"plan_json": "TEXT NOT NULL DEFAULT '{}'"})
+
+    # Speakers — session-scoped, organizer-managed until the speaker completes their own one-time profile
+    # (js semantics: session-specific overrides, never silently written back to a canonical Peeps profile).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS speakers (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL REFERENCES live_sessions(id) ON DELETE CASCADE,
+          owner_user_id TEXT NOT NULL REFERENCES users(id),
+          peeps_user_id TEXT,
+          email TEXT NOT NULL DEFAULT '',
+          session_role TEXT NOT NULL DEFAULT '',
+          invite_status TEXT NOT NULL DEFAULT 'not_sent',
+          display_name TEXT NOT NULL DEFAULT '',
+          headshot_reference TEXT,
+          title TEXT NOT NULL DEFAULT '',
+          company TEXT NOT NULL DEFAULT '',
+          bio_short TEXT NOT NULL DEFAULT '',
+          bio_long TEXT NOT NULL DEFAULT '',
+          links_json TEXT NOT NULL DEFAULT '{}',
+          pronunciation_notes TEXT NOT NULL DEFAULT '',
+          location TEXT NOT NULL DEFAULT '',
+          speaker_timezone TEXT NOT NULL DEFAULT '',
+          onscreen_title TEXT NOT NULL DEFAULT '',
+          hidden_fields_json TEXT NOT NULL DEFAULT '[]',
+          pronouns TEXT NOT NULL DEFAULT '',
+          profile_submitted_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_speakers_session ON speakers(session_id)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS speaker_invites (
+          id TEXT PRIMARY KEY,
+          speaker_id TEXT NOT NULL REFERENCES speakers(id) ON DELETE CASCADE,
+          token_hash TEXT NOT NULL UNIQUE,
+          expires_at TEXT NOT NULL,
+          revoked_at TEXT,
+          used_at TEXT,
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_speaker_invites_speaker ON speaker_invites(speaker_id)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tech_checks (
+          id TEXT PRIMARY KEY,
+          speaker_id TEXT NOT NULL REFERENCES speakers(id) ON DELETE CASCADE,
+          session_id TEXT NOT NULL REFERENCES live_sessions(id) ON DELETE CASCADE,
+          completed_at TEXT NOT NULL,
+          camera_ok INTEGER NOT NULL DEFAULT 0,
+          mic_ok INTEGER NOT NULL DEFAULT 0,
+          speaker_ok INTEGER NOT NULL DEFAULT 0,
+          browser_supported INTEGER NOT NULL DEFAULT 0,
+          connection_outcome TEXT NOT NULL DEFAULT '',
+          warnings_json TEXT NOT NULL DEFAULT '[]',
+          device_labels_json TEXT NOT NULL DEFAULT '[]',
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tech_checks_speaker ON tech_checks(speaker_id)")
+
+    # Consent/release — append-only. Never UPDATE required_acceptances/optional_permissions/agreement_version
+    # once written; the only mutation allowed later is setting revoked_at/revoked_reason (see consent_revoke
+    # below), so historical records always show exactly what was accepted at accepted_at.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS consent_records (
+          id TEXT PRIMARY KEY,
+          owner_user_id TEXT NOT NULL REFERENCES users(id),
+          session_id TEXT NOT NULL REFERENCES live_sessions(id) ON DELETE CASCADE,
+          participant_type TEXT NOT NULL,
+          participant_id TEXT NOT NULL,
+          agreement_version TEXT NOT NULL,
+          required_acceptances_json TEXT NOT NULL DEFAULT '[]',
+          optional_permissions_json TEXT NOT NULL DEFAULT '[]',
+          accepted_at TEXT NOT NULL,
+          source TEXT NOT NULL DEFAULT '',
+          ip_metadata TEXT NOT NULL DEFAULT '',
+          user_agent TEXT NOT NULL DEFAULT '',
+          document_hash TEXT NOT NULL DEFAULT '',
+          revoked_at TEXT,
+          revoked_reason TEXT,
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_consent_records_session ON consent_records(session_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_consent_records_participant ON consent_records(participant_type, participant_id)")
+
+    # Sponsors — session-scoped, mirrors the Speaker organizer-fills-or-invite pattern.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sponsors (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL REFERENCES live_sessions(id) ON DELETE CASCADE,
+          owner_user_id TEXT NOT NULL REFERENCES users(id),
+          company_name TEXT NOT NULL DEFAULT '',
+          contact_name TEXT NOT NULL DEFAULT '',
+          contact_email TEXT NOT NULL DEFAULT '',
+          website TEXT NOT NULL DEFAULT '',
+          logo_reference TEXT,
+          campaign_url TEXT NOT NULL DEFAULT '',
+          promo_code TEXT NOT NULL DEFAULT '',
+          qr_destination TEXT NOT NULL DEFAULT '',
+          talking_points TEXT NOT NULL DEFAULT '',
+          required_disclosure TEXT NOT NULL DEFAULT '',
+          do_not_say TEXT NOT NULL DEFAULT '',
+          product_images_json TEXT NOT NULL DEFAULT '[]',
+          sponsor_graphic_reference TEXT,
+          video_asset_reference TEXT,
+          social_links_json TEXT NOT NULL DEFAULT '{}',
+          approval_status TEXT NOT NULL DEFAULT 'pending',
+          invite_status TEXT NOT NULL DEFAULT 'not_invited',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sponsors_session ON sponsors(session_id)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sponsor_invites (
+          id TEXT PRIMARY KEY,
+          sponsor_id TEXT NOT NULL REFERENCES sponsors(id) ON DELETE CASCADE,
+          token_hash TEXT NOT NULL UNIQUE,
+          expires_at TEXT NOT NULL,
+          revoked_at TEXT,
+          used_at TEXT,
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sponsor_invites_sponsor ON sponsor_invites(sponsor_id)")
+    # Sponsor moments — attaches a sponsor to a Run of Show position. Run of Show itself stays in-memory/
+    # setup_json (see js/run-of-show.js); this table only needs to durably answer "which sponsor, when,
+    # what treatment, has the Host put it on screen" for analytics + Host sponsor controls.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sponsor_moments (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL REFERENCES live_sessions(id) ON DELETE CASCADE,
+          sponsor_id TEXT NOT NULL REFERENCES sponsors(id) ON DELETE CASCADE,
+          position INTEGER NOT NULL DEFAULT 0,
+          label TEXT NOT NULL DEFAULT '',
+          start_offset_seconds INTEGER,
+          treatment TEXT NOT NULL DEFAULT 'host_read',
+          status TEXT NOT NULL DEFAULT 'planned',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sponsor_moments_session ON sponsor_moments(session_id)")
+
+    # Event landing pages — structured blocks, not free-form HTML. Inherits BrandProfile client-side.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS landing_pages (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL UNIQUE REFERENCES live_sessions(id) ON DELETE CASCADE,
+          owner_user_id TEXT NOT NULL REFERENCES users(id),
+          slug TEXT NOT NULL UNIQUE,
+          template_id TEXT NOT NULL DEFAULT 'default',
+          blocks_json TEXT NOT NULL DEFAULT '[]',
+          published_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+    # Custom domains foundation — verification/CNAME/SSL state only. No SSL is actually provisioned here;
+    # ssl_status stays 'not_configured' until real production infrastructure exists (see docs).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS org_domains (
+          id TEXT PRIMARY KEY,
+          owner_user_id TEXT NOT NULL REFERENCES users(id),
+          domain TEXT NOT NULL UNIQUE,
+          verification_token TEXT NOT NULL,
+          verified_at TEXT,
+          cname_target TEXT NOT NULL DEFAULT '',
+          ssl_status TEXT NOT NULL DEFAULT 'not_configured',
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+
+    # Audience identity — independent from Studio participant/room_presence identity. One row per known
+    # anonymous/registered/Peeps-linked visitor, scoped per owner_user_id (tenant boundary, same as
+    # live_sessions.owner_user_id elsewhere in this file — there is no separate Organization table yet).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audience_identities (
+          id TEXT PRIMARY KEY,
+          owner_user_id TEXT NOT NULL REFERENCES users(id),
+          anonymous_id TEXT NOT NULL,
+          peeps_user_id TEXT,
+          known_email TEXT,
+          display_name TEXT NOT NULL DEFAULT '',
+          merged_into_id TEXT,
+          first_seen_at TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_audience_identities_owner_anon ON audience_identities(owner_user_id, anonymous_id)")
+
+    # Audience event stream — append-only event records, not counters. See docs/HUMAN_INSIGHT_NETWORK.md
+    # for the identity/consent boundary this must respect (client engagement data vs. platform demand data).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audience_events (
+          id TEXT PRIMARY KEY,
+          owner_user_id TEXT NOT NULL REFERENCES users(id),
+          session_id TEXT NOT NULL REFERENCES live_sessions(id) ON DELETE CASCADE,
+          identity_id TEXT,
+          anonymous_id TEXT,
+          event_type TEXT NOT NULL,
+          occurred_at TEXT NOT NULL,
+          source TEXT NOT NULL DEFAULT '',
+          campaign TEXT NOT NULL DEFAULT '',
+          referrer TEXT NOT NULL DEFAULT '',
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audience_events_session ON audience_events(session_id, event_type)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audience_events_identity ON audience_events(identity_id)")
+
+    # Campaign / referral links — toasty.media/r/<slug> style trackable redirects.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS campaign_links (
+          id TEXT PRIMARY KEY,
+          owner_user_id TEXT NOT NULL REFERENCES users(id),
+          session_id TEXT NOT NULL REFERENCES live_sessions(id) ON DELETE CASCADE,
+          slug TEXT NOT NULL UNIQUE,
+          destination_url TEXT NOT NULL DEFAULT '',
+          campaign TEXT NOT NULL DEFAULT '',
+          source TEXT NOT NULL DEFAULT '',
+          speaker_id TEXT,
+          sponsor_id TEXT,
+          clip_id TEXT,
+          referral_partner TEXT NOT NULL DEFAULT '',
+          click_count INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_campaign_links_session ON campaign_links(session_id)")
+
+    # BYOK usage telemetry — normalize non-token features (e.g. transcription) separately rather than
+    # fabricating token counts; totalTokens/estimatedCost may legitimately be null for those rows.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ai_usage_events (
+          id TEXT PRIMARY KEY,
+          owner_user_id TEXT NOT NULL REFERENCES users(id),
+          session_id TEXT,
+          occurred_at TEXT NOT NULL,
+          provider TEXT NOT NULL DEFAULT '',
+          model TEXT NOT NULL DEFAULT '',
+          feature TEXT NOT NULL DEFAULT '',
+          input_tokens INTEGER,
+          output_tokens INTEGER,
+          total_tokens INTEGER,
+          estimated_cost REAL,
+          latency_ms INTEGER,
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_events_owner ON ai_usage_events(owner_user_id, occurred_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_events_session ON ai_usage_events(session_id)")
+
+    # Post-event content hooks — retains attribution back to event/session/speaker/sponsor/campaign for
+    # every derived artifact (clip, quote card, article draft, social copy, ...). Storage of the actual
+    # media/text stays wherever MediaAssets/SessionArtifacts already put it; this table is the durable
+    # attribution + status record the in-memory SessionArtifactStore (js/session-artifact.js) is missing.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS post_event_artifacts (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL REFERENCES live_sessions(id) ON DELETE CASCADE,
+          owner_user_id TEXT NOT NULL REFERENCES users(id),
+          artifact_type TEXT NOT NULL,
+          source_moment_ref TEXT NOT NULL DEFAULT '',
+          speaker_id TEXT,
+          sponsor_id TEXT,
+          campaign TEXT NOT NULL DEFAULT '',
+          storage_reference TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'draft',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_post_event_artifacts_session ON post_event_artifacts(session_id)")
+
     conn.commit()
 
 
@@ -978,6 +1295,16 @@ def session_setup(row):
         return {}
 
 
+def session_plan(row):
+    if not row or not _row_has(row, "plan_json"):
+        return {}
+    try:
+        parsed = json.loads(row["plan_json"] or "{}")
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
 def public_session(row):
     if not row:
         return None
@@ -995,6 +1322,245 @@ def public_session(row):
         "endedBy": row["ended_by"],
         "endCard": session_end_card(row),
         "setup": session_setup(row),
+        "plan": session_plan(row),
+    }
+
+
+def _json_or(value, fallback):
+    try:
+        parsed = json.loads(value or "null")
+        return parsed if parsed is not None else fallback
+    except (TypeError, ValueError):
+        return fallback
+
+
+def public_speaker(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "sessionId": row["session_id"],
+        "ownerUserId": row["owner_user_id"],
+        "peepsUserId": row["peeps_user_id"],
+        "email": row["email"],
+        "sessionRole": row["session_role"],
+        "inviteStatus": row["invite_status"],
+        "displayName": row["display_name"],
+        "headshotReference": row["headshot_reference"],
+        "title": row["title"],
+        "company": row["company"],
+        "bioShort": row["bio_short"],
+        "bioLong": row["bio_long"],
+        "links": _json_or(row["links_json"], {}),
+        "pronunciationNotes": row["pronunciation_notes"],
+        "location": row["location"],
+        "speakerTimezone": row["speaker_timezone"],
+        "onscreenTitle": row["onscreen_title"],
+        "hiddenFields": _json_or(row["hidden_fields_json"], []),
+        "pronouns": row["pronouns"],
+        "profileSubmittedAt": row["profile_submitted_at"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def public_tech_check(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "speakerId": row["speaker_id"],
+        "sessionId": row["session_id"],
+        "completedAt": row["completed_at"],
+        "cameraOk": bool(row["camera_ok"]),
+        "micOk": bool(row["mic_ok"]),
+        "speakerOk": bool(row["speaker_ok"]),
+        "browserSupported": bool(row["browser_supported"]),
+        "connectionOutcome": row["connection_outcome"],
+        "warnings": _json_or(row["warnings_json"], []),
+        "deviceLabels": _json_or(row["device_labels_json"], []),
+        "createdAt": row["created_at"],
+    }
+
+
+def public_consent_record(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "ownerUserId": row["owner_user_id"],
+        "sessionId": row["session_id"],
+        "participantType": row["participant_type"],
+        "participantId": row["participant_id"],
+        "agreementVersion": row["agreement_version"],
+        "requiredAcceptances": _json_or(row["required_acceptances_json"], []),
+        "optionalPermissions": _json_or(row["optional_permissions_json"], []),
+        "acceptedAt": row["accepted_at"],
+        "source": row["source"],
+        "ipMetadata": row["ip_metadata"],
+        "userAgent": row["user_agent"],
+        "documentHash": row["document_hash"],
+        "revokedAt": row["revoked_at"],
+        "revokedReason": row["revoked_reason"],
+        "createdAt": row["created_at"],
+    }
+
+
+def public_sponsor(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "sessionId": row["session_id"],
+        "ownerUserId": row["owner_user_id"],
+        "companyName": row["company_name"],
+        "contactName": row["contact_name"],
+        "contactEmail": row["contact_email"],
+        "website": row["website"],
+        "logoReference": row["logo_reference"],
+        "campaignUrl": row["campaign_url"],
+        "promoCode": row["promo_code"],
+        "qrDestination": row["qr_destination"],
+        "talkingPoints": row["talking_points"],
+        "requiredDisclosure": row["required_disclosure"],
+        "doNotSay": row["do_not_say"],
+        "productImages": _json_or(row["product_images_json"], []),
+        "sponsorGraphicReference": row["sponsor_graphic_reference"],
+        "videoAssetReference": row["video_asset_reference"],
+        "socialLinks": _json_or(row["social_links_json"], {}),
+        "approvalStatus": row["approval_status"],
+        "inviteStatus": row["invite_status"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def public_sponsor_moment(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "sessionId": row["session_id"],
+        "sponsorId": row["sponsor_id"],
+        "position": row["position"],
+        "label": row["label"],
+        "startOffsetSeconds": row["start_offset_seconds"],
+        "treatment": row["treatment"],
+        "status": row["status"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def public_landing_page(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "sessionId": row["session_id"],
+        "ownerUserId": row["owner_user_id"],
+        "slug": row["slug"],
+        "templateId": row["template_id"],
+        "blocks": _json_or(row["blocks_json"], []),
+        "publishedAt": row["published_at"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def public_audience_identity(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "ownerUserId": row["owner_user_id"],
+        "anonymousId": row["anonymous_id"],
+        "peepsUserId": row["peeps_user_id"],
+        "knownEmail": row["known_email"],
+        "displayName": row["display_name"],
+        "mergedIntoId": row["merged_into_id"],
+        "firstSeenAt": row["first_seen_at"],
+        "lastSeenAt": row["last_seen_at"],
+        "createdAt": row["created_at"],
+    }
+
+
+def public_audience_event(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "ownerUserId": row["owner_user_id"],
+        "sessionId": row["session_id"],
+        "identityId": row["identity_id"],
+        "anonymousId": row["anonymous_id"],
+        "eventType": row["event_type"],
+        "occurredAt": row["occurred_at"],
+        "source": row["source"],
+        "campaign": row["campaign"],
+        "referrer": row["referrer"],
+        "metadata": _json_or(row["metadata_json"], {}),
+        "createdAt": row["created_at"],
+    }
+
+
+def public_campaign_link(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "ownerUserId": row["owner_user_id"],
+        "sessionId": row["session_id"],
+        "slug": row["slug"],
+        "destinationUrl": row["destination_url"],
+        "campaign": row["campaign"],
+        "source": row["source"],
+        "speakerId": row["speaker_id"],
+        "sponsorId": row["sponsor_id"],
+        "clipId": row["clip_id"],
+        "referralPartner": row["referral_partner"],
+        "clickCount": row["click_count"],
+        "createdAt": row["created_at"],
+    }
+
+
+def public_ai_usage_event(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "ownerUserId": row["owner_user_id"],
+        "sessionId": row["session_id"],
+        "occurredAt": row["occurred_at"],
+        "provider": row["provider"],
+        "model": row["model"],
+        "feature": row["feature"],
+        "inputTokens": row["input_tokens"],
+        "outputTokens": row["output_tokens"],
+        "totalTokens": row["total_tokens"],
+        "estimatedCost": row["estimated_cost"],
+        "latencyMs": row["latency_ms"],
+        "metadata": _json_or(row["metadata_json"], {}),
+        "createdAt": row["created_at"],
+    }
+
+
+def public_post_event_artifact(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "sessionId": row["session_id"],
+        "ownerUserId": row["owner_user_id"],
+        "artifactType": row["artifact_type"],
+        "sourceMomentRef": row["source_moment_ref"],
+        "speakerId": row["speaker_id"],
+        "sponsorId": row["sponsor_id"],
+        "campaign": row["campaign"],
+        "storageReference": row["storage_reference"],
+        "status": row["status"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
     }
 
 
@@ -1862,6 +2428,763 @@ def main():
         )
         conn.commit()
         print(json.dumps({"ok": True, "roster": presence_roster(conn, room_id)}))
+        return
+
+    if action == "session_set_plan":
+        now = utc_now()
+        conn.execute(
+            "UPDATE live_sessions SET plan_json = ?, last_active_at = ? WHERE id = ? AND owner_user_id = ?",
+            (json.dumps(payload.get("plan") or {}), now, payload["id"], payload["ownerUserId"]),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM live_sessions WHERE id = ? AND owner_user_id = ?",
+            (payload["id"], payload["ownerUserId"]),
+        ).fetchone()
+        if not row:
+            print(json.dumps({"session": None}))
+            return
+        print(json.dumps({"session": public_session(row)}))
+        return
+
+    # ---- Speakers ----
+
+    if action == "speaker_create":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO speakers (
+              id, session_id, owner_user_id, email, session_role, invite_status, display_name,
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, 'not_sent', ?, ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["sessionId"],
+                payload["ownerUserId"],
+                payload.get("email") or "",
+                payload.get("sessionRole") or "",
+                payload.get("displayName") or "",
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM speakers WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"speaker": public_speaker(row)}))
+        return
+
+    if action == "speaker_list":
+        rows = conn.execute(
+            "SELECT * FROM speakers WHERE session_id = ? ORDER BY created_at ASC",
+            (payload["sessionId"],),
+        ).fetchall()
+        print(json.dumps({"speakers": [public_speaker(row) for row in rows]}))
+        return
+
+    if action == "speaker_get":
+        row = conn.execute("SELECT * FROM speakers WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"speaker": public_speaker(row)}))
+        return
+
+    if action == "speaker_update":
+        row = conn.execute("SELECT * FROM speakers WHERE id = ?", (payload["id"],)).fetchone()
+        if not row:
+            print(json.dumps({"speaker": None}))
+            return
+        fields = payload.get("fields") or {}
+        column_map = {
+            "sessionRole": "session_role",
+            "displayName": "display_name",
+            "headshotReference": "headshot_reference",
+            "title": "title",
+            "company": "company",
+            "bioShort": "bio_short",
+            "bioLong": "bio_long",
+            "pronunciationNotes": "pronunciation_notes",
+            "location": "location",
+            "speakerTimezone": "speaker_timezone",
+            "onscreenTitle": "onscreen_title",
+            "pronouns": "pronouns",
+            "peepsUserId": "peeps_user_id",
+        }
+        sets = []
+        values = []
+        for key, column in column_map.items():
+            if key in fields:
+                sets.append(f"{column} = ?")
+                values.append(fields[key])
+        if "links" in fields:
+            sets.append("links_json = ?")
+            values.append(json.dumps(fields["links"] or {}))
+        if "hiddenFields" in fields:
+            sets.append("hidden_fields_json = ?")
+            values.append(json.dumps(fields["hiddenFields"] or []))
+        if payload.get("markProfileSubmitted"):
+            sets.append("profile_submitted_at = ?")
+            values.append(utc_now())
+        now = utc_now()
+        sets.append("updated_at = ?")
+        values.append(now)
+        values.append(payload["id"])
+        if sets:
+            conn.execute(f"UPDATE speakers SET {', '.join(sets)} WHERE id = ?", values)
+            conn.commit()
+        row = conn.execute("SELECT * FROM speakers WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"speaker": public_speaker(row)}))
+        return
+
+    if action == "speaker_invite_issue":
+        now = utc_now()
+        conn.execute(
+            "INSERT INTO speaker_invites (id, speaker_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)",
+            (payload["id"], payload["speakerId"], payload["tokenHash"], payload["expiresAt"], now),
+        )
+        conn.execute(
+            "UPDATE speakers SET invite_status = 'sent', updated_at = ? WHERE id = ?",
+            (now, payload["speakerId"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True, "id": payload["id"]}))
+        return
+
+    if action == "speaker_invite_get":
+        row = conn.execute(
+            "SELECT * FROM speaker_invites WHERE token_hash = ?",
+            (payload["tokenHash"],),
+        ).fetchone()
+        if not row:
+            print(json.dumps({"invite": None}))
+            return
+        speaker = conn.execute("SELECT * FROM speakers WHERE id = ?", (row["speaker_id"],)).fetchone()
+        invite = {
+            "id": row["id"],
+            "speakerId": row["speaker_id"],
+            "expiresAt": row["expires_at"],
+            "revokedAt": row["revoked_at"],
+            "usedAt": row["used_at"],
+        }
+        print(json.dumps({"invite": invite, "speaker": public_speaker(speaker)}))
+        return
+
+    if action == "speaker_invite_revoke":
+        now = utc_now()
+        conn.execute(
+            "UPDATE speaker_invites SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+            (now, payload["id"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "speaker_invite_redeem":
+        now = utc_now()
+        conn.execute(
+            "UPDATE speaker_invites SET used_at = ? WHERE token_hash = ? AND used_at IS NULL",
+            (now, payload["tokenHash"]),
+        )
+        conn.execute(
+            "UPDATE speakers SET invite_status = 'accepted', updated_at = ? WHERE id = ?",
+            (now, payload["speakerId"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "tech_check_record":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO tech_checks (
+              id, speaker_id, session_id, completed_at, camera_ok, mic_ok, speaker_ok,
+              browser_supported, connection_outcome, warnings_json, device_labels_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["speakerId"],
+                payload["sessionId"],
+                now,
+                1 if payload.get("cameraOk") else 0,
+                1 if payload.get("micOk") else 0,
+                1 if payload.get("speakerOk") else 0,
+                1 if payload.get("browserSupported") else 0,
+                payload.get("connectionOutcome") or "",
+                json.dumps(payload.get("warnings") or []),
+                json.dumps(payload.get("deviceLabels") or []),
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM tech_checks WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"techCheck": public_tech_check(row)}))
+        return
+
+    if action == "tech_check_latest":
+        row = conn.execute(
+            "SELECT * FROM tech_checks WHERE speaker_id = ? ORDER BY completed_at DESC LIMIT 1",
+            (payload["speakerId"],),
+        ).fetchone()
+        print(json.dumps({"techCheck": public_tech_check(row)}))
+        return
+
+    # ---- Consent ----
+
+    if action == "consent_record_create":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO consent_records (
+              id, owner_user_id, session_id, participant_type, participant_id, agreement_version,
+              required_acceptances_json, optional_permissions_json, accepted_at, source, ip_metadata,
+              user_agent, document_hash, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["ownerUserId"],
+                payload["sessionId"],
+                payload["participantType"],
+                payload["participantId"],
+                payload["agreementVersion"],
+                json.dumps(payload.get("requiredAcceptances") or []),
+                json.dumps(payload.get("optionalPermissions") or []),
+                now,
+                payload.get("source") or "",
+                payload.get("ipMetadata") or "",
+                payload.get("userAgent") or "",
+                payload.get("documentHash") or "",
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM consent_records WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"consentRecord": public_consent_record(row)}))
+        return
+
+    if action == "consent_record_list":
+        if payload.get("participantId"):
+            rows = conn.execute(
+                "SELECT * FROM consent_records WHERE session_id = ? AND participant_id = ? ORDER BY created_at DESC",
+                (payload["sessionId"], payload["participantId"]),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM consent_records WHERE session_id = ? ORDER BY created_at DESC",
+                (payload["sessionId"],),
+            ).fetchall()
+        print(json.dumps({"consentRecords": [public_consent_record(row) for row in rows]}))
+        return
+
+    if action == "consent_record_revoke":
+        now = utc_now()
+        conn.execute(
+            "UPDATE consent_records SET revoked_at = ?, revoked_reason = ? WHERE id = ? AND revoked_at IS NULL",
+            (now, payload.get("reason") or "", payload["id"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM consent_records WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"consentRecord": public_consent_record(row)}))
+        return
+
+    # ---- Sponsors ----
+
+    if action == "sponsor_create":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO sponsors (
+              id, session_id, owner_user_id, company_name, contact_name, contact_email, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["sessionId"],
+                payload["ownerUserId"],
+                payload.get("companyName") or "",
+                payload.get("contactName") or "",
+                payload.get("contactEmail") or "",
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM sponsors WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"sponsor": public_sponsor(row)}))
+        return
+
+    if action == "sponsor_list":
+        rows = conn.execute(
+            "SELECT * FROM sponsors WHERE session_id = ? ORDER BY created_at ASC",
+            (payload["sessionId"],),
+        ).fetchall()
+        print(json.dumps({"sponsors": [public_sponsor(row) for row in rows]}))
+        return
+
+    if action == "sponsor_get":
+        row = conn.execute("SELECT * FROM sponsors WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"sponsor": public_sponsor(row)}))
+        return
+
+    if action == "sponsor_update":
+        fields = payload.get("fields") or {}
+        column_map = {
+            "companyName": "company_name",
+            "contactName": "contact_name",
+            "contactEmail": "contact_email",
+            "website": "website",
+            "logoReference": "logo_reference",
+            "campaignUrl": "campaign_url",
+            "promoCode": "promo_code",
+            "qrDestination": "qr_destination",
+            "talkingPoints": "talking_points",
+            "requiredDisclosure": "required_disclosure",
+            "doNotSay": "do_not_say",
+            "sponsorGraphicReference": "sponsor_graphic_reference",
+            "videoAssetReference": "video_asset_reference",
+        }
+        sets = []
+        values = []
+        for key, column in column_map.items():
+            if key in fields:
+                sets.append(f"{column} = ?")
+                values.append(fields[key])
+        if "productImages" in fields:
+            sets.append("product_images_json = ?")
+            values.append(json.dumps(fields["productImages"] or []))
+        if "socialLinks" in fields:
+            sets.append("social_links_json = ?")
+            values.append(json.dumps(fields["socialLinks"] or {}))
+        now = utc_now()
+        sets.append("updated_at = ?")
+        values.append(now)
+        values.append(payload["id"])
+        if sets:
+            conn.execute(f"UPDATE sponsors SET {', '.join(sets)} WHERE id = ?", values)
+            conn.commit()
+        row = conn.execute("SELECT * FROM sponsors WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"sponsor": public_sponsor(row)}))
+        return
+
+    if action == "sponsor_set_approval":
+        now = utc_now()
+        conn.execute(
+            "UPDATE sponsors SET approval_status = ?, updated_at = ? WHERE id = ?",
+            (payload["approvalStatus"], now, payload["id"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM sponsors WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"sponsor": public_sponsor(row)}))
+        return
+
+    if action == "sponsor_invite_issue":
+        now = utc_now()
+        conn.execute(
+            "INSERT INTO sponsor_invites (id, sponsor_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)",
+            (payload["id"], payload["sponsorId"], payload["tokenHash"], payload["expiresAt"], now),
+        )
+        conn.execute(
+            "UPDATE sponsors SET invite_status = 'sent', updated_at = ? WHERE id = ?",
+            (now, payload["sponsorId"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True, "id": payload["id"]}))
+        return
+
+    if action == "sponsor_invite_get":
+        row = conn.execute(
+            "SELECT * FROM sponsor_invites WHERE token_hash = ?",
+            (payload["tokenHash"],),
+        ).fetchone()
+        if not row:
+            print(json.dumps({"invite": None}))
+            return
+        sponsor = conn.execute("SELECT * FROM sponsors WHERE id = ?", (row["sponsor_id"],)).fetchone()
+        invite = {
+            "id": row["id"],
+            "sponsorId": row["sponsor_id"],
+            "expiresAt": row["expires_at"],
+            "revokedAt": row["revoked_at"],
+            "usedAt": row["used_at"],
+        }
+        print(json.dumps({"invite": invite, "sponsor": public_sponsor(sponsor)}))
+        return
+
+    if action == "sponsor_invite_redeem":
+        now = utc_now()
+        conn.execute(
+            "UPDATE sponsor_invites SET used_at = ? WHERE token_hash = ? AND used_at IS NULL",
+            (now, payload["tokenHash"]),
+        )
+        conn.execute(
+            "UPDATE sponsors SET invite_status = 'accepted', updated_at = ? WHERE id = ?",
+            (now, payload["sponsorId"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "sponsor_moment_create":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO sponsor_moments (
+              id, session_id, sponsor_id, position, label, start_offset_seconds, treatment, status,
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'planned', ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["sessionId"],
+                payload["sponsorId"],
+                payload.get("position") or 0,
+                payload.get("label") or "",
+                payload.get("startOffsetSeconds"),
+                payload.get("treatment") or "host_read",
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM sponsor_moments WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"sponsorMoment": public_sponsor_moment(row)}))
+        return
+
+    if action == "sponsor_moment_list":
+        rows = conn.execute(
+            "SELECT * FROM sponsor_moments WHERE session_id = ? ORDER BY position ASC",
+            (payload["sessionId"],),
+        ).fetchall()
+        print(json.dumps({"sponsorMoments": [public_sponsor_moment(row) for row in rows]}))
+        return
+
+    if action == "sponsor_moment_update":
+        now = utc_now()
+        conn.execute(
+            "UPDATE sponsor_moments SET status = COALESCE(?, status), updated_at = ? WHERE id = ?",
+            (payload.get("status"), now, payload["id"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM sponsor_moments WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"sponsorMoment": public_sponsor_moment(row)}))
+        return
+
+    # ---- Landing pages ----
+
+    if action == "landing_page_upsert":
+        now = utc_now()
+        existing = conn.execute(
+            "SELECT * FROM landing_pages WHERE session_id = ?", (payload["sessionId"],)
+        ).fetchone()
+        blocks_json = json.dumps(payload.get("blocks") or [])
+        if existing:
+            conn.execute(
+                "UPDATE landing_pages SET slug = ?, template_id = ?, blocks_json = ?, updated_at = ? WHERE session_id = ?",
+                (payload["slug"], payload.get("templateId") or "default", blocks_json, now, payload["sessionId"]),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO landing_pages (
+                  id, session_id, owner_user_id, slug, template_id, blocks_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload["id"],
+                    payload["sessionId"],
+                    payload["ownerUserId"],
+                    payload["slug"],
+                    payload.get("templateId") or "default",
+                    blocks_json,
+                    now,
+                    now,
+                ),
+            )
+        conn.commit()
+        row = conn.execute("SELECT * FROM landing_pages WHERE session_id = ?", (payload["sessionId"],)).fetchone()
+        print(json.dumps({"landingPage": public_landing_page(row)}))
+        return
+
+    if action == "landing_page_publish":
+        now = utc_now()
+        conn.execute(
+            "UPDATE landing_pages SET published_at = ?, updated_at = ? WHERE session_id = ?",
+            (now, now, payload["sessionId"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM landing_pages WHERE session_id = ?", (payload["sessionId"],)).fetchone()
+        print(json.dumps({"landingPage": public_landing_page(row)}))
+        return
+
+    if action == "landing_page_get_by_session":
+        row = conn.execute("SELECT * FROM landing_pages WHERE session_id = ?", (payload["sessionId"],)).fetchone()
+        print(json.dumps({"landingPage": public_landing_page(row)}))
+        return
+
+    if action == "landing_page_get_by_slug":
+        row = conn.execute("SELECT * FROM landing_pages WHERE slug = ?", (payload["slug"],)).fetchone()
+        print(json.dumps({"landingPage": public_landing_page(row)}))
+        return
+
+    # ---- Audience identity + event stream ----
+
+    if action == "audience_identity_upsert":
+        now = utc_now()
+        existing = conn.execute(
+            "SELECT * FROM audience_identities WHERE owner_user_id = ? AND anonymous_id = ?",
+            (payload["ownerUserId"], payload["anonymousId"]),
+        ).fetchone()
+        if existing:
+            display_name = payload.get("displayName")
+            known_email = payload.get("knownEmail")
+            peeps_user_id = payload.get("peepsUserId")
+            conn.execute(
+                """
+                UPDATE audience_identities
+                SET last_seen_at = ?, display_name = COALESCE(?, display_name),
+                    known_email = COALESCE(?, known_email), peeps_user_id = COALESCE(?, peeps_user_id)
+                WHERE id = ?
+                """,
+                (now, display_name, known_email, peeps_user_id, existing["id"]),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM audience_identities WHERE id = ?", (existing["id"],)).fetchone()
+            print(json.dumps({"identity": public_audience_identity(row)}))
+            return
+        conn.execute(
+            """
+            INSERT INTO audience_identities (
+              id, owner_user_id, anonymous_id, peeps_user_id, known_email, display_name,
+              first_seen_at, last_seen_at, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["ownerUserId"],
+                payload["anonymousId"],
+                payload.get("peepsUserId"),
+                payload.get("knownEmail"),
+                payload.get("displayName") or "",
+                now,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM audience_identities WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"identity": public_audience_identity(row)}))
+        return
+
+    if action == "audience_identity_merge":
+        now = utc_now()
+        conn.execute(
+            "UPDATE audience_identities SET merged_into_id = ?, last_seen_at = ? WHERE id = ? AND owner_user_id = ?",
+            (payload["mergedIntoId"], now, payload["id"], payload["ownerUserId"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM audience_identities WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"identity": public_audience_identity(row)}))
+        return
+
+    if action == "audience_event_record":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO audience_events (
+              id, owner_user_id, session_id, identity_id, anonymous_id, event_type, occurred_at,
+              source, campaign, referrer, metadata_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["ownerUserId"],
+                payload["sessionId"],
+                payload.get("identityId"),
+                payload.get("anonymousId"),
+                payload["eventType"],
+                now,
+                payload.get("source") or "",
+                payload.get("campaign") or "",
+                payload.get("referrer") or "",
+                json.dumps(payload.get("metadata") or {}),
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM audience_events WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"event": public_audience_event(row)}))
+        return
+
+    if action == "audience_event_list":
+        limit = min(int(payload.get("limit") or 500), 2000)
+        rows = conn.execute(
+            "SELECT * FROM audience_events WHERE session_id = ? ORDER BY occurred_at DESC LIMIT ?",
+            (payload["sessionId"], limit),
+        ).fetchall()
+        print(json.dumps({"events": [public_audience_event(row) for row in rows]}))
+        return
+
+    if action == "audience_event_summary":
+        rows = conn.execute(
+            "SELECT event_type, COUNT(*) as n FROM audience_events WHERE session_id = ? GROUP BY event_type",
+            (payload["sessionId"],),
+        ).fetchall()
+        counts = {row["event_type"]: row["n"] for row in rows}
+        unique_identities = conn.execute(
+            """
+            SELECT COUNT(DISTINCT COALESCE(identity_id, anonymous_id)) as n
+            FROM audience_events WHERE session_id = ?
+            """,
+            (payload["sessionId"],),
+        ).fetchone()["n"]
+        print(json.dumps({"countsByType": counts, "uniqueVisitors": unique_identities}))
+        return
+
+    # ---- Campaign links ----
+
+    if action == "campaign_link_create":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO campaign_links (
+              id, owner_user_id, session_id, slug, destination_url, campaign, source, speaker_id,
+              sponsor_id, clip_id, referral_partner, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["ownerUserId"],
+                payload["sessionId"],
+                payload["slug"],
+                payload.get("destinationUrl") or "",
+                payload.get("campaign") or "",
+                payload.get("source") or "",
+                payload.get("speakerId"),
+                payload.get("sponsorId"),
+                payload.get("clipId"),
+                payload.get("referralPartner") or "",
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM campaign_links WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"campaignLink": public_campaign_link(row)}))
+        return
+
+    if action == "campaign_link_list":
+        rows = conn.execute(
+            "SELECT * FROM campaign_links WHERE session_id = ? ORDER BY created_at ASC",
+            (payload["sessionId"],),
+        ).fetchall()
+        print(json.dumps({"campaignLinks": [public_campaign_link(row) for row in rows]}))
+        return
+
+    if action == "campaign_link_resolve":
+        row = conn.execute("SELECT * FROM campaign_links WHERE slug = ?", (payload["slug"],)).fetchone()
+        if not row:
+            print(json.dumps({"campaignLink": None}))
+            return
+        conn.execute("UPDATE campaign_links SET click_count = click_count + 1 WHERE id = ?", (row["id"],))
+        conn.commit()
+        row = conn.execute("SELECT * FROM campaign_links WHERE id = ?", (row["id"],)).fetchone()
+        print(json.dumps({"campaignLink": public_campaign_link(row)}))
+        return
+
+    # ---- BYOK usage telemetry ----
+
+    if action == "ai_usage_record":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO ai_usage_events (
+              id, owner_user_id, session_id, occurred_at, provider, model, feature, input_tokens,
+              output_tokens, total_tokens, estimated_cost, latency_ms, metadata_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["ownerUserId"],
+                payload.get("sessionId"),
+                now,
+                payload.get("provider") or "",
+                payload.get("model") or "",
+                payload.get("feature") or "",
+                payload.get("inputTokens"),
+                payload.get("outputTokens"),
+                payload.get("totalTokens"),
+                payload.get("estimatedCost"),
+                payload.get("latencyMs"),
+                json.dumps(payload.get("metadata") or {}),
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM ai_usage_events WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"usageEvent": public_ai_usage_event(row)}))
+        return
+
+    if action == "ai_usage_summary":
+        if payload.get("sessionId"):
+            rows = conn.execute(
+                "SELECT * FROM ai_usage_events WHERE owner_user_id = ? AND session_id = ? ORDER BY occurred_at DESC",
+                (payload["ownerUserId"], payload["sessionId"]),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM ai_usage_events WHERE owner_user_id = ? ORDER BY occurred_at DESC LIMIT 2000",
+                (payload["ownerUserId"],),
+            ).fetchall()
+        events = [public_ai_usage_event(row) for row in rows]
+        by_feature = {}
+        total_tokens = 0
+        total_cost = 0.0
+        for event in events:
+            feature = event["feature"] or "unspecified"
+            bucket = by_feature.setdefault(feature, {"totalTokens": 0, "estimatedCost": 0.0, "count": 0})
+            bucket["totalTokens"] += event["totalTokens"] or 0
+            bucket["estimatedCost"] += event["estimatedCost"] or 0
+            bucket["count"] += 1
+            total_tokens += event["totalTokens"] or 0
+            total_cost += event["estimatedCost"] or 0
+        print(json.dumps({"events": events, "byFeature": by_feature, "totalTokens": total_tokens, "totalEstimatedCost": total_cost}))
+        return
+
+    # ---- Post-event content hooks ----
+
+    if action == "post_event_artifact_create":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO post_event_artifacts (
+              id, session_id, owner_user_id, artifact_type, source_moment_ref, speaker_id, sponsor_id,
+              campaign, storage_reference, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["sessionId"],
+                payload["ownerUserId"],
+                payload["artifactType"],
+                payload.get("sourceMomentRef") or "",
+                payload.get("speakerId"),
+                payload.get("sponsorId"),
+                payload.get("campaign") or "",
+                payload.get("storageReference") or "",
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM post_event_artifacts WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"artifact": public_post_event_artifact(row)}))
+        return
+
+    if action == "post_event_artifact_list":
+        rows = conn.execute(
+            "SELECT * FROM post_event_artifacts WHERE session_id = ? ORDER BY created_at DESC",
+            (payload["sessionId"],),
+        ).fetchall()
+        print(json.dumps({"artifacts": [public_post_event_artifact(row) for row in rows]}))
         return
 
     raise ValueError(f"Unknown action: {action}")
