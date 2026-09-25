@@ -311,6 +311,32 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // ---- Platform administrator ----
+  if (req.method === "GET" && req.url === "/api/platform/status") {
+    const session = await requirePlatformAdmin(req, res);
+    if (!session) return;
+    await handlePlatformStatus(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url === "/api/platform/organizations") {
+    const session = await requirePlatformAdmin(req, res);
+    if (!session) return;
+    await handlePlatformOrganizations(req, res, session);
+    return;
+  }
+  {
+    const platformOrgMatch = req.url?.match(/^\/api\/platform\/organizations\/([^/]+)\/(plan|reset-usage)$/);
+    if (req.method === "POST" && platformOrgMatch) {
+      if (!requireCsrf(req, res) || !limit(req, res, "platform-admin-write", 60, 15 * 60 * 1000)) return;
+      const session = await requirePlatformAdmin(req, res);
+      if (!session) return;
+      const [, organizationId, action] = platformOrgMatch;
+      if (action === "plan") await handlePlatformOrganizationPlan(req, res, organizationId);
+      else await handlePlatformResetUsage(req, res, organizationId);
+      return;
+    }
+  }
+
   // ---- Organizations ----
   if (req.method === "GET" && req.url === "/api/organizations") {
     const session = await requireSession(req, res);
@@ -1251,6 +1277,20 @@ async function findActiveAiCredential(organizationId) {
   return null;
 }
 
+async function resolveAiCredential(authSession, organizationId) {
+  const organizationCredential = organizationId ? await findActiveAiCredential(organizationId) : null;
+  if (organizationCredential) return { ...organizationCredential, platformKey: false };
+  // Founder/platform-admin exception only. Normal organizations NEVER inherit this server key.
+  if (isPlatformAdmin(authSession) && DEEPSEEK_API_KEY) {
+    return { provider: "deepseek", platformKey: true, keyLast4: DEEPSEEK_API_KEY.slice(-4) };
+  }
+  return null;
+}
+
+function aiCredentialKey(credential) {
+  return credential?.platformKey ? DEEPSEEK_API_KEY : decryptSecret(credential.encryptedCredential);
+}
+
 // BYOK_RULE: "No BYOK credential = no paid AI. Do NOT silently fall back to our own OpenAI, Anthropic,
 // DeepSeek, Gemini, or any other paid provider key. The organization owns its AI configuration." — this
 // function is the one enforcement point; DEEPSEEK_API_KEY/ANTHROPIC_API_KEY (the platform keys) are
@@ -1264,7 +1304,7 @@ async function handleAiProducerRespond(req, res, authSession) {
   const persona = body.persona && typeof body.persona === "object" ? body.persona : {};
 
   const organizationId = await resolveOrganizationForSession(authSession, body.organizationId);
-  const credential = organizationId ? await findActiveAiCredential(organizationId) : null;
+  const credential = await resolveAiCredential(authSession, organizationId);
   if (!credential) {
     sendJson(req, res, 402, {
       error: "byok_required",
@@ -1275,7 +1315,7 @@ async function handleAiProducerRespond(req, res, authSession) {
 
   const userContent = `HOST INSTRUCTION: ${instruction}\n\nSHOW CONTEXT:\n${JSON.stringify(context)}`;
   const systemPrompt = buildAiProducerSystemPrompt(persona);
-  const apiKey = decryptSecret(credential.encryptedCredential);
+  const apiKey = aiCredentialKey(credential);
   const { text, usage } = await AI_CALL_BY_PROVIDER[credential.provider](userContent, systemPrompt, apiKey);
   if (organizationId) {
     await db("increment_usage", { organizationId, periodStart: currentPeriodStart("day"), deltas: { aiRequests: 1 } });
@@ -2434,6 +2474,43 @@ function authConfigured() {
 // organization would confirm that organization id/slug exists to a caller with no business knowing that.
 const ORG_ROLE_RANK = { viewer: 1, member: 2, admin: 3, owner: 4 };
 
+async function handlePlatformStatus(req, res, session) {
+  sendJson(req, res, 200, {
+    platformRole: session.platformRole || "platform_admin",
+    providers: {
+      deepseek: { configured: Boolean(DEEPSEEK_API_KEY), model: DEEPSEEK_MODEL },
+      anthropic: { configured: Boolean(ANTHROPIC_API_KEY), model: ANTHROPIC_MODEL }
+    },
+    safetySwitches: COST_SAFETY_SWITCHES,
+    founderAiFallback: Boolean(DEEPSEEK_API_KEY)
+  });
+}
+
+async function handlePlatformOrganizations(req, res) {
+  const result = await db("platform_list_organizations", {});
+  sendJson(req, res, 200, { organizations: result.organizations || [] });
+}
+
+async function handlePlatformOrganizationPlan(req, res, organizationId) {
+  if (!SAFE_ID.test(organizationId)) throw httpError(400, "Invalid organization id.");
+  const body = await readJson(req);
+  const plan = sessionText(body.plan, 40);
+  const subscriptionStatus = sessionText(body.subscriptionStatus, 40) || (plan === "demo" ? "none" : "active");
+  const result = await db("platform_set_organization_plan", { organizationId, plan, subscriptionStatus });
+  if (result.error === "invalid_plan") throw httpError(400, "Invalid plan.");
+  if (result.error === "invalid_status") throw httpError(400, "Invalid subscription status.");
+  if (!result.organization) throw httpError(404, "Organization not found.");
+  sendJson(req, res, 200, { organization: result.organization });
+}
+
+async function handlePlatformResetUsage(req, res, organizationId) {
+  if (!SAFE_ID.test(organizationId)) throw httpError(400, "Invalid organization id.");
+  const org = await db("get_organization", { id: organizationId });
+  if (!org.organization) throw httpError(404, "Organization not found.");
+  await db("platform_reset_usage", { organizationId });
+  sendJson(req, res, 200, { ok: true, organizationId });
+}
+
 async function requireMembership(req, res, organizationId, minRole, session) {
   if (!SAFE_ID.test(organizationId)) {
     sendJson(req, res, 404, { error: "Organization not found." });
@@ -3351,8 +3428,31 @@ async function readSession(req) {
   }
 }
 
+function isPlatformAdmin(user) {
+  return Boolean(user?.isPlatformAdmin || user?.platformRole === "platform_admin");
+}
+
 function publicSessionUser(user) {
-  return user ? { id: user.id, name: user.name, email: user.email, status: user.status, branding: user.branding || { mode: "flexible", brandId: null }, endCard: user.endCard || {} } : null;
+  return user ? {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    status: user.status,
+    branding: user.branding || { mode: "flexible", brandId: null },
+    endCard: user.endCard || {},
+    platformRole: user.platformRole || "user",
+    isPlatformAdmin: isPlatformAdmin(user)
+  } : null;
+}
+
+async function requirePlatformAdmin(req, res) {
+  const session = await requireSession(req, res);
+  if (!session) return null;
+  if (!isPlatformAdmin(session)) {
+    sendJson(req, res, 403, { error: "Platform administrator access is required." });
+    return null;
+  }
+  return session;
 }
 
 function googleConfigured() {
@@ -3972,6 +4072,9 @@ async function resolveOrganizationForSession(authSession, requestedOrgId) {
 // organization_id across members is a defined follow-up, not done here to avoid changing that route's
 // existing owner-scoped semantics for every other caller (session history, rename, delete, etc.).
 async function enforceSessionQuota(organizationId, authSession) {
+  // Founder/operator accounts need to exercise Planner repeatedly during QA. This bypass is deliberately
+  // limited to session creation; recording/render/upload limits remain enforced because they create cost.
+  if (isPlatformAdmin(authSession)) return;
   if (!organizationId) return; // no organization context (a legacy/pre-Phase-1 account) — don't newly restrict
   const org = await db("get_organization", { id: organizationId });
   const limits = planLimitsFor(org.organization?.plan);
@@ -4993,7 +5096,7 @@ async function recordAiUsage({ organizationId, sessionId, provider, model, featu
 // handleAiProducerRespond, never a parallel AI path or a platform-key fallback.
 async function handleMoxieReadinessSummary(req, res, authSession) {
   const session = await requireOwnedSession(req, res, authSession, "/moxie/readiness-summary");
-  const credential = await requireMoxieCredential(req, res, session);
+  const credential = await requireMoxieCredential(req, res, session, authSession);
   if (!credential) return;
   const [speakersResult, sponsorsResult, consentResult] = await Promise.all([
     db("speaker_list", { sessionId: session.id }),
@@ -5023,9 +5126,9 @@ async function handleMoxieReadinessSummary(req, res, authSession) {
 // Shared BYOK gate for every Moxie Event Growth hook below — same findActiveAiCredential/byok_required
 // shape as handleMoxieReadinessSummary and /api/ai-producer/respond. Returns null (after sending the 402
 // itself) when there's no credential, so callers can `if (!credential) return;`.
-async function requireMoxieCredential(req, res, session) {
+async function requireMoxieCredential(req, res, session, authSession) {
   if (!session.organizationId) throw httpError(402, "This session has no organization context for AI features.");
-  const credential = await findActiveAiCredential(session.organizationId);
+  const credential = await resolveAiCredential(authSession, session.organizationId);
   if (!credential) {
     sendJson(req, res, 402, {
       error: "byok_required",
@@ -5037,7 +5140,7 @@ async function requireMoxieCredential(req, res, session) {
 }
 
 async function callMoxie({ session, credential, systemPrompt, userContent, feature }) {
-  const apiKey = decryptSecret(credential.encryptedCredential);
+  const apiKey = aiCredentialKey(credential);
   const started = Date.now();
   const { text, usage } = await AI_CALL_BY_PROVIDER[credential.provider](userContent, systemPrompt, apiKey);
   await recordAiUsage({
@@ -5069,7 +5172,7 @@ async function handleMoxieSpeakerBriefing(req, res, authSession) {
   const speakerResult = await db("speaker_get", { id: speakerId });
   if (!speakerResult.speaker || speakerResult.speaker.sessionId !== session.id) throw httpError(404, "Speaker not found.");
   const speaker = speakerResult.speaker;
-  const credential = await requireMoxieCredential(req, res, session);
+  const credential = await requireMoxieCredential(req, res, session, authSession);
   if (!credential) return;
   const facts = {
     sessionTitle: session.title,
@@ -5100,7 +5203,7 @@ async function handleMoxieSpeakerBriefing(req, res, authSession) {
 // never audience data, never a specific speaker's private profile fields.
 async function handleMoxieSessionResearch(req, res, authSession) {
   const session = await requireOwnedSession(req, res, authSession, "/moxie/session-research");
-  const credential = await requireMoxieCredential(req, res, session);
+  const credential = await requireMoxieCredential(req, res, session, authSession);
   if (!credential) return;
   const [speakersResult, sponsorsResult] = await Promise.all([
     db("speaker_list", { sessionId: session.id }),
@@ -5129,7 +5232,7 @@ async function handleMoxieSessionResearch(req, res, authSession) {
 // identityId, email, or any row-level audience_event.
 async function handleMoxieAudienceInsights(req, res, authSession) {
   const session = await requireOwnedSession(req, res, authSession, "/moxie/audience-insights");
-  const credential = await requireMoxieCredential(req, res, session);
+  const credential = await requireMoxieCredential(req, res, session, authSession);
   if (!credential) return;
   const summaryResult = await db("audience_event_summary", { sessionId: session.id });
   const facts = {
@@ -5152,7 +5255,7 @@ async function handleMoxieAudienceInsights(req, res, authSession) {
 // explicit organizer action (POST .../artifacts, then POST /api/artifacts/:id/update).
 async function handleMoxiePostEventSuggestions(req, res, authSession) {
   const session = await requireOwnedSession(req, res, authSession, "/moxie/post-event-suggestions");
-  const credential = await requireMoxieCredential(req, res, session);
+  const credential = await requireMoxieCredential(req, res, session, authSession);
   if (!credential) return;
   const [summaryResult, sponsorsResult, artifactsResult] = await Promise.all([
     db("audience_event_summary", { sessionId: session.id }),
