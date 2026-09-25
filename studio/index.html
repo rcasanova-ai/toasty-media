@@ -68,6 +68,15 @@
             <label>Email<input id="loginEmail" name="email" type="email" autocomplete="email" required></label>
             <label>Password<input id="loginPassword" name="password" type="password" autocomplete="current-password" required></label>
             <button class="public-button" type="submit">Sign in</button>
+            <button id="showForgot" class="link-action" type="button" style="justify-self:start; background:none; border:none; color:var(--public-muted); text-decoration:underline; cursor:pointer; padding:0;">Forgot password?</button>
+          </form>
+
+          <form id="forgotForm" class="auth-form" autocomplete="on" hidden>
+            <h2>Reset your password</h2>
+            <p style="margin:0; color:var(--public-muted); font-size:0.88rem;">Enter your account email and we'll send a reset link if an account exists for it.</p>
+            <label>Email<input id="forgotEmail" name="email" type="email" autocomplete="email" required></label>
+            <button class="public-button" type="submit">Send reset link</button>
+            <button id="backToLogin" type="button" style="justify-self:start; background:none; border:none; color:var(--public-muted); text-decoration:underline; cursor:pointer; padding:0;">Back to sign in</button>
           </form>
 
           <p id="authMessage" class="auth-message" role="status"></p>
