@@ -557,7 +557,11 @@ export class LiveSession {
     this.presence.onRejected((status, errorMessage) => this._handleHostPresenceRejected(status, errorMessage));
     this.presence.start(transportSourceId);
     this._startHostActivityMeter();
-    this.audioMixer.addParticipant({ participantId: "host", stream: this._hostPreviewStream, label: name });
+    // Do NOT feed the Host's live microphone into the Producer/Director ProgramAudioBus.
+    // ProgramAudioBus monitors to the local speakers when resumed (for example by soundboard playback).
+    // Routing the live Host mic into that graph creates a direct speaker -> mic -> VDO feedback loop.
+    // Keep the native Host stream alive for self-video, activity metering, and transcription; participant
+    // speech reaches the program through the VDO transport, not this local monitor graph.
     this.timeline.record(ProductionEventType.PARTICIPANT_JOINED, { role: "host" }, { participantId: "host", sessionId: this.durableSession?.id || this.roomId });
     this.setHostState(HostState.IN_STUDIO);
     this.exposeProgramSources();
