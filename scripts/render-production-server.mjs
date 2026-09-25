@@ -4612,10 +4612,27 @@ function sanitizeLandingBlocks(input) {
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{2,79}$/;
 
+// The Event Page editor never shows a BrandProfile picker (item 2's "auto-uses current org BrandProfile"
+// requirement, not a new selector) — this resolves which theme a session's event page renders with,
+// server-side, the same way applyBrandTheme's baseThemeId already themes the rest of Studio.
+async function resolveBaseThemeId(brandProfileId) {
+  if (!brandProfileId) return "toasty";
+  const profile = await db("get_brand_profile", { id: brandProfileId });
+  return profile.brandProfile?.baseThemeId || "toasty";
+}
+
+async function withPublicTheme(landingPage) {
+  if (!landingPage) return landingPage;
+  const baseThemeId = await resolveBaseThemeId(landingPage.brandProfileId);
+  const { organizationId, brandProfileId, ...rest } = landingPage;
+  return { ...rest, baseThemeId };
+}
+
 async function handleLandingPageGet(req, res, authSession) {
   const session = await requireOwnedSession(req, res, authSession, "/landing-page");
   const result = await db("landing_page_get_by_session", { sessionId: session.id });
-  sendJson(req, res, 200, { landingPage: result.landingPage });
+  const baseThemeId = await resolveBaseThemeId(result.landingPage?.brandProfileId);
+  sendJson(req, res, 200, { landingPage: result.landingPage ? { ...result.landingPage, baseThemeId } : null });
 }
 
 async function handleLandingPageUpsert(req, res, authSession) {
@@ -4624,11 +4641,18 @@ async function handleLandingPageUpsert(req, res, authSession) {
   const slug = sessionText(body.slug, 80).toLowerCase();
   if (!SLUG_PATTERN.test(slug)) throw httpError(400, "Slug must be 3-80 lowercase letters, numbers, or hyphens.");
   // brandProfileId is trusted only if it actually belongs to this session's own organization — never a
-  // bare client-supplied id pointing at someone else's brand profile.
+  // bare client-supplied id pointing at someone else's brand profile. When the organizer doesn't pick
+  // one (there is no picker in the editor UI), this auto-uses the organization's own first BrandProfile,
+  // exactly like every other "auto-uses current org BrandProfile" surface in this app — never a second,
+  // separate default.
   let brandProfileId = null;
   if (body.brandProfileId && session.organizationId) {
     const profile = await db("get_brand_profile", { id: sessionText(body.brandProfileId, 80) });
     if (profile.brandProfile?.organizationId === session.organizationId) brandProfileId = profile.brandProfile.id;
+  }
+  if (!brandProfileId && session.organizationId) {
+    const profiles = await db("list_brand_profiles", { organizationId: session.organizationId });
+    brandProfileId = profiles.brandProfiles?.[0]?.id || null;
   }
   const result = await db("landing_page_upsert", {
     id: newId("lp"),
@@ -4640,19 +4664,22 @@ async function handleLandingPageUpsert(req, res, authSession) {
     blocks: sanitizeLandingBlocks(body.blocks)
   });
   if (result.error === "slug_taken") throw httpError(409, "That event URL is already taken.");
-  sendJson(req, res, 200, { landingPage: result.landingPage });
+  const baseThemeId = await resolveBaseThemeId(result.landingPage?.brandProfileId);
+  sendJson(req, res, 200, { landingPage: result.landingPage ? { ...result.landingPage, baseThemeId } : null });
 }
 
 async function handleLandingPagePublish(req, res, authSession) {
   const session = await requireOwnedSession(req, res, authSession, "/landing-page/publish");
   const result = await db("landing_page_publish", { sessionId: session.id });
-  sendJson(req, res, 200, { landingPage: result.landingPage });
+  const baseThemeId = await resolveBaseThemeId(result.landingPage?.brandProfileId);
+  sendJson(req, res, 200, { landingPage: result.landingPage ? { ...result.landingPage, baseThemeId } : null });
 }
 
 async function handleLandingPageUnpublish(req, res, authSession) {
   const session = await requireOwnedSession(req, res, authSession, "/landing-page/unpublish");
   const result = await db("landing_page_unpublish", { sessionId: session.id });
-  sendJson(req, res, 200, { landingPage: result.landingPage });
+  const baseThemeId = await resolveBaseThemeId(result.landingPage?.brandProfileId);
+  sendJson(req, res, 200, { landingPage: result.landingPage ? { ...result.landingPage, baseThemeId } : null });
 }
 
 async function handleLandingPageGetBySlug(req, res) {
@@ -4660,8 +4687,7 @@ async function handleLandingPageGetBySlug(req, res) {
   if (!SLUG_PATTERN.test(slug)) throw httpError(400, "Invalid event URL.");
   const result = await db("landing_page_get_by_slug", { slug });
   if (!result.landingPage || result.landingPage.status !== "published") throw httpError(404, "Event page not found.");
-  const { organizationId, ...publicPage } = result.landingPage;
-  sendJson(req, res, 200, { landingPage: publicPage });
+  sendJson(req, res, 200, { landingPage: await withPublicTheme(result.landingPage) });
 }
 
 const AUDIENCE_EVENT_TYPES = new Set([
