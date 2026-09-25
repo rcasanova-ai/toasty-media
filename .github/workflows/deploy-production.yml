@@ -27,6 +27,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate consolidated product surfaces
+        run: |
+          set -euo pipefail
+          node scripts/remaining-work-consolidation-test.mjs
+
       - name: Configure SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.TOASTY_SSH_PRIVATE_KEY }}
