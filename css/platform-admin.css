@@ -1,0 +1,15 @@
+.platform-topbar{gap:18px}.platform-topbar select{margin-left:auto;min-width:260px}
+.platform-admin-shell{display:grid;grid-template-columns:220px minmax(0,1fr);max-width:1440px;margin:0 auto;padding:24px;gap:24px}
+.platform-admin-nav{position:sticky;top:20px;height:max-content;display:flex;flex-direction:column;gap:6px;padding:18px;border:1px solid rgba(255,255,255,.08);border-radius:18px;background:rgba(255,255,255,.025)}
+.platform-nav-btn{border:0;background:transparent;color:inherit;text-align:left;padding:10px 12px;border-radius:10px;cursor:pointer}
+.platform-nav-btn:hover,.platform-nav-btn.is-active{background:rgba(255,255,255,.08)}
+.platform-admin-main{min-width:0}.platform-org-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:18px}
+.platform-panel{display:none}.platform-panel.is-active{display:block}.platform-panel>.settings-card{margin-bottom:18px}
+.form-grid{display:grid;gap:14px;margin:16px 0}.form-grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}.form-grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}.form-grid.four{grid-template-columns:repeat(4,minmax(0,1fr))}
+.form-grid label,.settings-card>label{display:flex;flex-direction:column;gap:7px;font-size:.86rem}.form-grid input,.form-grid select,.settings-card textarea,.settings-card input,.settings-card select{width:100%;box-sizing:border-box}
+.button-row{display:flex;gap:10px;flex-wrap:wrap}.table-wrap{overflow:auto}.platform-stack{display:grid;gap:10px}
+.platform-row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:14px;border:1px solid rgba(255,255,255,.08);border-radius:12px}
+.platform-row-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.platform-row small{opacity:.7}
+.integration-row{display:flex;justify-content:space-between;gap:18px;padding:14px 0;border-bottom:1px solid rgba(255,255,255,.08)}
+.brand-admin-card{padding:14px;border:1px solid rgba(255,255,255,.08);border-radius:12px}.brand-admin-card textarea{min-height:140px}
+@media(max-width:900px){.platform-admin-shell{grid-template-columns:1fr}.platform-admin-nav{position:static;display:grid;grid-template-columns:repeat(2,1fr)}.form-grid.two,.form-grid.three,.form-grid.four{grid-template-columns:1fr}.platform-org-heading{flex-direction:column}.platform-topbar{flex-wrap:wrap}.platform-topbar select{width:100%;margin-left:0}}
