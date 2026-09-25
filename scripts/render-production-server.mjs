@@ -145,8 +145,10 @@ const PLAN_LIMITS = Object.freeze({
   demo: Object.freeze({
     aiRequiresByok: true,
     maxConcurrentSessions: 1,
-    maxSessionsPerDay: 3,
-    maxSessionsPerMonth: 20,
+    // Session creation itself is cheap; keep expensive operations (recording/rendering/storage) tightly
+    // capped below, but do not make basic product QA hit a wall after three planner attempts.
+    maxSessionsPerDay: 20,
+    maxSessionsPerMonth: 100,
     maxParticipants: 4,
     maxRecordingMinutes: 15,
     maxConcurrentRenders: 1,
