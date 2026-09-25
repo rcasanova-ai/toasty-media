@@ -3126,7 +3126,8 @@ def main():
     if action == "list_memberships":
         rows = conn.execute(
             """
-            SELECT m.*, u.name AS user_name, u.email AS user_email, u.status AS user_status
+            SELECT m.*, u.name AS user_name, u.email AS user_email, u.status AS user_status,
+                   u.platform_role AS user_platform_role
             FROM memberships m JOIN users u ON u.id = m.user_id
             WHERE m.organization_id = ?
             ORDER BY m.created_at ASC
@@ -3139,6 +3140,7 @@ def main():
             item["userName"] = row["user_name"]
             item["userEmail"] = row["user_email"]
             item["userStatus"] = row["user_status"]
+            item["userPlatformRole"] = row["user_platform_role"] if "user_platform_role" in row.keys() else "user"
             out.append(item)
         print(json.dumps({"memberships": out}))
         return
