@@ -751,6 +751,7 @@ const server = createServer(async (req, res) => {
   }
 
   let workDir;
+  let renderSlotHeld = false;
   try {
     workDir = await mkdtemp(join(tmpdir(), "toasty-render-"));
     const request = new Request(`http://${HOST}:${PORT}/render`, {
@@ -768,6 +769,7 @@ const server = createServer(async (req, res) => {
       throw httpError(402, `Your plan allows renders up to ${renderLimits.maxRenderDurationSeconds} seconds.`);
     }
     activeRenderJobs += 1;
+    renderSlotHeld = true;
     const media = await writeMediaFiles({ form, workDir });
     await resolveReferencedMedia({ manifest, media, workDir, userId: (await readSession(req))?.id || null });
     const outputPath = await renderProduction({ manifest, media, workDir });
@@ -797,7 +799,7 @@ const server = createServer(async (req, res) => {
     console.error(error);
     sendJson(req, res, error.statusCode || 500, { error: creatorError(error) });
   } finally {
-    if (activeRenderJobs > 0) activeRenderJobs -= 1;
+    if (renderSlotHeld) activeRenderJobs = Math.max(0, activeRenderJobs - 1);
     if (workDir) await rm(workDir, { recursive: true, force: true });
   }
   } catch (error) {
