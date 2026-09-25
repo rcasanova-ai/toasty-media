@@ -313,8 +313,8 @@ const server = createServer(async (req, res) => {
   if (req.method === "GET" && req.url === "/api/organizations") {
     const session = await requireSession(req, res);
     if (!session) return;
-    const result = await db("list_user_organizations", { userId: session.id });
-    sendJson(req, res, 200, { organizations: result.organizations || [] });
+    const organizations = await ensureDefaultOrganizationForUser(session);
+    sendJson(req, res, 200, { organizations });
     return;
   }
   if (req.method === "GET" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/usage")) {
@@ -1910,6 +1910,17 @@ async function createDefaultOrganizationForUser(user) {
   throw httpError(500, "Could not create your organization.");
 }
 
+async function ensureDefaultOrganizationForUser(user) {
+  const existing = await db("list_user_organizations", { userId: user.id });
+  if ((existing.organizations || []).length) return existing.organizations;
+  // Legacy accounts created before organizations existed have no membership row. Bootstrap exactly one
+  // owner organization on first authenticated access so the dashboard can never strand a valid user.
+  await createDefaultOrganizationForUser(user);
+  const created = await db("list_user_organizations", { userId: user.id });
+  if (!(created.organizations || []).length) throw httpError(500, "Could not prepare your organization.");
+  return created.organizations;
+}
+
 function slugify(value) {
   return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "studio";
 }
@@ -1927,6 +1938,7 @@ async function handleLogin(req, res) {
   }
   const login = await db("mark_login", { id: result.user.id });
   const user = login.user || result.user;
+  await ensureDefaultOrganizationForUser(user);
   setSession(req, res, user);
   sendJson(req, res, 200, { authenticated: true, user });
 }
