@@ -1,0 +1,3 @@
+limit_req_zone $binary_remote_addr zone=toasty_render:10m rate=6r/m;
+limit_req_zone $binary_remote_addr zone=toasty_presence:10m rate=300r/m;
+limit_req_zone $binary_remote_addr zone=toasty_settings:10m rate=60r/m;

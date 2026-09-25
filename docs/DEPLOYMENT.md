@@ -110,6 +110,8 @@ Production is two machines. Do not conflate them.
 
 The broadcast unit in `scripts/toasty-broadcast.service` (`WorkingDirectory=/opt/toasty-media`, `broadcast-server.mjs`) is RTMP, not the render API. Do not restart it for an auth-helper change.
 
+**nginx in front of `render.toasty.media` uses an explicit path allowlist** (`location` blocks per route, catch-all `location / { return 404; }`) — see `scripts/nginx-render.conf.example` (mirrors the live config; sync it after any manual nginx edit) and `scripts/toasty-render-rate-limit.conf.example` for the `limit_req_zone` definitions. **Adding a new route to `render-production-server.mjs` does nothing in production until a matching `location` block is added to nginx** — neither deploy workflow touches nginx config at all (confirmed the hard way: an entire feature branch's worth of new `/auth/*`, `/api/organizations/*`, and `/webhooks/stripe` routes deployed cleanly and passed the workflow's own health check, then 404'd from nginx itself for every one of them). Pick the right `limit_req` zone deliberately: `toasty_render` (6r/m) is deliberately tight for brute-force-sensitive auth; `toasty_settings` (60r/m) is for human-triggered dashboard/settings pages that fire several requests per load; `toasty_presence` (300r/m) is for heartbeat-style polling. After editing nginx config on the host: `nginx -t` before `systemctl reload nginx`, always.
+
 ### Canonical helper deploy (render host only)
 
 `scripts/deploy-render-helper.sh` copies **only** `scripts/toasty-auth-db.py` to `TOASTY_RENDER_HELPER_PATH`, restarts `TOASTY_RENDER_UNIT`, and sha256-compares local Git to the remote file.
