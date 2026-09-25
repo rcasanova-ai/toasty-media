@@ -119,6 +119,24 @@ async function main() {
   const planReread = await jsonFetch(`/api/sessions/${sessionId}`, { cookie: organizer.cookie });
   assertEqual(planReread.data.session.plan.wizardStep, "speakers", "plan survives GET");
 
+  console.log("\nEvery Planner session type round-trips through the SAME plan storage (no per-type system)");
+  // js/session-planner-page.js's SESSION_TYPES dropdown — mirrored here rather than imported, since this
+  // is a Node test file exercising the server, not a browser module. sessionType is unvalidated plan
+  // metadata (server just stores whatever string is sent), so this also proves the server never
+  // special-cases or rejects any of them.
+  const allSessionTypes = [
+    "podcast", "interview", "panel", "focus_group", "webinar", "ama", "demo", "workshop", "prerecorded",
+    "research_session", "product_launch", "community_call", "investor_update", "roundtable", "other"
+  ];
+  for (const sessionType of allSessionTypes) {
+    const typeSet = await jsonFetch(`/api/sessions/${sessionId}/plan`, { method: "POST", cookie: organizer.cookie, body: { plan: { ...planSet.data.session.plan, sessionType } } });
+    assertEqual(typeSet.status, 200, `sessionType "${sessionType}" saves through the same /plan route`);
+    assertEqual(typeSet.data.session.plan.sessionType, sessionType, `sessionType "${sessionType}" round-trips exactly`);
+    assertEqual(typeSet.data.session.id, sessionId, `sessionType "${sessionType}" is still the SAME durable session, not a new/different one`);
+  }
+  // Restore the type the rest of this file's assertions (Moxie facts, etc.) expect.
+  await jsonFetch(`/api/sessions/${sessionId}/plan`, { method: "POST", cookie: organizer.cookie, body: { plan: { ...planSet.data.session.plan, sessionType: "product_launch" } } });
+
   console.log("\nSpeaker invite -> guest profile -> consent -> tech check");
   const speakerCreate = await jsonFetch(`/api/sessions/${sessionId}/speakers`, {
     method: "POST",

@@ -8,6 +8,13 @@ import { computeSpeakerReadiness, ReadinessItem } from "./speaker-readiness.js";
 import { requiredConsentKeysFor } from "./consent-policy.js";
 
 const STEPS = ["basics", "audience", "speakers", "sponsors", "runofshow", "assets", "readiness"];
+// All of these create the SAME durable live_sessions row via createSession() below — sessionType is
+// purely plan metadata (consent-policy.js's requiredConsentKeysFor falls back to a default requirement
+// set for any value it doesn't special-case), never a separate system per type.
+const SESSION_TYPES = [
+  "podcast", "interview", "panel", "focus_group", "webinar", "ama", "demo", "workshop", "prerecorded",
+  "research_session", "product_launch", "community_call", "investor_update", "roundtable", "other"
+];
 const main = document.getElementById("planMain");
 const nav = document.getElementById("stepNav");
 
@@ -144,7 +151,7 @@ function renderBasics() {
     ${field("Title", `<input id="pTitle" value="${escapeAttr(session.title)}">`)}
     ${field("Description", `<textarea id="pDescription">${escapeHtml(plan.description)}</textarea>`)}
     <div class="plan-grid-3">
-      ${field("Session type", `<select id="pSessionType">${["podcast", "panel", "webinar", "demo", "workshop", "ama", "product_launch", "community_call", "investor_update", "focus_group"].map((t) => `<option value="${t}" ${plan.sessionType === t ? "selected" : ""}>${t.replace(/_/g, " ")}</option>`).join("")}</select>`)}
+      ${field("Session type", `<select id="pSessionType">${SESSION_TYPES.map((t) => `<option value="${t}" ${plan.sessionType === t ? "selected" : ""}>${t.replace(/_/g, " ")}</option>`).join("")}</select>`)}
       ${field("Delivery", `<select id="pDeliveryMode">${["live", "prerecorded", "scheduled_premiere"].map((t) => `<option value="${t}" ${plan.deliveryMode === t ? "selected" : ""}>${t.replace(/_/g, " ")}</option>`).join("")}</select>`)}
       ${field("Visibility", `<select id="pVisibility">${["public", "private"].map((t) => `<option value="${t}" ${plan.visibility === t ? "selected" : ""}>${t}</option>`).join("")}</select>`)}
     </div>
