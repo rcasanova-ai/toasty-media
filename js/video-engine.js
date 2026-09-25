@@ -71,9 +71,17 @@ export class VideoEngine {
   // play; only publishing will be allowed" — exactly what buildGuestPublisherParams below already uses
   // for the Guest's equivalent hidden publisher, with an identical comment explaining why. This mount
   // never needed to receive anything; it only ever needed to publish.
+  //
+  // nhp=1 (&noheadphones, confirmed in VDO.Ninja's own main.js source): a real, documented parameter
+  // that forces echoCancellation/autoGainControl/noiseSuppression on (plus voiceIsolation/noisegate),
+  // specifically for "speaker-based setups without headphones" — precisely four people on normal
+  // laptop/phone speakers and mics, the acceptance bar for this fix. Toasty's own native prejoin
+  // preview requests AEC/NS/AGC on its getUserMedia call, but that only affects the preview stream —
+  // VDO's publisher independently re-acquires the same mic for actual publishing and was never told to
+  // do the same. Not invented: this is VDO's own purpose-built answer to this exact scenario.
   mountDirectorFrame(container,{roomId,label="Host",videoDeviceLabel,audioDeviceLabel}) {
     const streamId=`${roomId}h`;
-    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cleanoutput:"1",cover:"1",autostart:"1",view:true,videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel)});
+    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cleanoutput:"1",cover:"1",autostart:"1",view:true,nhp:"1",videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel)});
   }
 
   // slots=4 reserves 4 even grid cells regardless of how many are actually filled, and cover=1 crops
@@ -453,6 +461,12 @@ export function buildGuestPublisherParams({roomId,guestName,backgroundMode,video
       // Local self-preview is not a remote stream, so it still paints; ParticipantStage keeps
       // rendering Host/other guests. Do NOT pass view=ownId (that pulls a remote copy of self).
       view:true,
+      // nhp=1 (&noheadphones, confirmed in VDO.Ninja's own main.js source): forces
+      // echoCancellation/autoGainControl/noiseSuppression on (plus voiceIsolation/noisegate) — VDO's own
+      // documented parameter for "speaker-based setups without headphones," matching every Guest joining
+      // from a normal laptop/phone's built-in mic and speakers. See mountDirectorFrame's identical
+      // comment for the Host-side half of this same fix.
+      nhp:"1",
       videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),
       audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),
       effects:effectForBackground(backgroundMode),
