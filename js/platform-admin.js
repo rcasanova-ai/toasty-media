@@ -49,6 +49,7 @@ function bindStatic(){
   document.querySelectorAll(".platform-nav-btn").forEach(btn=>btn.addEventListener("click",()=>selectPanel(btn.dataset.panel)));
   $("paSaveAccount").onclick=saveAccountControls;$("paResetUsage").onclick=resetUsage;$("paSaveOrg").onclick=saveOrganization;
   $("paSaveDefaults").onclick=saveDefaults;$("paSaveBilling").onclick=saveBilling;$("paNewBrand").onclick=()=>renderBrandEditor(null,true);
+  $("paInviteMember").onclick=inviteMember;$("paSaveAiKey").onclick=saveAiKey;
 }
 
 function selectPanel(panel){
@@ -170,3 +171,23 @@ async function saveOrganization(){try{setMessage("Saving organization…");await
 async function saveDefaults(){try{await post(orgPath("/settings"),{defaultSessionSettings:parseJson("paDefaultSession"),defaultCTA:parseJson("paDefaultCTA"),defaultEndCard:parseJson("paDefaultEndCard"),socialLinks:parseJson("paSocialLinks"),customDomainConfig:parseJson("paDomainConfig")});await loadDetail();setMessage("Organization defaults updated.");}catch(e){setMessage(e.message,true);}}
 async function saveBilling(){try{await post(orgPath("/billing-account"),{billingEmail:$("paBillingEmail").value,currency:$("paCurrency").value,preferredPaymentMethod:$("paPaymentMethod").value});await loadDetail();setMessage("Billing account updated.");}catch(e){setMessage(e.message,true);}}
 async function refreshOrganizations(){const orgs=await studioRequest("/api/organizations/platform-admin/organizations");state.organizations=orgs.organizations||[];renderSwitcher();}
+
+
+async function inviteMember(){
+  const email=$("paInviteEmail").value.trim(),role=$("paInviteRole").value;
+  try{
+    await post(orgPath("/member-invite"),{email,role});
+    $("paInviteEmail").value="";
+    setMessage("Invitation sent.");
+  }catch(e){setMessage(e.message,true);}
+}
+
+async function saveAiKey(){
+  const provider=$("paAiProvider").value,apiKey=$("paAiKey").value.trim();
+  try{
+    await post(orgPath("/ai-provider-save"),{provider,apiKey});
+    $("paAiKey").value="";
+    await loadDetail();
+    setMessage(human(provider)+" key saved.");
+  }catch(e){setMessage(e.message,true);}
+}
