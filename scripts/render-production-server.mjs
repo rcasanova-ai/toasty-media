@@ -399,6 +399,33 @@ const server = createServer(async (req, res) => {
     await handleInviteAccept(req, res, session);
     return;
   }
+  // ---- BYOK: AI provider credentials ----
+  if (req.method === "GET" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/ai-providers")) {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleAiProvidersList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/ai-providers")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "ai-provider-save", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleAiProviderSave(req, res, session);
+    return;
+  }
+  {
+    const aiProviderActionMatch = req.url?.match(/^\/api\/organizations\/([^/]+)\/ai-providers\/([^/]+)\/(test|revoke|delete)$/);
+    if (req.method === "POST" && aiProviderActionMatch) {
+      const [, organizationId, provider, action] = aiProviderActionMatch;
+      if (!requireCsrf(req, res) || !limit(req, res, `ai-provider-${action}`, action === "test" ? 20 : 30, 15 * 60 * 1000)) return;
+      const session = await requireSession(req, res);
+      if (!session) return;
+      if (action === "test") await handleAiProviderTest(req, res, session, organizationId, provider);
+      else if (action === "revoke") await handleAiProviderRevoke(req, res, session, organizationId, provider);
+      else await handleAiProviderDelete(req, res, session, organizationId, provider);
+      return;
+    }
+  }
 
   if (req.method === "GET" && req.url === "/integrations/google-drive/status") {
     const session = await requireSession(req, res);
@@ -478,8 +505,13 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (req.method === "POST" && req.url === "/api/ai-producer/respond") {
-    if (!limit(req, res, "ai-producer-respond", 30, 5 * 60 * 1000)) return;
-    await handleAiProducerRespond(req, res);
+    if (!requireCsrf(req, res) || !limit(req, res, "ai-producer-respond", 30, 5 * 60 * 1000)) return;
+    // Session-gated as of BYOK: this route now needs to know WHICH organization's AI key to use, so an
+    // anonymous caller (which is all this route accepted before BYOK existed) can no longer reach it —
+    // there is no "whose key" answer for a request with no account behind it.
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleAiProducerRespond(req, res, session);
     return;
   }
   if (req.method === "POST" && req.url === "/api/transcribe") {
@@ -764,18 +796,44 @@ function buildAiProducerSystemPrompt(persona = {}) {
 const AI_PRODUCER_ENTRY_TYPES = new Set(["audience_questions", "context", "transition", "timing", "research", "production_suggestion"]);
 const AI_PRODUCER_ACTION_TYPES = new Set(["private", "surface_question", "draft_audience_reply", "send_to_program"]);
 
-async function handleAiProducerRespond(req, res) {
-  if (!DEEPSEEK_API_KEY && !ANTHROPIC_API_KEY) throw httpError(503, "AI Producer isn't configured on the server.");
+// The organization's own key, decrypted only for the duration of this one call — never cached, never
+// logged, never returned to the browser. Checked in AI_PROVIDER_PREFERENCE order; the first ACTIVE
+// (non-revoked) credential found wins. No platform-key fallback for any of these four — see BYOK_RULE
+// below for why that's deliberate, not an oversight.
+async function findActiveAiCredential(organizationId) {
+  for (const provider of AI_PROVIDER_PREFERENCE) {
+    const result = await db("get_ai_provider_credential", { organizationId, provider });
+    if (result.credential) return result.credential;
+  }
+  return null;
+}
+
+// BYOK_RULE: "No BYOK credential = no paid AI. Do NOT silently fall back to our own OpenAI, Anthropic,
+// DeepSeek, Gemini, or any other paid provider key. The organization owns its AI configuration." — this
+// function is the one enforcement point; DEEPSEEK_API_KEY/ANTHROPIC_API_KEY (the platform keys) are
+// deliberately never read here at all, only inside callDeepSeek/callAnthropic's own default parameter,
+// which nothing in this function's call path ever exercises.
+async function handleAiProducerRespond(req, res, authSession) {
   const body = await readJson(req);
   const instruction = String(body.instruction || "").trim().slice(0, 2000);
   if (!instruction) throw httpError(400, "Missing instruction.");
   const context = body.context && typeof body.context === "object" ? body.context : {};
   const persona = body.persona && typeof body.persona === "object" ? body.persona : {};
+
+  const organizationId = await resolveOrganizationForSession(authSession, body.organizationId);
+  const credential = organizationId ? await findActiveAiCredential(organizationId) : null;
+  if (!credential) {
+    sendJson(req, res, 402, {
+      error: "byok_required",
+      message: "Moxie requires an AI provider. Connect your API key to enable research, production intelligence, and live assistance."
+    });
+    return;
+  }
+
   const userContent = `HOST INSTRUCTION: ${instruction}\n\nSHOW CONTEXT:\n${JSON.stringify(context)}`;
   const systemPrompt = buildAiProducerSystemPrompt(persona);
-
-  // DeepSeek preferred whenever configured — see the DEEPSEEK_API_KEY comment above for why.
-  const { text, usage } = DEEPSEEK_API_KEY ? await callDeepSeek(userContent, systemPrompt) : await callAnthropic(userContent, systemPrompt);
+  const apiKey = decryptSecret(credential.encryptedCredential);
+  const { text, usage } = await AI_CALL_BY_PROVIDER[credential.provider](userContent, systemPrompt, apiKey);
 
   let parsed;
   try {
@@ -938,13 +996,13 @@ async function readBinaryBody(req, maxBytes) {
   return Buffer.concat(chunks);
 }
 
-async function callDeepSeek(userContent, systemPrompt) {
+async function callDeepSeek(userContent, systemPrompt, apiKey = DEEPSEEK_API_KEY) {
   let response;
   try {
     response = await fetch("https://api.deepseek.com/chat/completions", {
       method: "POST",
       signal: AbortSignal.timeout(DEEPSEEK_TIMEOUT_MS),
-      headers: { "content-type": "application/json", authorization: `Bearer ${DEEPSEEK_API_KEY}` },
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: DEEPSEEK_MODEL,
         // Non-thinking mode: deepseek-flash defaults to thinking-enabled, which costs more and is
@@ -1001,7 +1059,7 @@ function deepSeekIsPeakNow() {
   return (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10);
 }
 
-async function callAnthropic(userContent, systemPrompt) {
+async function callAnthropic(userContent, systemPrompt, apiKey = ANTHROPIC_API_KEY) {
   let response;
   try {
     response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -1009,7 +1067,7 @@ async function callAnthropic(userContent, systemPrompt) {
       signal: AbortSignal.timeout(ANTHROPIC_TIMEOUT_MS),
       headers: {
         "content-type": "application/json",
-        "x-api-key": ANTHROPIC_API_KEY,
+        "x-api-key": apiKey,
         "anthropic-version": "2023-06-01"
       },
       body: JSON.stringify({
@@ -1047,6 +1105,104 @@ async function callAnthropic(userContent, systemPrompt) {
     }
   };
 }
+
+// BYOK-only — there is no platform-wide OPENAI_API_KEY constant anywhere in this file, unlike DeepSeek/
+// Anthropic above (which predate BYOK and still have a platform key as a fallback for the cost-cutoff
+// path). This provider only ever runs with an organization's own key.
+const OPENAI_MODEL = process.env.TOASTY_AI_PRODUCER_OPENAI_MODEL || "gpt-5";
+const OPENAI_TIMEOUT_MS = Number(process.env.TOASTY_AI_PRODUCER_TIMEOUT_MS || 12000);
+
+async function callOpenAI(userContent, systemPrompt, apiKey) {
+  let response;
+  try {
+    response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS),
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userContent }
+        ]
+      })
+    });
+  } catch (error) {
+    console.error("AI Producer (OpenAI) upstream request failed:", error);
+    throw httpError(502, "AI Producer request failed.");
+  }
+  if (!response.ok) {
+    console.error("AI Producer (OpenAI) upstream error status:", response.status, await response.text().catch(() => ""));
+    throw httpError(502, "AI Producer request failed.");
+  }
+  const data = await response.json();
+  const text = data.choices?.[0]?.message?.content || "";
+  const u = data.usage || {};
+  return {
+    text,
+    usage: {
+      provider: "openai",
+      model: OPENAI_MODEL,
+      promptTokens: Number(u.prompt_tokens || 0),
+      cacheHitTokens: 0,
+      cacheMissTokens: Number(u.prompt_tokens || 0),
+      completionTokens: Number(u.completion_tokens || 0),
+      totalTokens: Number(u.total_tokens || 0),
+      estimatedCostUsd: null,
+      peak: null
+    }
+  };
+}
+
+const GEMINI_MODEL = process.env.TOASTY_AI_PRODUCER_GEMINI_MODEL || "gemini-2.5-flash";
+const GEMINI_TIMEOUT_MS = Number(process.env.TOASTY_AI_PRODUCER_TIMEOUT_MS || 12000);
+
+async function callGemini(userContent, systemPrompt, apiKey) {
+  let response;
+  try {
+    response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      signal: AbortSignal.timeout(GEMINI_TIMEOUT_MS),
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: "user", parts: [{ text: userContent }] }],
+        generationConfig: { responseMimeType: "application/json" }
+      })
+    });
+  } catch (error) {
+    console.error("AI Producer (Gemini) upstream request failed:", error);
+    throw httpError(502, "AI Producer request failed.");
+  }
+  if (!response.ok) {
+    console.error("AI Producer (Gemini) upstream error status:", response.status, await response.text().catch(() => ""));
+    throw httpError(502, "AI Producer request failed.");
+  }
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const u = data.usageMetadata || {};
+  return {
+    text,
+    usage: {
+      provider: "gemini",
+      model: GEMINI_MODEL,
+      promptTokens: Number(u.promptTokenCount || 0),
+      cacheHitTokens: 0,
+      cacheMissTokens: Number(u.promptTokenCount || 0),
+      completionTokens: Number(u.candidatesTokenCount || 0),
+      totalTokens: Number(u.totalTokenCount || 0),
+      estimatedCostUsd: null,
+      peak: null
+    }
+  };
+}
+
+const AI_CALL_BY_PROVIDER = { deepseek: callDeepSeek, anthropic: callAnthropic, openai: callOpenAI, gemini: callGemini };
+// Preference order when an organization has more than one provider connected — DeepSeek stays first
+// (see its own comment above: cheap enough to actually afford per-show telemetry), matching the
+// pre-BYOK preference exactly so an org that only ever configures DeepSeek sees no behavior change.
+const AI_PROVIDER_PREFERENCE = ["deepseek", "anthropic", "openai", "gemini"];
 
 async function handleAgentFindExperts(req, res) {
   if (!TOASTY_EXPERT_DISCOVERY_RECIPIENT) {
@@ -2034,6 +2190,74 @@ async function handleBrandProfileDelete(req, res, session) {
   const brandProfile = await resolveBrandProfileMembership(req, res, profileId, "admin", session);
   if (!brandProfile) return;
   await db("delete_brand_profile", { id: brandProfile.id });
+  sendJson(req, res, 200, { ok: true });
+}
+
+// ---- BYOK: AI provider credentials ----
+const AI_PROVIDER_NAMES = new Set(["openai", "anthropic", "deepseek", "gemini"]);
+
+async function handleAiProvidersList(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/ai-providers");
+  const membership = await requireMembership(req, res, organizationId, "member", session);
+  if (!membership) return;
+  const result = await db("list_ai_provider_credentials", { organizationId });
+  sendJson(req, res, 200, { credentials: result.credentials || [] });
+}
+
+async function handleAiProviderSave(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/ai-providers");
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  const body = await readJson(req);
+  const provider = String(body?.provider || "").toLowerCase();
+  const apiKey = String(body?.apiKey || "").trim();
+  if (!AI_PROVIDER_NAMES.has(provider)) return sendJson(req, res, 400, { error: "Unknown AI provider." });
+  if (apiKey.length < 8 || apiKey.length > 400) return sendJson(req, res, 400, { error: "That doesn't look like a valid API key." });
+  // The plaintext key exists in this process only for the length of this request — encrypted immediately,
+  // never logged, never written anywhere else, and never sent back to the browser (see ai_credential_public
+  // in toasty-auth-db.py: include_secret defaults to false everywhere except the one internal AI-call path).
+  const encryptedCredential = encryptSecret(apiKey);
+  const keyLast4 = apiKey.slice(-4);
+  const result = await db("upsert_ai_provider_credential", { id: randomUUID(), organizationId, provider, encryptedCredential, keyLast4 });
+  sendJson(req, res, 200, { credential: result.credential });
+}
+
+async function handleAiProviderTest(req, res, session, organizationId, provider) {
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  if (!AI_PROVIDER_NAMES.has(provider)) return sendJson(req, res, 400, { error: "Unknown AI provider." });
+  const body = await readJson(req);
+  // Testing a key the user just typed (not yet saved) is supported so "Test" can run before "Save" — see
+  // the brief's "testable through a server-side validation endpoint" requirement. Falls back to the
+  // already-stored key when the request omits apiKey, so an existing connection can be re-verified later
+  // (e.g. "did this key get revoked upstream?") without re-entering it.
+  let apiKey = String(body?.apiKey || "").trim();
+  if (!apiKey) {
+    const stored = await db("get_ai_provider_credential", { organizationId, provider });
+    if (!stored.credential) return sendJson(req, res, 404, { error: "No key saved for this provider yet." });
+    apiKey = decryptSecret(stored.credential.encryptedCredential);
+  }
+  try {
+    await AI_CALL_BY_PROVIDER[provider]("Reply with exactly this JSON and nothing else: {\"ok\":true}", "You are a connectivity test. Output only the requested JSON.", apiKey);
+    sendJson(req, res, 200, { ok: true });
+  } catch (error) {
+    sendJson(req, res, 200, { ok: false, error: "The provider rejected this key or the request failed. Double-check the key and try again." });
+  }
+}
+
+async function handleAiProviderRevoke(req, res, session, organizationId, provider) {
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  if (!AI_PROVIDER_NAMES.has(provider)) return sendJson(req, res, 400, { error: "Unknown AI provider." });
+  await db("set_ai_provider_credential_status", { organizationId, provider, status: "revoked" });
+  sendJson(req, res, 200, { ok: true });
+}
+
+async function handleAiProviderDelete(req, res, session, organizationId, provider) {
+  const membership = await requireMembership(req, res, organizationId, "admin", session);
+  if (!membership) return;
+  if (!AI_PROVIDER_NAMES.has(provider)) return sendJson(req, res, 400, { error: "Unknown AI provider." });
+  await db("delete_ai_provider_credential", { organizationId, provider });
   sendJson(req, res, 200, { ok: true });
 }
 
