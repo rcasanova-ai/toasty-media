@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Toasty Platform Admin</title>
+  <link rel="stylesheet" href="../css/studio-public.css">
+  <link rel="stylesheet" href="../css/studio-settings.css">
+  <script type="module" src="../js/platform-admin.js"></script>
+</head>
+<body class="settings-shell">
+  <header class="settings-topbar">
+    <a href="./dashboard.html">← Dashboard</a>
+    <strong>Toasty Platform Admin</strong>
+  </header>
+  <main class="settings-main" style="max-width:1180px;margin:0 auto;padding:32px 20px 80px">
+    <section class="settings-panel is-active">
+      <h1>Platform controls</h1>
+      <p class="hint">Founder/operator controls. These are separate from organization administration and are enforced server-side.</p>
+
+      <div class="usage-grid" id="platformStatus">
+        <div class="settings-card"><h2>Loading…</h2></div>
+      </div>
+
+      <div class="settings-card">
+        <h2>Organizations</h2>
+        <p class="hint">Change an organization's effective plan for testing/support, or reset its usage counters. Customer billing flows remain separate.</p>
+        <div style="overflow:auto">
+          <table class="settings-table">
+            <thead><tr><th>Organization</th><th>Plan</th><th>Status</th><th>Members</th><th>Actions</th></tr></thead>
+            <tbody id="platformOrganizations"></tbody>
+          </table>
+        </div>
+        <p class="settings-message" id="platformMessage" role="status"></p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
