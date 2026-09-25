@@ -3572,6 +3572,17 @@ def main():
     # organization_id — never trusted as a raw client value.
     # ==================================================================================================
 
+    if action == "session_get_public":
+        # Guest invite pages (speaker/sponsor) need the event's title/brand to say "for EVENT NAME" —
+        # never the owner_user_id/organization_id or anything else that would identify the organizer's
+        # account to someone holding only an invite token.
+        row = conn.execute("SELECT title, brand_id FROM live_sessions WHERE id = ?", (payload["id"],)).fetchone()
+        if not row:
+            print(json.dumps({"session": None}))
+            return
+        print(json.dumps({"session": {"title": row["title"], "brandId": row["brand_id"]}}))
+        return
+
     if action == "session_set_plan":
         now = utc_now()
         conn.execute(
