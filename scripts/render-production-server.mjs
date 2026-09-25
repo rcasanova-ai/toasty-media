@@ -131,6 +131,16 @@ const STRIPE_PRICE_IDS = {
 // runRender, useAi, inviteMember, etc.) reads from here via can()/planLimits(), never a hard-coded number
 // scattered in a route handler. DEMO's numbers are deliberately strict per the brief: a demo account must
 // never be able to create meaningful infrastructure cost.
+const COST_SAFETY_SWITCHES = Object.freeze({
+  ai: process.env.TOASTY_ENABLE_AI !== "0",
+  transcription: process.env.TOASTY_ENABLE_TRANSCRIPTION !== "0",
+  recordingFinalize: process.env.TOASTY_ENABLE_RECORDING_FINALIZE !== "0",
+  rendering: process.env.TOASTY_ENABLE_RENDERING !== "0",
+  uploads: process.env.TOASTY_ENABLE_UPLOADS !== "0",
+  publicMedia: process.env.TOASTY_ENABLE_PUBLIC_MEDIA === "1"
+});
+let activeRenderJobs = 0;
+
 const PLAN_LIMITS = Object.freeze({
   demo: Object.freeze({
     aiRequiresByok: true,
@@ -305,6 +315,12 @@ const server = createServer(async (req, res) => {
     if (!session) return;
     const result = await db("list_user_organizations", { userId: session.id });
     sendJson(req, res, 200, { organizations: result.organizations || [] });
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/usage")) {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleOrganizationUsageGet(req, res, session);
     return;
   }
   if (req.method === "POST" && req.url === "/api/organizations") {
@@ -550,6 +566,7 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (req.method === "POST" && req.url === "/media-assets/google-drive/import") {
+    if (!COST_SAFETY_SWITCHES.uploads) return sendJson(req, res, 503, { error: "Uploads are temporarily disabled by the platform safety switch." });
     if (!requireCsrf(req, res)) return;
     const session = await requireSession(req, res);
     if (!session) return;
@@ -572,6 +589,7 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (req.method === "POST" && req.url === "/api/ai-producer/respond") {
+    if (!COST_SAFETY_SWITCHES.ai) return sendJson(req, res, 503, { error: "AI features are temporarily disabled by the platform safety switch." });
     if (!requireCsrf(req, res) || !limit(req, res, "ai-producer-respond", 30, 5 * 60 * 1000)) return;
     // Session-gated as of BYOK: this route now needs to know WHICH organization's AI key to use, so an
     // anonymous caller (which is all this route accepted before BYOK existed) can no longer reach it —
@@ -582,21 +600,17 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (req.method === "POST" && req.url === "/api/transcribe") {
+    if (!COST_SAFETY_SWITCHES.transcription) return sendJson(req, res, 503, { error: "Transcription is temporarily disabled by the platform safety switch." });
     if (!limit(req, res, "transcribe", 30, 5 * 60 * 1000)) return;
     await handleTranscribe(req, res);
     return;
   }
   if (req.method === "POST" && req.url === "/api/recordings/finalize") {
+    if (!COST_SAFETY_SWITCHES.recordingFinalize) return sendJson(req, res, 503, { error: "Recording finalization is temporarily disabled by the platform safety switch." });
     if (!requireCsrf(req, res) || !limit(req, res, "recording-finalize", 20, 15 * 60 * 1000)) return;
-    if (!(await isAuthorized(req))) {
-      sendJson(req, res, 401, { error: "Sign in to finalize recording masters." });
-      return;
-    }
-    if (Number(req.headers["content-length"] || 0) > MAX_UPLOAD_BYTES) {
-      sendJson(req, res, 413, { error: "Recording upload is too large." });
-      return;
-    }
-    await handleRecordingFinalize(req, res);
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleRecordingFinalize(req, res, session);
     return;
   }
   // Room presence — see handlePresenceAnnounce's own comment. Deliberately unauthenticated like
@@ -712,14 +726,28 @@ const server = createServer(async (req, res) => {
     sendJson(req, res, 404, { error: "Render helper is running. POST /render to create an MP4." });
     return;
   }
+  if (!COST_SAFETY_SWITCHES.rendering) return sendJson(req, res, 503, { error: "Rendering is temporarily disabled by the platform safety switch." });
   if (!requireCsrf(req, res)) return;
-  if (!(await isAuthorized(req))) {
-    sendJson(req, res, 401, { error: "Sign in to render video." });
+  const renderSession = await requireSession(req, res);
+  if (!renderSession) return;
+  const renderOrganizationId = await resolveOrganizationForSession(renderSession, null);
+  const renderOrg = renderOrganizationId ? await db("get_organization", { id: renderOrganizationId }) : { organization: null };
+  const renderLimits = planLimitsFor(renderOrg.organization?.plan);
+  const contentLength = Number(req.headers["content-length"] || 0);
+  if (contentLength > Math.min(MAX_UPLOAD_BYTES, renderLimits.maxUploadBytes)) {
+    sendJson(req, res, 413, { error: "Render upload exceeds your plan limit." });
     return;
   }
-  if (Number(req.headers["content-length"] || 0) > MAX_UPLOAD_BYTES) {
-    sendJson(req, res, 413, { error: "Render upload is too large." });
+  if (activeRenderJobs >= renderLimits.maxConcurrentRenders) {
+    sendJson(req, res, 429, { error: "Your plan's render concurrency limit is currently in use. Try again after the active render finishes." });
     return;
+  }
+  if (renderOrganizationId) {
+    const daily = await db("get_usage_counters", { organizationId: renderOrganizationId, periodStart: currentPeriodStart("day") });
+    if ((daily.usage?.renderJobs || 0) >= renderLimits.maxRenderJobsPerDay) {
+      sendJson(req, res, 402, { error: "Your daily render limit has been reached." });
+      return;
+    }
   }
 
   let workDir;
@@ -735,11 +763,28 @@ const server = createServer(async (req, res) => {
     const manifestPart = form.get("manifest");
     const manifest = JSON.parse(typeof manifestPart === "string" ? manifestPart : await manifestPart.text());
     validateManifest(manifest);
+    const renderDurationSeconds = manifest.timeline.reduce((sum, segment) => sum + Number(segment.duration || 0), 0);
+    if (renderDurationSeconds > renderLimits.maxRenderDurationSeconds) {
+      throw httpError(402, `Your plan allows renders up to ${renderLimits.maxRenderDurationSeconds} seconds.`);
+    }
+    activeRenderJobs += 1;
     const media = await writeMediaFiles({ form, workDir });
     await resolveReferencedMedia({ manifest, media, workDir, userId: (await readSession(req))?.id || null });
     const outputPath = await renderProduction({ manifest, media, workDir });
     const driveOutput = await maybeSaveOutputToDrive({ manifest, outputPath, userId: (await readSession(req))?.id || null });
     const output = await readFile(outputPath);
+    if (renderOrganizationId) {
+      await db("increment_usage", {
+        organizationId: renderOrganizationId,
+        periodStart: currentPeriodStart("day"),
+        deltas: { renderJobs: 1, renderMinutes: renderDurationSeconds / 60, uploadsBytes: contentLength }
+      });
+      await db("increment_usage", {
+        organizationId: renderOrganizationId,
+        periodStart: currentPeriodStart("month"),
+        deltas: { renderJobs: 1, renderMinutes: renderDurationSeconds / 60, uploadsBytes: contentLength }
+      });
+    }
     setCors(req, res);
     if (driveOutput) res.setHeader("X-Toasty-Drive-File-Id", driveOutput.id);
     res.writeHead(200, {
@@ -752,6 +797,7 @@ const server = createServer(async (req, res) => {
     console.error(error);
     sendJson(req, res, error.statusCode || 500, { error: creatorError(error) });
   } finally {
+    if (activeRenderJobs > 0) activeRenderJobs -= 1;
     if (workDir) await rm(workDir, { recursive: true, force: true });
   }
   } catch (error) {
@@ -901,6 +947,10 @@ async function handleAiProducerRespond(req, res, authSession) {
   const systemPrompt = buildAiProducerSystemPrompt(persona);
   const apiKey = decryptSecret(credential.encryptedCredential);
   const { text, usage } = await AI_CALL_BY_PROVIDER[credential.provider](userContent, systemPrompt, apiKey);
+  if (organizationId) {
+    await db("increment_usage", { organizationId, periodStart: currentPeriodStart("day"), deltas: { aiRequests: 1 } });
+    await db("increment_usage", { organizationId, periodStart: currentPeriodStart("month"), deltas: { aiRequests: 1 } });
+  }
 
   let parsed;
   try {
@@ -1003,7 +1053,7 @@ async function handleTranscribe(req, res) {
   }
 }
 
-async function handleRecordingFinalize(req, res) {
+async function handleRecordingFinalize(req, res, authSession) {
   let workDir;
   try {
     workDir = await mkdtemp(join(tmpdir(), "toasty-master-"));
@@ -1017,16 +1067,37 @@ async function handleRecordingFinalize(req, res) {
     const manifestPart = form.get("manifest");
     const manifest = JSON.parse(typeof manifestPart === "string" ? manifestPart : await manifestPart.text());
     validateRecordingFinalizeManifest(manifest);
+    let organizationId = null;
+    if (manifest.sessionId && SAFE_ID.test(manifest.sessionId)) {
+      const sessionRecord = await db("session_get", { id: manifest.sessionId, ownerUserId: authSession.id });
+      organizationId = sessionRecord.session?.organizationId || null;
+    }
+    if (!organizationId) organizationId = await resolveOrganizationForSession(authSession, null);
+    const org = organizationId ? await db("get_organization", { id: organizationId }) : { organization: null };
+    const limits = planLimitsFor(org.organization?.plan);
+    if (Number(manifest.durationSeconds || 0) > limits.maxRecordingMinutes * 60) {
+      throw httpError(402, `Your plan allows recordings up to ${limits.maxRecordingMinutes} minutes.`);
+    }
     const source = form.get("source");
     if (!source?.name || typeof source.arrayBuffer !== "function" || source.size < 1) {
       throw httpError(400, "Source WebM recording is missing.");
     }
-    if (source.size > MAX_FILE_BYTES) throw httpError(413, "Source WebM recording is too large.");
+    if (source.size > Math.min(MAX_FILE_BYTES, limits.maxSourceFileBytes, limits.maxUploadBytes)) {
+      throw httpError(413, "Source WebM recording exceeds your plan limit.");
+    }
     const sourcePath = join(workDir, `${safeFileName(manifest.recordingId)}-source.webm`);
     const outputPath = join(workDir, `${safeFileName(manifest.recordingId)}-master.mp4`);
     await writeFile(sourcePath, Buffer.from(await source.arrayBuffer()));
     await transcodeWebmMasterToMp4({ sourcePath, outputPath });
     const output = await readFile(outputPath);
+    if (organizationId) {
+      const deltas = {
+        recordingMinutes: Number(manifest.durationSeconds || 0) / 60,
+        uploadsBytes: source.size
+      };
+      await db("increment_usage", { organizationId, periodStart: currentPeriodStart("day"), deltas });
+      await db("increment_usage", { organizationId, periodStart: currentPeriodStart("month"), deltas });
+    }
     setCors(req, res);
     res.writeHead(200, {
       "Content-Type": "video/mp4",
@@ -3494,6 +3565,32 @@ function resolveAuthoritativeBrandId(authSession, requestedBrandId) {
 // hiding of a disabled action is convenience only; these are the actual gate.
 function planLimitsFor(plan) {
   return PLAN_LIMITS[plan] || PLAN_LIMITS.demo;
+}
+
+function safetySwitchSnapshot() {
+  return { ...COST_SAFETY_SWITCHES };
+}
+
+async function handleOrganizationUsageGet(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/usage");
+  const membership = await requireMembership(req, res, organizationId, "viewer", session);
+  if (!membership) return;
+  const org = await db("get_organization", { id: organizationId });
+  if (!org.organization) return sendJson(req, res, 404, { error: "Organization not found." });
+  const limits = planLimitsFor(org.organization.plan);
+  const today = await db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("day") });
+  const month = await db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("month") });
+  sendJson(req, res, 200, {
+    plan: org.organization.plan,
+    limits,
+    usage: { today: today.usage || {}, month: month.usage || {} },
+    safety: safetySwitchSnapshot(),
+    runtime: {
+      activeRenderJobs,
+      transcribeActive,
+      transcriptionQueueDepth: transcribeQueue.length
+    }
+  });
 }
 
 function currentPeriodStart(granularity = "day") {
