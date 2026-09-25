@@ -170,7 +170,10 @@ function openStudio(branding = { mode: "flexible", brandId: null }) {
       // Child initialization may continue afterward, but it must never hold the shell hostage.
       dismissEntryCurtain();
     }, { once: true });
-    els.studioAppFrame.src = `./director.html?${query}`;
+    // Authenticated users land on the organization dashboard. A direct session deep-link still opens
+    // Studio immediately so shared/bookmarked session URLs keep their existing behavior.
+    const destination = query.get("session") ? "./director.html" : "./dashboard.html";
+    els.studioAppFrame.src = `${destination}?${query}`;
     state.appLoaded = true;
   }
 }
