@@ -280,7 +280,7 @@ export class LiveSession {
       // (session creation resolves asynchronously after this constructor runs) and organizationId only
       // becomes available once applyDurableSession() lands — reading it live here means the very first AI
       // call after a session is created already has it, with no extra wiring.
-      provider: createAIProducerProvider({ useBackend: this.aiUseBackend, getOrganizationId: () => this.durableSession?.organizationId || null })
+      provider: createAIProducerProvider({ useBackend: this.aiUseBackend, getOrganizationId: () => this.durableSession?.organizationId || null, getSessionId: () => this.durableSession?.id || null })
     });
     this._demoAudienceFeed = new DemoAudienceFeed(this.audience);
     this._transcriptionProvider = null;
@@ -336,7 +336,7 @@ export class LiveSession {
   setAiUseBackend(useBackend) {
     this.aiUseBackend = useBackend;
     saveUseBackendPreference(useBackend);
-    this.aiProducerService.provider = createAIProducerProvider({ useBackend, getOrganizationId: () => this.durableSession?.organizationId || null });
+    this.aiProducerService.provider = createAIProducerProvider({ useBackend, getOrganizationId: () => this.durableSession?.organizationId || null, getSessionId: () => this.durableSession?.id || null });
     this.emit("ai-provider", useBackend);
   }
 
