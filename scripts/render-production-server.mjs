@@ -346,7 +346,7 @@ const server = createServer(async (req, res) => {
     }
   }
   {
-    const actionMatch = req.url?.match(/^\/api\/organizations\/platform-admin\/organizations\/([^/]+)\/(basics|settings|onboarding|billing-account|member-role|member-status|member-remove|member-invite|brand-profile|brand-profile-delete|ai-provider-save)$/);
+    const actionMatch = req.url?.match(/^\/api\/organizations\/platform-admin\/organizations\/([^/]+)\/(basics|settings|onboarding|billing-account|member-role|member-status|member-remove|member-invite|invite-revoke|brand-profile|brand-profile-delete|ai-provider-save)$/);
     if (req.method === "POST" && actionMatch) {
       if (!requireCsrf(req, res) || !limit(req, res, "platform-admin-write", 120, 15 * 60 * 1000)) return;
       const session = await requirePlatformAdmin(req, res);
@@ -360,6 +360,7 @@ const server = createServer(async (req, res) => {
       else if (action === "member-status") await handlePlatformMemberStatus(req, res, session, organizationId);
       else if (action === "member-remove") await handlePlatformMemberRemove(req, res, organizationId);
       else if (action === "member-invite") await handlePlatformMemberInvite(req, res, session, organizationId);
+      else if (action === "invite-revoke") await handlePlatformInviteRevoke(req, res, organizationId);
       else if (action === "ai-provider-save") await handlePlatformAiProviderSave(req, res, organizationId);
       else if (action === "brand-profile") await handlePlatformBrandProfileSave(req, res, organizationId);
       else await handlePlatformBrandProfileDelete(req, res, organizationId);
@@ -2563,10 +2564,11 @@ async function handlePlatformResetUsage(req, res, organizationId) {
 
 async function platformOrganizationSnapshot(organizationId) {
   if (!SAFE_ID.test(organizationId)) throw httpError(400, "Invalid organization id.");
-  const [org, settings, members, brands, billing, subscriptions, credentials, sessions, today, month, intents] = await Promise.all([
+  const [org, settings, members, invites, brands, billing, subscriptions, credentials, sessions, today, month, intents] = await Promise.all([
     db("get_organization", { id: organizationId }),
     db("get_organization_settings", { organizationId }),
     db("list_memberships", { organizationId }),
+    db("list_invites", { organizationId }),
     db("list_brand_profiles", { organizationId }),
     db("get_billing_account", { organizationId }),
     db("list_subscriptions", { organizationId }),
@@ -2581,6 +2583,7 @@ async function platformOrganizationSnapshot(organizationId) {
     organization: org.organization,
     settings: settings.settings || null,
     members: members.memberships || [],
+    pendingInvites: invites.invites || [],
     brandProfiles: brands.brandProfiles || [],
     billingAccount: billing.billingAccount || null,
     subscriptions: subscriptions.subscriptions || [],
@@ -2701,6 +2704,15 @@ async function handlePlatformMemberInvite(req, res, authSession, organizationId)
   }).catch((error) => console.error("[Platform Admin] invite email failed", error));
   sendJson(req, res, 201, { ok: true });
 }
+
+async function handlePlatformInviteRevoke(req, res, organizationId) {
+  const body = await readJson(req);
+  const id = sessionText(body?.id, 80);
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid invite id.");
+  await db("revoke_invite", { id, organizationId });
+  sendJson(req, res, 200, { ok: true });
+}
+
 
 async function handlePlatformAiProviderSave(req, res, organizationId) {
   const body = await readJson(req);
