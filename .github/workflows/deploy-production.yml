@@ -47,6 +47,11 @@ jobs:
           set -euo pipefail
           node scripts/onboarding-end-session-test.mjs
 
+      - name: Validate platform admin founder controls
+        run: |
+          set -euo pipefail
+          node scripts/platform-admin-test.mjs
+
       - name: Configure SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.TOASTY_SSH_PRIVATE_KEY }}
