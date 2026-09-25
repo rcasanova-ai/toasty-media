@@ -27,6 +27,7 @@ async function init() {
     "brandProfileForm", "brandProfileName", "brandProfileTheme", "brandProfileMessage",
     "brandProfilesBody", "brandProfilesEmpty",
     "usageLimits", "usageCounters", "usageMessage", "safetySwitches", "runtimeSafety",
+    "orgAiUsageCards", "orgAiModels", "orgAiSessions",
     "changePasswordForm", "currentPassword", "newPassword", "passwordMessage",
     "integrationsGrid"
   ].forEach((id) => { els[id] = document.getElementById(id); });
@@ -179,6 +180,46 @@ async function loadUsage() {
       ["Uploads this month", formatBytes(month.uploadsBytes || 0)]
     ];
     els.usageCounters.innerHTML = usageRows.map(([label, value]) => usageMetric(label, value)).join("");
+
+    const ai = result.aiUsageReport || {};
+    const totals = ai.totals || {};
+    const sessionsWithAi = Number(totals.sessionsWithAi || 0);
+    const avgTokens = sessionsWithAi ? Number(totals.totalTokens || 0) / sessionsWithAi : 0;
+    const avgCost = sessionsWithAi ? Number(totals.estimatedCost || 0) / sessionsWithAi : 0;
+    els.orgAiUsageCards.innerHTML = [
+      usageMetric("Tracked AI calls", Number(totals.calls || 0).toLocaleString()),
+      usageMetric("Total tokens", Number(totals.totalTokens || 0).toLocaleString()),
+      usageMetric("Estimated cost", formatEstimatedCost(totals.estimatedCost || 0)),
+      usageMetric("Avg / AI session", Number(Math.round(avgTokens)).toLocaleString() + " tokens · " + formatEstimatedCost(avgCost))
+    ].join("");
+
+    els.orgAiModels.innerHTML = (ai.byProviderModel || []).map((row) => `
+      <tr>
+        <td><strong>${escapeHtml(humanize(row.provider || "unknown"))}</strong><br><small>${escapeHtml(row.model || "unknown model")}</small></td>
+        <td>${Number(row.calls || 0).toLocaleString()}</td>
+        <td>${Number(row.inputTokens || 0).toLocaleString()}</td>
+        <td>${Number(row.outputTokens || 0).toLocaleString()}</td>
+        <td>${Number(row.totalTokens || 0).toLocaleString()}</td>
+        <td>${escapeHtml(formatEstimatedCost(row.estimatedCost || 0))}</td>
+      </tr>`).join("") || '<tr><td colspan="6">No detailed model usage recorded yet.</td></tr>';
+
+    els.orgAiSessions.innerHTML = (ai.bySession || []).map((row) => {
+      const ratio = avgTokens > 0 ? Number(row.totalTokens || 0) / avgTokens : 0;
+      const comparison = !row.calls ? "No AI"
+        : ratio > 1.25 ? Math.round((ratio - 1) * 100) + "% above avg"
+          : ratio < 0.75 ? Math.round((1 - ratio) * 100) + "% below avg"
+            : "Near avg";
+      return `<tr>
+        <td><strong>${escapeHtml(row.sessionTitle || "Untitled session")}</strong><br><small>${escapeHtml(row.sessionStatus || "")}</small></td>
+        <td>${Number(row.calls || 0).toLocaleString()}</td>
+        <td>${Number(row.inputTokens || 0).toLocaleString()}</td>
+        <td>${Number(row.outputTokens || 0).toLocaleString()}</td>
+        <td>${Number(row.totalTokens || 0).toLocaleString()}</td>
+        <td>${escapeHtml(formatEstimatedCost(row.estimatedCost || 0))}</td>
+        <td>${escapeHtml(comparison)}</td>
+      </tr>`;
+    }).join("") || '<tr><td colspan="7">No sessions yet.</td></tr>';
+
     const safety = result.safety || {};
     els.safetySwitches.innerHTML = Object.entries(safety).map(([key, enabled]) =>
       `<div class="safety-switch-row"><span>${escapeHtml(humanize(key))}</span><span class="badge ${enabled ? "ok" : "warn"}">${enabled ? "Enabled" : "Blocked"}</span></div>`
@@ -195,6 +236,9 @@ async function loadUsage() {
     els.usageCounters.innerHTML = "";
     els.safetySwitches.innerHTML = "";
     els.runtimeSafety.innerHTML = "";
+    els.orgAiUsageCards.innerHTML = "";
+    els.orgAiModels.innerHTML = "";
+    els.orgAiSessions.innerHTML = "";
     setMessage(els.usageMessage, error.message || "Could not load usage.", true);
   }
 }
@@ -217,6 +261,12 @@ function formatBytes(bytes) {
 
 function formatNumber(value) {
   return Number(value || 0).toFixed(1).replace(/\.0$/, "");
+}
+
+function formatEstimatedCost(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return "$0.00";
+  return n < 0.01 ? "$" + n.toFixed(4) : "$" + n.toFixed(2);
 }
 
 function planBadgeClass(plan) {
