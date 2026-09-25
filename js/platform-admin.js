@@ -153,14 +153,43 @@ function renderSessions(){
 async function endSession(id){if(!confirm("End this session from Platform Admin?"))return;try{await post(orgPath("/sessions/"+encodeURIComponent(id)+"/end"));await loadDetail();setMessage("Session ended.");}catch(e){setMessage(e.message,true);}}
 
 function metric(label,value,detail=""){return '<div class="settings-card"><h2>'+esc(label)+'</h2><strong>'+esc(value)+'</strong><p class="hint">'+esc(detail)+'</p></div>';}
+function fmtTokens(value){return Number(value||0).toLocaleString();}
+function fmtCost(value){const n=Number(value||0);return n===0?"$0.00":n<0.01?"$"+n.toFixed(4):"$"+n.toFixed(2);}
+function fmtLatency(value){const n=Number(value||0);return n?Math.round(n).toLocaleString()+" ms":"—";}
+
 function renderUsage(){
   const u=state.detail.usage||{},m=u.month||{},t=u.today||{},limits=state.detail.limits||{};
+  const ai=state.detail.aiUsageReport||{},tot=ai.totals||{};
   $("paUsageCards").innerHTML=[
     metric("Sessions today",t.sessionsCreated||0,"Limit "+(limits.maxSessionsPerDay??"—")),
     metric("AI requests this month",m.aiRequests||0,"Organization usage"),
     metric("Recording minutes",Number(m.recordingMinutes||0).toFixed(1),"Limit "+(limits.maxRecordingMinutes??"—")+" per recording"),
     metric("Uploads this month",formatBytes(m.uploadsBytes||0),"Limit "+formatBytes(limits.maxUploadsBytesPerMonth||0))
   ].join("");
+
+  const sessionsWithAi=Number(tot.sessionsWithAi||0),sessionCount=Number(tot.sessionCount||0);
+  const avgTokens=sessionsWithAi?Number(tot.totalTokens||0)/sessionsWithAi:0;
+  const avgCost=sessionsWithAi?Number(tot.estimatedCost||0)/sessionsWithAi:0;
+  $("paAiUsageCards").innerHTML=[
+    metric("Tracked AI calls",fmtTokens(tot.calls||0),(sessionsWithAi+" of "+sessionCount+" sessions used AI")),
+    metric("Total tokens",fmtTokens(tot.totalTokens||0),"Input "+fmtTokens(tot.inputTokens||0)+" · Output "+fmtTokens(tot.outputTokens||0)),
+    metric("Estimated cost",fmtCost(tot.estimatedCost||0),"Average "+fmtCost(avgCost)+" per AI-using session"),
+    metric("Tokens / AI session",fmtTokens(Math.round(avgTokens)),"Cross-session average")
+  ].join("");
+
+  $("paAiModels").innerHTML=(ai.byProviderModel||[]).map(row=>'<tr><td><strong>'+esc(human(row.provider||"unknown"))+'</strong><br><small>'+esc(row.model||"unknown model")+'</small></td><td>'+fmtTokens(row.calls)+'</td><td>'+fmtTokens(row.inputTokens)+'</td><td>'+fmtTokens(row.outputTokens)+'</td><td>'+fmtTokens(row.totalTokens)+'</td><td>'+fmtCost(row.estimatedCost)+'</td><td>'+fmtLatency(row.avgLatencyMs)+'</td></tr>').join("")||'<tr><td colspan="7">No detailed AI usage recorded yet.</td></tr>';
+
+  $("paAiSessions").innerHTML=(ai.bySession||[]).map(row=>{
+    const ratio=avgTokens>0?Number(row.totalTokens||0)/avgTokens:0;
+    const comparison=!row.calls?"No AI":ratio>1.25?Math.round((ratio-1)*100)+"% above avg":ratio<0.75?Math.round((1-ratio)*100)+"% below avg":"Near avg";
+    return '<tr><td><strong>'+esc(row.sessionTitle||"Untitled session")+'</strong><br><small>'+esc(row.sessionId)+'</small></td><td>'+esc(human(row.sessionStatus))+'</td><td>'+fmtTokens(row.calls)+'</td><td>'+fmtTokens(row.inputTokens)+'</td><td>'+fmtTokens(row.outputTokens)+'</td><td>'+fmtTokens(row.totalTokens)+'</td><td>'+fmtCost(row.estimatedCost)+'</td><td>'+esc(comparison)+'</td></tr>';
+  }).join("")||'<tr><td colspan="8">No sessions yet.</td></tr>';
+
+  $("paAiFeatures").innerHTML=(ai.byFeature||[]).map(row=>'<div class="platform-row"><div><strong>'+esc(human(row.feature||"unspecified"))+'</strong><br><small>'+fmtTokens(row.calls)+' calls</small></div><div>'+fmtTokens(row.totalTokens)+' tokens · '+fmtCost(row.estimatedCost)+'</div></div>').join("")||'<p class="hint">No feature-level AI usage recorded yet.</p>';
+
+  const sessionNames=new Map((ai.bySession||[]).map(s=>[s.sessionId,s.sessionTitle||s.sessionId]));
+  $("paAiRecent").innerHTML=(ai.recentEvents||[]).map(ev=>'<tr><td>'+esc(shortDate(ev.occurredAt))+'</td><td>'+esc(sessionNames.get(ev.sessionId)||ev.sessionId||"Organization")+'</td><td>'+esc(human(ev.feature||"unspecified"))+'</td><td>'+esc(human(ev.provider||"unknown"))+'<br><small>'+esc(ev.model||"")+'</small></td><td>'+fmtTokens(ev.totalTokens)+'</td><td>'+fmtCost(ev.estimatedCost)+'</td><td>'+fmtLatency(ev.latencyMs)+'</td></tr>').join("")||'<tr><td colspan="7">No AI calls recorded yet.</td></tr>';
+
   $("paSafety").innerHTML=Object.entries(state.detail.safety||{}).map(([k,v])=>'<div class="platform-row"><strong>'+esc(human(k))+'</strong><span>'+(v?"Enabled":"Disabled")+'</span></div>').join("");
 }
 
