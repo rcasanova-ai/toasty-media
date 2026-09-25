@@ -596,6 +596,7 @@ export class LiveSession {
     }
     if (video.srcObject !== this._hostPreviewStream) video.srcObject = this._hostPreviewStream;
     video.hidden = Boolean(this.av.cameraOff);
+    video.style.visibility = this.av.cameraOff ? "hidden" : "";
     container.dataset.cameraOff = this.av.cameraOff ? "true" : "false";
   }
 
@@ -1768,7 +1769,10 @@ export class LiveSession {
     this.engine.setCamera(!this.av.cameraOff);
     this._hostPreviewStream?.getVideoTracks().forEach((track) => { track.enabled = !this.av.cameraOff; });
     const localVideo = this._containers?.host?.querySelector?.("video.lv-host-live-video");
-    if (localVideo) localVideo.hidden = Boolean(this.av.cameraOff);
+    if (localVideo) {
+      localVideo.hidden = Boolean(this.av.cameraOff);
+      localVideo.style.visibility = this.av.cameraOff ? "hidden" : "";
+    }
     if (this._containers?.host) this._containers.host.dataset.cameraOff = this.av.cameraOff ? "true" : "false";
     this.presence?.setMediaState({ cameraEnabled: !this.av.cameraOff });
     this.emit("av", this.av);
