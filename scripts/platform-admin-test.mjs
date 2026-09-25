@@ -90,7 +90,7 @@ async function main(){
   assert(activeBrand.status===200 && activeBrand.data.organization.activeBrandProfileId===brand.data.brandProfile.id,"platform admin can set active brand profile");
 
   const aiSave=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/ai-provider-save`,{method:"POST",cookie:founder.cookie,body:{provider:"deepseek",apiKey:"customer-deepseek-key"}});
-  assert(aiSave.status===200 && aiSave.data.credential.keyLast4==="y-key","platform admin can save customer BYOK without returning plaintext");
+  assert(aiSave.status===200 && aiSave.data.credential.keyLast4==="-key","platform admin can save customer BYOK without returning plaintext");
   assert(JSON.stringify(aiSave.data).includes("customer-deepseek-key")===false,"BYOK plaintext is never returned from platform admin");
   const aiRevoke=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/ai-providers/deepseek/revoke`,{method:"POST",cookie:founder.cookie,body:{}});
   assert(aiRevoke.status===200,"platform admin can revoke customer BYOK");
