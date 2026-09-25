@@ -12,8 +12,8 @@ async function load(){
     const session = await studioRequest("/auth/session");
     if(!session.authenticated || !session.user?.isPlatformAdmin) throw new Error("Platform administrator access is required.");
     const [status, orgs] = await Promise.all([
-      studioRequest("/api/platform/status"),
-      studioRequest("/api/platform/organizations")
+      studioRequest("/api/organizations/platform-admin/status"),
+      studioRequest("/api/organizations/platform-admin/organizations")
     ]);
     renderStatus(status);
     renderOrganizations(orgs.organizations||[]);
@@ -65,7 +65,7 @@ async function savePlan(id){
   const subscriptionStatus=orgBody.querySelector(`[data-status="${CSS.escape(id)}"]`).value;
   try{
     setMessage("Applying…");
-    await studioRequest(`/api/platform/organizations/${encodeURIComponent(id)}/plan`,{method:"POST",body:JSON.stringify({plan,subscriptionStatus})});
+    await studioRequest(`/api/organizations/platform-admin/organizations/${encodeURIComponent(id)}/plan`,{method:"POST",body:JSON.stringify({plan,subscriptionStatus})});
     setMessage("Organization plan updated.");
     await load();
   }catch(error){setMessage(error.message,true);}
@@ -75,7 +75,7 @@ async function resetUsage(id){
   if(!window.confirm("Reset all usage counters for this organization?")) return;
   try{
     setMessage("Resetting…");
-    await studioRequest(`/api/platform/organizations/${encodeURIComponent(id)}/reset-usage`,{method:"POST",body:"{}"});
+    await studioRequest(`/api/organizations/platform-admin/organizations/${encodeURIComponent(id)}/reset-usage`,{method:"POST",body:"{}"});
     setMessage("Usage counters reset.");
   }catch(error){setMessage(error.message,true);}
 }
