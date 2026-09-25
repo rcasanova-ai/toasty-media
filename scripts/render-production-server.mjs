@@ -346,7 +346,7 @@ const server = createServer(async (req, res) => {
     }
   }
   {
-    const actionMatch = req.url?.match(/^\/api\/organizations\/platform-admin\/organizations\/([^/]+)\/(basics|settings|onboarding|billing-account|member-role|member-status|member-remove|brand-profile|brand-profile-delete)$/);
+    const actionMatch = req.url?.match(/^\/api\/organizations\/platform-admin\/organizations\/([^/]+)\/(basics|settings|onboarding|billing-account|member-role|member-status|member-remove|member-invite|brand-profile|brand-profile-delete|ai-provider-save)$/);
     if (req.method === "POST" && actionMatch) {
       if (!requireCsrf(req, res) || !limit(req, res, "platform-admin-write", 120, 15 * 60 * 1000)) return;
       const session = await requirePlatformAdmin(req, res);
@@ -357,8 +357,10 @@ const server = createServer(async (req, res) => {
       else if (action === "onboarding") await handlePlatformOnboarding(req, res, organizationId);
       else if (action === "billing-account") await handlePlatformBillingAccount(req, res, organizationId);
       else if (action === "member-role") await handlePlatformMemberRole(req, res, organizationId);
-      else if (action === "member-status") await handlePlatformMemberStatus(req, res, organizationId);
+      else if (action === "member-status") await handlePlatformMemberStatus(req, res, session, organizationId);
       else if (action === "member-remove") await handlePlatformMemberRemove(req, res, organizationId);
+      else if (action === "member-invite") await handlePlatformMemberInvite(req, res, session, organizationId);
+      else if (action === "ai-provider-save") await handlePlatformAiProviderSave(req, res, organizationId);
       else if (action === "brand-profile") await handlePlatformBrandProfileSave(req, res, organizationId);
       else await handlePlatformBrandProfileDelete(req, res, organizationId);
       return;
@@ -2653,16 +2655,68 @@ async function handlePlatformMemberRole(req, res, organizationId) {
   sendJson(req, res, 200, { membership: result.membership });
 }
 
-async function handlePlatformMemberStatus(req, res, organizationId) {
+async function handlePlatformMemberStatus(req, res, authSession, organizationId) {
   const body = await readJson(req);
   const userId = sessionText(body?.userId, 80);
   const status = sessionText(body?.status, 30);
   if (!SAFE_ID.test(userId)) throw httpError(400, "Invalid user id.");
-  const membership = await db("get_membership", { organizationId, userId });
-  if (!membership.membership) throw httpError(404, "Member not found.");
+  const members = await db("list_memberships", { organizationId });
+  const target = (members.memberships || []).find((m) => m.userId === userId);
+  if (!target) throw httpError(404, "Member not found.");
+  if (status === "suspended" && target.userPlatformRole === "platform_admin") {
+    throw httpError(400, "A Platform Admin account cannot be suspended from organization controls.");
+  }
+  if (userId === authSession.id && status === "suspended") {
+    throw httpError(400, "You cannot suspend your own Platform Admin account.");
+  }
   const result = await db("platform_set_user_status", { userId, status });
   if (result.error === "invalid_status") throw httpError(400, "Invalid user status.");
   sendJson(req, res, 200, { user: result.user });
+}
+
+async function handlePlatformMemberInvite(req, res, authSession, organizationId) {
+  const body = await readJson(req);
+  const email = normalizeEmail(body?.email);
+  const role = ["viewer", "member", "admin"].includes(body?.role) ? body.role : "member";
+  if (!email || !EMAIL_PATTERN.test(email)) throw httpError(400, "Enter a valid email address.");
+  const org = await db("get_organization", { id: organizationId });
+  if (!org.organization) throw httpError(404, "Organization not found.");
+  const rawToken = randomBytes(32).toString("base64url");
+  const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+  await db("create_invite", {
+    id: randomUUID(),
+    organizationId,
+    email,
+    role,
+    tokenHash,
+    invitedByUserId: authSession.id,
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+  });
+  await sendOrganizationInviteEmail({
+    toEmail: email,
+    inviterName: authSession.name,
+    organizationName: org.organization.name,
+    role,
+    rawToken
+  }).catch((error) => console.error("[Platform Admin] invite email failed", error));
+  sendJson(req, res, 201, { ok: true });
+}
+
+async function handlePlatformAiProviderSave(req, res, organizationId) {
+  const body = await readJson(req);
+  const provider = String(body?.provider || "").toLowerCase();
+  const apiKey = String(body?.apiKey || "").trim();
+  if (!AI_PROVIDER_NAMES.has(provider)) throw httpError(400, "Unknown AI provider.");
+  if (apiKey.length < 8 || apiKey.length > 400) throw httpError(400, "That doesn't look like a valid API key.");
+  const encryptedCredential = encryptSecret(apiKey);
+  const result = await db("upsert_ai_provider_credential", {
+    id: randomUUID(),
+    organizationId,
+    provider,
+    encryptedCredential,
+    keyLast4: apiKey.slice(-4)
+  });
+  sendJson(req, res, 200, { credential: result.credential });
 }
 
 async function handlePlatformMemberRemove(req, res, organizationId) {
