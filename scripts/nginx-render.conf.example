@@ -298,6 +298,227 @@ server {
         proxy_send_timeout 20s;
     }
 
+    # ---- Event Growth layer ----
+    # See docs/DEPLOYMENT.md: a route added to render-production-server.mjs does nothing in production
+    # until it has a matching location block here — neither deploy workflow touches nginx config.
+    # Simple single-level alternation groups only (like every block above) — nginx's PCRE2 has already
+    # rejected a nested-optional-group version of a pattern like this once (see the /api/sessions/ block
+    # above's own comment); keep these flat.
+
+    location ~ "^/api/sessions/[a-zA-Z0-9._-]+/(plan|speakers|sponsors|sponsor-moments|consent|landing-page|landing-page/publish|audience/events|audience/summary|campaign-links|ai-usage|moxie/readiness-summary|artifacts)$" {
+        # Same organizer-authenticated shape as the /api/sessions/ block above — one block covering every
+        # new session sub-resource route rather than one location per route.
+        limit_req zone=toasty_settings burst=20 nodelay;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 20s;
+        proxy_send_timeout 20s;
+    }
+
+    location ~ ^/api/speakers/[^/]+(/update|/invite|/tech-check)?$ {
+        limit_req zone=toasty_settings burst=20 nodelay;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 20s;
+        proxy_send_timeout 20s;
+    }
+
+    # Guest path — no Toasty account, just a high-entropy invite token in the URL. Same zone/burst as
+    # /api/invites/accept above, which is the same "public, single-shot, token-driven" shape.
+    location ~ ^/api/speaker-invites/[^/]+(/profile|/tech-check|/consent)?$ {
+        limit_req zone=toasty_settings burst=20 nodelay;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 20s;
+        proxy_send_timeout 20s;
+    }
+
+    location ~ ^/api/sponsors/[^/]+(/update|/approve|/invite)?$ {
+        limit_req zone=toasty_settings burst=20 nodelay;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 20s;
+        proxy_send_timeout 20s;
+    }
+
+    location ~ ^/api/sponsor-invites/[^/]+(/kit)?$ {
+        limit_req zone=toasty_settings burst=20 nodelay;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 20s;
+        proxy_send_timeout 20s;
+    }
+
+    location ~ ^/api/sponsor-moments/[^/]+/status$ {
+        limit_req zone=toasty_settings burst=20 nodelay;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 20s;
+        proxy_send_timeout 20s;
+    }
+
+    # Public event page read — any visitor's browser, no cookie.
+    location ~ ^/api/landing-pages/[^/]+$ {
+        limit_req zone=toasty_settings burst=20 nodelay;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 20s;
+        proxy_send_timeout 20s;
+    }
+
+    # Public audience tracking writes (any visitor's browser, no cookie) — rate-limited per IP at the
+    # Node layer too (see limit() calls in handleAudienceIdentityUpsert/handleAudienceEventRecord).
+    location ~ ^/api/audience/(identity|events)$ {
+        limit_req zone=toasty_settings burst=20 nodelay;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 20s;
+        proxy_send_timeout 20s;
+    }
+
+    # Public campaign-link redirect resolver — toasty.media/r/<slug>. No CORS preflight needed (a plain
+    # browser navigation, not a fetch()), but kept consistent with every other block for the OPTIONS case.
+    location ~ ^/api/r/[^/]+$ {
+        limit_req zone=toasty_settings burst=20 nodelay;
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 20s;
+        proxy_send_timeout 20s;
+    }
+
     location ~ ^/api/billing/solana/intents/[^/]+(/confirm)?$ {
         limit_req zone=toasty_settings burst=20 nodelay;
 
