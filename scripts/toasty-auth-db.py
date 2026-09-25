@@ -1422,6 +1422,7 @@ def public_session(row):
         "id": row["id"],
         "roomId": row["room_id"],
         "ownerUserId": row["owner_user_id"],
+        "organizationId": row["organization_id"] if _row_has(row, "organization_id") else None,
         "brandId": row["brand_id"],
         "title": row["title"],
         "status": row["status"],
@@ -1937,7 +1938,12 @@ def main():
                     "SELECT COUNT(*) AS n FROM room_presence WHERE room_id = ? AND role = 'guest' AND last_seen_at >= ?",
                     (room_id, presence_cutoff()),
                 ).fetchone()["n"]
-                if guest_count >= MAX_GUESTS_PER_ROOM:
+                # maxGuests lets the caller (Node, which owns PLAN_LIMITS — see render-production-server.mjs)
+                # pass a plan-derived cap for this specific room; falls back to the original fixed constant
+                # when omitted, so any caller that predates this stays exactly as it was.
+                max_guests = payload.get("maxGuests")
+                max_guests = int(max_guests) if isinstance(max_guests, (int, float)) else MAX_GUESTS_PER_ROOM
+                if guest_count >= max_guests:
                     print(json.dumps({"error": "full"}))
                     return
 
@@ -2038,15 +2044,16 @@ def main():
         conn.execute(
             """
             INSERT INTO live_sessions (
-              id, room_id, owner_user_id, brand_id, title, status, created_at, last_active_at,
+              id, room_id, owner_user_id, organization_id, brand_id, title, status, created_at, last_active_at,
               end_card_json, setup_json
             )
-            VALUES (?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)
             """,
             (
                 payload["id"],
                 payload["roomId"],
                 payload["ownerUserId"],
+                payload.get("organizationId"),
                 brand_id,
                 payload.get("title") or "",
                 now,
@@ -2098,7 +2105,11 @@ def main():
 
     if action == "session_get_by_room":
         row = conn.execute("SELECT * FROM live_sessions WHERE room_id = ?", (payload["roomId"],)).fetchone()
-        print(json.dumps({"status": row["status"] if row else None, "brandId": row["brand_id"] if row else None}))
+        print(json.dumps({
+            "status": row["status"] if row else None,
+            "brandId": row["brand_id"] if row else None,
+            "organizationId": (row["organization_id"] if _row_has(row, "organization_id") else None) if row else None,
+        }))
         return
 
     if action == "session_set_brand":

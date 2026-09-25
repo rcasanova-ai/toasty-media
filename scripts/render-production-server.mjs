@@ -2451,6 +2451,14 @@ async function handlePresenceAnnounce(req, res) {
   // live_sessions row at all, so this never breaks a room that predates session tracking.
   const sessionStatus = await db("session_get_by_room", { roomId });
   if (sessionStatus.status === "ENDED") throw httpError(410, "This session has ended.");
+  // Plan-derived participant cap (see PLAN_LIMITS) rather than the flat historical constant, when this
+  // room is tagged to an organization — untagged rooms (pre-Phase-1 sessions) fall back to
+  // toasty-auth-db.py's own MAX_GUESTS_PER_ROOM default, unchanged.
+  let maxGuests;
+  if (sessionStatus.organizationId) {
+    const org = await db("get_organization", { id: sessionStatus.organizationId });
+    maxGuests = Math.max(0, planLimitsFor(org.organization?.plan).maxParticipants - 1);
+  }
   const result = await db("presence_upsert", {
     roomId,
     participantId,
@@ -2459,6 +2467,7 @@ async function handlePresenceAnnounce(req, res) {
     title: presenceText(body.title, 120),
     company: presenceText(body.company, 120),
     transportSourceId,
+    maxGuests,
     micEnabled: typeof body.micEnabled === "boolean" ? body.micEnabled : null,
     cameraEnabled: typeof body.cameraEnabled === "boolean" ? body.cameraEnabled : null,
     screenShare: body.screenShare && typeof body.screenShare === "object" ? {
@@ -2653,6 +2662,63 @@ function resolveAuthoritativeBrandId(authSession, requestedBrandId) {
   return brandId;
 }
 
+// ---- Entitlements ----
+// The ONE place a plan's numeric limits are read (PLAN_LIMITS itself is declared near the top of this
+// file, next to the other env-driven config) and the ONE place session/participant quotas are enforced —
+// every check funnels through here so a limit is never re-implemented, and drifted, per call site. UI-side
+// hiding of a disabled action is convenience only; these are the actual gate.
+function planLimitsFor(plan) {
+  return PLAN_LIMITS[plan] || PLAN_LIMITS.demo;
+}
+
+function currentPeriodStart(granularity = "day") {
+  const now = new Date();
+  if (granularity === "month") return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
+  return now.toISOString().slice(0, 10);
+}
+
+// A session is created by one specific user, but may belong to any organization that user is a member of.
+// Defaults to that user's own (owner) organization when the client doesn't specify one — every existing
+// caller (js/live-session.js doesn't send organizationId yet) keeps working unchanged.
+async function resolveOrganizationForSession(authSession, requestedOrgId) {
+  if (requestedOrgId) {
+    if (!SAFE_ID.test(requestedOrgId)) throw httpError(400, "Invalid organization id.");
+    const membership = await db("get_membership", { organizationId: requestedOrgId, userId: authSession.id });
+    if (!membership.membership) throw httpError(404, "Organization not found.");
+    return requestedOrgId;
+  }
+  const orgs = await db("list_user_organizations", { userId: authSession.id });
+  const list = orgs.organizations || [];
+  if (!list.length) return null;
+  const owned = list.find((org) => org.role === "owner") || list[0];
+  return owned.id;
+}
+
+// Concurrent + daily session caps. Scoped to THIS user's own sessions within the organization (not every
+// member's combined usage) — matches how session_list is already scoped by ownerUserId elsewhere in this
+// file, and is exactly right for a demo org anyway (PLAN_LIMITS.demo.maxMembers is 1). A multi-member
+// creator/pro org undercounts true org-wide concurrency this way; widening session_list to aggregate by
+// organization_id across members is a defined follow-up, not done here to avoid changing that route's
+// existing owner-scoped semantics for every other caller (session history, rename, delete, etc.).
+async function enforceSessionQuota(organizationId, authSession) {
+  if (!organizationId) return; // no organization context (a legacy/pre-Phase-1 account) — don't newly restrict
+  const org = await db("get_organization", { id: organizationId });
+  const limits = planLimitsFor(org.organization?.plan);
+  const activeResult = await db("session_list", { ownerUserId: authSession.id, statuses: ["OPEN", "LIVE"] });
+  const activeInOrg = (activeResult.sessions || []).filter((s) => s.organizationId === organizationId).length;
+  if (activeInOrg >= limits.maxConcurrentSessions) {
+    throw httpError(402, `Your plan allows ${limits.maxConcurrentSessions} active session${limits.maxConcurrentSessions === 1 ? "" : "s"} at a time. End one before starting another, or upgrade.`);
+  }
+  const usageResult = await db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("day") });
+  if ((usageResult.usage?.sessionsCreated || 0) >= limits.maxSessionsPerDay) {
+    throw httpError(402, `Your plan allows ${limits.maxSessionsPerDay} new session${limits.maxSessionsPerDay === 1 ? "" : "s"} per day. Try again tomorrow, or upgrade.`);
+  }
+  const monthlyUsage = await db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("month") });
+  if ((monthlyUsage.usage?.sessionsCreated || 0) >= limits.maxSessionsPerMonth) {
+    throw httpError(402, `Your plan allows ${limits.maxSessionsPerMonth} new sessions per month. Upgrade to create more this month.`);
+  }
+}
+
 async function handleSessionCreate(req, res, authSession) {
   const body = await readJson(req);
   const roomId = requirePresenceId(body.roomId, "roomId");
@@ -2663,16 +2729,23 @@ async function handleSessionCreate(req, res, authSession) {
   const brandId = resolveAuthoritativeBrandId(authSession, body.brandId);
   const setup = body.setup != null ? sanitizeSessionSetup(body.setup) : {};
   const endCard = body.endCard != null ? sanitizeEndCard(body.endCard) : {};
+  const organizationId = await resolveOrganizationForSession(authSession, body.organizationId);
+  await enforceSessionQuota(organizationId, authSession);
   const result = await db("session_create", {
     id,
     roomId,
     ownerUserId: authSession.id,
+    organizationId,
     brandId,
     title: sessionText(body.title, 160),
     setup,
     endCard
   });
   if (result.error === "invalid_brand") throw httpError(400, "Unknown brand.");
+  if (result.session && organizationId) {
+    await db("increment_usage", { organizationId, periodStart: currentPeriodStart("day"), deltas: { sessionsCreated: 1 } });
+    await db("increment_usage", { organizationId, periodStart: currentPeriodStart("month"), deltas: { sessionsCreated: 1 } });
+  }
   sendJson(req, res, 200, { session: result.session });
 }
 
