@@ -448,6 +448,40 @@ const server = createServer(async (req, res) => {
     await handleStripeWebhook(req, res);
     return;
   }
+  // ---- Solana billing ----
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/billing/solana/intent")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "solana-intent-create", 10, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSolanaIntentCreate(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/billing/solana/intents")) {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const organizationId = organizationIdFromUrl(req, "/billing/solana/intents");
+    await handleSolanaIntentsList(req, res, session, organizationId);
+    return;
+  }
+  {
+    const solanaIntentMatch = req.url?.match(/^\/api\/billing\/solana\/intents\/([^/]+)(?:\/(confirm))?$/);
+    if (solanaIntentMatch) {
+      const [, intentId, action] = solanaIntentMatch;
+      if (req.method === "GET" && !action) {
+        const session = await requireSession(req, res);
+        if (!session) return;
+        await handleSolanaIntentGet(req, res, session, intentId);
+        return;
+      }
+      if (req.method === "POST" && action === "confirm") {
+        if (!requireCsrf(req, res) || !limit(req, res, "solana-intent-confirm", 20, 15 * 60 * 1000)) return;
+        const session = await requireSession(req, res);
+        if (!session) return;
+        await handleSolanaIntentConfirm(req, res, session, intentId);
+        return;
+      }
+    }
+  }
 
   if (req.method === "GET" && req.url === "/integrations/google-drive/status") {
     const session = await requireSession(req, res);
@@ -2465,6 +2499,196 @@ async function handleStripeWebhook(req, res) {
     if (organizationId) await db("update_organization", { id: organizationId, subscriptionStatus: "past_due" });
   }
   sendJson(req, res, 200, { received: true });
+}
+
+// ---- Solana billing (organization subscriptions) ----
+// A first-class rail alongside Stripe, not an afterthought — SOL/USDC/USDT prepaid terms, verified by a
+// READ-ONLY call to the Solana RPC (getTransaction). No keypair, no signing, no CLI, no SDK: this only ever
+// checks a transaction the customer already broadcast from their own wallet, so it's a raw fetch like
+// everything else in this file. Every one of the brief's required anti-fraud checks lives in
+// verifySolanaTransactionForIntent below: wrong recipient, wrong mint, underpayment, unconfirmed/failed
+// tx, and (via the `transaction_signature UNIQUE` column enforced in toasty-auth-db.py's
+// update_payment_intent_status) a signature can never be credited twice. Activation funnels into the exact
+// same db("create_subscription")/db("update_organization") calls the Stripe webhook uses above, so "how a
+// plan gets activated" has one shape regardless of payment rail.
+const SOLANA_ASSETS = new Set(["SOL", "USDC", "USDT"]);
+const SOLANA_TERM_DAYS = new Set([30, 90, 365]);
+// Prepaid term pricing in USD, illustrative defaults — adjust to actual plan pricing before going live.
+// Stablecoins (USDC/USDT) charge this amount 1:1; SOL is converted at a live quote locked into the intent.
+const SOLANA_PLAN_PRICES_USD = Object.freeze({
+  creator: Object.freeze({ 30: 49, 90: 132, 365: 470 }),
+  pro: Object.freeze({ 30: 149, 90: 402, 365: 1430 })
+});
+
+function solanaBillingConfigured() {
+  return Boolean(BILLING_SOLANA_RECIPIENT);
+}
+
+function solanaMintFor(asset) {
+  if (asset === "USDC") return BILLING_USDC_MINT;
+  if (asset === "USDT") return BILLING_USDT_MINT;
+  return null;
+}
+
+async function solanaRpc(method, params) {
+  let response;
+  try {
+    response = await fetch(BILLING_SOLANA_RPC_URL, {
+      method: "POST",
+      signal: AbortSignal.timeout(15000),
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })
+    });
+  } catch (error) {
+    console.error("[Toasty Billing] Solana RPC request failed:", error);
+    throw httpError(502, "Solana network request failed. Try again shortly.");
+  }
+  const data = await response.json().catch(() => ({}));
+  if (data.error) {
+    console.error("[Toasty Billing] Solana RPC error:", data.error);
+    throw httpError(502, "Solana network request failed. Try again shortly.");
+  }
+  return data.result;
+}
+
+// CoinGecko's public simple-price endpoint needs no API key. If it's unreachable, SOL checkout is
+// unavailable but USDC/USDT (no quote needed, 1:1 with USD) still work.
+async function fetchSolUsdPrice() {
+  let response;
+  try {
+    response = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd", { signal: AbortSignal.timeout(8000) });
+  } catch (error) {
+    throw httpError(502, "Could not fetch a live SOL price quote right now. Try USDC or USDT, or retry shortly.");
+  }
+  const data = await response.json().catch(() => ({}));
+  const price = data?.solana?.usd;
+  if (typeof price !== "number" || !(price > 0)) throw httpError(502, "Could not fetch a live SOL price quote right now. Try USDC or USDT, or retry shortly.");
+  return price;
+}
+
+async function handleSolanaIntentCreate(req, res, session) {
+  const organizationId = organizationIdFromUrl(req, "/billing/solana/intent");
+  const membership = await requireMembership(req, res, organizationId, "owner", session);
+  if (!membership) return;
+  if (!solanaBillingConfigured()) return sendJson(req, res, 503, { error: "Solana billing isn't configured on the server yet." });
+  const body = await readJson(req);
+  const plan = String(body?.plan || "");
+  const termDays = Number(body?.termDays);
+  const asset = String(body?.asset || "").toUpperCase();
+  if (!SOLANA_PLAN_PRICES_USD[plan]) return sendJson(req, res, 400, { error: "Unknown or unpriced plan." });
+  if (!SOLANA_TERM_DAYS.has(termDays)) return sendJson(req, res, 400, { error: "termDays must be 30, 90, or 365." });
+  if (!SOLANA_ASSETS.has(asset)) return sendJson(req, res, 400, { error: "asset must be SOL, USDC, or USDT." });
+  if ((asset === "USDC" && !BILLING_USDC_MINT) || (asset === "USDT" && !BILLING_USDT_MINT)) {
+    return sendJson(req, res, 400, { error: `${asset} is not configured on this server yet. Try a different asset.` });
+  }
+
+  const fiatAmount = SOLANA_PLAN_PRICES_USD[plan][termDays];
+  const cryptoAmount = asset === "SOL" ? Number((fiatAmount / (await fetchSolUsdPrice())).toFixed(9)) : fiatAmount;
+
+  const result = await db("create_payment_intent", {
+    id: randomUUID(),
+    organizationId,
+    provider: "solana",
+    asset,
+    network: BILLING_SOLANA_NETWORK,
+    fiatReferenceAmount: fiatAmount,
+    cryptoAmount,
+    recipientWallet: BILLING_SOLANA_RECIPIENT,
+    reference: randomBytes(16).toString("hex"),
+    plan,
+    termDays,
+    expiresAt: new Date(Date.now() + PAYMENT_INTENT_TTL_MS).toISOString(),
+    metadata: { requestedByUserId: session.id }
+  });
+  if (result.error) return sendJson(req, res, 409, { error: "Could not create a payment reference. Try again." });
+  sendJson(req, res, 200, { paymentIntent: result.paymentIntent });
+}
+
+async function handleSolanaIntentGet(req, res, session, intentId) {
+  const result = await db("get_payment_intent", { id: intentId });
+  if (!result.paymentIntent) return sendJson(req, res, 404, { error: "Payment intent not found." });
+  const membership = await requireMembership(req, res, result.paymentIntent.organizationId, "member", session);
+  if (!membership) return;
+  sendJson(req, res, 200, { paymentIntent: result.paymentIntent });
+}
+
+async function handleSolanaIntentsList(req, res, session, organizationId) {
+  const membership = await requireMembership(req, res, organizationId, "member", session);
+  if (!membership) return;
+  const result = await db("list_payment_intents", { organizationId });
+  sendJson(req, res, 200, { paymentIntents: result.paymentIntents || [] });
+}
+
+// Base58 alphabet, 64-100 chars covers every real Solana transaction signature length.
+const SOLANA_SIGNATURE_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{64,100}$/;
+
+async function verifySolanaTransactionForIntent(intent, transactionSignature) {
+  if (!SOLANA_SIGNATURE_PATTERN.test(transactionSignature)) {
+    throw httpError(400, "That doesn't look like a real Solana transaction signature.");
+  }
+  const tx = await solanaRpc("getTransaction", [transactionSignature, { encoding: "jsonParsed", commitment: "confirmed", maxSupportedTransactionVersion: 0 }]);
+  if (!tx) throw httpError(400, "Transaction not found yet — it may still be confirming. Try again shortly.");
+  if (tx.meta?.err) throw httpError(400, "That transaction failed on-chain and cannot be credited.");
+
+  const accountKeys = (tx.transaction?.message?.accountKeys || []).map((entry) => (typeof entry === "string" ? entry : entry.pubkey));
+  const recipientIndex = accountKeys.indexOf(intent.recipientWallet);
+  if (recipientIndex === -1) throw httpError(400, "That transaction does not pay the expected Toasty billing wallet.");
+
+  if (intent.asset === "SOL") {
+    const pre = tx.meta?.preBalances?.[recipientIndex];
+    const post = tx.meta?.postBalances?.[recipientIndex];
+    if (typeof pre !== "number" || typeof post !== "number") throw httpError(400, "Could not read the SOL balance change on that transaction.");
+    const expectedLamports = Math.round(intent.cryptoAmount * 1e9);
+    if (post - pre < expectedLamports) throw httpError(400, "That transaction underpays the quoted amount.");
+  } else {
+    const expectedMint = solanaMintFor(intent.asset);
+    const preEntry = (tx.meta?.preTokenBalances || []).find((entry) => entry.owner === intent.recipientWallet && entry.mint === expectedMint);
+    const postEntry = (tx.meta?.postTokenBalances || []).find((entry) => entry.owner === intent.recipientWallet && entry.mint === expectedMint);
+    if (!postEntry) throw httpError(400, `That transaction does not deliver ${intent.asset} (on the expected mint) to the expected wallet.`);
+    const preAmount = preEntry ? Number(preEntry.uiTokenAmount?.uiAmount || 0) : 0;
+    const postAmount = Number(postEntry.uiTokenAmount?.uiAmount || 0);
+    if (postAmount - preAmount < intent.cryptoAmount - 1e-6) throw httpError(400, "That transaction underpays the quoted amount.");
+  }
+}
+
+async function handleSolanaIntentConfirm(req, res, session, intentId) {
+  const intentResult = await db("get_payment_intent", { id: intentId });
+  if (!intentResult.paymentIntent) return sendJson(req, res, 404, { error: "Payment intent not found." });
+  const intent = intentResult.paymentIntent;
+  const membership = await requireMembership(req, res, intent.organizationId, "owner", session);
+  if (!membership) return;
+
+  if (intent.status === "paid") return sendJson(req, res, 200, { paymentIntent: intent });
+  if (new Date(intent.expiresAt).getTime() < Date.now()) {
+    if (intent.status !== "expired") await db("update_payment_intent_status", { id: intent.id, status: "expired" });
+    return sendJson(req, res, 410, { error: "This payment reference expired. Start a new checkout." });
+  }
+
+  const body = await readJson(req);
+  const transactionSignature = String(body?.transactionSignature || "").trim();
+  if (!transactionSignature) return sendJson(req, res, 400, { error: "transactionSignature is required." });
+
+  await verifySolanaTransactionForIntent(intent, transactionSignature);
+
+  const updated = await db("update_payment_intent_status", { id: intent.id, status: "paid", transactionSignature });
+  if (updated.error === "duplicate_signature") {
+    return sendJson(req, res, 409, { error: "This transaction has already been used to pay for a different order." });
+  }
+
+  const now = new Date();
+  await db("create_subscription", {
+    id: randomUUID(),
+    organizationId: intent.organizationId,
+    provider: "solana",
+    plan: intent.plan,
+    status: "active",
+    externalSubscriptionId: transactionSignature,
+    currentPeriodStart: now.toISOString(),
+    currentPeriodEnd: new Date(now.getTime() + intent.termDays * 24 * 60 * 60 * 1000).toISOString()
+  });
+  await db("update_organization", { id: intent.organizationId, plan: intent.plan, subscriptionStatus: "active" });
+
+  sendJson(req, res, 200, { paymentIntent: updated.paymentIntent });
 }
 
 async function hashPassword(password) {
