@@ -1367,11 +1367,27 @@ async function handleAiProducerRespond(req, res, authSession) {
   const userContent = `HOST INSTRUCTION: ${instruction}\n\nSHOW CONTEXT:\n${JSON.stringify(context)}`;
   const systemPrompt = buildAiProducerSystemPrompt(persona);
   const apiKey = aiCredentialKey(credential);
+  const startedAt = Date.now();
   const { text, usage } = await AI_CALL_BY_PROVIDER[credential.provider](userContent, systemPrompt, apiKey);
-  if (organizationId) {
-    await db("increment_usage", { organizationId, periodStart: currentPeriodStart("day"), deltas: { aiRequests: 1 } });
-    await db("increment_usage", { organizationId, periodStart: currentPeriodStart("month"), deltas: { aiRequests: 1 } });
+
+  let sessionId = sessionText(body.sessionId, 80) || null;
+  if (sessionId) {
+    const owned = await db("session_get", { id: sessionId, ownerUserId: authSession.id });
+    if (!owned.session || owned.session.organizationId !== organizationId) sessionId = null;
   }
+  await recordAiUsage({
+    organizationId,
+    sessionId,
+    provider: usage.provider,
+    model: usage.model,
+    feature: "moxie_live_producer",
+    inputTokens: usage.promptTokens,
+    outputTokens: usage.completionTokens,
+    totalTokens: usage.totalTokens,
+    estimatedCost: usage.estimatedCostUsd,
+    latencyMs: Date.now() - startedAt,
+    metadata: { source: "ai-producer" }
+  });
 
   let parsed;
   try {
@@ -2564,7 +2580,7 @@ async function handlePlatformResetUsage(req, res, organizationId) {
 
 async function platformOrganizationSnapshot(organizationId) {
   if (!SAFE_ID.test(organizationId)) throw httpError(400, "Invalid organization id.");
-  const [org, settings, members, invites, brands, billing, subscriptions, credentials, sessions, today, month, intents] = await Promise.all([
+  const [org, settings, members, invites, brands, billing, subscriptions, credentials, sessions, today, month, intents, aiUsageReport] = await Promise.all([
     db("get_organization", { id: organizationId }),
     db("get_organization_settings", { organizationId }),
     db("list_memberships", { organizationId }),
@@ -2576,7 +2592,8 @@ async function platformOrganizationSnapshot(organizationId) {
     db("platform_list_sessions_by_org", { organizationId, limit: 200 }),
     db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("day") }),
     db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("month") }),
-    db("list_payment_intents", { organizationId })
+    db("list_payment_intents", { organizationId }),
+    db("platform_ai_usage_report", { organizationId })
   ]);
   if (!org.organization) throw httpError(404, "Organization not found.");
   return {
@@ -2591,6 +2608,7 @@ async function platformOrganizationSnapshot(organizationId) {
     sessions: sessions.sessions || [],
     usage: { today: today.usage || {}, month: month.usage || {} },
     paymentIntents: intents.paymentIntents || [],
+    aiUsageReport: aiUsageReport || { totals: {}, bySession: [], byProviderModel: [], byFeature: [], recentEvents: [] },
     limits: planLimitsFor(org.organization.plan),
     safety: safetySwitchSnapshot()
   };

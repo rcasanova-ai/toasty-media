@@ -4498,6 +4498,146 @@ def main():
         print(json.dumps({"events": events, "byFeature": by_feature, "totalTokens": total_tokens, "totalEstimatedCost": total_cost}))
         return
 
+    if action == "platform_ai_usage_report":
+        organization_id = payload["organizationId"]
+
+        totals = conn.execute(
+            """
+            SELECT COUNT(*) AS calls,
+                   COALESCE(SUM(input_tokens),0) AS input_tokens,
+                   COALESCE(SUM(output_tokens),0) AS output_tokens,
+                   COALESCE(SUM(total_tokens),0) AS total_tokens,
+                   COALESCE(SUM(estimated_cost),0) AS estimated_cost,
+                   COALESCE(AVG(latency_ms),0) AS avg_latency_ms
+            FROM ai_usage_events
+            WHERE organization_id = ?
+            """,
+            (organization_id,),
+        ).fetchone()
+
+        session_rows = conn.execute(
+            """
+            SELECT s.id AS session_id,
+                   s.title AS session_title,
+                   s.status AS session_status,
+                   s.created_at AS session_created_at,
+                   s.ended_at AS session_ended_at,
+                   COUNT(a.id) AS calls,
+                   COALESCE(SUM(a.input_tokens),0) AS input_tokens,
+                   COALESCE(SUM(a.output_tokens),0) AS output_tokens,
+                   COALESCE(SUM(a.total_tokens),0) AS total_tokens,
+                   COALESCE(SUM(a.estimated_cost),0) AS estimated_cost,
+                   COALESCE(AVG(a.latency_ms),0) AS avg_latency_ms
+            FROM live_sessions s
+            LEFT JOIN ai_usage_events a
+              ON a.session_id = s.id AND a.organization_id = s.organization_id
+            WHERE s.organization_id = ?
+            GROUP BY s.id
+            ORDER BY total_tokens DESC, s.created_at DESC
+            LIMIT 250
+            """,
+            (organization_id,),
+        ).fetchall()
+
+        provider_rows = conn.execute(
+            """
+            SELECT provider, model,
+                   COUNT(*) AS calls,
+                   COALESCE(SUM(input_tokens),0) AS input_tokens,
+                   COALESCE(SUM(output_tokens),0) AS output_tokens,
+                   COALESCE(SUM(total_tokens),0) AS total_tokens,
+                   COALESCE(SUM(estimated_cost),0) AS estimated_cost,
+                   COALESCE(AVG(latency_ms),0) AS avg_latency_ms
+            FROM ai_usage_events
+            WHERE organization_id = ?
+            GROUP BY provider, model
+            ORDER BY total_tokens DESC
+            """,
+            (organization_id,),
+        ).fetchall()
+
+        feature_rows = conn.execute(
+            """
+            SELECT feature,
+                   COUNT(*) AS calls,
+                   COALESCE(SUM(total_tokens),0) AS total_tokens,
+                   COALESCE(SUM(estimated_cost),0) AS estimated_cost
+            FROM ai_usage_events
+            WHERE organization_id = ?
+            GROUP BY feature
+            ORDER BY total_tokens DESC
+            """,
+            (organization_id,),
+        ).fetchall()
+
+        recent_rows = conn.execute(
+            """
+            SELECT * FROM ai_usage_events
+            WHERE organization_id = ?
+            ORDER BY occurred_at DESC
+            LIMIT 100
+            """,
+            (organization_id,),
+        ).fetchall()
+
+        sessions = []
+        sessions_with_ai = 0
+        for row in session_rows:
+            calls = int(row["calls"] or 0)
+            if calls:
+                sessions_with_ai += 1
+            sessions.append({
+                "sessionId": row["session_id"],
+                "sessionTitle": row["session_title"],
+                "sessionStatus": row["session_status"],
+                "sessionCreatedAt": row["session_created_at"],
+                "sessionEndedAt": row["session_ended_at"],
+                "calls": calls,
+                "inputTokens": int(row["input_tokens"] or 0),
+                "outputTokens": int(row["output_tokens"] or 0),
+                "totalTokens": int(row["total_tokens"] or 0),
+                "estimatedCost": float(row["estimated_cost"] or 0),
+                "avgLatencyMs": float(row["avg_latency_ms"] or 0),
+            })
+
+        total_session_count = conn.execute(
+            "SELECT COUNT(*) AS n FROM live_sessions WHERE organization_id = ?",
+            (organization_id,),
+        ).fetchone()["n"]
+
+        report = {
+            "totals": {
+                "calls": int(totals["calls"] or 0),
+                "inputTokens": int(totals["input_tokens"] or 0),
+                "outputTokens": int(totals["output_tokens"] or 0),
+                "totalTokens": int(totals["total_tokens"] or 0),
+                "estimatedCost": float(totals["estimated_cost"] or 0),
+                "avgLatencyMs": float(totals["avg_latency_ms"] or 0),
+                "sessionCount": int(total_session_count or 0),
+                "sessionsWithAi": sessions_with_ai,
+            },
+            "bySession": sessions,
+            "byProviderModel": [{
+                "provider": row["provider"] or "",
+                "model": row["model"] or "",
+                "calls": int(row["calls"] or 0),
+                "inputTokens": int(row["input_tokens"] or 0),
+                "outputTokens": int(row["output_tokens"] or 0),
+                "totalTokens": int(row["total_tokens"] or 0),
+                "estimatedCost": float(row["estimated_cost"] or 0),
+                "avgLatencyMs": float(row["avg_latency_ms"] or 0),
+            } for row in provider_rows],
+            "byFeature": [{
+                "feature": row["feature"] or "unspecified",
+                "calls": int(row["calls"] or 0),
+                "totalTokens": int(row["total_tokens"] or 0),
+                "estimatedCost": float(row["estimated_cost"] or 0),
+            } for row in feature_rows],
+            "recentEvents": [public_ai_usage_event(row) for row in recent_rows],
+        }
+        print(json.dumps(report))
+        return
+
     # ---- Post-event content hooks ----
 
     if action == "post_event_artifact_create":
