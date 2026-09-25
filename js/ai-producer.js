@@ -500,9 +500,10 @@ class ByokRequiredError extends Error {
 }
 
 export class BackendAIProducerProvider {
-  constructor({ timeoutMs = 12000, getOrganizationId = () => null } = {}) {
+  constructor({ timeoutMs = 12000, getOrganizationId = () => null, getSessionId = () => null } = {}) {
     this.timeoutMs = timeoutMs;
     this.getOrganizationId = getOrganizationId;
+    this.getSessionId = getSessionId;
   }
 
   // persona (relationship/tone/autonomy — see js/producer-persona.js) rides in the request body so the
@@ -518,7 +519,7 @@ export class BackendAIProducerProvider {
         method: "POST",
         credentials: "include",
         headers: { "content-type": "application/json", "x-toasty-csrf": "1" },
-        body: JSON.stringify({ instruction, context, persona, organizationId: this.getOrganizationId() }),
+        body: JSON.stringify({ instruction, context, persona, organizationId: this.getOrganizationId(), sessionId: this.getSessionId() }),
         signal: AbortSignal.timeout(this.timeoutMs)
       });
     } catch (error) {
@@ -564,9 +565,9 @@ export class FallbackAIProducerProvider {
   }
 }
 
-export function createAIProducerProvider({ useBackend = true, getOrganizationId = () => null } = {}) {
+export function createAIProducerProvider({ useBackend = true, getOrganizationId = () => null, getSessionId = () => null } = {}) {
   const heuristic = new HeuristicAIProducerProvider();
-  return useBackend ? new FallbackAIProducerProvider({ primary: new BackendAIProducerProvider({ getOrganizationId }), fallback: heuristic }) : heuristic;
+  return useBackend ? new FallbackAIProducerProvider({ primary: new BackendAIProducerProvider({ getOrganizationId, getSessionId }), fallback: heuristic }) : heuristic;
 }
 
 // ---------------------------------------------------------------------------
