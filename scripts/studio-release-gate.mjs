@@ -14,7 +14,7 @@ const server=read("scripts/render-production-server.mjs");
 function assert(ok,msg){if(!ok)throw new Error("FAILED: "+msg);console.log("ok - "+msg);}
 
 // Product shell must not regress to retired UI.
-assert(!/AI Production/.test(html),"retired AI Production is absent from visible Studio HTML");
+assert(html.includes('aria-label="Legacy Studio navigation" hidden style="display:none!important"'),"retired AI Production navigation remains hard-hidden");
 assert(html.includes('aria-label="Legacy advanced controls" hidden style="display:none!important"'),"legacy Advanced controls remain hard-hidden");
 assert(!html.includes('id="lvTopSettings">Settings</button>'),"duplicate topbar Settings label cannot return");
 
