@@ -291,6 +291,250 @@ const server = createServer(async (req, res) => {
     await handleSessionCreate(req, res, session);
     return;
   }
+  // ==================================================================================================
+  // EVENT GROWTH LAYER — Session Planner, Speakers, Consent, Sponsors, Landing Pages, Audience,
+  // Campaign Links, BYOK usage, Post-event hooks. New product surfaces around Studio, not a rewrite of
+  // it — see docs/EVENT_GROWTH.md. Organizer-authenticated routes reuse requireSession/requireCsrf/limit
+  // exactly like /api/sessions/* above (session ownership always re-checked in SQL via owner_user_id,
+  // never just in this handler). Guest-facing invite routes are deliberately unauthenticated, like
+  // /api/presence/* — a Speaker/Sponsor invitee has no Toasty account — and are rate-limited per IP plus
+  // gated by a high-entropy invite token whose HASH (never the raw token) is the only thing stored.
+  // ==================================================================================================
+
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/plan")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "session-plan-set", 60, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSessionSetPlan(req, res, session);
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/speakers")) {
+    if (!limit(req, res, "speakers-list", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSpeakerList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/speakers")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "speakers-create", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSpeakerCreate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/speakers/") && req.url.endsWith("/update")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "speakers-update", 60, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSpeakerUpdate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/speakers/") && req.url.endsWith("/invite")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "speakers-invite", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSpeakerInviteIssue(req, res, session);
+    return;
+  }
+  // Guest path — no account. Token in the URL is the only credential; rate-limited per IP, expiring,
+  // single-use-at-redemption (see toasty-auth-db.py's speaker_invite_redeem).
+  if (req.method === "GET" && req.url?.startsWith("/api/speaker-invites/")) {
+    if (!limit(req, res, "speaker-invite-get", 60, 60 * 1000)) return;
+    await handleSpeakerInviteGet(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/speaker-invites/") && req.url.endsWith("/profile")) {
+    if (!limit(req, res, "speaker-invite-profile", 30, 15 * 60 * 1000)) return;
+    await handleSpeakerInviteProfile(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/speaker-invites/") && req.url.endsWith("/tech-check")) {
+    if (!limit(req, res, "speaker-invite-tech-check", 30, 15 * 60 * 1000)) return;
+    await handleSpeakerInviteTechCheck(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/speaker-invites/") && req.url.endsWith("/consent")) {
+    if (!limit(req, res, "speaker-invite-consent", 30, 15 * 60 * 1000)) return;
+    await handleSpeakerInviteConsent(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/sponsors")) {
+    if (!limit(req, res, "sponsors-list", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSponsorList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/sponsors")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sponsors-create", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSponsorCreate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sponsors/") && req.url.endsWith("/update")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sponsors-update", 60, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSponsorUpdate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sponsors/") && req.url.endsWith("/approve")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sponsors-approve", 60, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSponsorApprove(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sponsors/") && req.url.endsWith("/invite")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sponsors-invite", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSponsorInviteIssue(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/sponsor-invites/")) {
+    if (!limit(req, res, "sponsor-invite-get", 60, 60 * 1000)) return;
+    await handleSponsorInviteGet(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sponsor-invites/") && req.url.endsWith("/kit")) {
+    if (!limit(req, res, "sponsor-invite-kit", 30, 15 * 60 * 1000)) return;
+    await handleSponsorInviteKit(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/sponsor-moments")) {
+    if (!limit(req, res, "sponsor-moments-list", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSponsorMomentList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/sponsor-moments")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sponsor-moments-create", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSponsorMomentCreate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sponsor-moments/") && req.url.endsWith("/status")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "sponsor-moments-status", 90, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSponsorMomentStatus(req, res, session);
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/consent")) {
+    if (!limit(req, res, "consent-list", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleConsentList(req, res, session);
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/landing-page")) {
+    if (!limit(req, res, "landing-page-get", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleLandingPageGet(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/landing-page")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "landing-page-set", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleLandingPageUpsert(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/landing-page/publish")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "landing-page-publish", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleLandingPagePublish(req, res, session);
+    return;
+  }
+  // Public event page read — no session, this is what a visitor's browser fetches.
+  if (req.method === "GET" && req.url?.startsWith("/api/landing-pages/")) {
+    if (!limit(req, res, "landing-page-public", 120, 60 * 1000)) return;
+    await handleLandingPageGetBySlug(req, res);
+    return;
+  }
+
+  // Audience identity + event stream — public/unauthenticated writes (any visitor's browser), like
+  // /api/presence/*, rate-limited per IP. Reads are organizer-authenticated (this is the analytics data).
+  if (req.method === "POST" && req.url === "/api/audience/identity") {
+    if (!limit(req, res, "audience-identity", 120, 60 * 1000)) return;
+    await handleAudienceIdentityUpsert(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/audience/events") {
+    if (!limit(req, res, "audience-events-record", 180, 60 * 1000)) return;
+    await handleAudienceEventRecord(req, res);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/audience/events")) {
+    if (!limit(req, res, "audience-events-list", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleAudienceEventList(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/audience/summary")) {
+    if (!limit(req, res, "audience-summary", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleAudienceEventSummary(req, res, session);
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/campaign-links")) {
+    if (!limit(req, res, "campaign-links-list", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleCampaignLinkList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/campaign-links")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "campaign-links-create", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleCampaignLinkCreate(req, res, session);
+    return;
+  }
+  // Public redirect resolver — toasty.media/r/<slug> resolves through here (see docs/EVENT_GROWTH.md for
+  // the static-hosting rewrite that would front this in production).
+  if (req.method === "GET" && req.url?.startsWith("/api/r/")) {
+    if (!limit(req, res, "campaign-link-resolve", 180, 60 * 1000)) return;
+    await handleCampaignLinkResolve(req, res);
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/ai-usage")) {
+    if (!limit(req, res, "ai-usage-summary", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleAiUsageSummary(req, res, session);
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/artifacts")) {
+    if (!limit(req, res, "post-event-artifacts-list", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handlePostEventArtifactList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/artifacts")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "post-event-artifacts-create", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handlePostEventArtifactCreate(req, res, session);
+    return;
+  }
   if (req.method === "GET" && req.url?.startsWith("/api/sessions/")) {
     if (!limit(req, res, "sessions-get", 60, 60 * 1000)) return;
     const session = await requireSession(req, res);
@@ -364,6 +608,7 @@ const server = createServer(async (req, res) => {
     await handleProfileEndCard(req, res, session);
     return;
   }
+
   if (req.method !== "POST" || req.url !== "/render") {
     sendJson(req, res, 404, { error: "Render helper is running. POST /render to create an MP4." });
     return;
@@ -1704,7 +1949,7 @@ function parseCookies(header) {
 // Errors the auth-db script returns as legitimate, expected results (not a storage/DB failure) — callers
 // branch on result.error themselves for these. Anything else in result.error means the Python side threw
 // (see toasty-auth-db.py's own try/except) and really is a storage failure.
-const DB_EXPECTED_ERRORS = new Set(["duplicate_email", "kicked", "full", "invalid_mode", "invalid_brand", "brand_forbidden"]);
+const DB_EXPECTED_ERRORS = new Set(["duplicate_email", "kicked", "full", "invalid_mode", "invalid_brand", "brand_forbidden", "slug_taken"]);
 
 async function db(action, values = {}) {
   const result = await runJson("python3", [AUTH_DB_HELPER], { action, dbPath: AUTH_DB_PATH, ...values });
@@ -2129,6 +2374,628 @@ async function handleSessionKick(req, res, authSession) {
   if (!sessionResult.session) throw httpError(404, "Session not found.");
   const result = await db("session_kick", { roomId: sessionResult.session.roomId, participantId });
   sendJson(req, res, 200, { roster: result.roster || [] });
+}
+
+// ======================================================================================================
+// EVENT GROWTH LAYER — handlers. Every organizer-facing handler re-checks session ownership via
+// db("session_get", {id, ownerUserId}) before touching a sub-resource, exactly like handleSessionKick
+// above — a sub-resource id alone (speakerId/sponsorId/...) is never trusted as proof of ownership.
+// ======================================================================================================
+
+function newId(prefix) {
+  return `${prefix}_${randomUUID().replace(/-/g, "")}`;
+}
+
+async function requireOwnedSession(req, res, authSession, suffix) {
+  const path = req.url.slice("/api/sessions/".length, -suffix.length);
+  const id = decodeURIComponent(path);
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
+  const result = await db("session_get", { id, ownerUserId: authSession.id });
+  if (result.error === "brand_forbidden") throw httpError(403, "This session is outside your account's permitted brand.");
+  if (!result.session) throw httpError(404, "Session not found.");
+  return result.session;
+}
+
+// High-entropy invite tokens: only the SHA-256 hash is ever stored (toasty-auth-db.py's
+// speaker_invites/sponsor_invites.token_hash) or logged. The raw token exists only in this response body
+// (to be emailed) and in the invitee's URL — never written to disk/DB in cleartext.
+function issueInviteToken() {
+  const token = randomBytes(32).toString("base64url");
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  return { token, tokenHash };
+}
+
+function hashInviteToken(token) {
+  return createHash("sha256").update(String(token || "")).digest("hex");
+}
+
+function inviteExpiry(days) {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function inviteIsLive(invite) {
+  if (!invite) return false;
+  if (invite.revokedAt || invite.usedAt) return false;
+  return new Date(invite.expiresAt).getTime() > Date.now();
+}
+
+const SPEAKER_LINK_KEYS = ["linkedin", "x", "website", "instagram", "tiktok", "youtube", "github", "telegram", "other"];
+
+function sanitizeSpeakerFields(input, { profileMode = false } = {}) {
+  const raw = input && typeof input === "object" ? input : {};
+  const fields = {};
+  if ("sessionRole" in raw) fields.sessionRole = sessionText(raw.sessionRole, 120);
+  if ("displayName" in raw) fields.displayName = sessionText(raw.displayName, 120);
+  if ("headshotReference" in raw) fields.headshotReference = sessionText(raw.headshotReference, 2000);
+  if ("title" in raw) fields.title = sessionText(raw.title, 160);
+  if ("company" in raw) fields.company = sessionText(raw.company, 160);
+  if ("bioShort" in raw) fields.bioShort = sessionText(raw.bioShort, 280);
+  if ("bioLong" in raw) fields.bioLong = sessionText(raw.bioLong, 4000);
+  if ("pronunciationNotes" in raw) fields.pronunciationNotes = sessionText(raw.pronunciationNotes, 300);
+  if ("location" in raw) fields.location = sessionText(raw.location, 160);
+  if ("speakerTimezone" in raw) fields.speakerTimezone = sessionText(raw.speakerTimezone, 80);
+  if ("onscreenTitle" in raw) fields.onscreenTitle = sessionText(raw.onscreenTitle, 160);
+  if ("pronouns" in raw) fields.pronouns = sessionText(raw.pronouns, 40);
+  if ("links" in raw && raw.links && typeof raw.links === "object") {
+    const links = {};
+    for (const key of SPEAKER_LINK_KEYS) {
+      const value = sessionText(raw.links[key], 300);
+      if (value) links[key] = value;
+    }
+    fields.links = links;
+  }
+  if ("hiddenFields" in raw && Array.isArray(raw.hiddenFields)) {
+    fields.hiddenFields = raw.hiddenFields.map((v) => sessionText(v, 60)).filter(Boolean).slice(0, 40);
+  }
+  // Organizer-only fields never reachable from the guest profile-submission path.
+  if (!profileMode && "peepsUserId" in raw) fields.peepsUserId = sessionText(raw.peepsUserId, 80) || null;
+  return fields;
+}
+
+const CONSENT_KNOWN_KEYS = new Set([
+  "terms_of_service",
+  "privacy_policy",
+  "recording",
+  "transcription",
+  "ai_processing",
+  "distribution_replay",
+  "confidentiality",
+  "research_participation",
+  "data_use",
+  "client_release",
+  "promotional_clips",
+  "retain_profile",
+  "peeps_profile",
+  "marketing_communications"
+]);
+
+function sanitizeConsentKeys(list) {
+  return (Array.isArray(list) ? list : [])
+    .map((v) => sessionText(v, 60))
+    .filter((v) => CONSENT_KNOWN_KEYS.has(v));
+}
+
+async function handleSessionSetPlan(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/plan");
+  const body = await readJson(req);
+  const plan = body.plan && typeof body.plan === "object" ? body.plan : {};
+  const result = await db("session_set_plan", { id: session.id, ownerUserId: authSession.id, plan });
+  sendJson(req, res, 200, { session: result.session });
+}
+
+async function handleSpeakerList(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/speakers");
+  const result = await db("speaker_list", { sessionId: session.id });
+  sendJson(req, res, 200, { speakers: result.speakers || [] });
+}
+
+async function handleSpeakerCreate(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/speakers");
+  const body = await readJson(req);
+  const email = sessionText(body.email, 200);
+  if (!EMAIL_PATTERN.test(email)) throw httpError(400, "A valid speaker email is required.");
+  const result = await db("speaker_create", {
+    id: newId("spk"),
+    sessionId: session.id,
+    ownerUserId: authSession.id,
+    email,
+    sessionRole: sessionText(body.sessionRole, 120),
+    displayName: sessionText(body.displayName, 120)
+  });
+  sendJson(req, res, 201, { speaker: result.speaker });
+}
+
+async function requireOwnedSpeaker(speakerId, authSession) {
+  if (!SAFE_ID.test(String(speakerId || ""))) throw httpError(400, "Invalid speaker id.");
+  const result = await db("speaker_get", { id: speakerId });
+  if (!result.speaker || result.speaker.ownerUserId !== authSession.id) throw httpError(404, "Speaker not found.");
+  return result.speaker;
+}
+
+async function handleSpeakerUpdate(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/speakers/".length, -"/update".length));
+  await requireOwnedSpeaker(id, authSession);
+  const body = await readJson(req);
+  const fields = sanitizeSpeakerFields(body.fields, { profileMode: false });
+  const result = await db("speaker_update", { id, fields });
+  sendJson(req, res, 200, { speaker: result.speaker });
+}
+
+async function handleSpeakerInviteIssue(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/speakers/".length, -"/invite".length));
+  await requireOwnedSpeaker(id, authSession);
+  const { token, tokenHash } = issueInviteToken();
+  await db("speaker_invite_issue", {
+    id: newId("inv"),
+    speakerId: id,
+    tokenHash,
+    expiresAt: inviteExpiry(30)
+  });
+  // Raw token is returned exactly once — the caller (organizer UI) is expected to hand it to
+  // js/email-service.js's speaker-invite template. It is never persisted or logged in cleartext.
+  sendJson(req, res, 201, { token, inviteUrl: `/studio/speaker-invite.html?token=${token}` });
+}
+
+async function loadSpeakerInvite(token) {
+  const tokenHash = hashInviteToken(token);
+  const result = await db("speaker_invite_get", { tokenHash });
+  if (!result.invite || !result.speaker) throw httpError(404, "Invite not found.");
+  if (!inviteIsLive(result.invite)) throw httpError(410, "This invite has expired or was already used.");
+  return { invite: result.invite, speaker: result.speaker, tokenHash };
+}
+
+function tokenFromInviteUrl(req, prefix, suffix = "") {
+  let rest = req.url.slice(prefix.length);
+  if (suffix) rest = rest.slice(0, -suffix.length);
+  return decodeURIComponent(rest);
+}
+
+async function handleSpeakerInviteGet(req, res) {
+  const token = tokenFromInviteUrl(req, "/api/speaker-invites/");
+  const { speaker } = await loadSpeakerInvite(token);
+  // Guests never see ownerUserId/peepsUserId of the organizer's account — only their own row.
+  const { ownerUserId, ...publicSpeaker } = speaker;
+  sendJson(req, res, 200, { speaker: publicSpeaker });
+}
+
+async function handleSpeakerInviteProfile(req, res) {
+  const token = tokenFromInviteUrl(req, "/api/speaker-invites/", "/profile");
+  const { speaker, tokenHash } = await loadSpeakerInvite(token);
+  const body = await readJson(req);
+  const fields = sanitizeSpeakerFields(body.fields, { profileMode: true });
+  // Session-specific overrides only — never writes back to a canonical Peeps profile (see
+  // docs/HUMAN_INSIGHT_NETWORK.md's data-rights boundary: participant profile data stays participant-owned).
+  const result = await db("speaker_update", { id: speaker.id, fields, markProfileSubmitted: true });
+  await db("speaker_invite_redeem", { tokenHash, speakerId: speaker.id });
+  sendJson(req, res, 200, { speaker: result.speaker });
+}
+
+async function handleSpeakerInviteTechCheck(req, res) {
+  const token = tokenFromInviteUrl(req, "/api/speaker-invites/", "/tech-check");
+  const { speaker } = await loadSpeakerInvite(token);
+  const body = await readJson(req);
+  const result = await db("tech_check_record", {
+    id: newId("tc"),
+    speakerId: speaker.id,
+    sessionId: speaker.sessionId,
+    cameraOk: Boolean(body.cameraOk),
+    micOk: Boolean(body.micOk),
+    speakerOk: Boolean(body.speakerOk),
+    browserSupported: Boolean(body.browserSupported),
+    connectionOutcome: sessionText(body.connectionOutcome, 60),
+    // Labels only ("FaceTime HD Camera"), never persistent hardware/device IDs.
+    warnings: (Array.isArray(body.warnings) ? body.warnings : []).map((w) => sessionText(w, 200)).slice(0, 20),
+    deviceLabels: (Array.isArray(body.deviceLabels) ? body.deviceLabels : []).map((l) => sessionText(l, 120)).slice(0, 10)
+  });
+  sendJson(req, res, 201, { techCheck: result.techCheck });
+}
+
+async function handleSpeakerInviteConsent(req, res) {
+  const token = tokenFromInviteUrl(req, "/api/speaker-invites/", "/consent");
+  const { speaker } = await loadSpeakerInvite(token);
+  await recordConsent(req, res, {
+    ownerUserId: speaker.ownerUserId,
+    sessionId: speaker.sessionId,
+    participantType: "speaker",
+    participantId: speaker.id,
+    source: "guest_invite"
+  });
+}
+
+async function recordConsent(req, res, { ownerUserId, sessionId, participantType, participantId, source }) {
+  const body = await readJson(req);
+  const requiredAcceptances = sanitizeConsentKeys(body.requiredAcceptances);
+  if (!requiredAcceptances.length) throw httpError(400, "At least one required acceptance must be provided.");
+  const optionalPermissions = sanitizeConsentKeys(body.optionalPermissions);
+  const agreementVersion = sessionText(body.agreementVersion, 40) || "v1";
+  const result = await db("consent_record_create", {
+    id: newId("cr"),
+    ownerUserId,
+    sessionId,
+    participantType,
+    participantId,
+    agreementVersion,
+    requiredAcceptances,
+    optionalPermissions,
+    source,
+    ipMetadata: String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim().slice(0, 80),
+    userAgent: sessionText(req.headers["user-agent"], 300),
+    documentHash: sessionText(body.documentHash, 128)
+  });
+  sendJson(req, res, 201, { consentRecord: result.consentRecord });
+}
+
+async function handleConsentList(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/consent");
+  const result = await db("consent_record_list", { sessionId: session.id });
+  sendJson(req, res, 200, { consentRecords: result.consentRecords || [] });
+}
+
+async function handleSponsorList(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/sponsors");
+  const result = await db("sponsor_list", { sessionId: session.id });
+  sendJson(req, res, 200, { sponsors: result.sponsors || [] });
+}
+
+async function handleSponsorCreate(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/sponsors");
+  const body = await readJson(req);
+  const result = await db("sponsor_create", {
+    id: newId("spn"),
+    sessionId: session.id,
+    ownerUserId: authSession.id,
+    companyName: sessionText(body.companyName, 160),
+    contactName: sessionText(body.contactName, 160),
+    contactEmail: sessionText(body.contactEmail, 200)
+  });
+  sendJson(req, res, 201, { sponsor: result.sponsor });
+}
+
+async function requireOwnedSponsor(sponsorId, authSession) {
+  if (!SAFE_ID.test(String(sponsorId || ""))) throw httpError(400, "Invalid sponsor id.");
+  const result = await db("sponsor_get", { id: sponsorId });
+  if (!result.sponsor || result.sponsor.ownerUserId !== authSession.id) throw httpError(404, "Sponsor not found.");
+  return result.sponsor;
+}
+
+const SPONSOR_TEXT_FIELDS = {
+  companyName: 160, contactName: 160, contactEmail: 200, website: 300, logoReference: 2000,
+  campaignUrl: 300, promoCode: 40, qrDestination: 300, talkingPoints: 2000, requiredDisclosure: 500,
+  doNotSay: 1000, sponsorGraphicReference: 2000, videoAssetReference: 2000
+};
+const SPONSOR_SOCIAL_KEYS = ["linkedin", "x", "instagram", "youtube", "tiktok", "website"];
+
+function sanitizeSponsorFields(input) {
+  const raw = input && typeof input === "object" ? input : {};
+  const fields = {};
+  for (const [key, max] of Object.entries(SPONSOR_TEXT_FIELDS)) {
+    if (key in raw) fields[key] = sessionText(raw[key], max);
+  }
+  if ("productImages" in raw && Array.isArray(raw.productImages)) {
+    fields.productImages = raw.productImages.map((v) => sessionText(v, 2000)).slice(0, 20);
+  }
+  if ("socialLinks" in raw && raw.socialLinks && typeof raw.socialLinks === "object") {
+    const links = {};
+    for (const key of SPONSOR_SOCIAL_KEYS) {
+      const value = sessionText(raw.socialLinks[key], 300);
+      if (value) links[key] = value;
+    }
+    fields.socialLinks = links;
+  }
+  return fields;
+}
+
+async function handleSponsorUpdate(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/sponsors/".length, -"/update".length));
+  await requireOwnedSponsor(id, authSession);
+  const body = await readJson(req);
+  const fields = sanitizeSponsorFields(body.fields);
+  const result = await db("sponsor_update", { id, fields });
+  sendJson(req, res, 200, { sponsor: result.sponsor });
+}
+
+const SPONSOR_APPROVAL_STATES = new Set(["pending", "approved", "rejected"]);
+
+async function handleSponsorApprove(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/sponsors/".length, -"/approve".length));
+  await requireOwnedSponsor(id, authSession);
+  const body = await readJson(req);
+  const approvalStatus = SPONSOR_APPROVAL_STATES.has(body.approvalStatus) ? body.approvalStatus : "approved";
+  const result = await db("sponsor_set_approval", { id, approvalStatus });
+  sendJson(req, res, 200, { sponsor: result.sponsor });
+}
+
+async function handleSponsorInviteIssue(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/sponsors/".length, -"/invite".length));
+  await requireOwnedSponsor(id, authSession);
+  const { token, tokenHash } = issueInviteToken();
+  await db("sponsor_invite_issue", { id: newId("inv"), sponsorId: id, tokenHash, expiresAt: inviteExpiry(30) });
+  sendJson(req, res, 201, { token, inviteUrl: `/studio/sponsor-invite.html?token=${token}` });
+}
+
+async function loadSponsorInvite(token) {
+  const tokenHash = hashInviteToken(token);
+  const result = await db("sponsor_invite_get", { tokenHash });
+  if (!result.invite || !result.sponsor) throw httpError(404, "Invite not found.");
+  if (!inviteIsLive(result.invite)) throw httpError(410, "This invite has expired or was already used.");
+  return { invite: result.invite, sponsor: result.sponsor, tokenHash };
+}
+
+async function handleSponsorInviteGet(req, res) {
+  const token = tokenFromInviteUrl(req, "/api/sponsor-invites/");
+  const { sponsor } = await loadSponsorInvite(token);
+  const { ownerUserId, ...publicSponsor } = sponsor;
+  sendJson(req, res, 200, { sponsor: publicSponsor });
+}
+
+async function handleSponsorInviteKit(req, res) {
+  const token = tokenFromInviteUrl(req, "/api/sponsor-invites/", "/kit");
+  const { sponsor, tokenHash } = await loadSponsorInvite(token);
+  const body = await readJson(req);
+  const fields = sanitizeSponsorFields(body.fields);
+  const result = await db("sponsor_update", { id: sponsor.id, fields });
+  await db("sponsor_invite_redeem", { tokenHash, sponsorId: sponsor.id });
+  sendJson(req, res, 200, { sponsor: result.sponsor });
+}
+
+const SPONSOR_MOMENT_TREATMENTS = new Set([
+  "host_read", "corner_logo", "lower_third", "side_panel", "full_card", "qr_cta", "sponsor_bug", "canvas_background"
+]);
+const SPONSOR_MOMENT_STATUSES = new Set(["planned", "on_screen", "delivered", "skipped"]);
+
+async function handleSponsorMomentList(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/sponsor-moments");
+  const result = await db("sponsor_moment_list", { sessionId: session.id });
+  sendJson(req, res, 200, { sponsorMoments: result.sponsorMoments || [] });
+}
+
+async function handleSponsorMomentCreate(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/sponsor-moments");
+  const body = await readJson(req);
+  await requireOwnedSponsor(body.sponsorId, authSession);
+  const treatment = SPONSOR_MOMENT_TREATMENTS.has(body.treatment) ? body.treatment : "host_read";
+  const result = await db("sponsor_moment_create", {
+    id: newId("sm"),
+    sessionId: session.id,
+    sponsorId: body.sponsorId,
+    position: Number.isFinite(Number(body.position)) ? Math.max(0, Math.round(Number(body.position))) : 0,
+    label: sessionText(body.label, 160),
+    startOffsetSeconds: Number.isFinite(Number(body.startOffsetSeconds)) ? Math.round(Number(body.startOffsetSeconds)) : null,
+    treatment
+  });
+  sendJson(req, res, 201, { sponsorMoment: result.sponsorMoment });
+}
+
+async function handleSponsorMomentStatus(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/sponsor-moments/".length, -"/status".length));
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid sponsor moment id.");
+  const body = await readJson(req);
+  if (!SPONSOR_MOMENT_STATUSES.has(body.status)) throw httpError(400, "Invalid sponsor moment status.");
+  const existing = await db("sponsor_moment_get", { id });
+  if (!existing.sponsorMoment) throw httpError(404, "Sponsor moment not found.");
+  // Host/Producer parity by design (section 9): either can call this; both act on the same durable row,
+  // so "who actually put it on screen" is whichever call lands, same as other Producer-overridable state.
+  const owned = await db("session_get", { id: existing.sponsorMoment.sessionId, ownerUserId: authSession.id });
+  if (!owned.session) throw httpError(404, "Sponsor moment not found.");
+  const result = await db("sponsor_moment_update", { id, status: body.status });
+  sendJson(req, res, 200, { sponsorMoment: result.sponsorMoment });
+}
+
+const LANDING_BLOCK_TYPES = new Set([
+  "hero", "description", "speakers", "agenda", "countdown", "registration", "sponsors", "faq", "cta",
+  "listener_embed", "prerecorded_player", "replay", "share"
+]);
+
+function sanitizeLandingBlocks(input) {
+  return (Array.isArray(input) ? input : [])
+    .slice(0, 40)
+    .map((block, index) => {
+      const raw = block && typeof block === "object" ? block : {};
+      const type = LANDING_BLOCK_TYPES.has(raw.type) ? raw.type : null;
+      if (!type) return null;
+      return {
+        type,
+        position: index,
+        // Block content itself stays a bounded JSON blob — validated by shape (type allowlist) not by
+        // hand-checking every possible field, same tradeoff sanitizeSessionSetup makes for runOfShow.
+        content: raw.content && typeof raw.content === "object" ? JSON.parse(JSON.stringify(raw.content).slice(0, 20000)) : {}
+      };
+    })
+    .filter(Boolean);
+}
+
+const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{2,79}$/;
+
+async function handleLandingPageGet(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/landing-page");
+  const result = await db("landing_page_get_by_session", { sessionId: session.id });
+  sendJson(req, res, 200, { landingPage: result.landingPage });
+}
+
+async function handleLandingPageUpsert(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/landing-page");
+  const body = await readJson(req);
+  const slug = sessionText(body.slug, 80).toLowerCase();
+  if (!SLUG_PATTERN.test(slug)) throw httpError(400, "Slug must be 3-80 lowercase letters, numbers, or hyphens.");
+  const result = await db("landing_page_upsert", {
+    id: newId("lp"),
+    sessionId: session.id,
+    ownerUserId: authSession.id,
+    slug,
+    templateId: sessionText(body.templateId, 60) || "default",
+    blocks: sanitizeLandingBlocks(body.blocks)
+  });
+  if (result.error === "slug_taken") throw httpError(409, "That event URL is already taken.");
+  sendJson(req, res, 200, { landingPage: result.landingPage });
+}
+
+async function handleLandingPagePublish(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/landing-page/publish");
+  const result = await db("landing_page_publish", { sessionId: session.id });
+  sendJson(req, res, 200, { landingPage: result.landingPage });
+}
+
+async function handleLandingPageGetBySlug(req, res) {
+  const slug = decodeURIComponent(req.url.slice("/api/landing-pages/".length)).toLowerCase();
+  if (!SLUG_PATTERN.test(slug)) throw httpError(400, "Invalid event URL.");
+  const result = await db("landing_page_get_by_slug", { slug });
+  if (!result.landingPage || !result.landingPage.publishedAt) throw httpError(404, "Event page not found.");
+  const { ownerUserId, ...publicPage } = result.landingPage;
+  sendJson(req, res, 200, { landingPage: publicPage });
+}
+
+const AUDIENCE_EVENT_TYPES = new Set([
+  "PAGE_VIEW", "REGISTERED", "RSVP", "JOINED_LIVE", "LEFT_LIVE", "WATCH_TIME", "RETURNED",
+  "CHAT_MESSAGE", "QUESTION", "POLL_RESPONSE", "REACTION", "CTA_CLICK", "QR_CLICK", "QR_REDIRECT",
+  "REPLAY_VIEW", "CLIP_VIEW", "BOOKING_CLICK", "PEEPS_SIGNUP", "SPONSOR_IMPRESSION", "SPONSOR_CTA",
+  "SHARE", "REFERRAL"
+]);
+
+async function handleAudienceIdentityUpsert(req, res) {
+  const body = await readJson(req);
+  const ownerUserId = sessionText(body.ownerUserId, 80);
+  const anonymousId = sessionText(body.anonymousId, 80);
+  if (!SAFE_ID.test(ownerUserId) || !SAFE_ID.test(anonymousId)) throw httpError(400, "Invalid identity request.");
+  const result = await db("audience_identity_upsert", {
+    id: newId("aid"),
+    ownerUserId,
+    anonymousId,
+    knownEmail: EMAIL_PATTERN.test(body.knownEmail || "") ? sessionText(body.knownEmail, 200) : null,
+    displayName: sessionText(body.displayName, 120) || null
+  });
+  sendJson(req, res, 200, { identity: result.identity });
+}
+
+async function handleAudienceEventRecord(req, res) {
+  const body = await readJson(req);
+  const ownerUserId = sessionText(body.ownerUserId, 80);
+  const sessionId = sessionText(body.sessionId, 80);
+  if (!SAFE_ID.test(ownerUserId) || !SAFE_ID.test(sessionId)) throw httpError(400, "Invalid event request.");
+  if (!AUDIENCE_EVENT_TYPES.has(body.eventType)) throw httpError(400, "Unknown audience event type.");
+  const result = await db("audience_event_record", {
+    id: newId("ae"),
+    ownerUserId,
+    sessionId,
+    identityId: sessionText(body.identityId, 80) || null,
+    anonymousId: sessionText(body.anonymousId, 80) || null,
+    eventType: body.eventType,
+    source: sessionText(body.source, 60),
+    campaign: sessionText(body.campaign, 120),
+    referrer: sessionText(body.referrer, 300),
+    metadata: body.metadata && typeof body.metadata === "object" ? body.metadata : {}
+  });
+  sendJson(req, res, 201, { event: result.event });
+}
+
+async function handleAudienceEventList(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/audience/events");
+  const result = await db("audience_event_list", { sessionId: session.id });
+  sendJson(req, res, 200, { events: result.events || [] });
+}
+
+async function handleAudienceEventSummary(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/audience/summary");
+  const result = await db("audience_event_summary", { sessionId: session.id });
+  sendJson(req, res, 200, { countsByType: result.countsByType || {}, uniqueVisitors: result.uniqueVisitors || 0 });
+}
+
+async function handleCampaignLinkList(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/campaign-links");
+  const result = await db("campaign_link_list", { sessionId: session.id });
+  sendJson(req, res, 200, { campaignLinks: result.campaignLinks || [] });
+}
+
+async function handleCampaignLinkCreate(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/campaign-links");
+  const body = await readJson(req);
+  const slug = sessionText(body.slug, 40).toLowerCase() || randomBytes(4).toString("hex");
+  if (!/^[a-z0-9-]{3,40}$/.test(slug)) throw httpError(400, "Invalid campaign link slug.");
+  const result = await db("campaign_link_create", {
+    id: newId("cl"),
+    ownerUserId: authSession.id,
+    sessionId: session.id,
+    slug,
+    destinationUrl: sessionText(body.destinationUrl, 500),
+    campaign: sessionText(body.campaign, 120),
+    source: sessionText(body.source, 120),
+    speakerId: sessionText(body.speakerId, 80) || null,
+    sponsorId: sessionText(body.sponsorId, 80) || null,
+    clipId: sessionText(body.clipId, 80) || null,
+    referralPartner: sessionText(body.referralPartner, 120)
+  });
+  if (result.error === "slug_taken") throw httpError(409, "That campaign link slug is already taken.");
+  sendJson(req, res, 201, { campaignLink: result.campaignLink });
+}
+
+async function handleCampaignLinkResolve(req, res) {
+  const slug = decodeURIComponent(req.url.slice("/api/r/".length)).toLowerCase();
+  const result = await db("campaign_link_resolve", { slug });
+  if (!result.campaignLink) throw httpError(404, "Link not found.");
+  if (!result.campaignLink.destinationUrl) {
+    sendJson(req, res, 200, { campaignLink: result.campaignLink });
+    return;
+  }
+  res.writeHead(302, { Location: result.campaignLink.destinationUrl });
+  res.end();
+}
+
+async function handleAiUsageSummary(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/ai-usage");
+  const result = await db("ai_usage_summary", { ownerUserId: authSession.id, sessionId: session.id });
+  sendJson(req, res, 200, result);
+}
+
+// Called internally by AI-feature handlers (handleAiProducerRespond, handleTranscribe) after a real
+// provider call completes — never exposed as a public write route. Never fabricates a token count: a
+// non-token feature (e.g. Whisper transcription) passes totalTokens/estimatedCost as null instead.
+async function recordAiUsage({ ownerUserId, sessionId, provider, model, feature, inputTokens, outputTokens, totalTokens, estimatedCost, latencyMs, metadata }) {
+  try {
+    await db("ai_usage_record", {
+      id: newId("ai"),
+      ownerUserId,
+      sessionId: sessionId || null,
+      provider: provider || "",
+      model: model || "",
+      feature: feature || "",
+      inputTokens: inputTokens ?? null,
+      outputTokens: outputTokens ?? null,
+      totalTokens: totalTokens ?? null,
+      estimatedCost: estimatedCost ?? null,
+      latencyMs: latencyMs ?? null,
+      metadata: metadata || {}
+    });
+  } catch (error) {
+    console.error("AI usage telemetry write failed", error);
+  }
+}
+
+const POST_EVENT_ARTIFACT_TYPES = new Set([
+  "clip", "quote_card", "article_draft", "linkedin_copy", "x_copy", "youtube_description",
+  "newsletter_summary", "speaker_clip", "highlight_reel", "transcript", "chapters"
+]);
+
+async function handlePostEventArtifactList(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/artifacts");
+  const result = await db("post_event_artifact_list", { sessionId: session.id });
+  sendJson(req, res, 200, { artifacts: result.artifacts || [] });
+}
+
+async function handlePostEventArtifactCreate(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/artifacts");
+  const body = await readJson(req);
+  if (!POST_EVENT_ARTIFACT_TYPES.has(body.artifactType)) throw httpError(400, "Unknown artifact type.");
+  const result = await db("post_event_artifact_create", {
+    id: newId("pea"),
+    sessionId: session.id,
+    ownerUserId: authSession.id,
+    artifactType: body.artifactType,
+    sourceMomentRef: sessionText(body.sourceMomentRef, 200),
+    speakerId: sessionText(body.speakerId, 80) || null,
+    sponsorId: sessionText(body.sponsorId, 80) || null,
+    campaign: sessionText(body.campaign, 120),
+    storageReference: sessionText(body.storageReference, 2000)
+  });
+  sendJson(req, res, 201, { artifact: result.artifact });
 }
 
 async function writeMediaFiles({ form, workDir }) {

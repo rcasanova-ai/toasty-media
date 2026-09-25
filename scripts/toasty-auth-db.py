@@ -2850,6 +2850,11 @@ def main():
         print(json.dumps({"sponsorMoment": public_sponsor_moment(row)}))
         return
 
+    if action == "sponsor_moment_get":
+        row = conn.execute("SELECT * FROM sponsor_moments WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"sponsorMoment": public_sponsor_moment(row)}))
+        return
+
     if action == "sponsor_moment_list":
         rows = conn.execute(
             "SELECT * FROM sponsor_moments WHERE session_id = ? ORDER BY position ASC",
@@ -2878,28 +2883,36 @@ def main():
         ).fetchone()
         blocks_json = json.dumps(payload.get("blocks") or [])
         if existing:
-            conn.execute(
-                "UPDATE landing_pages SET slug = ?, template_id = ?, blocks_json = ?, updated_at = ? WHERE session_id = ?",
-                (payload["slug"], payload.get("templateId") or "default", blocks_json, now, payload["sessionId"]),
-            )
+            try:
+                conn.execute(
+                    "UPDATE landing_pages SET slug = ?, template_id = ?, blocks_json = ?, updated_at = ? WHERE session_id = ?",
+                    (payload["slug"], payload.get("templateId") or "default", blocks_json, now, payload["sessionId"]),
+                )
+            except sqlite3.IntegrityError:
+                print(json.dumps({"error": "slug_taken"}))
+                return
         else:
-            conn.execute(
-                """
-                INSERT INTO landing_pages (
-                  id, session_id, owner_user_id, slug, template_id, blocks_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    payload["id"],
-                    payload["sessionId"],
-                    payload["ownerUserId"],
-                    payload["slug"],
-                    payload.get("templateId") or "default",
-                    blocks_json,
-                    now,
-                    now,
-                ),
-            )
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO landing_pages (
+                      id, session_id, owner_user_id, slug, template_id, blocks_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        payload["id"],
+                        payload["sessionId"],
+                        payload["ownerUserId"],
+                        payload["slug"],
+                        payload.get("templateId") or "default",
+                        blocks_json,
+                        now,
+                        now,
+                    ),
+                )
+            except sqlite3.IntegrityError:
+                print(json.dumps({"error": "slug_taken"}))
+                return
         conn.commit()
         row = conn.execute("SELECT * FROM landing_pages WHERE session_id = ?", (payload["sessionId"],)).fetchone()
         print(json.dumps({"landingPage": public_landing_page(row)}))
@@ -3044,28 +3057,32 @@ def main():
 
     if action == "campaign_link_create":
         now = utc_now()
-        conn.execute(
-            """
-            INSERT INTO campaign_links (
-              id, owner_user_id, session_id, slug, destination_url, campaign, source, speaker_id,
-              sponsor_id, clip_id, referral_partner, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                payload["id"],
-                payload["ownerUserId"],
-                payload["sessionId"],
-                payload["slug"],
-                payload.get("destinationUrl") or "",
-                payload.get("campaign") or "",
-                payload.get("source") or "",
-                payload.get("speakerId"),
-                payload.get("sponsorId"),
-                payload.get("clipId"),
-                payload.get("referralPartner") or "",
-                now,
-            ),
-        )
+        try:
+            conn.execute(
+                """
+                INSERT INTO campaign_links (
+                  id, owner_user_id, session_id, slug, destination_url, campaign, source, speaker_id,
+                  sponsor_id, clip_id, referral_partner, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload["id"],
+                    payload["ownerUserId"],
+                    payload["sessionId"],
+                    payload["slug"],
+                    payload.get("destinationUrl") or "",
+                    payload.get("campaign") or "",
+                    payload.get("source") or "",
+                    payload.get("speakerId"),
+                    payload.get("sponsorId"),
+                    payload.get("clipId"),
+                    payload.get("referralPartner") or "",
+                    now,
+                ),
+            )
+        except sqlite3.IntegrityError:
+            print(json.dumps({"error": "slug_taken"}))
+            return
         conn.commit()
         row = conn.execute("SELECT * FROM campaign_links WHERE id = ?", (payload["id"],)).fetchone()
         print(json.dumps({"campaignLink": public_campaign_link(row)}))
