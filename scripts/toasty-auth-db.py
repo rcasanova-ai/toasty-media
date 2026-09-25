@@ -2131,6 +2131,71 @@ def main():
         print(json.dumps({"ok": True}))
         return
 
+    if action == "platform_list_sessions_by_org":
+        rows = conn.execute(
+            "SELECT * FROM live_sessions WHERE organization_id = ? ORDER BY created_at DESC LIMIT ?",
+            (payload["organizationId"], int(payload.get("limit") or 200)),
+        ).fetchall()
+        print(json.dumps({"sessions": [public_session(row) for row in rows]}))
+        return
+
+    if action == "platform_set_user_status":
+        status = payload.get("status")
+        if status not in ("active", "suspended"):
+            print(json.dumps({"error": "invalid_status"}))
+            return
+        now = utc_now()
+        conn.execute(
+            "UPDATE users SET status = ?, updated_at = ? WHERE id = ?",
+            (status, now, payload["userId"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (payload["userId"],)).fetchone()
+        print(json.dumps({"user": public_user(row)}))
+        return
+
+    if action == "platform_set_onboarding_state":
+        now = utc_now()
+        existing = conn.execute(
+            "SELECT * FROM organization_settings WHERE organization_id = ?",
+            (payload["organizationId"],),
+        ).fetchone()
+        if not existing:
+            conn.execute(
+                "INSERT INTO organization_settings (organization_id, updated_at) VALUES (?, ?)",
+                (payload["organizationId"], now),
+            )
+        completed = bool(payload.get("completed"))
+        conn.execute(
+            "UPDATE organization_settings SET onboarding_completed_at = ?, updated_at = ? WHERE organization_id = ?",
+            (now if completed else None, now, payload["organizationId"]),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM organization_settings WHERE organization_id = ?",
+            (payload["organizationId"],),
+        ).fetchone()
+        print(json.dumps({"settings": org_settings_public(row)}))
+        return
+
+    if action == "platform_end_session":
+        now = utc_now()
+        conn.execute(
+            """
+            UPDATE live_sessions
+            SET status = 'ENDED', ended_at = ?, ended_by = ?, last_active_at = ?
+            WHERE id = ? AND organization_id = ? AND status != 'ENDED'
+            """,
+            (now, payload.get("endedBy"), now, payload["sessionId"], payload["organizationId"]),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM live_sessions WHERE id = ? AND organization_id = ?",
+            (payload["sessionId"], payload["organizationId"]),
+        ).fetchone()
+        print(json.dumps({"session": public_session(row)}))
+        return
+
     # OPERATOR-ONLY — not reachable through any public HTTP route. Locking a customer's brand is
     # something we set on their account, never something the account itself can toggle.
     if action == "user_set_branding":
