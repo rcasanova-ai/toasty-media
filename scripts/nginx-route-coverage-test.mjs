@@ -69,6 +69,35 @@ const EVENT_GROWTH_ROUTES = [
   "/api/artifacts/pea_abc123/update"
 ];
 
+// Peeps Jam lifecycle routes (docs/ROADMAP.md Gate 2) — same representative-URL-per-distinct-path
+// convention as EVENT_GROWTH_ROUTES above, checked separately so a missing block reads as "Jam routes"
+// rather than getting lost inside the Event Growth list.
+const PEEPS_JAM_ROUTES = [
+  "/api/jams",
+  "/api/jams/jam_abc123",
+  "/api/jams/jam_abc123/update",
+  "/api/jams/jam_abc123/run-session",
+  "/api/jams/jam_abc123/complete",
+  "/api/jams/jam_abc123/reopen",
+  "/api/jams/jam_abc123/results",
+  "/api/jams/jam_abc123/access",
+  "/api/jams/jam_abc123/events",
+  "/api/jams/jam_abc123/participants",
+  "/api/jams/jam_abc123/artifacts",
+  "/api/jam-participants/jampt_abc123/invite",
+  "/api/jam-participants/jampt_abc123/confirm",
+  "/api/jam-participants/jampt_abc123/remove",
+  "/api/jam-participants/jampt_abc123/mark-attended",
+  "/api/jam-participants/jampt_abc123/mark-completed",
+  "/api/jam-participants/jampt_abc123/mark-eligible",
+  "/api/jam-participants/jampt_abc123/mark-paid",
+  "/api/jam-invites/aBcDeF123456",
+  "/api/jam-invites/aBcDeF123456/accept",
+  "/api/jam-invites/aBcDeF123456/consent",
+  "/api/jam-artifacts/jart_abc123/update",
+  "/api/sessions/ls_abc123/jam"
+];
+
 // Every backend route this list represents, as it's actually registered in render-production-server.mjs
 // (kept here purely so a future editor can diff the two lists by eye — not executed).
 // See: grep -n 'req.url?.startsWith("/api/' scripts/render-production-server.mjs
@@ -112,6 +141,17 @@ async function main() {
     }
   }
   assert(uncovered.length === 0, `every Event Growth route has a matching nginx location block${uncovered.length ? ` (missing: ${uncovered.join(", ")})` : ""}`);
+
+  const uncoveredJam = [];
+  for (const route of PEEPS_JAM_ROUTES) {
+    const matched = compiled.find(({ regExp }) => regExp.test(route));
+    if (matched) {
+      console.log(`  ok — ${route} is covered by location ~ ${matched.source}`);
+    } else {
+      uncoveredJam.push(route);
+    }
+  }
+  assert(uncoveredJam.length === 0, `every Peeps Jam route has a matching nginx location block${uncoveredJam.length ? ` (missing: ${uncoveredJam.join(", ")})` : ""}`);
 
   // Best-effort: if nginx is actually installed in this environment, run a real syntax check. This
   // sandbox does not have it (documented above), so this branch is exercised in CI/production only.

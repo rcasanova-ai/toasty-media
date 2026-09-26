@@ -1051,6 +1051,179 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // Studio-side, read-only Jam context (Phase 4) — must be registered before the generic
+  // GET /api/sessions/:id catch-all below, same precedent as /ai-usage and /artifacts above.
+  if (req.method === "GET" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/jam")) {
+    if (!limit(req, res, "sessions-jam-context", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleSessionJamContext(req, res, session);
+    return;
+  }
+
+  // ==================================================================================================
+  // PEEPS JAM LIFECYCLE — Jams are Peeps-owned durable engagement records; Studio remains the live
+  // production system (see docs/ROADMAP.md Gate 2, docs/HUMAN_INSIGHT_NETWORK.md). Organizer routes are
+  // org-scoped via requireMembership, resolved from the jam's own organizationId — never a client-supplied
+  // one. Participant-facing routes are unauthenticated and invite-token gated, exactly like
+  // /api/speaker-invites/* above — a Jam participant has no Toasty account either. /access and /events
+  // match the contract js/peeps-room.js already calls; that file needs no changes.
+  // ==================================================================================================
+
+  if (req.method === "GET" && (req.url === "/api/jams" || req.url?.startsWith("/api/jams?"))) {
+    if (!limit(req, res, "jams-list", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/jams") {
+    if (!requireCsrf(req, res) || !limit(req, res, "jams-create", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamCreate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jams/") && req.url.endsWith("/update")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jams-update", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamUpdate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jams/") && req.url.endsWith("/run-session")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jams-run-session", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamRunSession(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jams/") && req.url.endsWith("/complete")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jams-complete", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamComplete(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jams/") && req.url.endsWith("/reopen")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jams-reopen", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamReopen(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/jams/") && req.url.endsWith("/results")) {
+    if (!limit(req, res, "jams-results", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamResults(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jams/") && req.url.endsWith("/access")) {
+    if (!limit(req, res, "jams-access", 60, 60 * 1000)) return;
+    await handleJamAccess(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jams/") && req.url.endsWith("/events")) {
+    if (!limit(req, res, "jams-events", 90, 60 * 1000)) return;
+    await handleJamEventCreate(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jams/") && req.url.endsWith("/participants")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jam-participants-create", 60, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamParticipantCreate(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/jams/")) {
+    if (!limit(req, res, "jams-get", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamGet(req, res, session);
+    return;
+  }
+
+  if (req.method === "POST" && req.url?.startsWith("/api/jam-participants/") && req.url.endsWith("/invite")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jam-participant-invite", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamParticipantInviteIssue(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jam-participants/") && req.url.endsWith("/confirm")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jam-participant-confirm", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamParticipantConfirm(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jam-participants/") && req.url.endsWith("/remove")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jam-participant-remove", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamParticipantRemove(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jam-participants/") && req.url.endsWith("/mark-attended")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jam-participant-mark-attended", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamParticipantMark(req, res, session, "mark-attended");
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jam-participants/") && req.url.endsWith("/mark-completed")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jam-participant-mark-completed", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamParticipantMark(req, res, session, "mark-completed");
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jam-participants/") && req.url.endsWith("/mark-eligible")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jam-participant-mark-eligible", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamParticipantMark(req, res, session, "mark-eligible");
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jam-participants/") && req.url.endsWith("/mark-paid")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jam-participant-mark-paid", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamParticipantMark(req, res, session, "mark-paid");
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jams/") && req.url.endsWith("/artifacts")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jam-artifacts-create", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamArtifactCreate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jam-artifacts/") && req.url.endsWith("/update")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jam-artifacts-update", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamArtifactUpdate(req, res, session);
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/api/jam-invites/")) {
+    if (!limit(req, res, "jam-invite-get", 60, 60 * 1000)) return;
+    await handleJamInviteGet(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jam-invites/") && req.url.endsWith("/accept")) {
+    if (!limit(req, res, "jam-invite-accept", 30, 15 * 60 * 1000)) return;
+    await handleJamInviteAccept(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jam-invites/") && req.url.endsWith("/consent")) {
+    if (!limit(req, res, "jam-invite-consent", 30, 15 * 60 * 1000)) return;
+    await handleJamInviteConsent(req, res);
+    return;
+  }
+
   if (req.method === "GET" && req.url?.startsWith("/api/sessions/")) {
     if (!limit(req, res, "sessions-get", 60, 60 * 1000)) return;
     const session = await requireSession(req, res);
@@ -5626,6 +5799,522 @@ async function handlePostEventArtifactUpdate(req, res, authSession) {
     storageReference: body.storageReference !== undefined ? sessionText(body.storageReference, 2000) : undefined
   });
   sendJson(req, res, 200, { artifact: result.artifact });
+}
+
+// ======================================================================================================
+// PEEPS JAM LIFECYCLE — handlers. Organizer routes always resolve a jam's organizationId server-side
+// (requireOwnedJam below) before checking requireMembership, exactly like every Event Growth handler
+// above resolves organizationId from the parent session — never a client-supplied organizationId.
+// ======================================================================================================
+
+function jamIdFromUrl(req, suffix = "") {
+  const prefix = "/api/jams/";
+  const path = suffix ? req.url.slice(prefix.length, -suffix.length) : req.url.slice(prefix.length);
+  return decodeURIComponent(path);
+}
+
+function jamParticipantIdFromUrl(req, suffix) {
+  const prefix = "/api/jam-participants/";
+  return decodeURIComponent(req.url.slice(prefix.length, -suffix.length));
+}
+
+// requireMembership already sends its own error response and returns null when membership fails — this
+// mirrors that convention (return null after a response was already sent) rather than throwing, so every
+// caller below follows the same `if (!jam) return;` shape already used for organization routes.
+async function requireOwnedJam(req, res, authSession, jamId, minRole = "member") {
+  if (!SAFE_ID.test(jamId)) throw httpError(400, "Invalid jam id.");
+  const lookup = await db("jam_get_by_id", { id: jamId });
+  if (!lookup.jam) throw httpError(404, "Jam not found.");
+  const membership = await requireMembership(req, res, lookup.jam.organizationId, minRole, authSession);
+  if (!membership) return null;
+  const result = await db("jam_get", { id: jamId, organizationId: lookup.jam.organizationId });
+  return result.jam;
+}
+
+async function requireOwnedJamParticipant(req, res, authSession, participantId, minRole = "member") {
+  if (!SAFE_ID.test(participantId)) throw httpError(400, "Invalid participant id.");
+  const lookup = await db("jam_participant_get", { id: participantId });
+  if (!lookup.participant) throw httpError(404, "Participant not found.");
+  const jam = await requireOwnedJam(req, res, authSession, lookup.participant.jamId, minRole);
+  if (!jam) return null;
+  return { participant: lookup.participant, jam };
+}
+
+async function handleJamCreate(req, res, authSession) {
+  const body = await readJson(req);
+  const organizationId = await resolveOrganizationForSession(authSession, body.organizationId);
+  if (!organizationId) throw httpError(400, "You must belong to an organization to create a Jam.");
+  const membership = await requireMembership(req, res, organizationId, "member", authSession);
+  if (!membership) return;
+  const title = sessionText(body.title, 160);
+  if (!title) throw httpError(400, "A Jam title is required.");
+  const result = await db("jam_create", {
+    id: newId("jam"),
+    organizationId,
+    createdByUserId: authSession.id,
+    title,
+    objective: sessionText(body.objective, 4000),
+    participantCriteria: body.participantCriteria && typeof body.participantCriteria === "object" ? body.participantCriteria : {},
+    targetParticipantCount: Math.max(0, Math.min(500, Math.round(Number(body.targetParticipantCount) || 0))),
+    compensation: body.compensation && typeof body.compensation === "object" ? body.compensation : {},
+    consentRequirements: sanitizeConsentKeys(body.consentRequirements)
+  });
+  sendJson(req, res, 201, { jam: result.jam });
+}
+
+async function handleJamList(req, res, authSession) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const organizationId = await resolveOrganizationForSession(authSession, url.searchParams.get("organizationId"));
+  if (!organizationId) return sendJson(req, res, 200, { jams: [] });
+  const membership = await requireMembership(req, res, organizationId, "viewer", authSession);
+  if (!membership) return;
+  const result = await db("jam_list", { organizationId });
+  sendJson(req, res, 200, { jams: result.jams || [] });
+}
+
+async function handleJamGet(req, res, authSession) {
+  const id = jamIdFromUrl(req);
+  const jam = await requireOwnedJam(req, res, authSession, id, "viewer");
+  if (!jam) return;
+  const participants = await db("jam_participant_list", { jamId: id });
+  sendJson(req, res, 200, { jam, participants: participants.participants || [] });
+}
+
+async function handleJamUpdate(req, res, authSession) {
+  const id = jamIdFromUrl(req, "/update");
+  const jam = await requireOwnedJam(req, res, authSession, id, "member");
+  if (!jam) return;
+  const body = await readJson(req);
+  const fields = {};
+  if (body.title !== undefined) fields.title = sessionText(body.title, 160);
+  if (body.objective !== undefined) fields.objective = sessionText(body.objective, 4000);
+  if (body.participantCriteria !== undefined) {
+    fields.participantCriteria = body.participantCriteria && typeof body.participantCriteria === "object" ? body.participantCriteria : {};
+  }
+  if (body.targetParticipantCount !== undefined) {
+    fields.targetParticipantCount = Math.max(0, Math.min(500, Math.round(Number(body.targetParticipantCount) || 0)));
+  }
+  if (body.compensation !== undefined) {
+    fields.compensation = body.compensation && typeof body.compensation === "object" ? body.compensation : {};
+  }
+  if (body.consentRequirements !== undefined) fields.consentRequirements = sanitizeConsentKeys(body.consentRequirements);
+  const result = await db("jam_update", { id, organizationId: jam.organizationId, fields });
+  sendJson(req, res, 200, { jam: result.jam });
+}
+
+// Idempotent by construction — see jam_run_session's own comment in toasty-auth-db.py for why this has to
+// be one atomic SQL claim rather than an app-level lock (db() spawns a fresh subprocess per call). Safe to
+// call repeatedly: a jam that already has a studioSessionId just gets that same session echoed back,
+// whether this is a genuine double-click, a browser refresh mid-creation, or a client retry after a
+// dropped response.
+async function handleJamRunSession(req, res, authSession) {
+  const id = jamIdFromUrl(req, "/run-session");
+  const jam = await requireOwnedJam(req, res, authSession, id, "member");
+  if (!jam) return;
+  const body = await readJson(req);
+  // Only worth enforcing when we might actually create a new session — a jam that already has one should
+  // never surface a spurious quota error on what is really just an idempotent no-op re-click.
+  if (!jam.studioSessionId) await enforceSessionQuota(jam.organizationId, authSession);
+  const brandId = resolveAuthoritativeBrandId(authSession, body.brandId);
+  const setup = sanitizeSessionSetup({ sessionType: "jam", brandId, policy: { capturePolicy: body.capturePolicy } });
+  const result = await db("jam_run_session", {
+    jamId: id,
+    sessionId: newId("ls"),
+    roomId: randomUUID().replace(/-/g, ""),
+    ownerUserId: authSession.id,
+    brandId,
+    roomSecret: randomBytes(16).toString("base64url"),
+    setup
+  });
+  if (!result.session) throw httpError(503, "Studio session creation is temporarily unavailable. Please retry.");
+  if (result.created) {
+    await db("jam_event_create", {
+      id: newId("jev"),
+      jamId: id,
+      type: "studio_session.created",
+      actor: authSession.id,
+      detail: { studioSessionId: result.session.id }
+    });
+    await db("increment_usage", { organizationId: jam.organizationId, periodStart: currentPeriodStart("day"), deltas: { sessionsCreated: 1 } });
+    await db("increment_usage", { organizationId: jam.organizationId, periodStart: currentPeriodStart("month"), deltas: { sessionsCreated: 1 } });
+  }
+  sendJson(req, res, 200, { created: result.created, session: result.session, jam: result.jam });
+}
+
+async function handleJamComplete(req, res, authSession) {
+  const id = jamIdFromUrl(req, "/complete");
+  const jam = await requireOwnedJam(req, res, authSession, id, "member");
+  if (!jam) return;
+  const result = await db("jam_update", { id, organizationId: jam.organizationId, fields: { status: "completed" } });
+  await db("jam_event_create", { id: newId("jev"), jamId: id, type: "jam.completed", actor: authSession.id });
+  sendJson(req, res, 200, { jam: result.jam });
+}
+
+// Explicit failure case from the brief: "Jam reopened after completion." Falls back to "running" when a
+// Studio session already exists (the room itself was never torn down) or "recruiting" otherwise.
+async function handleJamReopen(req, res, authSession) {
+  const id = jamIdFromUrl(req, "/reopen");
+  const jam = await requireOwnedJam(req, res, authSession, id, "member");
+  if (!jam) return;
+  if (jam.status !== "completed") throw httpError(400, "Only a completed Jam can be reopened.");
+  const status = jam.studioSessionId ? "running" : "recruiting";
+  const result = await db("jam_update", { id, organizationId: jam.organizationId, fields: { status } });
+  await db("jam_event_create", { id: newId("jev"), jamId: id, type: "jam.reopened", actor: authSession.id });
+  sendJson(req, res, 200, { jam: result.jam });
+}
+
+// Phase 5/7 bundle. Every field here reads real, durable state — a session with zero AI usage or no
+// artifacts yet renders as an honest empty/pending value, never an error or a permanent spinner (see the
+// brief's explicit "session ends without transcript" / "zero AI usage" failure cases).
+async function handleJamResults(req, res, authSession) {
+  const id = jamIdFromUrl(req, "/results");
+  const jam = await requireOwnedJam(req, res, authSession, id, "viewer");
+  if (!jam) return;
+  const [participantsResult, eventsResult, artifactsResult, aiUsage] = await Promise.all([
+    db("jam_participant_list", { jamId: id }),
+    db("jam_event_list", { jamId: id }),
+    db("jam_artifact_list", { jamId: id }),
+    jam.studioSessionId
+      ? db("ai_usage_summary", { organizationId: jam.organizationId, sessionId: jam.studioSessionId })
+      : Promise.resolve({ events: [], byFeature: {}, totalTokens: 0, totalEstimatedCost: 0 })
+  ]);
+  const participants = participantsResult.participants || [];
+  const attendance = {
+    target: jam.targetParticipantCount,
+    total: participants.length,
+    confirmed: participants.filter((p) => ["confirmed", "attended", "completed"].includes(p.status)).length,
+    attended: participants.filter((p) => ["attended", "completed"].includes(p.status)).length,
+    completed: participants.filter((p) => p.status === "completed").length,
+    declined: participants.filter((p) => p.status === "declined").length,
+    removed: participants.filter((p) => p.status === "removed").length,
+    noShow: participants.filter((p) => p.status === "no_show").length
+  };
+  const payment = {
+    eligible: participants.filter((p) => p.compensationStatus === "eligible").length,
+    paid: participants.filter((p) => p.compensationStatus === "paid").length,
+    notEligible: participants.filter((p) => p.compensationStatus === "not_eligible").length
+  };
+  sendJson(req, res, 200, {
+    jam,
+    participants,
+    attendance,
+    payment,
+    events: eventsResult.events || [],
+    artifacts: artifactsResult.artifacts || [],
+    aiUsage
+  });
+}
+
+async function handleJamParticipantCreate(req, res, authSession) {
+  const id = jamIdFromUrl(req, "/participants");
+  const jam = await requireOwnedJam(req, res, authSession, id, "member");
+  if (!jam) return;
+  const body = await readJson(req);
+  const email = sessionText(body.email, 200).toLowerCase();
+  if (!EMAIL_PATTERN.test(email)) throw httpError(400, "A valid participant email is required.");
+  const dubResult = await db("dub_find_or_create", {
+    id: newId("dub"),
+    email,
+    displayName: sessionText(body.displayName, 120)
+  });
+  const result = await db("jam_participant_create", { id: newId("jampt"), jamId: id, dubId: dubResult.dub.id });
+  sendJson(req, res, 201, { participant: result.participant });
+}
+
+async function handleJamParticipantInviteIssue(req, res, authSession) {
+  const id = jamParticipantIdFromUrl(req, "/invite");
+  const owned = await requireOwnedJamParticipant(req, res, authSession, id, "member");
+  if (!owned) return;
+  const { participant, jam } = owned;
+  const { token, tokenHash } = issueInviteToken();
+  await db("jam_participant_invite_issue", { id: newId("jpi"), jamParticipantId: id, tokenHash, expiresAt: inviteExpiry(60) });
+  await db("jam_event_create", { id: newId("jev"), jamId: jam.id, jamParticipantId: id, type: "invite.sent", actor: authSession.id });
+  // Lives at peeps/jam-invite.html (sibling to peeps/app/, NOT inside it) — same precedent as
+  // studio/speaker-invite.html sitting outside any gated directory: a participant has no Toasty account,
+  // so this page must never be behind js/peeps-app-gate.js's session gate.
+  const inviteUrl = `${APP_BASE_URL}/peeps/jam-invite.html?token=${token}`;
+  if (EMAIL_PATTERN.test(participant.email)) {
+    await sendEmail({
+      to: participant.email,
+      subject: `You're invited to participate in "${jam.title || "a Toasty Peeps Jam"}"`,
+      html: `<p>You've been invited to participate in <strong>${escapeHtml(jam.title || "a Toasty Peeps Jam")}</strong>.</p><p>Review the details and confirm your participation — no Toasty account is required.</p><p><a href="${inviteUrl}">${inviteUrl}</a></p><p>This link expires in 60 days.</p>`
+    }).catch((error) => console.error("[Toasty Email] jam participant invite send failed", error));
+  }
+  // Raw token/URL returned to the organizer too, same precedent as handleSpeakerInviteIssue — a
+  // participant may not be checking email yet.
+  sendJson(req, res, 201, { token, inviteUrl: `/peeps/jam-invite.html?token=${token}` });
+}
+
+async function handleJamParticipantConfirm(req, res, authSession) {
+  const id = jamParticipantIdFromUrl(req, "/confirm");
+  const owned = await requireOwnedJamParticipant(req, res, authSession, id, "member");
+  if (!owned) return;
+  const { participant, jam } = owned;
+  // Phase 2's hard requirement: a participant cannot become Confirmed unless required consent has been
+  // captured. consentCapturedAt is only ever set by handleJamInviteConsent below, once the submitted
+  // acceptances actually satisfy every key in jam.consentRequirements.
+  if (!participant.consentCapturedAt) throw httpError(400, "This participant has not completed required consent yet.");
+  if (!["accepted", "confirmed"].includes(participant.status)) {
+    throw httpError(400, `Cannot confirm a participant with status "${participant.status}".`);
+  }
+  const result = await db("jam_participant_update", { id, fields: { status: "confirmed" } });
+  await db("jam_event_create", { id: newId("jev"), jamId: jam.id, jamParticipantId: id, type: "participant.confirmed", actor: authSession.id });
+  sendJson(req, res, 200, { participant: result.participant });
+}
+
+async function handleJamParticipantRemove(req, res, authSession) {
+  const id = jamParticipantIdFromUrl(req, "/remove");
+  const owned = await requireOwnedJamParticipant(req, res, authSession, id, "member");
+  if (!owned) return;
+  const { jam } = owned;
+  const body = await readJson(req);
+  const reason = sessionText(body.reason, 300);
+  const status = body.status === "declined" || body.status === "no_show" ? body.status : "removed";
+  const result = await db("jam_participant_update", {
+    id,
+    fields: { status, removedAt: new Date().toISOString(), removedReason: reason }
+  });
+  // Revoking the invite blocks any FUTURE /access grant immediately — it deliberately does not reach into
+  // Studio's live room control plane (session_kick) to disconnect someone already connected; that is
+  // Studio's own territory and adjacent to the live-session behavior out of scope for this pass.
+  await db("jam_participant_invite_revoke", { jamParticipantId: id });
+  await db("jam_event_create", { id: newId("jev"), jamId: jam.id, jamParticipantId: id, type: "participant.removed", actor: authSession.id, detail: { reason, status } });
+  sendJson(req, res, 200, { participant: result.participant });
+}
+
+const JAM_PARTICIPANT_MARK_ACTIONS = {
+  "mark-attended": { field: "status", value: "attended", timestampField: "attendedAt", eventType: "participant.attended" },
+  "mark-completed": { field: "status", value: "completed", timestampField: "completedAt", eventType: "participant.completed" },
+  "mark-eligible": { field: "compensationStatus", value: "eligible", eventType: "payment.eligible" },
+  "mark-paid": { field: "compensationStatus", value: "paid", eventType: "payment.paid" }
+};
+
+async function handleJamParticipantMark(req, res, authSession, action) {
+  const spec = JAM_PARTICIPANT_MARK_ACTIONS[action];
+  const id = jamParticipantIdFromUrl(req, `/${action}`);
+  const owned = await requireOwnedJamParticipant(req, res, authSession, id, "member");
+  if (!owned) return;
+  const { jam } = owned;
+  const fields = { [spec.field]: spec.value };
+  if (spec.timestampField) fields[spec.timestampField] = new Date().toISOString();
+  const result = await db("jam_participant_update", { id, fields });
+  await db("jam_event_create", { id: newId("jev"), jamId: jam.id, jamParticipantId: id, type: spec.eventType, actor: authSession.id });
+  sendJson(req, res, 200, { participant: result.participant });
+}
+
+const JAM_ARTIFACT_TYPES = new Set(["recording", "transcript", "summary", "moxie_output", "ai_usage_summary", "other"]);
+const JAM_ARTIFACT_STATUSES = new Set(["pending", "ready", "failed", "unavailable"]);
+
+// Nothing in this app auto-generates a jam artifact from a Studio session — Studio does not yet persist
+// recording/transcript/Moxie output server-side at all (see js/session-artifacts.js), so this is a manual,
+// organizer-attested reference, same precedent as handlePostEventArtifactCreate/Update above ("status only
+// ever moves because the organizer says so").
+async function handleJamArtifactCreate(req, res, authSession) {
+  const id = jamIdFromUrl(req, "/artifacts");
+  const jam = await requireOwnedJam(req, res, authSession, id, "member");
+  if (!jam) return;
+  const body = await readJson(req);
+  if (!JAM_ARTIFACT_TYPES.has(body.artifactType)) throw httpError(400, "Unknown artifact type.");
+  const status = JAM_ARTIFACT_STATUSES.has(body.status) ? body.status : "pending";
+  const result = await db("jam_artifact_create", {
+    id: newId("jart"),
+    jamId: id,
+    studioSessionId: jam.studioSessionId,
+    artifactType: body.artifactType,
+    storageReference: sessionText(body.storageReference, 2000),
+    status
+  });
+  sendJson(req, res, 201, { artifact: result.artifact });
+}
+
+async function handleJamArtifactUpdate(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/jam-artifacts/".length, -"/update".length));
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid artifact id.");
+  const existing = await db("jam_artifact_get", { id });
+  if (!existing.artifact) throw httpError(404, "Artifact not found.");
+  const jam = await requireOwnedJam(req, res, authSession, existing.artifact.jamId, "member");
+  if (!jam) return;
+  const body = await readJson(req);
+  if (body.status !== undefined && !JAM_ARTIFACT_STATUSES.has(body.status)) throw httpError(400, "Invalid artifact status.");
+  const result = await db("jam_artifact_update", {
+    id,
+    status: body.status,
+    storageReference: body.storageReference !== undefined ? sessionText(body.storageReference, 2000) : undefined
+  });
+  sendJson(req, res, 200, { artifact: result.artifact });
+}
+
+// ---- Participant-facing invite routes (unauthenticated, invite-token gated) ----
+
+function jamInviteTokenFromUrl(req, suffix = "") {
+  let rest = req.url.slice("/api/jam-invites/".length);
+  if (suffix) rest = rest.slice(0, -suffix.length);
+  return decodeURIComponent(rest);
+}
+
+// Unlike speaker invites, a Jam invite token is NOT single-use — js/peeps-room.js's already-shipped flow
+// reuses the same token for every later /access and /events call, including rejoins. Only expiry/
+// revocation gate it.
+function jamInviteIsLive(invite) {
+  if (!invite) return false;
+  if (invite.revokedAt) return false;
+  return new Date(invite.expiresAt).getTime() > Date.now();
+}
+
+async function loadJamParticipantInvite(token) {
+  const tokenHash = hashInviteToken(token);
+  const result = await db("jam_participant_invite_get", { tokenHash });
+  if (!result.invite || !result.participant) throw httpError(404, "Invite not found.");
+  if (!jamInviteIsLive(result.invite)) throw httpError(410, "This invite has expired or was revoked.");
+  return { invite: result.invite, participant: result.participant };
+}
+
+async function handleJamInviteGet(req, res) {
+  const token = jamInviteTokenFromUrl(req);
+  const { participant } = await loadJamParticipantInvite(token);
+  const jamLookup = await db("jam_get_by_id", { id: participant.jamId });
+  const jam = jamLookup.jam;
+  sendJson(req, res, 200, {
+    participant: { id: participant.id, status: participant.status, displayName: participant.displayName, consentCapturedAt: participant.consentCapturedAt },
+    jam: jam ? { title: jam.title, objective: jam.objective, consentRequirements: jam.consentRequirements, compensation: jam.compensation } : null
+  });
+}
+
+async function handleJamInviteAccept(req, res) {
+  const token = jamInviteTokenFromUrl(req, "/accept");
+  const { participant } = await loadJamParticipantInvite(token);
+  if (["candidate", "invited"].includes(participant.status)) {
+    await db("jam_participant_update", { id: participant.id, fields: { status: "accepted" } });
+    await db("jam_event_create", { id: newId("jev"), jamId: participant.jamId, jamParticipantId: participant.id, type: "invite.accepted", actor: participant.id });
+  }
+  const updated = await db("jam_participant_get", { id: participant.id });
+  sendJson(req, res, 200, { participant: updated.participant });
+}
+
+async function handleJamInviteConsent(req, res) {
+  const token = jamInviteTokenFromUrl(req, "/consent");
+  const { participant } = await loadJamParticipantInvite(token);
+  const jamLookup = await db("jam_get_by_id", { id: participant.jamId });
+  const jam = jamLookup.jam;
+  const body = await readJson(req);
+  const requiredAcceptances = sanitizeConsentKeys(body.requiredAcceptances);
+  const optionalPermissions = sanitizeConsentKeys(body.optionalPermissions);
+  await db("jam_event_create", {
+    id: newId("jev"),
+    jamId: participant.jamId,
+    jamParticipantId: participant.id,
+    type: "consent.recorded",
+    actor: participant.id,
+    detail: { requiredAcceptances, optionalPermissions }
+  });
+  const required = new Set((jam && jam.consentRequirements) || []);
+  const submitted = new Set(requiredAcceptances);
+  const satisfies = [...required].every((key) => submitted.has(key));
+  let participant2 = participant;
+  if (satisfies) {
+    const updated = await db("jam_participant_update", {
+      id: participant.id,
+      fields: { consentCapturedAt: new Date().toISOString(), consentVersion: sessionText(body.agreementVersion, 40) || "v1" }
+    });
+    participant2 = updated.participant;
+  }
+  sendJson(req, res, 200, { participant: participant2, consentSatisfied: satisfies });
+}
+
+// ---- Live room access/events — matches js/peeps-room.js's existing contract exactly ----
+
+const JAM_PARTICIPANT_BLOCKED_STATUSES = new Set(["removed", "declined", "no_show"]);
+
+async function loadLiveJamInvite(jamId, token) {
+  if (!SAFE_ID.test(jamId)) throw httpError(400, "Invalid jam id.");
+  const { invite, participant } = await loadJamParticipantInvite(String(token || ""));
+  if (participant.jamId !== jamId) throw httpError(404, "Invite not found.");
+  if (JAM_PARTICIPANT_BLOCKED_STATUSES.has(participant.status)) {
+    throw httpError(403, "This participant is no longer authorized for this Jam.");
+  }
+  return { invite, participant };
+}
+
+function jamCaptureLabel(capturePolicy) {
+  if (capturePolicy === "recording" || capturePolicy === "recording_and_transcript") return "record";
+  if (capturePolicy === "transcript") return "transcript";
+  return "private";
+}
+
+async function handleJamAccess(req, res) {
+  const jamId = jamIdFromUrl(req, "/access");
+  const body = await readJson(req);
+  const { participant } = await loadLiveJamInvite(jamId, body.invite);
+  const jamLookup = await db("jam_get_by_id", { id: jamId });
+  const jam = jamLookup.jam;
+  if (!jam || !jam.studioSessionId) throw httpError(409, "This Jam's room is not open yet. Try again once the host starts the session.");
+  const roomInfo = await db("session_get_room_and_status", { id: jam.studioSessionId });
+  if (!roomInfo.roomId || roomInfo.status === "ENDED") throw httpError(410, "This Jam's session has ended.");
+  if (participant.status === "invited") {
+    await db("jam_participant_update", { id: participant.id, fields: { status: "accepted" } });
+  }
+  sendJson(req, res, 200, {
+    capture: jamCaptureLabel(roomInfo.capturePolicy),
+    media: { roomId: roomInfo.roomId, roomSecret: jam.roomSecret },
+    participant: { name: participant.displayName || participant.email || "Participant" },
+    brand: roomInfo.brandId || "peeps"
+  });
+}
+
+const JAM_EVENT_TYPES = new Set([
+  "capture.consent", "participant.joined", "jam.started", "participant.left", "jam.ended", "dispute.window.opened"
+]);
+
+async function handleJamEventCreate(req, res) {
+  const jamId = jamIdFromUrl(req, "/events");
+  const body = await readJson(req);
+  const { participant } = await loadLiveJamInvite(jamId, body.invite);
+  const type = sessionText(body.type, 60);
+  if (!JAM_EVENT_TYPES.has(type)) throw httpError(400, "Unknown event type.");
+  const detail = body.detail && typeof body.detail === "object" ? body.detail : {};
+  await db("jam_event_create", { id: newId("jev"), jamId, jamParticipantId: participant.id, type, detail, actor: participant.id });
+  // capture.consent is the live room's single "I consent to the capture policy shown" acknowledgement —
+  // deliberately NOT treated as satisfying jam.consentRequirements (which may include keys like
+  // research_participation/data_use a one-click checkbox can't honestly claim to cover). The Confirmed
+  // gate is satisfied exclusively through handleJamInviteConsent's explicit per-key acceptance flow.
+  if (type === "participant.joined" && ["confirmed", "accepted", "invited"].includes(participant.status)) {
+    await db("jam_participant_update", {
+      id: participant.id,
+      fields: { status: "attended", attendedAt: participant.attendedAt || new Date().toISOString() }
+    });
+  }
+  sendJson(req, res, 201, { ok: true });
+}
+
+// ---- Studio-side, read-only Jam context (Phase 4) ----
+
+async function handleSessionJamContext(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/jam");
+  if (!session.jamId) return sendJson(req, res, 200, { jam: null });
+  const result = await db("jam_get_by_session", { sessionId: session.id });
+  const jam = result.jam;
+  if (!jam) return sendJson(req, res, 200, { jam: null });
+  const [org, participantsResult] = await Promise.all([
+    db("get_organization", { id: jam.organizationId }),
+    db("jam_participant_list", { jamId: jam.id })
+  ]);
+  const participants = participantsResult.participants || [];
+  sendJson(req, res, 200, {
+    jam: {
+      jamId: jam.id,
+      title: jam.title,
+      objective: jam.objective,
+      organizationName: org.organization?.name || null,
+      targetParticipantCount: jam.targetParticipantCount,
+      participantCount: jam.participantCount,
+      confirmedCount: jam.confirmedCount,
+      status: jam.status,
+      consentSummary: {
+        totalParticipants: participants.length,
+        consentCaptured: participants.filter((p) => p.consentCapturedAt).length
+      }
+    }
+  });
 }
 
 async function writeMediaFiles({ form, workDir }) {

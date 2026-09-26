@@ -18,6 +18,7 @@
       }
     </script>
     <script type="module" src="../js/director.js"></script>
+    <script type="module" src="../js/jam-context-panel.js"></script>
   </head>
   <body class="studio-shell director-shell">
     <div class="studio-atmosphere" aria-hidden="true">
@@ -954,6 +955,18 @@
               </label>
             </div>
             <p class="control-note">Jam sessions default to locked down. Recording/AI Producer controls elsewhere enforce this, not just hide.</p>
+          </div>
+
+          <!-- Read-only context when this session was launched from a Peeps Jam (Phase 4). Peeps remains
+               the source of truth for people/recruitment — this is informational only, never editable
+               here. See js/jam-context-panel.js and GET /api/sessions/:id/jam. -->
+          <div class="panel-section" id="jamContextPanel" hidden aria-label="Originating Jam">
+            <p class="rail-eyebrow">Originating Peeps Jam</p>
+            <p class="control-note" id="jamContextTitle"></p>
+            <p class="control-note" id="jamContextObjective"></p>
+            <p class="control-note" id="jamContextOrg"></p>
+            <p class="control-note" id="jamContextParticipants"></p>
+            <p class="control-note" id="jamContextConsent"></p>
           </div>
         </details>
       </aside>

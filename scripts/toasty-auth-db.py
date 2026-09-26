@@ -1182,6 +1182,141 @@ def migrate(conn):
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_post_event_artifacts_session ON post_event_artifacts(session_id)")
 
+    # ---- Peeps Jam <-> Studio session lifecycle (docs/ROADMAP.md Gate 2) ----
+    # Jams are Peeps-owned durable engagement records; Studio remains the live production system. A Jam
+    # links to at most one Studio session (studio_session_id UNIQUE) via the idempotent jam_run_session
+    # action below, which claims this column with `UPDATE ... WHERE studio_session_id IS NULL` inside one
+    # transaction — db() spawns a fresh subprocess/connection per call, so idempotency cannot rely on
+    # in-process locking and has to be a single atomic claim instead.
+
+    # Minimal, durable participant identity ("Dub"). Deliberately thin: this does not rebuild the full Dub
+    # product (matchable profile, evidence export — see peeps/app/dub.html, still client-only) — it only
+    # gives a participant a stable id a Jam can reference, per the brief's Core IDs requirement.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dubs (
+          id TEXT PRIMARY KEY,
+          user_id TEXT REFERENCES users(id),
+          email TEXT NOT NULL,
+          display_name TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_dubs_email ON dubs(email)")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS jams (
+          id TEXT PRIMARY KEY,
+          organization_id TEXT NOT NULL REFERENCES organizations(id),
+          created_by_user_id TEXT NOT NULL REFERENCES users(id),
+          title TEXT NOT NULL DEFAULT '',
+          objective TEXT NOT NULL DEFAULT '',
+          participant_criteria_json TEXT NOT NULL DEFAULT '{}',
+          target_participant_count INTEGER NOT NULL DEFAULT 0,
+          compensation_json TEXT NOT NULL DEFAULT '{}',
+          consent_requirements_json TEXT NOT NULL DEFAULT '[]',
+          status TEXT NOT NULL DEFAULT 'draft',
+          studio_session_id TEXT UNIQUE REFERENCES live_sessions(id),
+          room_secret TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_jams_org ON jams(organization_id, status)")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS jam_participants (
+          id TEXT PRIMARY KEY,
+          jam_id TEXT NOT NULL REFERENCES jams(id) ON DELETE CASCADE,
+          dub_id TEXT NOT NULL REFERENCES dubs(id),
+          status TEXT NOT NULL DEFAULT 'candidate',
+          consent_captured_at TEXT,
+          consent_version TEXT,
+          compensation_status TEXT NOT NULL DEFAULT 'not_eligible',
+          compensation_amount REAL,
+          attended_at TEXT,
+          completed_at TEXT,
+          removed_at TEXT,
+          removed_reason TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_jam_participants_jam_dub ON jam_participants(jam_id, dub_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_jam_participants_jam ON jam_participants(jam_id)")
+
+    # Unlike speaker_invites, this is NOT a one-shot redemption token — js/peeps-room.js's already-shipped
+    # flow reuses the SAME invite token repeatedly (accept, consent, then every later /access and /events
+    # call for the live room, including rejoins after a refresh). So there is deliberately no used_at/
+    # single-use semantics here: only expires_at/revoked_at gate whether it still works.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS jam_participant_invites (
+          id TEXT PRIMARY KEY,
+          jam_participant_id TEXT NOT NULL REFERENCES jam_participants(id) ON DELETE CASCADE,
+          token_hash TEXT NOT NULL UNIQUE,
+          expires_at TEXT NOT NULL,
+          revoked_at TEXT,
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_jam_participant_invites_participant ON jam_participant_invites(jam_participant_id)")
+
+    # Append-only evidence/Breadcrumb ledger — backs POST /api/jams/:id/events, a contract
+    # js/peeps-room.js already calls (capture.consent, participant.joined, jam.started, participant.left,
+    # jam.ended, dispute.window.opened) plus organizer-side events. This IS the Breadcrumb primitive
+    # peeps/app/jam-record.html's copy describes ("participant authorization, capture consent, verified
+    # overlap, completion, dispute deadline, settlement status") — deliberately not profile_evidence
+    # (expert-marketplace fact-checking) or post_event_artifacts (event-marketing derived content), which
+    # are different concepts this table does not duplicate.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS jam_events (
+          id TEXT PRIMARY KEY,
+          jam_id TEXT NOT NULL REFERENCES jams(id) ON DELETE CASCADE,
+          jam_participant_id TEXT REFERENCES jam_participants(id),
+          type TEXT NOT NULL,
+          detail_json TEXT NOT NULL DEFAULT '{}',
+          actor TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_jam_events_jam ON jam_events(jam_id, created_at)")
+
+    # Durable references only — never blobs, same precedent as post_event_artifacts. Studio does not yet
+    # persist recording/transcript/Moxie output server-side (still IndexedDB/in-memory only — see
+    # js/session-artifacts.js), so most rows here will carry status='pending'/'unavailable' until that
+    # separate body of work lands; this table is the plumbing that will carry real artifacts once it does.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS jam_artifacts (
+          id TEXT PRIMARY KEY,
+          jam_id TEXT NOT NULL REFERENCES jams(id) ON DELETE CASCADE,
+          studio_session_id TEXT REFERENCES live_sessions(id),
+          artifact_type TEXT NOT NULL,
+          storage_reference TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'pending',
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_jam_artifacts_jam ON jam_artifacts(jam_id)")
+
+    # Studio-side half of the durable link (jams.studio_session_id is the Peeps-side half) — additive/
+    # nullable, same precedent as live_sessions.organization_id above.
+    ensure_columns(conn, "live_sessions", {"jam_id": "TEXT REFERENCES jams(id)"})
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_live_sessions_jam ON live_sessions(jam_id)")
+
     conn.commit()
 
 
@@ -1787,6 +1922,7 @@ def public_session(row):
         "roomId": row["room_id"],
         "ownerUserId": row["owner_user_id"],
         "organizationId": row["organization_id"] if _row_has(row, "organization_id") else None,
+        "jamId": row["jam_id"] if _row_has(row, "jam_id") else None,
         "brandId": row["brand_id"],
         "title": row["title"],
         "status": row["status"],
@@ -2038,6 +2174,96 @@ def public_post_event_artifact(row):
         "campaign": row["campaign"],
         "storageReference": row["storage_reference"],
         "status": row["status"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def public_dub(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "userId": row["user_id"],
+        "email": row["email"],
+        "displayName": row["display_name"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def public_jam(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "organizationId": row["organization_id"],
+        "createdByUserId": row["created_by_user_id"],
+        "title": row["title"],
+        "objective": row["objective"],
+        "participantCriteria": _json_or(row["participant_criteria_json"], {}),
+        "targetParticipantCount": row["target_participant_count"],
+        "compensation": _json_or(row["compensation_json"], {}),
+        "consentRequirements": _json_or(row["consent_requirements_json"], []),
+        "status": row["status"],
+        "studioSessionId": row["studio_session_id"],
+        "roomSecret": row["room_secret"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def public_jam_participant(row):
+    if not row:
+        return None
+    entry = {
+        "id": row["id"],
+        "jamId": row["jam_id"],
+        "dubId": row["dub_id"],
+        "status": row["status"],
+        "consentCapturedAt": row["consent_captured_at"],
+        "consentVersion": row["consent_version"],
+        "compensationStatus": row["compensation_status"],
+        "compensationAmount": row["compensation_amount"],
+        "attendedAt": row["attended_at"],
+        "completedAt": row["completed_at"],
+        "removedAt": row["removed_at"],
+        "removedReason": row["removed_reason"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+    if _row_has(row, "email"):
+        entry["email"] = row["email"]
+    if _row_has(row, "display_name"):
+        entry["displayName"] = row["display_name"]
+    return entry
+
+
+def public_jam_event(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "jamId": row["jam_id"],
+        "jamParticipantId": row["jam_participant_id"],
+        "type": row["type"],
+        "detail": _json_or(row["detail_json"], {}),
+        "actor": row["actor"],
+        "createdAt": row["created_at"],
+    }
+
+
+def public_jam_artifact(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "jamId": row["jam_id"],
+        "studioSessionId": row["studio_session_id"],
+        "artifactType": row["artifact_type"],
+        "storageReference": row["storage_reference"],
+        "status": row["status"],
+        "metadata": _json_or(row["metadata_json"], {}),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -3720,6 +3946,31 @@ def main():
         print(json.dumps({"session": {"title": row["title"], "brandId": row["brand_id"]}}))
         return
 
+    if action == "session_get_room_and_status":
+        # Internal-only lookup for the Jam access/events routes below — a participant proves authorization
+        # via their invite token (checked by the Node handler before this is ever called), not via
+        # owner_user_id, so this deliberately has no owner check, same precedent as
+        # session_get_organization above. Returns just enough to mount the guest video frame and label the
+        # capture policy — never owner_user_id/organization_id.
+        row = conn.execute(
+            "SELECT room_id, status, brand_id, title, setup_json FROM live_sessions WHERE id = ?",
+            (payload["id"],),
+        ).fetchone()
+        if not row:
+            print(json.dumps({"roomId": None, "status": None, "brandId": None, "title": None, "capturePolicy": None}))
+            return
+        setup = _json_or(row["setup_json"], {})
+        policy = setup.get("policy") if isinstance(setup, dict) else None
+        capture_policy = policy.get("capturePolicy") if isinstance(policy, dict) else None
+        print(json.dumps({
+            "roomId": row["room_id"],
+            "status": row["status"],
+            "brandId": row["brand_id"],
+            "title": row["title"],
+            "capturePolicy": capture_policy,
+        }))
+        return
+
     if action == "session_get_organization":
         # Internal-only lookup: derives a session's organization_id server-side so audience-event/identity
         # recording never has to trust a client-supplied organizationId, without exposing organizationId
@@ -4697,6 +4948,471 @@ def main():
             (payload["sessionId"],),
         ).fetchall()
         print(json.dumps({"artifacts": [public_post_event_artifact(row) for row in rows]}))
+        return
+
+    # ---- Peeps Jams ----
+
+    if action == "dub_find_or_create":
+        email = (payload.get("email") or "").strip().lower()
+        row = conn.execute("SELECT * FROM dubs WHERE email = ?", (email,)).fetchone()
+        if row:
+            print(json.dumps({"dub": public_dub(row)}))
+            return
+        now = utc_now()
+        conn.execute(
+            "INSERT INTO dubs (id, user_id, email, display_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (payload["id"], payload.get("userId"), email, payload.get("displayName") or "", now, now),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM dubs WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"dub": public_dub(row)}))
+        return
+
+    if action == "jam_create":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO jams (
+              id, organization_id, created_by_user_id, title, objective, participant_criteria_json,
+              target_participant_count, compensation_json, consent_requirements_json, status,
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["organizationId"],
+                payload["createdByUserId"],
+                payload.get("title") or "",
+                payload.get("objective") or "",
+                json.dumps(payload.get("participantCriteria") or {}),
+                int(payload.get("targetParticipantCount") or 0),
+                json.dumps(payload.get("compensation") or {}),
+                json.dumps(payload.get("consentRequirements") or []),
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM jams WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"jam": public_jam(row)}))
+        return
+
+    if action == "jam_list":
+        rows = conn.execute(
+            "SELECT * FROM jams WHERE organization_id = ? ORDER BY created_at DESC",
+            (payload["organizationId"],),
+        ).fetchall()
+        jams = []
+        for row in rows:
+            entry = public_jam(row)
+            counts = conn.execute(
+                """
+                SELECT
+                  COUNT(*) AS total,
+                  SUM(CASE WHEN status IN ('confirmed','attended','completed') THEN 1 ELSE 0 END) AS confirmed
+                FROM jam_participants WHERE jam_id = ?
+                """,
+                (row["id"],),
+            ).fetchone()
+            entry["participantCount"] = counts["total"] or 0
+            entry["confirmedCount"] = counts["confirmed"] or 0
+            jams.append(entry)
+        print(json.dumps({"jams": jams}))
+        return
+
+    if action == "jam_get":
+        row = conn.execute(
+            "SELECT * FROM jams WHERE id = ? AND organization_id = ?",
+            (payload["id"], payload["organizationId"]),
+        ).fetchone()
+        if not row:
+            print(json.dumps({"jam": None}))
+            return
+        entry = public_jam(row)
+        counts = conn.execute(
+            """
+            SELECT
+              COUNT(*) AS total,
+              SUM(CASE WHEN status IN ('confirmed','attended','completed') THEN 1 ELSE 0 END) AS confirmed
+            FROM jam_participants WHERE jam_id = ?
+            """,
+            (row["id"],),
+        ).fetchone()
+        entry["participantCount"] = counts["total"] or 0
+        entry["confirmedCount"] = counts["confirmed"] or 0
+        print(json.dumps({"jam": entry}))
+        return
+
+    if action == "jam_get_by_id":
+        # Internal-only lookup with no organization check — used to resolve a jam's own organizationId
+        # server-side (e.g. from a Studio session's jam_id) before any membership check runs, same
+        # precedent as session_get_organization above. Never exposed directly to a client response.
+        row = conn.execute("SELECT * FROM jams WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"jam": public_jam(row)}))
+        return
+
+    if action == "jam_update":
+        row = conn.execute(
+            "SELECT * FROM jams WHERE id = ? AND organization_id = ?",
+            (payload["id"], payload["organizationId"]),
+        ).fetchone()
+        if not row:
+            print(json.dumps({"jam": None}))
+            return
+        fields = payload.get("fields") or {}
+        column_map = {
+            "title": "title",
+            "objective": "objective",
+            "targetParticipantCount": "target_participant_count",
+        }
+        sets = []
+        values = []
+        for key, column in column_map.items():
+            if key in fields:
+                sets.append(f"{column} = ?")
+                values.append(fields[key])
+        if "participantCriteria" in fields:
+            sets.append("participant_criteria_json = ?")
+            values.append(json.dumps(fields["participantCriteria"] or {}))
+        if "compensation" in fields:
+            sets.append("compensation_json = ?")
+            values.append(json.dumps(fields["compensation"] or {}))
+        if "consentRequirements" in fields:
+            sets.append("consent_requirements_json = ?")
+            values.append(json.dumps(fields["consentRequirements"] or []))
+        if "status" in fields:
+            sets.append("status = ?")
+            values.append(fields["status"])
+        now = utc_now()
+        sets.append("updated_at = ?")
+        values.append(now)
+        values.append(payload["id"])
+        if sets:
+            conn.execute(f"UPDATE jams SET {', '.join(sets)} WHERE id = ?", values)
+            conn.commit()
+        row = conn.execute("SELECT * FROM jams WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"jam": public_jam(row)}))
+        return
+
+    if action == "jam_run_session":
+        jam_row = conn.execute("SELECT * FROM jams WHERE id = ?", (payload["jamId"],)).fetchone()
+        if not jam_row:
+            print(json.dumps({"error": "not_found"}))
+            return
+        if jam_row["studio_session_id"]:
+            session_row = conn.execute(
+                "SELECT * FROM live_sessions WHERE id = ?", (jam_row["studio_session_id"],)
+            ).fetchone()
+            print(json.dumps({"created": False, "session": public_session(session_row), "jam": public_jam(jam_row)}))
+            return
+        now = utc_now()
+        setup_json = json.dumps(payload.get("setup") or {})
+        won = False
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                """
+                INSERT INTO live_sessions (
+                  id, room_id, owner_user_id, organization_id, brand_id, title, status, created_at,
+                  last_active_at, setup_json, jam_id
+                ) VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)
+                """,
+                (
+                    payload["sessionId"],
+                    payload["roomId"],
+                    payload["ownerUserId"],
+                    jam_row["organization_id"],
+                    payload.get("brandId") or "",
+                    jam_row["title"] or "",
+                    now,
+                    now,
+                    setup_json,
+                    jam_row["id"],
+                ),
+            )
+            cursor = conn.execute(
+                """
+                UPDATE jams SET studio_session_id = ?, room_secret = ?, status = 'running', updated_at = ?
+                WHERE id = ? AND studio_session_id IS NULL
+                """,
+                (payload["sessionId"], payload["roomSecret"], now, jam_row["id"]),
+            )
+            if cursor.rowcount == 1:
+                conn.commit()
+                won = True
+            else:
+                # A concurrent request already claimed this jam between our read above and this UPDATE —
+                # undo the live_sessions insert we just made so no orphan row is left behind, then fall
+                # through to report the winner's session.
+                conn.rollback()
+        except sqlite3.OperationalError:
+            conn.rollback()
+        if won:
+            session_row = conn.execute("SELECT * FROM live_sessions WHERE id = ?", (payload["sessionId"],)).fetchone()
+            jam_row = conn.execute("SELECT * FROM jams WHERE id = ?", (jam_row["id"],)).fetchone()
+            print(json.dumps({"created": True, "session": public_session(session_row), "jam": public_jam(jam_row)}))
+            return
+        jam_row = conn.execute("SELECT * FROM jams WHERE id = ?", (payload["jamId"],)).fetchone()
+        session_row = (
+            conn.execute("SELECT * FROM live_sessions WHERE id = ?", (jam_row["studio_session_id"],)).fetchone()
+            if jam_row and jam_row["studio_session_id"]
+            else None
+        )
+        print(json.dumps({"created": False, "session": public_session(session_row), "jam": public_jam(jam_row)}))
+        return
+
+    if action == "jam_participant_create":
+        participant_with_dub_sql = """
+            SELECT jp.*, d.email AS email, d.display_name AS display_name
+            FROM jam_participants jp JOIN dubs d ON d.id = jp.dub_id
+            WHERE jp.id = ?
+        """
+        existing = conn.execute(
+            "SELECT id FROM jam_participants WHERE jam_id = ? AND dub_id = ?",
+            (payload["jamId"], payload["dubId"]),
+        ).fetchone()
+        if existing:
+            row = conn.execute(participant_with_dub_sql, (existing["id"],)).fetchone()
+            print(json.dumps({"participant": public_jam_participant(row)}))
+            return
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO jam_participants (id, jam_id, dub_id, status, created_at, updated_at)
+            VALUES (?, ?, ?, 'candidate', ?, ?)
+            """,
+            (payload["id"], payload["jamId"], payload["dubId"], now, now),
+        )
+        conn.commit()
+        row = conn.execute(participant_with_dub_sql, (payload["id"],)).fetchone()
+        print(json.dumps({"participant": public_jam_participant(row)}))
+        return
+
+    if action == "jam_participant_list":
+        rows = conn.execute(
+            """
+            SELECT jp.*, d.email AS email, d.display_name AS display_name
+            FROM jam_participants jp JOIN dubs d ON d.id = jp.dub_id
+            WHERE jp.jam_id = ? ORDER BY jp.created_at ASC
+            """,
+            (payload["jamId"],),
+        ).fetchall()
+        print(json.dumps({"participants": [public_jam_participant(row) for row in rows]}))
+        return
+
+    if action == "jam_participant_get":
+        row = conn.execute(
+            """
+            SELECT jp.*, d.email AS email, d.display_name AS display_name
+            FROM jam_participants jp JOIN dubs d ON d.id = jp.dub_id
+            WHERE jp.id = ?
+            """,
+            (payload["id"],),
+        ).fetchone()
+        print(json.dumps({"participant": public_jam_participant(row)}))
+        return
+
+    if action == "jam_participant_update":
+        row = conn.execute("SELECT * FROM jam_participants WHERE id = ?", (payload["id"],)).fetchone()
+        if not row:
+            print(json.dumps({"participant": None}))
+            return
+        fields = payload.get("fields") or {}
+        column_map = {
+            "status": "status",
+            "consentCapturedAt": "consent_captured_at",
+            "consentVersion": "consent_version",
+            "compensationStatus": "compensation_status",
+            "compensationAmount": "compensation_amount",
+            "attendedAt": "attended_at",
+            "completedAt": "completed_at",
+            "removedAt": "removed_at",
+            "removedReason": "removed_reason",
+        }
+        sets = []
+        values = []
+        for key, column in column_map.items():
+            if key in fields:
+                sets.append(f"{column} = ?")
+                values.append(fields[key])
+        now = utc_now()
+        sets.append("updated_at = ?")
+        values.append(now)
+        values.append(payload["id"])
+        if sets:
+            conn.execute(f"UPDATE jam_participants SET {', '.join(sets)} WHERE id = ?", values)
+            conn.commit()
+        row = conn.execute(
+            """
+            SELECT jp.*, d.email AS email, d.display_name AS display_name
+            FROM jam_participants jp JOIN dubs d ON d.id = jp.dub_id
+            WHERE jp.id = ?
+            """,
+            (payload["id"],),
+        ).fetchone()
+        print(json.dumps({"participant": public_jam_participant(row)}))
+        return
+
+    if action == "jam_participant_invite_issue":
+        now = utc_now()
+        conn.execute(
+            "INSERT INTO jam_participant_invites (id, jam_participant_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)",
+            (payload["id"], payload["jamParticipantId"], payload["tokenHash"], payload["expiresAt"], now),
+        )
+        conn.execute(
+            "UPDATE jam_participants SET status = 'invited', updated_at = ? WHERE id = ? AND status = 'candidate'",
+            (now, payload["jamParticipantId"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True, "id": payload["id"]}))
+        return
+
+    if action == "jam_participant_invite_get":
+        row = conn.execute(
+            "SELECT * FROM jam_participant_invites WHERE token_hash = ?",
+            (payload["tokenHash"],),
+        ).fetchone()
+        if not row:
+            print(json.dumps({"invite": None}))
+            return
+        participant = conn.execute(
+            """
+            SELECT jp.*, d.email AS email, d.display_name AS display_name
+            FROM jam_participants jp JOIN dubs d ON d.id = jp.dub_id
+            WHERE jp.id = ?
+            """,
+            (row["jam_participant_id"],),
+        ).fetchone()
+        invite = {
+            "id": row["id"],
+            "jamParticipantId": row["jam_participant_id"],
+            "expiresAt": row["expires_at"],
+            "revokedAt": row["revoked_at"],
+        }
+        print(json.dumps({"invite": invite, "participant": public_jam_participant(participant)}))
+        return
+
+    if action == "jam_participant_invite_revoke":
+        now = utc_now()
+        conn.execute(
+            "UPDATE jam_participant_invites SET revoked_at = ? WHERE jam_participant_id = ? AND revoked_at IS NULL",
+            (now, payload["jamParticipantId"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "jam_event_create":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO jam_events (id, jam_id, jam_participant_id, type, detail_json, actor, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["jamId"],
+                payload.get("jamParticipantId"),
+                payload["type"],
+                json.dumps(payload.get("detail") or {}),
+                payload.get("actor") or "",
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM jam_events WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"event": public_jam_event(row)}))
+        return
+
+    if action == "jam_event_list":
+        rows = conn.execute(
+            "SELECT * FROM jam_events WHERE jam_id = ? ORDER BY created_at ASC",
+            (payload["jamId"],),
+        ).fetchall()
+        print(json.dumps({"events": [public_jam_event(row) for row in rows]}))
+        return
+
+    if action == "jam_artifact_create":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO jam_artifacts (
+              id, jam_id, studio_session_id, artifact_type, storage_reference, status, metadata_json,
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["jamId"],
+                payload.get("studioSessionId"),
+                payload["artifactType"],
+                payload.get("storageReference") or "",
+                payload.get("status") or "pending",
+                json.dumps(payload.get("metadata") or {}),
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM jam_artifacts WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"artifact": public_jam_artifact(row)}))
+        return
+
+    if action == "jam_artifact_list":
+        rows = conn.execute(
+            "SELECT * FROM jam_artifacts WHERE jam_id = ? ORDER BY created_at ASC",
+            (payload["jamId"],),
+        ).fetchall()
+        print(json.dumps({"artifacts": [public_jam_artifact(row) for row in rows]}))
+        return
+
+    if action == "jam_artifact_get":
+        row = conn.execute("SELECT * FROM jam_artifacts WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"artifact": public_jam_artifact(row)}))
+        return
+
+    if action == "jam_artifact_update":
+        row = conn.execute("SELECT * FROM jam_artifacts WHERE id = ?", (payload["id"],)).fetchone()
+        if not row:
+            print(json.dumps({"artifact": None}))
+            return
+        status = payload.get("status") or row["status"]
+        storage_reference = payload.get("storageReference")
+        if storage_reference is None:
+            storage_reference = row["storage_reference"]
+        conn.execute(
+            "UPDATE jam_artifacts SET status = ?, storage_reference = ?, updated_at = ? WHERE id = ?",
+            (status, storage_reference, utc_now(), payload["id"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM jam_artifacts WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"artifact": public_jam_artifact(row)}))
+        return
+
+    if action == "jam_get_by_session":
+        # Internal lookup used by Studio's own read-only GET /api/sessions/:id/jam — resolves the jam a
+        # session was launched from via live_sessions.jam_id, never trusting a client-supplied jamId.
+        session_row = conn.execute("SELECT jam_id FROM live_sessions WHERE id = ?", (payload["sessionId"],)).fetchone()
+        if not session_row or not session_row["jam_id"]:
+            print(json.dumps({"jam": None}))
+            return
+        row = conn.execute("SELECT * FROM jams WHERE id = ?", (session_row["jam_id"],)).fetchone()
+        if not row:
+            print(json.dumps({"jam": None}))
+            return
+        entry = public_jam(row)
+        counts = conn.execute(
+            """
+            SELECT
+              COUNT(*) AS total,
+              SUM(CASE WHEN status IN ('confirmed','attended','completed') THEN 1 ELSE 0 END) AS confirmed
+            FROM jam_participants WHERE jam_id = ?
+            """,
+            (row["id"],),
+        ).fetchone()
+        entry["participantCount"] = counts["total"] or 0
+        entry["confirmedCount"] = counts["confirmed"] or 0
+        print(json.dumps({"jam": entry}))
         return
 
     raise ValueError(f"Unknown action: {action}")
