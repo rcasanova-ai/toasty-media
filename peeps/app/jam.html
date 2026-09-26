@@ -1,1 +1,161 @@
-<!doctype html><html><head><script>document.documentElement.classList.add("peeps-app-gated");</script><style>html.peeps-app-gated body{visibility:hidden}</style><noscript><meta http-equiv="refresh" content="0;url=/peeps/"></noscript><script type="module" src="../../js/peeps-app-gate.js"></script><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Jam · Toasty Peeps</title><link rel="stylesheet" href="../peeps.css"></head><body><div class="app-shell"><aside class="side"><a class="side-brand" href="./"><img src="../../shared/brand/toasty-media/ToastyTransparent.png"><span class="wordmark"><b>TOASTY</b><em>Peeps</em></span></a><nav><a href="./">Find Peeps</a><a href="./searches.html">My Searches</a><a class="active" href="./jams.html">My Jams</a><a href="./calendar.html">Calendar</a><a href="./demand.html">Demand</a><a href="./dub.html">My Dub</a><a href="./profile.html">My Profile</a><a href="./dough.html">Dough</a></nav></aside><main class="workspace"><div class="section-head"><div><span class="eyebrow">Scheduled Jam</span><h2>Agent payments podcast</h2><p class="muted">Protected Jam · participant-specific access.</p></div><span class="tag">Scheduled</span></div><section class="profile"><div class="card"><span class="eyebrow">When</span><h3>Scheduled session</h3><p class="muted">Open this Jam from the participant-specific invitation when backend booking is connected.</p><div class="actions"><a class="btn secondary" href="./calendar.html">Calendar</a></div><p class="muted" id="inviteNote"></p></div><div class="card"><span class="eyebrow">Terms</span><h3>Time & participation</h3><p class="muted">Payment is for the agreed engagement time, not a particular answer or outcome.</p></div></section><section class="profile"><div class="card"><span class="eyebrow">Privacy & capture</span><h3>Private by default</h3><p class="muted">Recording or transcription requires explicit session terms and consent.</p></div><div class="card"><span class="eyebrow">Studio bridge</span><h3>Use Studio when production matters</h3><p class="muted">Panels, podcasts and produced sessions can continue into Toasty Studio. Jam Rooms remain the lightweight protected engagement surface.</p></div></section><section class="card jam-policy"><span class="eyebrow">Jam lifecycle</span><div class="jam-steps"><div><b>1 · Protected invite</b><span>Participant-specific access before media credentials are issued.</span></div><div><b>2 · Consent</b><span>Capture only under accepted terms.</span></div><div><b>3 · Attendance evidence</b><span>Track presence and billable overlap.</span></div><div><b>4 · Settle + Breadcrumb</b><span>Retain minimal engagement evidence and settlement status.</span></div></div></section><section class="card"><span class="eyebrow">After the Jam</span><h3>Jam Record</h3><p class="muted">Artifacts, transcript, summary and controlled sharing live in the permissioned Jam Record when enabled.</p><a class="link" href="./jam-record.html">Open Jam Record →</a></section></main></div><script>const p=new URLSearchParams(location.search),invite=p.get("invite"),note=document.getElementById("inviteNote");if(invite){const a=document.createElement("a");a.className="btn";a.textContent="Join protected room";const u=new URL("./room.html",location.href);u.search="";u.searchParams.set("jam",p.get("jam")||"JAM-2048");u.searchParams.set("invite",invite);if(p.get("api"))u.searchParams.set("api",p.get("api"));a.href=u;note.before(a);note.textContent="Participant invite loaded. Media credentials remain out of the public URL.";}else note.textContent="A participant-specific invite is required to enter the protected room.";</script></body></html>
+<!doctype html><html><head><script>document.documentElement.classList.add("peeps-app-gated");</script><style>html.peeps-app-gated body{visibility:hidden}</style><noscript><meta http-equiv="refresh" content="0;url=/peeps/"></noscript><script type="module" src="../../js/peeps-app-gate.js"></script><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Jam · Toasty Peeps</title><link rel="stylesheet" href="../peeps.css"></head><body><div class="app-shell"><aside class="side"><a class="side-brand" href="./"><img src="../../shared/brand/toasty-media/ToastyTransparent.png"><span class="wordmark"><b>TOASTY</b><em>Peeps</em></span></a><nav><a href="./">Find Peeps</a><a href="./searches.html">My Searches</a><a class="active" href="./jams.html">My Jams</a><a href="./calendar.html">Calendar</a><a href="./demand.html">Demand</a><a href="./dub.html">My Dub</a><a href="./profile.html">My Profile</a><a href="./dough.html">Dough</a></nav></aside><main class="workspace">
+<div class="section-head"><div><span class="eyebrow" id="jamEyebrow">Jam</span><h2 id="jamTitle">Loading…</h2><p class="muted" id="jamObjective"></p></div><div class="actions" id="jamActions"></div></div>
+
+<section class="profile">
+  <div class="card"><span class="eyebrow">Progress</span><h3 id="jamProgress">– / –</h3><p class="muted">Confirmed participants toward target.</p></div>
+  <div class="card"><span class="eyebrow">Consent required</span><h3 id="jamConsentCount">–</h3><p class="muted" id="jamConsentList"></p></div>
+</section>
+
+<section class="card jam-policy"><span class="eyebrow">Jam lifecycle</span><div class="jam-steps"><div><b>1 · Protected invite</b><span>Participant-specific access before media credentials are issued.</span></div><div><b>2 · Consent</b><span>Capture only under accepted terms.</span></div><div><b>3 · Attendance evidence</b><span>Track presence and billable overlap.</span></div><div><b>4 · Settle + Breadcrumb</b><span>Retain minimal engagement evidence and settlement status.</span></div></div></section>
+
+<div class="section-head"><div><h3>Participants</h3></div><button class="btn secondary" id="addParticipantBtn">Add participant</button></div>
+<section class="card" id="addParticipantForm" hidden>
+  <label>Email<input class="field" id="participantEmail" placeholder="participant@example.com"></label>
+  <label>Display name (optional)<input class="field" id="participantName" placeholder="Pat Participant"></label>
+  <div class="actions"><button class="btn" id="participantAddSubmit">Add</button><button class="btn secondary" id="participantAddCancel">Cancel</button></div>
+  <p class="muted" id="participantAddNote"></p>
+</section>
+<section class="table" id="participantsTable">
+  <div class="row head"><span>Participant</span><span>Status</span><span>Consent</span><span>Payment</span><span></span></div>
+  <div class="row"><span class="muted">Loading participants…</span></div>
+</section>
+
+<section class="card"><span class="eyebrow">After the Jam</span><h3>Jam Record</h3><p class="muted">Artifacts, transcript, summary and controlled sharing live in the permissioned Jam Record when enabled.</p><a class="link" id="jamRecordLink" href="#">Open Jam Record →</a></section>
+</main></div>
+<script type="module">
+import {
+  getJam, updateJam, runJamSession, completeJam, reopenJam,
+  addJamParticipant, issueJamParticipantInvite, confirmJamParticipant, removeJamParticipant, markJamParticipant
+} from "../../js/peeps-jam-api.js";
+
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const jamId = params.get("id");
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+const STATUS_LABEL = {
+  candidate: "Candidate", invited: "Invited", accepted: "Accepted", confirmed: "Confirmed",
+  attended: "Attended", completed: "Completed", declined: "Declined", removed: "Removed", no_show: "No show"
+};
+
+let jam = null;
+let participants = [];
+
+function renderHeader() {
+  $("jamEyebrow").textContent = `Jam · ${jam.status}`;
+  $("jamTitle").textContent = jam.title || "Untitled Jam";
+  $("jamObjective").textContent = jam.objective || "No objective set yet.";
+  $("jamProgress").textContent = `${jam.confirmedCount ?? participants.filter((p) => ["confirmed", "attended", "completed"].includes(p.status)).length} / ${jam.targetParticipantCount || 0}`;
+  $("jamConsentCount").textContent = String((jam.consentRequirements || []).length);
+  $("jamConsentList").textContent = (jam.consentRequirements || []).join(", ") || "None configured";
+  $("jamRecordLink").href = `./jam-record.html?id=${encodeURIComponent(jam.id)}`;
+
+  const actions = [];
+  if (!jam.studioSessionId) {
+    actions.push(`<button class="btn" id="runSessionBtn">Run Session</button>`);
+  } else {
+    actions.push(`<a class="btn" href="../../studio/director.html?session=${encodeURIComponent(jam.studioSessionId)}">Open Studio</a>`);
+  }
+  if (jam.status === "completed") actions.push(`<button class="btn secondary" id="reopenBtn">Reopen</button>`);
+  else if (jam.studioSessionId) actions.push(`<button class="btn secondary" id="completeBtn">Mark Completed</button>`);
+  $("jamActions").innerHTML = actions.join("");
+
+  const runBtn = $("runSessionBtn");
+  if (runBtn) runBtn.addEventListener("click", async () => {
+    runBtn.disabled = true; runBtn.textContent = "Starting…";
+    try { await runJamSession(jam.id); await load(); }
+    catch (error) { alert(error.message || "Could not start the Studio session."); runBtn.disabled = false; runBtn.textContent = "Run Session"; }
+  });
+  const completeBtn = $("completeBtn");
+  if (completeBtn) completeBtn.addEventListener("click", async () => { await completeJam(jam.id); await load(); });
+  const reopenBtn = $("reopenBtn");
+  if (reopenBtn) reopenBtn.addEventListener("click", async () => { await reopenJam(jam.id); await load(); });
+}
+
+function participantActions(p) {
+  const buttons = [];
+  if (p.status === "candidate") buttons.push(`<button class="btn secondary" data-action="invite" data-id="${p.id}">Invite</button>`);
+  if (p.status === "accepted") buttons.push(`<button class="btn secondary" data-action="confirm" data-id="${p.id}" ${p.consentCapturedAt ? "" : "disabled title=\"Consent not captured yet\""}>Confirm</button>`);
+  if (p.status === "confirmed" || p.status === "attended") buttons.push(`<button class="btn secondary" data-action="mark-attended" data-id="${p.id}">Mark attended</button>`);
+  if (p.status === "attended") buttons.push(`<button class="btn secondary" data-action="mark-completed" data-id="${p.id}">Mark completed</button>`);
+  if (p.compensationStatus === "not_eligible" && ["attended", "completed"].includes(p.status)) buttons.push(`<button class="btn secondary" data-action="mark-eligible" data-id="${p.id}">Mark eligible</button>`);
+  if (p.compensationStatus === "eligible") buttons.push(`<button class="btn secondary" data-action="mark-paid" data-id="${p.id}">Mark paid</button>`);
+  if (!["removed", "declined", "no_show"].includes(p.status)) buttons.push(`<button class="btn secondary" data-action="remove" data-id="${p.id}">Remove</button>`);
+  return buttons.join(" ");
+}
+
+function renderParticipants() {
+  const table = $("participantsTable");
+  const head = `<div class="row head"><span>Participant</span><span>Status</span><span>Consent</span><span>Payment</span><span></span></div>`;
+  if (!participants.length) {
+    table.innerHTML = `${head}<div class="row"><span class="muted">No participants yet. Add one to start recruiting.</span></div>`;
+    return;
+  }
+  const rows = participants.map((p) => `
+    <div class="row">
+      <strong>${escapeHtml(p.displayName || p.email)}</strong>
+      <span><i class="tag${["confirmed", "attended", "completed"].includes(p.status) ? " good" : ""}">${STATUS_LABEL[p.status] || p.status}</i></span>
+      <span>${p.consentCapturedAt ? "Captured" : "Pending"}</span>
+      <span>${p.compensationStatus}</span>
+      <span>${participantActions(p)}</span>
+    </div>`).join("");
+  table.innerHTML = head + rows;
+
+  table.querySelectorAll("button[data-action]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id;
+      const action = btn.dataset.action;
+      btn.disabled = true;
+      try {
+        if (action === "invite") {
+          const result = await issueJamParticipantInvite(id);
+          alert(`Invite link (dev):\n${location.origin}${result.inviteUrl}`);
+        } else if (action === "confirm") await confirmJamParticipant(id);
+        else if (action === "remove") { if (confirm("Remove this participant?")) await removeJamParticipant(id); }
+        else await markJamParticipant(id, action);
+        await load();
+      } catch (error) {
+        alert(error.message || "Action failed.");
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+async function load() {
+  const result = await getJam(jamId);
+  jam = result.jam;
+  participants = result.participants || [];
+  renderHeader();
+  renderParticipants();
+}
+
+$("addParticipantBtn").addEventListener("click", () => { $("addParticipantForm").hidden = false; });
+$("participantAddCancel").addEventListener("click", () => { $("addParticipantForm").hidden = true; });
+$("participantAddSubmit").addEventListener("click", async () => {
+  const email = $("participantEmail").value.trim();
+  if (!email) { $("participantAddNote").textContent = "An email is required."; return; }
+  $("participantAddSubmit").disabled = true;
+  try {
+    await addJamParticipant(jamId, { email, displayName: $("participantName").value.trim() });
+    $("addParticipantForm").hidden = true;
+    $("participantEmail").value = ""; $("participantName").value = ""; $("participantAddNote").textContent = "";
+    await load();
+  } catch (error) {
+    $("participantAddNote").textContent = error.message || "Could not add participant.";
+  } finally {
+    $("participantAddSubmit").disabled = false;
+  }
+});
+
+if (!jamId) {
+  $("jamTitle").textContent = "No Jam selected";
+  $("jamObjective").textContent = "Open a Jam from My Jams.";
+} else {
+  load().catch((error) => { $("jamTitle").textContent = "Could not load this Jam"; $("jamObjective").textContent = error.message || ""; });
+}
+</script>
+</body></html>

@@ -6,6 +6,12 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "4173"],
       "port": 4173
+    },
+    {
+      "name": "toasty-api",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "TOASTY_RENDER_PORT=4174 TOASTY_AUTH_DB=/tmp/toasty-dev.sqlite TOASTY_AUTH_DB_HELPER=scripts/toasty-auth-db.py TOASTY_SESSION_SECRET=dev-secret RESEND_API_KEY= node scripts/render-production-server.mjs"],
+      "port": 4174
     }
   ]
 }

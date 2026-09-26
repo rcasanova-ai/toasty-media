@@ -305,7 +305,7 @@ server {
     # rejected a nested-optional-group version of a pattern like this once (see the /api/sessions/ block
     # above's own comment); keep these flat.
 
-    location ~ "^/api/sessions/[a-zA-Z0-9._-]+/(plan|speakers|sponsors|sponsor-moments|consent|landing-page|landing-page/publish|landing-page/unpublish|audience/events|audience/summary|campaign-links|ai-usage|moxie/readiness-summary|moxie/speaker-briefing|moxie/session-research|moxie/audience-insights|moxie/post-event-suggestions|artifacts)$" {
+    location ~ "^/api/sessions/[a-zA-Z0-9._-]+/(plan|speakers|sponsors|sponsor-moments|consent|landing-page|landing-page/publish|landing-page/unpublish|audience/events|audience/summary|campaign-links|ai-usage|moxie/readiness-summary|moxie/speaker-briefing|moxie/session-research|moxie/audience-insights|moxie/post-event-suggestions|artifacts|jam)$" {
         # Same organizer-authenticated shape as the /api/sessions/ block above — one block covering every
         # new session sub-resource route rather than one location per route.
         limit_req zone=toasty_settings burst=20 nodelay;
@@ -522,6 +522,113 @@ server {
     # Organizer-authenticated: flip a post-event artifact's status (draft/processing/ready/unavailable) —
     # never auto-set by the server itself, only ever by the organizer confirming real work is done.
     location ~ ^/api/artifacts/[^/]+/update$ {
+        limit_req zone=toasty_settings burst=20 nodelay;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 20s;
+        proxy_send_timeout 20s;
+    }
+
+    # ---- Peeps Jam lifecycle (docs/ROADMAP.md Gate 2) ----
+    # Broad prefix match, same precedent/reasoning as the /api/organizations block above: many diverse
+    # suffixes (list/create, /update, /run-session, /complete, /reopen, /results, /access, /events,
+    # /participants, /artifacts) share the same organizer-authenticated shape, so one block covers the
+    # whole family rather than one location per route. /access and /events are unauthenticated,
+    # invite-token-gated routes (see js/peeps-room.js) but still proxy identically — Node's own per-route
+    # auth check is the real authorization boundary, not which nginx block matched.
+    location ~ ^/api/jams(/.*)?$ {
+        limit_req zone=toasty_settings burst=20 nodelay;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 20s;
+        proxy_send_timeout 20s;
+    }
+
+    location ~ ^/api/jam-participants/[^/]+(/invite|/confirm|/remove|/mark-attended|/mark-completed|/mark-eligible|/mark-paid)?$ {
+        limit_req zone=toasty_settings burst=20 nodelay;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 20s;
+        proxy_send_timeout 20s;
+    }
+
+    # Guest path — no Toasty account, just a high-entropy invite token in the URL. Same zone/burst as
+    # /api/speaker-invites above, which is the same "public, single-shot, token-driven" shape (a Jam
+    # participant's own token is reusable rather than single-use — see toasty-auth-db.py's
+    # jam_participant_invites comment — but the nginx boundary is identical).
+    location ~ ^/api/jam-invites/[^/]+(/accept|/consent)?$ {
+        limit_req zone=toasty_settings burst=20 nodelay;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 20s;
+        proxy_send_timeout 20s;
+    }
+
+    location ~ ^/api/jam-artifacts/[^/]+/update$ {
         limit_req zone=toasty_settings burst=20 nodelay;
 
         if ($request_method = OPTIONS) {

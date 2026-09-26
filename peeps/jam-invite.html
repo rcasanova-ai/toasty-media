@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Jam Invitation — Toasty Peeps</title>
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="stylesheet" href="../css/brand.css">
+    <link rel="stylesheet" href="../css/event-growth.css">
+  </head>
+  <body>
+    <main class="eg-shell">
+      <div class="eg-card">
+        <div class="eg-brand">
+          <img src="../shared/brand/toasty-media/ToastyTransparent.png" alt="Toasty Peeps">
+        </div>
+
+        <section id="stepLoading" class="eg-step is-active">
+          <p>Loading your invitation…</p>
+        </section>
+
+        <section id="stepError" class="eg-step">
+          <p class="eg-kicker">Invite</p>
+          <h1>This link isn't valid</h1>
+          <p id="errorMessage">This invitation has expired, was revoked, or the link is incorrect. Ask the organizer to resend it.</p>
+        </section>
+
+        <section id="stepIntro" class="eg-step">
+          <p class="eg-kicker">You're invited</p>
+          <h1 id="introJamTitle">You've been invited to a Toasty Peeps Jam</h1>
+          <p id="introJamObjective"></p>
+          <p id="introCompensation" class="eg-status"></p>
+          <div class="eg-actions" style="justify-content:flex-start">
+            <button class="eg-btn" id="acceptBtn" type="button">Accept &amp; continue</button>
+          </div>
+        </section>
+
+        <section id="stepConsent" class="eg-step">
+          <p class="eg-kicker">Consent &amp; release</p>
+          <h1>Before you're confirmed</h1>
+          <p class="eg-section-title">Required for this Jam</p>
+          <div id="requiredConsentList"></div>
+          <p class="eg-section-title">Optional</p>
+          <div id="optionalConsentList"></div>
+          <div class="eg-actions">
+            <span></span>
+            <button class="eg-btn" type="button" id="submitConsentBtn">Submit</button>
+          </div>
+          <p class="eg-status" id="consentStatus"></p>
+        </section>
+
+        <section id="stepReady" class="eg-step">
+          <p class="eg-kicker">All set</p>
+          <h1>You're ready</h1>
+          <p>Your consent has been recorded. The organizer will confirm your participation and send the room link when the Jam is ready to start.</p>
+        </section>
+      </div>
+    </main>
+    <script type="module" src="../js/peeps-jam-invite-page.js"></script>
+  </body>
+</html>

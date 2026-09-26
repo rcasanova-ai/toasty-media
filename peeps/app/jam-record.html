@@ -1,1 +1,111 @@
-<!doctype html><html><head><script>document.documentElement.classList.add("peeps-app-gated");</script><style>html.peeps-app-gated body{visibility:hidden}</style><noscript><meta http-equiv="refresh" content="0;url=/peeps/"></noscript><script type="module" src="../../js/peeps-app-gate.js"></script><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Jam Record · Toasty Peeps</title><link rel="stylesheet" href="../peeps.css"></head><body><div class="app-shell"><aside class="side"><a class="side-brand" href="./"><img src="../../shared/brand/toasty-media/ToastyTransparent.png"><span class="wordmark"><b>TOASTY</b><em>Peeps</em></span></a><nav><a href="./">Find Peeps</a><a class="active" href="./jams.html">My Jams</a><a href="./calendar.html">Calendar</a><a href="./demand.html">Demand</a><a href="./dough.html">Dough</a></nav></aside><main class="workspace"><div class="section-head"><div><span class="eyebrow">Jam Record</span><h2>Permissioned post-Jam workspace</h2><p class="muted">Artifacts only appear when the accepted Jam policy enabled them.</p></div></div><section class="profile"><div class="card"><span class="eyebrow">Capture</span><h3>Recording & transcript</h3><p class="muted">Keep clean source artifacts separate from branded derivatives.</p><div class="actions"><button class="btn secondary" disabled>Watch</button><button class="btn secondary" disabled>Transcript</button><button class="btn secondary" disabled>Download</button></div></div><div class="card"><span class="eyebrow">Access</span><h3>Authorized people only</h3><p class="muted">Sharing and artifact access should remain auditable and permissioned.</p></div></section><section class="card"><span class="eyebrow">AI summary</span><h3>Source-linked, not source-replacing</h3><p class="muted">Summaries, notes and quote suggestions should link back to speaker and timestamp when transcript evidence exists.</p></section><section class="card"><span class="eyebrow">Breadcrumb</span><h3>Minimal engagement evidence</h3><p class="muted">Participant authorization, capture consent, verified overlap, completion, dispute deadline, settlement status and artifact access. Conversation content does not belong in the Breadcrumb.</p></section></main></div></body></html>
+<!doctype html><html><head><script>document.documentElement.classList.add("peeps-app-gated");</script><style>html.peeps-app-gated body{visibility:hidden}</style><noscript><meta http-equiv="refresh" content="0;url=/peeps/"></noscript><script type="module" src="../../js/peeps-app-gate.js"></script><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Jam Record · Toasty Peeps</title><link rel="stylesheet" href="../peeps.css"></head><body><div class="app-shell"><aside class="side"><a class="side-brand" href="./"><img src="../../shared/brand/toasty-media/ToastyTransparent.png"><span class="wordmark"><b>TOASTY</b><em>Peeps</em></span></a><nav><a href="./">Find Peeps</a><a class="active" href="./jams.html">My Jams</a><a href="./calendar.html">Calendar</a><a href="./demand.html">Demand</a><a href="./dough.html">Dough</a></nav></aside><main class="workspace">
+<div class="section-head"><div><span class="eyebrow">Jam Record</span><h2 id="jamTitle">Loading…</h2><p class="muted">Session/results area — artifacts only appear once they exist. Do not hide processing behind a permanent spinner.</p></div><a class="link" id="backToJam" href="./jams.html">← Back to Jam</a></div>
+
+<section class="profile">
+  <div class="card"><span class="eyebrow">Attendance</span><h3 id="attendanceSummary">–</h3><p class="muted" id="attendanceDetail"></p></div>
+  <div class="card"><span class="eyebrow">Payment</span><h3 id="paymentSummary">–</h3><p class="muted" id="paymentDetail"></p></div>
+</section>
+
+<section class="card"><span class="eyebrow">AI usage &amp; cost</span><h3 id="aiUsageSummary">–</h3><p class="muted" id="aiUsageDetail"></p></section>
+
+<div class="section-head"><div><h3>Capture &amp; artifacts</h3></div><button class="btn secondary" id="addArtifactBtn">Register artifact</button></div>
+<section class="card" id="addArtifactForm" hidden>
+  <label>Type<select class="field" id="artifactType"><option value="recording">Recording</option><option value="transcript">Transcript</option><option value="summary">Summary</option><option value="moxie_output">Moxie output</option><option value="other">Other</option></select></label>
+  <label>Reference / URL (optional)<input class="field" id="artifactRef" placeholder="https://…"></label>
+  <div class="actions"><button class="btn" id="artifactSubmit">Add</button><button class="btn secondary" id="artifactCancel">Cancel</button></div>
+</section>
+<section class="table" id="artifactsTable">
+  <div class="row head"><span>Type</span><span>Status</span><span>Reference</span><span></span></div>
+  <div class="row"><span class="muted">Loading…</span></div>
+</section>
+
+<section class="card"><span class="eyebrow">Breadcrumb</span><h3>Minimal engagement evidence</h3><p class="muted">Participant authorization, capture consent, verified overlap, completion, dispute deadline, settlement status and artifact access. Conversation content does not belong in the Breadcrumb.</p><div id="eventLog"></div></section>
+</main></div>
+<script type="module">
+import { getJamResults, addJamArtifact, updateJamArtifact } from "../../js/peeps-jam-api.js";
+
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const jamId = params.get("id");
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+const ARTIFACT_STATUS_LABEL = { pending: "Processing…", ready: "Available", failed: "Failed", unavailable: "Not generated" };
+
+function renderArtifacts(artifacts) {
+  const head = `<div class="row head"><span>Type</span><span>Status</span><span>Reference</span><span></span></div>`;
+  if (!artifacts.length) {
+    $("artifactsTable").innerHTML = `${head}<div class="row"><span class="muted">No artifacts registered yet — Studio does not yet persist recordings/transcripts server-side, so these are attached manually once produced.</span></div>`;
+    return;
+  }
+  const rows = artifacts.map((a) => `
+    <div class="row">
+      <strong>${escapeHtml(a.artifactType)}</strong>
+      <span>${ARTIFACT_STATUS_LABEL[a.status] || a.status}</span>
+      <span class="muted">${a.storageReference ? `<a class="link" href="${escapeHtml(a.storageReference)}" target="_blank" rel="noopener">Open →</a>` : "—"}</span>
+      <span>${a.status !== "ready" ? `<button class="btn secondary" data-mark-ready="${a.id}">Mark ready</button>` : ""}</span>
+    </div>`).join("");
+  $("artifactsTable").innerHTML = head + rows;
+  $("artifactsTable").querySelectorAll("[data-mark-ready]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      await updateJamArtifact(btn.dataset.markReady, { status: "ready" });
+      await load();
+    });
+  });
+}
+
+function renderEvents(events) {
+  if (!events.length) { $("eventLog").innerHTML = `<p class="muted">No evidence recorded yet.</p>`; return; }
+  $("eventLog").innerHTML = `<div class="table">${events.map((e) => `<div class="row"><strong>${escapeHtml(e.type)}</strong><span class="muted">${new Date(e.createdAt).toLocaleString()}</span></div>`).join("")}</div>`;
+}
+
+async function load() {
+  const result = await getJamResults(jamId);
+  const { jam, attendance, payment, aiUsage, artifacts, events } = result;
+  $("jamTitle").textContent = jam.title || "Untitled Jam";
+  $("backToJam").href = `./jam.html?id=${encodeURIComponent(jam.id)}`;
+
+  $("attendanceSummary").textContent = `${attendance.attended} attended / ${attendance.confirmed} confirmed / ${attendance.target} target`;
+  $("attendanceDetail").textContent = `${attendance.completed} completed · ${attendance.declined} declined · ${attendance.removed} removed · ${attendance.noShow} no-show`;
+
+  $("paymentSummary").textContent = `${payment.paid} paid`;
+  $("paymentDetail").textContent = `${payment.eligible} eligible, not yet paid · ${payment.notEligible} not yet eligible`;
+
+  if (aiUsage.totalTokens === 0 && (aiUsage.events || []).length === 0) {
+    $("aiUsageSummary").textContent = "No AI usage recorded for this session.";
+    $("aiUsageDetail").textContent = "This is a valid state for a session with no Moxie/AI activity — not an error.";
+  } else {
+    $("aiUsageSummary").textContent = `${aiUsage.totalTokens.toLocaleString()} tokens · $${Number(aiUsage.totalEstimatedCost || 0).toFixed(4)} estimated`;
+    $("aiUsageDetail").textContent = Object.entries(aiUsage.byFeature || {}).map(([feature, stats]) => `${feature}: ${stats.count} call(s)`).join(" · ") || "";
+  }
+
+  renderArtifacts(artifacts);
+  renderEvents(events);
+
+  window.__jamId = jam.id;
+}
+
+$("addArtifactBtn").addEventListener("click", () => { $("addArtifactForm").hidden = false; });
+$("artifactCancel").addEventListener("click", () => { $("addArtifactForm").hidden = true; });
+$("artifactSubmit").addEventListener("click", async () => {
+  $("artifactSubmit").disabled = true;
+  try {
+    await addJamArtifact(jamId, { artifactType: $("artifactType").value, storageReference: $("artifactRef").value.trim(), status: $("artifactRef").value.trim() ? "ready" : "pending" });
+    $("addArtifactForm").hidden = true;
+    $("artifactRef").value = "";
+    await load();
+  } finally {
+    $("artifactSubmit").disabled = false;
+  }
+});
+
+if (!jamId) {
+  $("jamTitle").textContent = "No Jam selected";
+} else {
+  load().catch((error) => { $("jamTitle").textContent = "Could not load this Jam's results"; console.error(error); });
+}
+</script>
+</body></html>
