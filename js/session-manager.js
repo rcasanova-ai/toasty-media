@@ -605,6 +605,22 @@ function renderArtifactSection(section) {
   const heading = document.createElement("h3");
   heading.textContent = section.title;
   article.append(heading);
+  if (section.id === "transcript") {
+    const lines = Array.isArray(section.data) ? section.data : (section.data?.lines || []);
+    const pre = document.createElement("pre");
+    pre.className = "session-artifact-json";
+    pre.textContent = transcriptText(lines);
+    article.append(pre);
+    if (lines.length) {
+      const download = document.createElement("button");
+      download.type = "button";
+      download.className = "lv-mini-btn lv-mini-btn--primary";
+      download.textContent = "Download Transcript";
+      download.addEventListener("click", () => downloadTranscript(lines));
+      article.append(download);
+    }
+    return article;
+  }
   if (section.id === "recordings" && section.data?.blob) {
     const video = document.createElement("video");
     video.controls = true;
@@ -645,6 +661,25 @@ function summarizeArtifact(section) {
     return section.data.productionActions.slice(0, 20).map((item) => `${item.type} @ ${item.offsetSeconds ?? ""}s`).join("\n");
   }
   return JSON.stringify(section.data, null, 2).slice(0, 1200);
+}
+
+function transcriptText(lines = []) {
+  return lines.map((line) => {
+    const stamp = line.timestamp ? new Date(line.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+    return [stamp, line.speaker || "Speaker"].filter(Boolean).join(" · ") + "\n" + (line.text || "");
+  }).join("\n\n");
+}
+
+function downloadTranscript(lines = []) {
+  const blob = new Blob([transcriptText(lines) + "\n"], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "toasty-session-transcript.txt";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function escapeHtml(value) {

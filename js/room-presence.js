@@ -59,6 +59,9 @@ export class RoomPresence {
     this.lastHttpStatus = null;
     this.lastAnnounceError = "";
     this._lastAnnounceAt = null;
+    // Never allow heartbeat requests to overlap. An older response arriving after a newer one can
+    // otherwise roll the roster/output state backwards and make participant + Program Output UI flap.
+    this._announceInFlight = null;
   }
 
   onRosterChange(callback) {
@@ -263,6 +266,16 @@ export class RoomPresence {
   }
 
   async _announce({ retryOnFailure = true } = {}) {
+    if (this._announceInFlight) return this._announceInFlight;
+    this._announceInFlight = this._performAnnounce({ retryOnFailure });
+    try {
+      return await this._announceInFlight;
+    } finally {
+      this._announceInFlight = null;
+    }
+  }
+
+  async _performAnnounce({ retryOnFailure = true } = {}) {
     this.heartbeatStatus = "pending";
     try {
       const response = await fetch(`${studioApiEndpoint()}/api/presence/announce`, {
