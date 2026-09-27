@@ -19,9 +19,15 @@ export async function getUserMediaWithFallback(constraints) {
 export function deviceConstraint(deviceId, kind) {
   if (kind === "audio") {
     const audio = {
-      echoCancellation: { ideal: true },
-      noiseSuppression: { ideal: true },
-      autoGainControl: { ideal: true }
+      // Studio defaults to clean/pro audio. Headsets and proper microphones should not be
+      // treated like speakerphone inputs; browser speech DSP is the main source of hollow,
+      // metallic/tin-box coloration. Echo handling can be added as an explicit speaker-mode
+      // option later rather than silently degrading every microphone.
+      echoCancellation: { ideal: false },
+      noiseSuppression: { ideal: false },
+      autoGainControl: { ideal: false },
+      channelCount: { ideal: 2 },
+      sampleRate: { ideal: 48000 }
     };
     if (deviceId) audio.deviceId = { exact: deviceId };
     return audio;

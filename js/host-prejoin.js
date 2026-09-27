@@ -58,7 +58,20 @@ export class HostPrejoin {
         microphoneSelect: this.elements.mic,
         previousStream: this._previewStream
       });
-      log("preview stream acquired:", this._previewStream.getTracks().map((t) => ({ kind: t.kind, label: t.label, readyState: t.readyState })));
+      log("preview stream acquired:", this._previewStream.getTracks().map((t) => ({ kind: t.kind, label: t.label, readyState: t.readyState, settings: t.getSettings?.() || {} })));
+      const micTrack = this._previewStream.getAudioTracks()[0];
+      if (micTrack) {
+        const settings = micTrack.getSettings?.() || {};
+        console.info("[StudioAudio] actual microphone capture", {
+          label: micTrack.label,
+          sampleRate: settings.sampleRate ?? null,
+          channelCount: settings.channelCount ?? null,
+          echoCancellation: settings.echoCancellation ?? null,
+          noiseSuppression: settings.noiseSuppression ?? null,
+          autoGainControl: settings.autoGainControl ?? null,
+          latency: settings.latency ?? null
+        });
+      }
       try {
         await this.elements.preview.play();
         log("preview <video>.play() resolved — paused:", this.elements.preview.paused, "videoWidth:", this.elements.preview.videoWidth);
