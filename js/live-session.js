@@ -1950,7 +1950,14 @@ export class LiveSession {
       transcript: {
         kind: "TranscriptStore",
         available: this.transcript.lines.length > 0,
-        lineCount: this.transcript.lines.length
+        lineCount: this.transcript.lines.length,
+        lines: this.transcript.lines.map((line) => ({
+          participantId: line.participantId || null,
+          role: line.role || null,
+          speaker: line.speaker || "Speaker",
+          text: line.text || "",
+          timestamp: line.timestamp || null
+        }))
       },
       chat: {
         kind: "audience-chat",
