@@ -578,6 +578,22 @@ export class LiveSession {
     this._startLiveTranscription();
   }
 
+  updateHostProfile({ displayName, title = "", company = "" } = {}) {
+    if (!this.hostProfile) return;
+    const name = String(displayName || "").trim() || this.hostProfile.displayName || "Host";
+    this.hostProfile = { displayName: name, title: String(title).trim(), company: String(company).trim() };
+    const participant = this.participants.get?.("host");
+    if (participant) this.participants.upsert({ ...participant, ...this.hostProfile });
+    if (this.presence) {
+      this.presence.displayName = name;
+      this.presence.title = this.hostProfile.title;
+      this.presence.company = this.hostProfile.company;
+      this.presence.publishNow?.();
+    }
+    this.emit("host-profile", this.hostProfile);
+    this._publishControlNow();
+  }
+
   setHostState(state) {
     this.hostState = state;
     this.emit("host-state", state);
