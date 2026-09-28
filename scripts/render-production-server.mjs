@@ -6214,9 +6214,22 @@ async function handleJamInviteGet(req, res) {
   const { participant } = await loadJamParticipantInvite(token);
   const jamLookup = await db("jam_get_by_id", { id: participant.jamId });
   const jam = jamLookup.jam;
+  let organizationName = null;
+  if (jam) {
+    const org = await db("get_organization", { id: jam.organizationId });
+    organizationName = org.organization?.name || null;
+  }
   sendJson(req, res, 200, {
     participant: { id: participant.id, status: participant.status, displayName: participant.displayName, consentCapturedAt: participant.consentCapturedAt },
-    jam: jam ? { title: jam.title, objective: jam.objective, consentRequirements: jam.consentRequirements, compensation: jam.compensation } : null
+    jam: jam ? {
+      id: jam.id,
+      organizationId: jam.organizationId,
+      organizationName,
+      title: jam.title,
+      objective: jam.objective,
+      consentRequirements: jam.consentRequirements,
+      compensation: jam.compensation
+    } : null
   });
 }
 
@@ -6233,10 +6246,19 @@ async function handleJamInviteAccept(req, res) {
 
 async function handleJamInviteConsent(req, res) {
   const token = jamInviteTokenFromUrl(req, "/consent");
-  const { participant } = await loadJamParticipantInvite(token);
+  let { participant } = await loadJamParticipantInvite(token);
   const jamLookup = await db("jam_get_by_id", { id: participant.jamId });
   const jam = jamLookup.jam;
   const body = await readJson(req);
+  // The Jam Lobby submits name + consent together as one "Join Jam" action — folding the display-name
+  // update into this existing endpoint avoids a second participant-facing route (and the matching nginx
+  // allowlist entry that would need) for what is, in the UI, a single button.
+  const displayName = sessionText(body.displayName, 120);
+  if (displayName) {
+    await db("dub_set_display_name", { id: participant.dubId, displayName });
+    const refreshed = await db("jam_participant_get", { id: participant.id });
+    participant = refreshed.participant;
+  }
   const requiredAcceptances = sanitizeConsentKeys(body.requiredAcceptances);
   const optionalPermissions = sanitizeConsentKeys(body.optionalPermissions);
   await db("jam_event_create", {

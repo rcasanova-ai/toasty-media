@@ -102,6 +102,12 @@ async function main() {
 
   const inviteGet = await jsonFetch(`/api/jam-invites/${token}`);
   assert(inviteGet.status === 200 && inviteGet.data.jam.title === jam.title, "an unauthenticated participant can resolve their invite to jam details");
+  assert(inviteGet.data.jam.id === jam.id, "the Jam Lobby response includes the jam id (needed to hand off to room.html)");
+  assert(inviteGet.data.jam.organizationId === organizationId, "the Jam Lobby response includes the organization id (for optional brand lookup)");
+  assert(typeof inviteGet.data.jam.organizationName === "string" && inviteGet.data.jam.organizationName.length > 0, "the Jam Lobby response includes a resolvable organization name");
+
+  const invalidInvite = await jsonFetch("/api/jam-invites/this-token-does-not-exist");
+  assert(invalidInvite.status === 404, "an invalid/unknown invite token is rejected, not treated as a valid jam");
 
   const accept = await jsonFetch(`/api/jam-invites/${token}/accept`, { method: "POST" });
   assert(accept.status === 200 && accept.data.participant.status === "accepted", "participant accepts the invite");
@@ -113,11 +119,18 @@ async function main() {
   assert(partialConsent.status === 200 && partialConsent.data.consentSatisfied === false, "submitting only some required consent keys does not satisfy requirements");
   assert(!partialConsent.data.participant.consentCapturedAt, "consentCapturedAt stays unset when requirements are only partially satisfied");
 
+  // The Jam Lobby's single "Join Jam" action submits the participant's (possibly edited) display name in
+  // the SAME request as consent — proving that round-trip here, not a separate endpoint.
   const fullConsent = await jsonFetch(`/api/jam-invites/${token}/consent`, {
-    method: "POST", body: { requiredAcceptances: ["terms_of_service", "recording", "research_participation"], agreementVersion: "v1" }
+    method: "POST",
+    body: { displayName: "Pat From The Lobby", requiredAcceptances: ["terms_of_service", "recording", "research_participation"], agreementVersion: "v1" }
   });
   assert(fullConsent.status === 200 && fullConsent.data.consentSatisfied === true, "submitting every required consent key satisfies requirements");
   assert(fullConsent.data.participant.consentCapturedAt, "consentCapturedAt is now set");
+  assert(fullConsent.data.participant.displayName === "Pat From The Lobby", "the display name edited in the Lobby is persisted in the same consent call");
+
+  const inviteGetAfterNameEdit = await jsonFetch(`/api/jam-invites/${token}`);
+  assert(inviteGetAfterNameEdit.data.participant.displayName === "Pat From The Lobby", "the edited display name survives a fresh, independent fetch (not just the consent response)");
 
   const confirmAfterConsent = await jsonFetch(`/api/jam-participants/${participant.id}/confirm`, { method: "POST", cookie: organizer.cookie });
   assert(confirmAfterConsent.status === 200 && confirmAfterConsent.data.participant.status === "confirmed", "confirming now succeeds");

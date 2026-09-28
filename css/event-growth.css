@@ -34,3 +34,16 @@
 .eg-preview-card small{color:var(--muted)}
 .eg-badge{display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;background:rgba(139,94,28,.12);color:var(--caramel)}
 .eg-tech-item{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+
+/* Jam Lobby device preview (peeps/jam-invite.html) — mobile-first: video stacks full-width above the
+   device pickers, never side-by-side, so it never overflows a phone viewport. */
+.eg-preview-video{width:100%;aspect-ratio:4/3;background:#111;border-radius:8px;object-fit:cover;display:block}
+.eg-preview-video.is-off{display:none}
+.eg-preview-off{width:100%;aspect-ratio:4/3;background:#111;border-radius:8px;display:none;align-items:center;justify-content:center;color:var(--cream-soft);font-size:13px}
+.eg-preview-off.is-active{display:flex}
+.eg-device-row{display:grid;gap:10px;margin-top:12px}
+.eg-meter{margin-top:12px;height:8px;border-radius:999px;background:rgba(0,0,0,.08);overflow:hidden}
+.eg-meter-fill{height:100%;width:0%;background:var(--toast);transition:width .1s linear}
+.eg-toggle-row{display:flex;gap:10px;margin-top:12px}
+.eg-toggle-row .eg-btn-ghost{flex:1;padding:10px 14px;border-radius:8px;font-size:13px}
+.eg-toggle-row .eg-btn-ghost.is-off{background:rgba(163,51,51,.08);border-color:#a33;color:#a33}

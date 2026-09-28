@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Jam Invitation — Toasty Peeps</title>
+    <title>Jam Lobby — Toasty Peeps</title>
     <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
     <link rel="stylesheet" href="../css/brand.css">
     <link rel="stylesheet" href="../css/event-growth.css">
@@ -12,47 +12,59 @@
     <main class="eg-shell">
       <div class="eg-card">
         <div class="eg-brand">
-          <img src="../shared/brand/toasty-media/ToastyTransparent.png" alt="Toasty Peeps">
+          <img id="brandLogo" src="../shared/brand/toasty-media/ToastyTransparent.png" alt="Toasty Peeps">
         </div>
 
         <section id="stepLoading" class="eg-step is-active">
-          <p>Loading your invitation…</p>
+          <p>Loading your Jam…</p>
         </section>
 
         <section id="stepError" class="eg-step">
-          <p class="eg-kicker">Invite</p>
-          <h1>This link isn't valid</h1>
+          <p class="eg-kicker">Jam Lobby</p>
+          <h1 id="errorTitle">This link isn't valid</h1>
           <p id="errorMessage">This invitation has expired, was revoked, or the link is incorrect. Ask the organizer to resend it.</p>
         </section>
 
-        <section id="stepIntro" class="eg-step">
-          <p class="eg-kicker">You're invited</p>
-          <h1 id="introJamTitle">You've been invited to a Toasty Peeps Jam</h1>
-          <p id="introJamObjective"></p>
-          <p id="introCompensation" class="eg-status"></p>
-          <div class="eg-actions" style="justify-content:flex-start">
-            <button class="eg-btn" id="acceptBtn" type="button">Accept &amp; continue</button>
-          </div>
-        </section>
+        <section id="stepLobby" class="eg-step">
+          <p class="eg-kicker" id="jamKicker">Jam Lobby</p>
+          <h1 id="jamTitle">You're invited to a Toasty Peeps Jam</h1>
+          <p class="eg-status" id="jamHost"></p>
+          <p id="jamObjective"></p>
+          <p class="eg-status" id="jamCompensation"></p>
 
-        <section id="stepConsent" class="eg-step">
-          <p class="eg-kicker">Consent &amp; release</p>
-          <h1>Before you're confirmed</h1>
-          <p class="eg-section-title">Required for this Jam</p>
-          <div id="requiredConsentList"></div>
-          <p class="eg-section-title">Optional</p>
-          <div id="optionalConsentList"></div>
+          <p class="eg-section-title">Your name</p>
+          <div class="eg-field">
+            <label for="displayName">Display name</label>
+            <input id="displayName" type="text" maxlength="120" autocomplete="name" placeholder="How should we introduce you?">
+          </div>
+
+          <p class="eg-section-title">Camera &amp; microphone</p>
+          <div class="eg-preview-card">
+            <video id="previewVideo" class="eg-preview-video" autoplay playsinline muted></video>
+            <div id="previewOff" class="eg-preview-off">Camera is off</div>
+            <div class="eg-device-row">
+              <select id="cameraSelect" aria-label="Camera"></select>
+              <select id="microphoneSelect" aria-label="Microphone"></select>
+            </div>
+            <div class="eg-meter" aria-hidden="true"><div id="micMeterFill" class="eg-meter-fill"></div></div>
+            <div class="eg-toggle-row">
+              <button type="button" id="cameraToggle" class="eg-btn-ghost">Camera on</button>
+              <button type="button" id="micToggle" class="eg-btn-ghost">Mic on</button>
+            </div>
+            <p class="eg-status" id="deviceStatus">Requesting camera and microphone access…</p>
+          </div>
+
+          <p class="eg-section-title">Consent</p>
+          <div class="eg-check-row">
+            <input type="checkbox" id="consentCheckbox">
+            <label for="consentCheckbox">I consent to participating in this Jam and understand that the session may be recorded and used to create session insights and artifacts.</label>
+          </div>
+
           <div class="eg-actions">
             <span></span>
-            <button class="eg-btn" type="button" id="submitConsentBtn">Submit</button>
+            <button class="eg-btn" id="joinBtn" type="button" disabled>Join Jam</button>
           </div>
-          <p class="eg-status" id="consentStatus"></p>
-        </section>
-
-        <section id="stepReady" class="eg-step">
-          <p class="eg-kicker">All set</p>
-          <h1>You're ready</h1>
-          <p>Your consent has been recorded. The organizer will confirm your participation and send the room link when the Jam is ready to start.</p>
+          <p class="eg-status" id="joinStatus"></p>
         </section>
       </div>
     </main>
