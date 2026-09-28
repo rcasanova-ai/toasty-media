@@ -192,6 +192,7 @@
             <h1>Brand Profiles</h1>
             <div class="settings-card">
               <h2>Create a brand profile</h2>
+              <p class="settings-hint">Starts from a base theme, then layers your own logo and colors on top. The profile you create becomes your organization's active brand — it's what Studio actually renders across the dashboard, host view, guest view, program output, lower thirds, title cards, and end screen.</p>
               <form id="brandProfileForm" class="settings-row three-col">
                 <label class="field">Name<input id="brandProfileName" required></label>
                 <label class="field">Base theme
@@ -206,7 +207,11 @@
                     <option value="peeps">Toasty Peeps</option>
                   </select>
                 </label>
-                <div style="display:flex; align-items:flex-end;"><button class="btn primary" type="submit">Create</button></div>
+                <label class="field">Logo URL (optional)<input id="brandProfileLogo" type="url" placeholder="https://yourdomain.com/logo.svg"></label>
+                <label class="field">Website (optional)<input id="brandProfileHomeUrl" type="url" placeholder="https://yourdomain.com"></label>
+                <label class="field">Primary color<input id="brandProfilePrimary" type="color" value="#ff7a29"></label>
+                <label class="field">Text color<input id="brandProfileText" type="color" value="#f4ead9"></label>
+                <div style="display:flex; align-items:flex-end;"><button class="btn primary" type="submit">Create &amp; set active</button></div>
               </form>
               <p class="settings-message" id="brandProfileMessage" role="status"></p>
             </div>

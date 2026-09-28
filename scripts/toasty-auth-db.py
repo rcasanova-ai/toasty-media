@@ -22,6 +22,24 @@ KICK_BLOCK_SECONDS = 300
 # frontend normalizeBrandTheme falls back to Toasty, which would silently undress a locked customer.
 KNOWN_BRAND_IDS = frozenset({"toasty", "8alta", "santati", "optimai", "tangem", "superteam", "peeps", "zenify"})
 
+# An organization-owned dynamic brand (a real customer's own BrandProfile — logo/colors layered on a base
+# theme, see brand_profiles table) is addressed as "org:<organizationId>" wherever a brand id is otherwise
+# a fixed KNOWN_BRAND_IDS string — same field, same enforcement (branding_forbids_session, session brand
+# lock), no parallel locking mechanism. js/brand-themes.js's isKnownBrandId mirrors this exact rule.
+ORG_BRAND_ID_PREFIX = "org:"
+
+
+def is_valid_brand_id(brand_id):
+    if brand_id in KNOWN_BRAND_IDS:
+        return True
+    return bool(brand_id) and brand_id.startswith(ORG_BRAND_ID_PREFIX) and len(brand_id) > len(ORG_BRAND_ID_PREFIX)
+
+
+def organization_id_from_locked_brand(brand_id):
+    if brand_id and brand_id.startswith(ORG_BRAND_ID_PREFIX):
+        return brand_id[len(ORG_BRAND_ID_PREFIX):]
+    return None
+
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -1317,7 +1335,123 @@ def migrate(conn):
     ensure_columns(conn, "live_sessions", {"jam_id": "TEXT REFERENCES jams(id)"})
     conn.execute("CREATE INDEX IF NOT EXISTS idx_live_sessions_jam ON live_sessions(jam_id)")
 
+    bootstrap_stablecorp_brand_lock(conn)
+
     conn.commit()
+
+
+# One-time production fix (2026-09-29): studio@mystablecorp.xyz's account and organization already
+# existed but Studio never applied their organization's BrandProfile anywhere and never locked the
+# account to it, so every surface fell back to the generic toasty skin. Idempotent and self-limiting —
+# same precedent as the platform-admin founder bootstrap above (migrate() runs on every server start,
+# including every future deploy, forever; both branches below only ever act the FIRST time they find
+# their target field unset, and never touch it again once set, so an operator's later manual change is
+# never overwritten). Safe to leave in permanently.
+STABLECORP_ORGANIZATION_ID = "0e2edb02-0c8d-489f-9ab1-abdfc9e90072"
+STABLECORP_USER_EMAIL = "studio@mystablecorp.xyz"
+# Real StableCorp identity, read live from https://mystablecorp.xyz on 2026-09-29: primary logo mark
+# (stablecorp-primary.svg, #2E2AFF fill), the site's own "Get Started" button color (#2b3bee, effectively
+# the same indigo), body text near-black (#131211) on a light warm background (#f3f3f1). Studio itself
+# stays on the existing dark-canvas convention every other client theme in js/brand-themes.js uses
+# (8alta/tangem/optimai/santati) rather than a light UI, with StableCorp's own indigo as the sole accent
+# on black — closest existing precedent is Tangem's single-accent-on-black treatment.
+STABLECORP_BRAND_OVERRIDES = {
+    "label": "StableCorp",
+    "logoSrc": "https://mystablecorp.xyz/stablecorp-primary.svg",
+    "faviconSrc": "https://mystablecorp.xyz/stablecorp-primary.svg",
+    "homeUrl": "https://mystablecorp.xyz",
+    "textLogo": "StableCorp Studio",
+    "atmosphereBrand": "STABLECORP",
+    "atmosphereProduct": "STUDIO",
+    "showPoweredBy": True,
+    "vars": {
+        "--brand-primary": "#2E2AFF",
+        "--brand-secondary": "#ffffff",
+        "--brand-accent": "#5a57ff",
+        "--brand-background": "#0a0a12",
+        "--brand-surface": "#12121c",
+        "--brand-surface-alt": "#191926",
+        "--brand-text": "#f3f3f1",
+        "--brand-text-muted": "#8f8fa3",
+        "--brand-border": "rgba(243, 243, 241, 0.10)",
+        "--brand-button": "#2E2AFF",
+        "--brand-button-text": "#ffffff",
+        "--brand-focus": "#5a57ff",
+        "--brand-gradient": "linear-gradient(135deg, #5a57ff, #2E2AFF)",
+        "--brand-heading-font": "Inter, system-ui, sans-serif",
+        "--brand-body-font": "Inter, system-ui, -apple-system, sans-serif",
+        "--studio-canvas": "#0a0a12",
+        "--studio-canvas-2": "#0d0d16",
+        "--studio-surface": "#12121c",
+        "--studio-surface-2": "#191926",
+        "--studio-surface-raised": "#20202f",
+        "--studio-line": "rgba(243, 243, 241, 0.10)",
+        "--studio-line-strong": "rgba(46, 42, 255, 0.32)",
+        "--studio-line-warm": "rgba(90, 87, 255, 0.42)",
+        "--studio-cream": "#f3f3f1",
+        "--studio-cream-dim": "#c8c8d6",
+        "--studio-muted": "#8f8fa3",
+        "--studio-orange": "#2E2AFF",
+        "--studio-orange-bright": "#5a57ff",
+        "--studio-amber": "#7f7dff",
+        "--studio-burnt": "#211fb3",
+        "--studio-brown": "#191926",
+        "--studio-green": "#34c77b",
+        "--studio-client-glow": "rgba(46, 42, 255, 0.22)",
+        "--studio-button-text": "#ffffff",
+        "--studio-button-shadow": "rgba(46, 42, 255, 0.28)",
+        "--studio-button-shadow-hover": "rgba(46, 42, 255, 0.40)",
+        "--studio-atmosphere-stroke": "rgba(46, 42, 255, 0.08)",
+        "--studio-atmosphere-stroke-2": "rgba(243, 243, 241, 0.045)",
+        "--studio-mark-opacity": "0.05",
+    },
+}
+
+
+def bootstrap_stablecorp_brand_lock(conn):
+    user_row = conn.execute(
+        "SELECT id, locked_brand_id FROM users WHERE email = ?", (STABLECORP_USER_EMAIL,)
+    ).fetchone()
+    if user_row and not user_row["locked_brand_id"]:
+        conn.execute(
+            "UPDATE users SET brand_mode = 'locked', locked_brand_id = ?, updated_at = ? WHERE id = ?",
+            (f"{ORG_BRAND_ID_PREFIX}{STABLECORP_ORGANIZATION_ID}", utc_now(), user_row["id"]),
+        )
+
+    org_row = conn.execute(
+        "SELECT id, active_brand_profile_id FROM organizations WHERE id = ?", (STABLECORP_ORGANIZATION_ID,)
+    ).fetchone()
+    if not org_row:
+        return
+    profile_row = None
+    if org_row["active_brand_profile_id"]:
+        profile_row = conn.execute(
+            "SELECT * FROM brand_profiles WHERE id = ?", (org_row["active_brand_profile_id"],)
+        ).fetchone()
+    now = utc_now()
+    if not profile_row:
+        # No active profile pointer at all -- create the real one rather than leaving Studio to fall back
+        # to the generic toasty theme forever.
+        new_id = f"bp_{os.urandom(16).hex()}"
+        conn.execute(
+            """
+            INSERT INTO brand_profiles (id, organization_id, name, base_theme_id, overrides_json, created_at, updated_at)
+            VALUES (?, ?, 'StableCorp', 'toasty', ?, ?, ?)
+            """,
+            (new_id, STABLECORP_ORGANIZATION_ID, json.dumps(STABLECORP_BRAND_OVERRIDES), now, now),
+        )
+        conn.execute(
+            "UPDATE organizations SET active_brand_profile_id = ?, updated_at = ? WHERE id = ?",
+            (new_id, now, STABLECORP_ORGANIZATION_ID),
+        )
+    elif not _json_or(profile_row["overrides_json"], {}):
+        # A profile row exists but has never been customized (Settings' create-profile form only ever
+        # wrote {name, baseThemeId} -- see js/studio-settings.js) -- backfill it with StableCorp's real
+        # identity once. An operator's later edit in Settings is never touched again after this.
+        conn.execute(
+            "UPDATE brand_profiles SET overrides_json = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(STABLECORP_BRAND_OVERRIDES), now, profile_row["id"]),
+        )
 
 
 def ensure_columns(conn, table, columns):
@@ -1337,7 +1471,7 @@ def user_end_card(row):
         return {}
 
 
-def public_user(row):
+def public_user(row, conn=None):
     if not row:
         return None
     return {
@@ -1348,7 +1482,7 @@ def public_user(row):
         "updated_at": row["updated_at"],
         "last_login_at": row["last_login_at"],
         "status": row["status"],
-        "branding": user_branding(row),
+        "branding": user_branding(row, conn),
         "endCard": user_end_card(row),
         "emailVerifiedAt": row["email_verified_at"] if _row_has(row, "email_verified_at") else None,
         "passwordChangedAt": row["password_changed_at"] if _row_has(row, "password_changed_at") else None,
@@ -1550,14 +1684,35 @@ def invite_public(row):
     }
 
 
-def user_branding(row):
+def user_branding(row, conn=None):
     if not row:
         return {"mode": "flexible", "brandId": None}
     mode = row["brand_mode"] if _row_has(row, "brand_mode") and row["brand_mode"] else "flexible"
     brand_id = row["locked_brand_id"] if _row_has(row, "locked_brand_id") else None
     if mode != "locked":
         return {"mode": "flexible", "brandId": None}
-    return {"mode": "locked", "brandId": brand_id}
+    branding = {"mode": "locked", "brandId": brand_id}
+    # Organization-locked accounts (brand_id = "org:<id>") additionally carry the org's own resolved
+    # BrandProfile inline, so the client has everything applyBrandTheme needs at first paint with no
+    # extra round trip. conn is optional (only get_user_by_id/get_user_by_email pass it, at login/session
+    # check time) -- every OTHER public_user() caller keeps working unchanged without it.
+    organization_id = organization_id_from_locked_brand(brand_id)
+    if organization_id and conn is not None:
+        branding["organizationId"] = organization_id
+        branding["brandProfile"] = resolve_active_brand_profile(conn, organization_id)
+    return branding
+
+
+def resolve_active_brand_profile(conn, organization_id):
+    org_row = conn.execute(
+        "SELECT active_brand_profile_id FROM organizations WHERE id = ?", (organization_id,)
+    ).fetchone()
+    if not org_row or not org_row["active_brand_profile_id"]:
+        return None
+    profile_row = conn.execute(
+        "SELECT * FROM brand_profiles WHERE id = ?", (org_row["active_brand_profile_id"],)
+    ).fetchone()
+    return brand_profile_public(profile_row)
 
 
 def branding_forbids_session(user_row, session_row):
@@ -2305,12 +2460,12 @@ def main():
 
     if action == "get_user_by_email":
         row = conn.execute("SELECT * FROM users WHERE email = ?", (payload["email"],)).fetchone()
-        print(json.dumps({"user": public_user(row), "passwordHash": row["password_hash"] if row else None}))
+        print(json.dumps({"user": public_user(row, conn), "passwordHash": row["password_hash"] if row else None}))
         return
 
     if action == "get_user_by_id":
         row = conn.execute("SELECT * FROM users WHERE id = ?", (payload["id"],)).fetchone()
-        print(json.dumps({"user": public_user(row)}))
+        print(json.dumps({"user": public_user(row, conn)}))
         return
 
     # Platform-admin actions are intentionally only callable by the Node server after its own
@@ -2431,7 +2586,7 @@ def main():
             return
         if mode == "locked":
             brand_id = payload.get("brandId")
-            if not brand_id or brand_id not in KNOWN_BRAND_IDS:
+            if not is_valid_brand_id(brand_id):
                 print(json.dumps({"error": "invalid_brand"}))
                 return
         else:
@@ -2454,7 +2609,7 @@ def main():
         )
         conn.commit()
         row = conn.execute("SELECT * FROM users WHERE id = ?", (payload["id"],)).fetchone()
-        print(json.dumps({"user": public_user(row)}))
+        print(json.dumps({"user": public_user(row, conn)}))
         return
 
     if action == "upsert_provider_account":
@@ -2978,7 +3133,7 @@ def main():
     if action == "session_create":
         now = utc_now()
         brand_id = payload.get("brandId") or ""
-        if brand_id and brand_id not in KNOWN_BRAND_IDS:
+        if brand_id and not is_valid_brand_id(brand_id):
             print(json.dumps({"error": "invalid_brand"}))
             return
         setup_json = json.dumps(payload.get("setup") or {})
@@ -3056,7 +3211,7 @@ def main():
 
     if action == "session_set_brand":
         brand_id = payload.get("brandId") or ""
-        if brand_id and brand_id not in KNOWN_BRAND_IDS:
+        if brand_id and not is_valid_brand_id(brand_id):
             print(json.dumps({"error": "invalid_brand"}))
             return
         owner = conn.execute("SELECT * FROM users WHERE id = ?", (payload["ownerUserId"],)).fetchone()
@@ -3135,7 +3290,7 @@ def main():
         brand_id = payload.get("brandId")
         if brand_id is None:
             brand_id = source["brand_id"] or ""
-        if brand_id and brand_id not in KNOWN_BRAND_IDS:
+        if brand_id and not is_valid_brand_id(brand_id):
             print(json.dumps({"error": "invalid_brand"}))
             return
         title = payload.get("title")
@@ -3290,6 +3445,18 @@ def main():
     if action == "get_organization_by_slug":
         row = conn.execute("SELECT * FROM organizations WHERE slug = ?", (payload["slug"],)).fetchone()
         print(json.dumps({"organization": org_public(row)}))
+        return
+
+    # Public/guest-safe by design (see session_get_public's own precedent above): a Studio guest or
+    # Program Output window has no Toasty account and cannot look up an organization normally, but still
+    # needs to render that organization's active BrandProfile. Returns only what applyBrandTheme needs --
+    # never plan/billing/owner/slug, which stay behind the authenticated get_organization action.
+    if action == "get_organization_brand_profile":
+        row = conn.execute("SELECT id, name FROM organizations WHERE id = ?", (payload["id"],)).fetchone()
+        if not row:
+            print(json.dumps({"organizationName": None, "brandProfile": None}))
+            return
+        print(json.dumps({"organizationName": row["name"], "brandProfile": resolve_active_brand_profile(conn, row["id"])}))
         return
 
     if action == "list_user_organizations":

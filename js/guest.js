@@ -1,5 +1,6 @@
 import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId, createGuestStreamId, createScreenStreamId } from "./video-engine.js";
 import { applyBrandTheme, getInitialBrandTheme, normalizeBrandTheme } from "./brand-themes.js";
+import { ensureOrgTheme } from "./org-brand.js";
 import { startDevicePreview, selectedDeviceLabel, classifyCameraFacing } from "./device-picker.js";
 import { RoomPresence } from "./room-presence.js";
 import { RemoteMediaState, REMOTE_MEDIA_STATE_LABEL } from "./remote-media-state.js";
@@ -134,7 +135,13 @@ init();
 // changeBrandTheme), not this guest's own independent choice — this is the one place that actually
 // repaints the page, so both the initial resolve and every later live update in joinStudio's
 // onRosterChange go through it.
-function applyGuestBrandTheme(brandId) {
+async function applyGuestBrandTheme(brandId) {
+  // A guest has no Toasty account, so an organization's dynamic brand ("org:<id>") is only ever resolved
+  // by fetching it fresh from the public GET /api/organizations/:id/brand-profile — see js/org-brand.js.
+  // No-op for every hardcoded brand id and for an already-registered dynamic one. Must run on the RAW
+  // brandId, before normalizeBrandTheme ever sees it — an unregistered dynamic id would otherwise already
+  // have collapsed to the default theme by the time it reached ensureOrgTheme.
+  await ensureOrgTheme(String(brandId || ""));
   state.brandTheme = normalizeBrandTheme(brandId);
   const theme = applyBrandTheme(state.brandTheme, {
     root: document.body,

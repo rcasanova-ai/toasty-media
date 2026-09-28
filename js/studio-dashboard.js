@@ -1,6 +1,8 @@
 import { studioRequest } from "./studio-api.js";
+import { applyBrandTheme, getInitialBrandTheme, normalizeBrandTheme } from "./brand-themes.js";
+import { ensureOrgTheme } from "./org-brand.js";
 
-const state={session:null,organizations:[],organization:null,role:null,sessions:[]};
+const state={session:null,organizations:[],organization:null,role:null,sessions:[],locked:false};
 const el=(id)=>document.getElementById(id);
 
 document.addEventListener("DOMContentLoaded",init);
@@ -9,6 +11,19 @@ async function init(){
   try{
     state.session=await studioRequest("/auth/session",{method:"GET"});
     if(!state.session.authenticated){ window.top.location.href="./sessions.html"; return; }
+    const branding=state.session.user?.branding||{mode:"flexible",brandId:null};
+    state.locked=branding.mode==="locked";
+    // Same "org id already has an inline BrandProfile" precedent as js/studio-auth.js's own openStudio —
+    // no extra fetch when this IS the locked account's own /auth/session response. Everything else
+    // (guest/listener/other org members visiting this dashboard) resolves via the ?brand= URL param the
+    // parent shell already set, same as director.html.
+    if(state.locked && branding.organizationId){
+      await ensureOrgTheme(`org:${branding.organizationId}`, branding.brandProfile);
+    }
+    const themeId=state.locked?normalizeBrandTheme(branding.brandId):getInitialBrandTheme(window.location.search,{useStorage:true});
+    // brandLink deliberately omitted: dashboard-brand is an internal nav link back to ./dashboard.html,
+    // not "go to the client's marketing site" (applyBrandTheme's brandLink sets href to theme.homeUrl).
+    applyBrandTheme(themeId,{root:document.body,logoImg:el("dashboardBrandLogo")});
     const orgPayload=await studioRequest("/api/organizations",{method:"GET"});
     state.organizations=orgPayload.organizations||[];
     if(!state.organizations.length){ throw new Error("No organization is available for this account."); }
@@ -17,6 +32,16 @@ async function init(){
     const initial=state.organizations.find(org=>org.id===requested)||state.organizations[0];
     el("orgSwitcher").value=initial.id;
     el("orgSwitcher").addEventListener("change",()=>loadOrganization(el("orgSwitcher").value));
+    // A locked account never sees another organization to switch to — /api/organizations already only
+    // ever returns their own org (server-enforced), so this just removes the now-pointless single-option
+    // control rather than leaving a select that can't actually do anything.
+    if(state.locked||state.organizations.length<2){
+      el("orgSwitcher").hidden=true;
+      const label=document.createElement("span");
+      label.className="org-switcher-label";
+      label.textContent=initial.name||"Organization";
+      el("orgSwitcher").insertAdjacentElement("afterend",label);
+    }
     await loadOrganization(initial.id);
     el("dashboardLoading").hidden=true;
     el("dashboardApp").hidden=false;
@@ -53,6 +78,10 @@ function render(){
   el("orgHealth").textContent=org.subscriptionStatus==="active"?"Plan active":"Usage limits enforced";
   el("platformAdminSection").hidden=!platformAdmin;
   document.querySelectorAll(".admin-only").forEach(node=>{node.hidden=!canAdmin;});
+  // A locked (organization-owned) account never sees billing administration — hidden regardless of role,
+  // same "hide other organizations, skins, Platform Admin, billing administration, operator controls"
+  // policy this dashboard's own org-switcher hiding above already follows.
+  if(el("billingLink")) el("billingLink").hidden=state.locked;
 
   const orgParam=`org=${encodeURIComponent(org.id)}`;
   el("settingsNav").href=`./settings.html?${orgParam}`;

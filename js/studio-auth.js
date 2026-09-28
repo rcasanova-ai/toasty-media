@@ -1,5 +1,6 @@
 import { studioApiEndpoint } from "./studio-api.js";
 import { applyBrandTheme, getInitialBrandTheme, normalizeBrandTheme } from "./brand-themes.js";
+import { ensureOrgTheme } from "./org-brand.js";
 
 const state = {
   mode: "login",
@@ -74,7 +75,7 @@ async function checkSession() {
   try {
     const session = await request("/auth/session", { method: "GET" });
     if (session.authenticated) {
-      openStudio(session.user?.branding);
+      await openStudio(session.user?.branding);
       return;
     }
     showPublic("");
@@ -97,7 +98,7 @@ async function register() {
         password: els.signupPassword.value
       })
     });
-    if (session.authenticated) openStudio(session.user?.branding, { destination: "./onboarding.html" });
+    if (session.authenticated) await openStudio(session.user?.branding, { destination: "./onboarding.html" });
   } catch (error) {
     setMessage(error.message, true);
   } finally {
@@ -117,7 +118,7 @@ async function login() {
         password: els.loginPassword.value
       })
     });
-    if (session.authenticated) openStudio(session.user?.branding);
+    if (session.authenticated) await openStudio(session.user?.branding);
   } catch (error) {
     setMessage(error.message, true);
   } finally {
@@ -147,7 +148,7 @@ async function logout() {
 // NOT the security boundary: handleSessionCreate/handleSessionBrand (render-production-server.mjs) enforce
 // the lock server-side regardless of what this ever sends, so a tampered/bypassed URL still can't create or
 // change a session to another brand — only the frontend's OWN selector visibility depends on this.
-function openStudio(branding = { mode: "flexible", brandId: null }, { destination = null } = {}) {
+async function openStudio(branding = { mode: "flexible", brandId: null }, { destination = null } = {}) {
   els.studioPublicPage.hidden = true;
   els.studioAppShell.hidden = false;
   document.body.classList.add("is-authenticated");
@@ -155,9 +156,22 @@ function openStudio(branding = { mode: "flexible", brandId: null }, { destinatio
     // Once we're actually inside an authenticated session, storage IS a legitimate source for brand
     // (this is "remember my last choice across a refresh while logged in", not the logged-out leak) —
     // state.brandTheme itself stays storage-free so the public gate never flashes stale client branding.
+    // An organization-locked account's brandId is "org:<id>" — /auth/session already inlines that org's
+    // resolved brandProfile (see toasty-auth-db.py's user_branding), so this registers it with ZERO extra
+    // network round trip before the iframe (director.html/dashboard.html, a separate document with its
+    // own module graph) ever loads and needs to resolve the same id itself.
+    if (branding.mode === "locked" && branding.organizationId) {
+      await ensureOrgTheme(`org:${branding.organizationId}`, branding.brandProfile);
+    }
     const authenticatedBrand = branding.mode === "locked"
       ? normalizeBrandTheme(branding.brandId)
       : getInitialBrandTheme(window.location.search, { useStorage: true });
+    applyBrandTheme(authenticatedBrand, {
+      root: document.body,
+      logoImg: document.querySelector(".public-brand img, .studio-access-brand img"),
+      poweredBy: document.querySelector("#publicPoweredBy"),
+      brandLink: document.querySelector(".public-brand, .studio-access-brand")
+    });
     const query = new URLSearchParams(window.location.search);
     query.set("brand", authenticatedBrand);
     if (branding.mode === "locked") {

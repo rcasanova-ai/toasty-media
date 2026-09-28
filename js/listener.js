@@ -1,4 +1,5 @@
 import { applyBrandTheme, normalizeBrandTheme } from "./brand-themes.js";
+import { ensureOrgTheme } from "./org-brand.js";
 import { getBrandProfile } from "./brand-profile.js";
 import { VideoEngine, getRoomIdFromUrl, isValidRoomId } from "./video-engine.js";
 import { ProgramSync } from "./program-sync.js";
@@ -107,7 +108,10 @@ init().catch((error) => {
 });
 
 async function init() {
-  applyBrand(normalizeBrandTheme(new URLSearchParams(window.location.search).get("brand")));
+  // Raw URL param, NOT pre-normalized — an unregistered organization brand ("org:<id>") must reach
+  // applyBrand()'s own ensureOrgTheme() call below before normalizeBrandTheme ever sees it, or it would
+  // already have collapsed to the default theme here.
+  await applyBrand(new URLSearchParams(window.location.search).get("brand"));
   if (!isValidRoomId(roomId)) {
     document.body.dataset.scene = SceneId.HOLDING;
     elements.holdingTopic.textContent = "Invalid Program Output link";
@@ -569,7 +573,11 @@ function syncMoxieVoice(programState) {
   speakMoxieVoiceOnProgram(voice);
 }
 
-function applyBrand(themeId) {
+async function applyBrand(themeId) {
+  // An organization's dynamic brand ("org:<id>") has no Toasty account behind this Program Output
+  // window either — resolved fresh via the public GET /api/organizations/:id/brand-profile. No-op for
+  // every hardcoded brand id and for an already-registered dynamic one.
+  await ensureOrgTheme(String(themeId || ""));
   const theme = applyBrandTheme(themeId, { root: document.body, poweredBy: elements.poweredBy });
   const brandProfile = getBrandProfile(theme.id);
   const programMark = theme.compactMark || (theme.id === "peeps" ? "../shared/brand/toasty-media/ToastyTransparent.png" : theme.logoSrc);

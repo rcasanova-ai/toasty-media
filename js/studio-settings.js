@@ -5,6 +5,7 @@ const state = {
   organizations: [],
   currentOrgId: null,
   role: null,
+  locked: false,
   aiProviders: ["openai", "anthropic", "deepseek", "gemini"],
   aiProviderLabels: { openai: "OpenAI", anthropic: "Anthropic", deepseek: "DeepSeek", gemini: "Gemini" }
 };
@@ -24,7 +25,8 @@ async function init() {
     "solanaReference", "solanaAmount", "solanaRecipient", "solanaNetwork", "solanaExpiry",
     "solanaSignature", "solanaConfirmBtn", "solanaMessage",
     "aiProvidersList",
-    "brandProfileForm", "brandProfileName", "brandProfileTheme", "brandProfileMessage",
+    "brandProfileForm", "brandProfileName", "brandProfileTheme", "brandProfileLogo", "brandProfileHomeUrl",
+    "brandProfilePrimary", "brandProfileText", "brandProfileMessage",
     "brandProfilesBody", "brandProfilesEmpty",
     "usageLimits", "usageCounters", "usageMessage", "safetySwitches", "runtimeSafety",
     "orgAiUsageCards", "orgAiModels", "orgAiSessions",
@@ -54,6 +56,13 @@ async function init() {
   els.brandProfileForm.addEventListener("submit", createBrandProfile);
   els.changePasswordForm.addEventListener("submit", changePassword);
 
+  state.locked = session.user?.branding?.mode === "locked";
+  // A locked (organization-owned) account: hide switching to any other organization and hide billing
+  // administration entirely, regardless of org role — same policy as the dashboard's own hiding.
+  if (state.locked) {
+    document.querySelectorAll('.settings-nav button[data-panel="billing"], .settings-panel[data-panel="billing"]').forEach((node) => { node.hidden = true; });
+  }
+
   try {
     const orgs = await studioRequest("/api/organizations", { method: "GET" });
     state.organizations = orgs.organizations || [];
@@ -66,6 +75,8 @@ async function init() {
     const requested = url.searchParams.get("org");
     const initial = state.organizations.find((org) => org.id === requested) || state.organizations[0];
     els.orgSwitcher.value = initial.id;
+    if (state.locked || state.organizations.length < 2) els.orgSwitcher.closest("label, div")?.classList.add("is-single-org");
+    if (state.locked) els.orgSwitcher.hidden = true;
     renderIntegrations();
     await setCurrentOrg(initial.id);
     const requestedPanel = window.location.hash.replace(/^#/, "");
@@ -520,12 +531,28 @@ async function createBrandProfile(event) {
   event.preventDefault();
   setMessage(els.brandProfileMessage, "");
   try {
-    await studioRequest(orgPath("/brand-profiles"), {
+    // overrides mirrors js/brand-themes.js's own BRAND_THEMES shape (composeDynamicTheme merges these
+    // onto the base theme) — logoSrc/homeUrl/vars.--brand-primary/vars.--brand-text are the minimum that
+    // actually changes what's visible; every other theme field a base theme already defines stays as-is.
+    const overrides = {};
+    const logoSrc = els.brandProfileLogo.value.trim();
+    const homeUrl = els.brandProfileHomeUrl.value.trim();
+    if (logoSrc) { overrides.logoSrc = logoSrc; overrides.faviconSrc = logoSrc; }
+    if (homeUrl) overrides.homeUrl = homeUrl;
+    overrides.vars = { "--brand-primary": els.brandProfilePrimary.value, "--brand-button": els.brandProfilePrimary.value, "--studio-orange": els.brandProfilePrimary.value, "--brand-text": els.brandProfileText.value, "--studio-cream": els.brandProfileText.value };
+    const result = await studioRequest(orgPath("/brand-profiles"), {
       method: "POST",
-      body: JSON.stringify({ name: els.brandProfileName.value, baseThemeId: els.brandProfileTheme.value })
+      body: JSON.stringify({ name: els.brandProfileName.value, baseThemeId: els.brandProfileTheme.value, overrides })
     });
+    // "Create & set active" — a brand profile does nothing until it's the organization's active one; see
+    // this form's own hint text. No separate activation control to build/explain for a first pass.
+    if (result.brandProfile?.id) {
+      await studioRequest(orgPath("/update"), { method: "POST", body: JSON.stringify({ activeBrandProfileId: result.brandProfile.id }) });
+    }
     els.brandProfileName.value = "";
-    setMessage(els.brandProfileMessage, "Created.", false, true);
+    els.brandProfileLogo.value = "";
+    els.brandProfileHomeUrl.value = "";
+    setMessage(els.brandProfileMessage, "Created and set as your active brand.", false, true);
     await loadBrandProfiles();
   } catch (error) {
     setMessage(els.brandProfileMessage, error.message, true);
