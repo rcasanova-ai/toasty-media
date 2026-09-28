@@ -40,6 +40,18 @@ jobs:
           chmod 600 ~/.ssh/toasty_render_deploy
           ssh-keyscan -p 22 -H 165.22.57.61 >> ~/.ssh/known_hosts
 
+      - name: Clean up any stray backup left in sites-enabled/ by an earlier failed attempt
+        run: |
+          set -euo pipefail
+          # An earlier attempt (before this workflow moved backups to /root/nginx-jam-backups/) left a
+          # "*.bak-<timestamp>" file inside /etc/nginx/sites-enabled/ itself, which nginx's own
+          # `include /etc/nginx/sites-enabled/*;` picks up as a second enabled site ("duplicate listen
+          # options"), breaking every nginx -T/-t call since — never the RUNNING nginx process (that only
+          # changes on an actual reload, which has never happened), just this tooling's own checks. Only
+          # ever removes files matching this repo's own naming convention, from that one directory.
+          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 \
+            "find /etc/nginx/sites-enabled -maxdepth 1 -name '*.bak-*' -print -delete"
+
       - name: Locate the live nginx config file for render.toasty.media
         id: locate
         run: |
