@@ -1104,7 +1104,7 @@ async function hydrateLiveAudioDevices() {
   }
   if (elements.guestLiveSpeaker) {
     elements.guestLiveSpeaker.replaceChildren(...outputs.map((d, i) => {
-      const o=document.createElement("option"); o.value=String(i); o.textContent=d.label || `Audio output ${i+1}`; return o;
+      const o=document.createElement("option"); o.value=d.deviceId || String(i); o.textContent=d.label || `Audio output ${i+1}`; return o;
     }));
     elements.guestLiveSpeaker.disabled = outputs.length === 0;
     if (elements.guestSpeakerSupport) elements.guestSpeakerSupport.textContent = outputs.length
@@ -1122,8 +1122,8 @@ async function changeLiveMicrophone() {
 }
 
 async function changeLiveSpeaker() {
-  const index = Number(elements.guestLiveSpeaker?.value ?? -1);
-  if (!Number.isInteger(index) || index < 0) return;
-  engine.changeGuestAudioOutputDevice(index);
+  const deviceId = elements.guestLiveSpeaker?.value;
+  if (!deviceId) return;
+  engine.changeGuestAudioOutputDevice(deviceId);
 }
 
