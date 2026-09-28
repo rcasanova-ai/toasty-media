@@ -344,6 +344,7 @@ export class VideoEngine {
   // is what keeps this honest instead of guessing at array position.
   changeGuestVideoDevice(index) { return this.send("guest", { changeVideoDevice: index }); }
   changeGuestAudioDevice(index) { return this.send("guest", { changeAudioDevice: index }); }
+  changeGuestAudioOutputDevice(index) { return this.send("guest", { changeAudioOutputDevice: index }); }
 
   // Lets a caller correlate an onMessage callback's event.source against a specific mounted frame — see
   // handleMessage below. Used by live-session.js's guest-view diagnostics to know whether a given VDO
