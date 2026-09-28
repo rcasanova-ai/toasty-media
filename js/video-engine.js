@@ -61,7 +61,7 @@ export class VideoEngine {
   // still needs the next real Host+Guest test to confirm VDO actually resolves it this way in practice.
   mountDirectorFrame(container,{roomId,label="Host",videoDeviceLabel,audioDeviceLabel}) {
     const streamId=`${roomId}h`;
-    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cleanoutput:"1",cover:"1",autostart:"1",view:true,stereo:"2",videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel)});
+    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cleanoutput:"1",cover:"1",autostart:"1",view:true,proaudio:"1",stereo:"2",videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel)});
   }
 
   // slots=4 reserves 4 even grid cells regardless of how many are actually filled, and cover=1 crops
@@ -104,6 +104,7 @@ export class VideoEngine {
       cleanoutput:"1",
       transparent:"1",
       cover:"1",
+      proaudio:"1",
       muted:muted?"1":undefined,
       mute:muted?"1":undefined
     });
@@ -156,7 +157,7 @@ export class VideoEngine {
     this.mountFrame(container, "guest", params);
     return streamId;
   }
-  mountListenerFrame(container,{roomId}) { return this.mountFrame(container,"listener",{room:roomId,scene:"0",showlabels:"1",cleanoutput:"1"}); }
+  mountListenerFrame(container,{roomId}) { return this.mountFrame(container,"listener",{room:roomId,scene:"0",showlabels:"1",cleanoutput:"1",proaudio:"1"}); }
 
   // Hidden viewer-only frame used purely to query the room's live guest list (id + label) for the Program
   // Output compositor. showlabels=1 added this repair pass: getGuestList's response is built client-side
@@ -176,7 +177,7 @@ export class VideoEngine {
   // video end-to-end, so Program Output's branded chrome (logo/LIVE/topic/ticker) wraps this instead of
   // compositing individual tiles. Unlike mountRoomFrame (Director's own muted local monitor of this same
   // scene), this is unmuted: Program Output's audio is the real program audio for broadcast/recording.
-  mountProgramFrame(container,{roomId,layout="grid"},frameId) { return this.mountFrame(container,frameId,{room:roomId,scene:"0",cleanoutput:"1",transparent:"1",showlabels:"1",controls:"0",...layoutParams(layout)}); }
+  mountProgramFrame(container,{roomId,layout="grid"},frameId) { return this.mountFrame(container,frameId,{room:roomId,scene:"0",cleanoutput:"1",transparent:"1",showlabels:"1",controls:"0",proaudio:"1",...layoutParams(layout)}); }
 
   mountFrame(container,frameId,params) {
     const iframe=document.createElement("iframe");
@@ -344,6 +345,7 @@ export class VideoEngine {
   // is what keeps this honest instead of guessing at array position.
   changeGuestVideoDevice(index) { return this.send("guest", { changeVideoDevice: index }); }
   changeGuestAudioDevice(index) { return this.send("guest", { changeAudioDevice: index }); }
+  changeGuestAudioOutputDevice(deviceId) { return this.send("guest", { changeAudioOutputDevice: deviceId }); }
 
   // Lets a caller correlate an onMessage callback's event.source against a specific mounted frame — see
   // handleMessage below. Used by live-session.js's guest-view diagnostics to know whether a given VDO
@@ -438,7 +440,9 @@ export function buildGuestPublisherParams({roomId,password,guestName,backgroundM
       view:true,
       // Pro/stereo audio disables VDO's speech DSP (AEC/noise reduction/AGC), preserving
       // a proper headset or microphone instead of making it sound like a conference call.
+      proaudio:"1",
       stereo:"2",
+      outboundaudiobitrate:"256",
       videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),
       audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),
       effects:effectForBackground(backgroundMode),
