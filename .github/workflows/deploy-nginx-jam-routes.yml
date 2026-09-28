@@ -83,14 +83,23 @@ jobs:
             if [[ -n "$candidate" && -x "$candidate" ]]; then NGINX_BIN="$candidate"; break; fi
           done
           if [[ -z "$NGINX_BIN" ]]; then echo "No nginx binary found." >&2; exit 1; fi
-          cp -a "$REMOTE" "$REMOTE.bak-$STAMP"
+          # Backup lives OUTSIDE sites-enabled/ on purpose: the first live attempt (workflow run
+          # 36462606886) put "$REMOTE.bak-$STAMP" right next to the live file, and nginx's own
+          # `include /etc/nginx/sites-enabled/*;` picked the backup up as a SECOND enabled site, causing
+          # "duplicate listen options for [::]:443" -- nginx -t caught it and this rolled back correctly,
+          # but the backup location itself was the bug. A sibling directory can't be glob-matched by that
+          # include.
+          BACKUP_DIR="/root/nginx-jam-backups"
+          mkdir -p "$BACKUP_DIR"
+          BACKUP_PATH="$BACKUP_DIR/$(basename "$REMOTE").bak-$STAMP"
+          cp -a "$REMOTE" "$BACKUP_PATH"
           cp /tmp/nginx-jam-merge.conf "$REMOTE"
           if "$NGINX_BIN" -t; then
             systemctl reload nginx
             echo "nginx -t passed; reloaded."
           else
             echo "nginx -t FAILED — restoring backup, NOT reloading." >&2
-            cp -a "$REMOTE.bak-$STAMP" "$REMOTE"
+            cp -a "$BACKUP_PATH" "$REMOTE"
             exit 1
           fi
           REMOTE_SCRIPT
