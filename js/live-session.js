@@ -251,6 +251,11 @@ export class LiveSession {
     this._programOutputTimerId = null;
     this._programControlPublishInFlight = false;
     this._programControlPublishQueued = false;
+    // Local producer actions are optimistic until a presence announce carrying that exact state returns.
+    // While one is pending, a heartbeat response may still contain the previous server scene; never let
+    // that stale acknowledgement roll a fresh LIVE/BRB/etc. click backwards.
+    this._controlWriteRevision = 0;
+    this._controlAckRevision = 0;
     this._containers = null;
     this._listeners = new Map();
     this._startedAt = Date.now();
@@ -1280,6 +1285,7 @@ export class LiveSession {
   }
 
   _publishControlNow() {
+    this._controlWriteRevision += 1;
     this.publishProgramState();
     if (this.presence) {
       this.presence.publishNow();
@@ -1322,6 +1328,15 @@ export class LiveSession {
   }
 
   _applyControlBundle(bundle = {}) {
+    // A successful host announce includes the program snapshot produced at request time. If the server
+    // returns that same controller + scene, the latest optimistic producer state is now acknowledged.
+    if (bundle.program && typeof bundle.program === "object") {
+      const sameController = bundle.program.controllerId === this.controlWriterId
+        || Number(bundle.program.controllerStartedAt) === this.controlWriterStartedAt;
+      if (sameController && normalizeScene(bundle.program.scene) === this.program.scene) {
+        this._controlAckRevision = this._controlWriteRevision;
+      }
+    }
     // Reconcile scene against what the server actually has, not just what we optimistically set locally.
     // setScene()/setTicker()/etc. all mutate this.program synchronously before any network write even
     // starts, and _publishControlNow() never awaits or checks the result — so until now, nothing ever
@@ -1341,7 +1356,8 @@ export class LiveSession {
       // Never let an older/other Studio tab heartbeat yank this active controller back to stale scene state.
       // The server also rejects older controller epochs, but this keeps the local UI deterministic while
       // the authoritative write converges.
-      if (belongsToThisController) {
+      const hasPendingLocalControlWrite = this._controlAckRevision < this._controlWriteRevision;
+      if (belongsToThisController && !hasPendingLocalControlWrite) {
         const confirmedScene = normalizeScene(bundle.program.scene);
         if (confirmedScene !== this.program.scene) {
           this.program.scene = confirmedScene;
