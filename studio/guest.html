@@ -158,6 +158,14 @@
             <span class="dock-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 1l4 4-4 4"></path><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><path d="M7 23l-4-4 4-4"></path><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg></span>
             <span class="dock-label sr-only">Flip camera</span>
           </button>
+          <button id="guestDeviceSettings" class="dock-btn" type="button" title="Audio & device settings" aria-expanded="false">
+            <span class="dock-icon" aria-hidden="true">⚙</span><span class="dock-label sr-only">Audio & device settings</span>
+          </button>
+          <div id="guestDevicePanel" class="guest-device-panel" hidden>
+            <label><span>Microphone</span><select id="guestLiveMicrophone"></select></label>
+            <label><span>Speaker / headphones</span><select id="guestLiveSpeaker"></select></label>
+            <p id="guestSpeakerSupport" class="control-note"></p>
+          </div>
           <button id="guestToggleScreen" class="dock-btn" type="button" aria-pressed="false" title="Share screen">
             <span class="dock-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg></span>
             <span class="dock-label sr-only">Share screen</span>
