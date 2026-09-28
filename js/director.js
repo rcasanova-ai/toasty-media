@@ -120,7 +120,7 @@ init().catch((error) => {
 // resolved session's real roomId BEFORE session.start() ever runs, so mountDirectorFrame/presence/etc. all
 // target the right room from the very first frame mount, not a throwaway one that gets swapped out later.
 async function init() {
-  applySelectedBrand();
+  await applySelectedBrand();
   const resolved = await resolveSession({ brandId: session.brandTheme });
   const durableSession = resolved?.session || resolved;
   if (!durableSession?.id) throw new Error("Studio session resolution returned no session.");
@@ -138,6 +138,13 @@ async function init() {
   session.applyDurableSession(durableSession);
   void session.loadProfileEndCard();
   initStudio();
+  // Re-resolve+re-apply AFTER the durable session record is in hand: a direct session link/refresh
+  // (director.html?session=xxx with no ?brand= at all) only gets the real brand from record.brandId here,
+  // not from the URL applySelectedBrand() already ran with above — see applyDurableSession's own comment.
+  // Deliberately explicit rather than relying on session.emit("brand", ...) timing: initStudio() (just
+  // above) is what wires the "brand" listener in the first place, so an emit from inside
+  // applyDurableSession would already have been missed.
+  await applySelectedBrand();
   if (window.parent !== window) {
     window.parent.postMessage({ type: "toasty:studio-ready", surface: "live" }, window.location.origin);
   }
@@ -574,9 +581,9 @@ function updateInviteFields() {
   elements.listenerInvite.value = urls.listener;
 }
 
-function applySelectedBrand() {
+async function applySelectedBrand() {
   elements.brandThemeSelect.value = session.brandTheme;
-  session.applyBrand({
+  await session.applyBrand({
     root: document.body,
     logoImg: elements.studioBrandLogo,
     logoText: elements.studioBrandText,

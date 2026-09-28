@@ -324,8 +324,45 @@ export const BRAND_THEMES = Object.freeze({
 
 export const BRAND_THEME_IDS = Object.freeze(Object.keys(BRAND_THEMES));
 export const BRAND_THEME_VAR_KEYS = Object.freeze(Object.keys(BRAND_THEMES.toasty.vars));
+
+// Organization-owned dynamic brands (a real customer's own BrandProfile — logo/colors layered on a base
+// theme, see scripts/toasty-auth-db.py's brand_profiles table) are addressed as "org:<organizationId>",
+// same convention as the server's ORG_BRAND_ID_PREFIX/isKnownBrandId. Registered at runtime (via
+// registerDynamicTheme, called by js/org-brand.js after fetching the org's BrandProfile) rather than
+// baked into the frozen BRAND_THEMES map above — this is the SAME applyBrandTheme/normalizeBrandTheme
+// pipeline every hardcoded client theme already goes through, not a parallel branding system.
+const DYNAMIC_THEMES = new Map();
+
+export function registerDynamicTheme(theme) {
+  if (theme?.id) DYNAMIC_THEMES.set(theme.id, theme);
+}
+
+export function isDynamicBrandId(themeId) {
+  return typeof themeId === "string" && themeId.startsWith("org:");
+}
+
+// Composes a full theme object (same shape as a BRAND_THEMES entry) from a BrandProfile's baseThemeId +
+// overrides. vars/copy/artwork are deep-merged (base theme's own fields as fallback, overrides layered on
+// top) — everything else is a shallow override. showPoweredBy is ALWAYS forced true: an organization's
+// own brand can customize everything else, but never remove the Toasty attribution.
+export function composeDynamicTheme(id, brandProfile) {
+  const baseId = BRAND_THEMES[brandProfile?.baseThemeId] ? brandProfile.baseThemeId : DEFAULT_BRAND_THEME;
+  const base = BRAND_THEMES[baseId];
+  const overrides = brandProfile?.overrides && typeof brandProfile.overrides === "object" ? brandProfile.overrides : {};
+  return {
+    ...base,
+    ...overrides,
+    id,
+    label: overrides.label || brandProfile?.name || base.label,
+    vars: { ...base.vars, ...(overrides.vars || {}) },
+    copy: { ...base.copy, ...(overrides.copy || {}) },
+    artwork: { ...(base.artwork || {}), ...(overrides.artwork || {}) },
+    showPoweredBy: true
+  };
+}
+
 export function isKnownBrandId(themeId) {
-  return BRAND_THEME_IDS.includes(themeId);
+  return BRAND_THEME_IDS.includes(themeId) || DYNAMIC_THEMES.has(themeId);
 }
 
 const THEME_ALIASES = Object.freeze({
@@ -339,14 +376,28 @@ const THEME_ALIASES = Object.freeze({
 });
 
 export function normalizeBrandTheme(themeId) {
-  const normalized = String(themeId || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const raw = String(themeId || "");
+  // Checked BEFORE the alphanumeric-strip normalization below — organization ids are UUIDs with hyphens
+  // that normalization would mangle, and an unregistered dynamic id must fall through to the default
+  // (never gets treated as "known" just because it looks like one — see isDynamicBrandId's callers, which
+  // decide whether to fetch+register before this is ever called with it).
+  if (DYNAMIC_THEMES.has(raw)) return raw;
+  const normalized = raw.toLowerCase().replace(/[^a-z0-9]/g, "");
   const aliased = THEME_ALIASES[normalized] || normalized;
   return BRAND_THEMES[aliased]?.id || DEFAULT_BRAND_THEME;
 }
 export function getInitialBrandTheme(search = window.location.search, options = {}) {
   const { useStorage = true } = options;
   const fromUrl = new URLSearchParams(search).get("brand");
-  if (fromUrl) return normalizeBrandTheme(fromUrl);
+  if (fromUrl) {
+    // An organization's dynamic brand ("org:<id>") is almost never registered yet at this SYNCHRONOUS
+    // call site (its async fetch+register — see js/org-brand.js — hasn't run). Preserve the raw id rather
+    // than collapsing it to the default theme here; callers that know to resolve it (director/guest/
+    // listener's own applyBrand funnels) get the real id to work with, and normalizeBrandTheme correctly
+    // round-trips it unchanged once ensureOrgTheme has actually registered it.
+    if (isDynamicBrandId(fromUrl)) return fromUrl;
+    return normalizeBrandTheme(fromUrl);
+  }
   if (!useStorage) return DEFAULT_BRAND_THEME;
   try { return normalizeBrandTheme(window.localStorage.getItem(THEME_STORAGE_KEY)); } catch { return DEFAULT_BRAND_THEME; }
 }
@@ -367,7 +418,9 @@ export function populateBrandThemeSelect(select, activeThemeId = DEFAULT_BRAND_T
   select.value=activeId;
 }
 export function applyBrandTheme(themeId, elements = {}) {
-  const theme = BRAND_THEMES[normalizeBrandTheme(themeId)]; const root = elements.root || document.body; root.dataset.brandTheme = theme.id;
+  const resolvedId = normalizeBrandTheme(themeId);
+  const theme = DYNAMIC_THEMES.get(resolvedId) || BRAND_THEMES[resolvedId];
+  const root = elements.root || document.body; root.dataset.brandTheme = theme.id;
   Object.entries(theme.vars).forEach(([property,value])=>root.style.setProperty(property,value));
   applyArtworkTokens(root, theme);
   // Only defaults to Toasty's own flame mark for the toasty theme itself. A client theme with no

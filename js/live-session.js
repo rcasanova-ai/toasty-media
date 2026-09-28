@@ -12,6 +12,7 @@ import {
   normalizeBrandTheme,
   saveBrandTheme,
 } from "./brand-themes.js";
+import { ensureOrgTheme } from "./org-brand.js";
 import {
   MasterProgramRecorder,
   MarkerLog,
@@ -168,7 +169,7 @@ const SESSION_STATUS_POLL_MS = 20000;
 export class LiveSession {
   constructor() {
     this.roomId = getOrCreateRoomId();
-    this.brandTheme = normalizeBrandTheme(getInitialBrandTheme());
+    this.brandTheme = getInitialBrandTheme();
     this.engine = new VideoEngine();
     this.policy = new SessionPolicy();
     // Optional client-private research brief used by focus groups / research interviews / panels.
@@ -676,7 +677,12 @@ export class LiveSession {
     this.scheduleReusableSetupPersist();
   }
 
-  applyBrand(elements) {
+  // Director.html is its own document/module graph (loaded in an iframe by studio-auth.js) — it only ever
+  // gets this.brandTheme as a bare "?brand=" string, never the resolved BrandProfile object the parent
+  // shell already had inline. An organization-locked account's brandId is "org:<id>"; ensureOrgTheme is a
+  // no-op for every other (hardcoded) brand id and for an already-registered dynamic one.
+  async applyBrand(elements) {
+    await ensureOrgTheme(this.brandTheme);
     applyBrandTheme(this.brandTheme, elements);
   }
 
@@ -1046,7 +1052,7 @@ export class LiveSession {
     this.durableSession = record;
     this.roomId = record.roomId;
     this.sessionEndCard = record.endCard || {};
-    if (record.brandId) this.brandTheme = normalizeBrandTheme(record.brandId);
+    if (record.brandId) this.brandTheme = record.brandId;
     this.applyReusableSetup(record.setup);
     this.emit("durable-session", record);
     this.emit("end-card", { sessionEndCard: this.sessionEndCard, profileEndCard: this.profileEndCard });
@@ -1058,7 +1064,7 @@ export class LiveSession {
     if (!hasSetup) return setup;
     this._suppressSetupPersist = true;
     try {
-      if (setup.brandId) this.brandTheme = normalizeBrandTheme(setup.brandId);
+      if (setup.brandId) this.brandTheme = setup.brandId;
       this.policy = new SessionPolicy({ ...setup.policy, sessionType: setup.sessionType });
       this.program.compositionMode = setup.layouts.compositionMode;
       this.program.layout = setup.layouts.layout;

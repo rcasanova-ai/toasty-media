@@ -18,8 +18,18 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 // self-contained file (see js/producer-persona.js) — a relative import of ../js/brand-themes.js would
 // crash Node on that host if the static js/ tree is not sitting next to this script.
 const KNOWN_BRAND_IDS = new Set(["toasty", "8alta", "santati", "optimai", "tangem", "superteam", "peeps", "zenify"]);
+// An organization-owned dynamic brand (a real customer's own BrandProfile) is addressed as
+// "org:<organizationId>" wherever a brand id is otherwise a fixed KNOWN_BRAND_IDS string — same field,
+// same enforcement (branding_forbids_session/session brand lock in toasty-auth-db.py mirrors this exact
+// rule), never a parallel locking mechanism.
+const ORG_BRAND_ID_PREFIX = "org:";
 function isKnownBrandId(themeId) {
-  return KNOWN_BRAND_IDS.has(themeId);
+  if (KNOWN_BRAND_IDS.has(themeId)) return true;
+  return typeof themeId === "string" && themeId.startsWith(ORG_BRAND_ID_PREFIX) && themeId.length > ORG_BRAND_ID_PREFIX.length;
+}
+function organizationIdFromLockedBrand(brandId) {
+  if (typeof brandId === "string" && brandId.startsWith(ORG_BRAND_ID_PREFIX)) return brandId.slice(ORG_BRAND_ID_PREFIX.length);
+  return null;
 }
 
 loadLocalEnv();
@@ -394,7 +404,12 @@ const server = createServer(async (req, res) => {
   if (req.method === "GET" && req.url === "/api/organizations") {
     const session = await requireSession(req, res);
     if (!session) return;
-    const organizations = await ensureDefaultOrganizationForUser(session);
+    let organizations = await ensureDefaultOrganizationForUser(session);
+    // An organization-locked account never sees any organization but its own — "hide other
+    // organizations" is enforced HERE, not just by hiding the org-switcher UI, so every page that
+    // renders this list (dashboard, settings) is correct with no per-page filtering of its own.
+    const lockedOrgId = organizationIdFromLockedBrand(session.branding?.brandId);
+    if (lockedOrgId) organizations = organizations.filter((org) => org.id === lockedOrgId);
     sendJson(req, res, 200, { organizations });
     return;
   }
@@ -469,6 +484,16 @@ const server = createServer(async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
     await handleOrganizationUpdate(req, res, session);
+    return;
+  }
+  // Public/guest-safe — no Toasty account (a Studio guest, Program Output window, or the public
+  // director/dashboard shell before a locked account's session resolves) can still resolve an
+  // organization's active BrandProfile to render it, same precedent as session_get_public above. Must be
+  // registered before the bare GET /api/organizations/:id route below (organizer-authenticated, returns
+  // far more than branding).
+  if (req.method === "GET" && req.url?.startsWith("/api/organizations/") && req.url.endsWith("/brand-profile")) {
+    if (!limit(req, res, "org-brand-profile-get", 120, 60 * 1000)) return;
+    await handleOrganizationBrandProfileGet(req, res);
     return;
   }
   if (req.method === "GET" && req.url?.startsWith("/api/organizations/") && !req.url.includes("/", "/api/organizations/".length)) {
@@ -3164,6 +3189,16 @@ async function guardLastOwner(req, res, organizationId, targetUserId, newRole) {
   return true;
 }
 
+// Public/guest-safe — see this route's own registration comment. Never exposes plan/billing/owner/slug,
+// only what applyBrandTheme (js/brand-themes.js) needs to render: the org's display name plus its active
+// BrandProfile (name/baseThemeId/overrides), or null when the org has none configured yet.
+async function handleOrganizationBrandProfileGet(req, res) {
+  const organizationId = organizationIdFromUrl(req, "/brand-profile");
+  if (!SAFE_ID.test(organizationId)) throw httpError(400, "Invalid organization id.");
+  const result = await db("get_organization_brand_profile", { id: organizationId });
+  sendJson(req, res, 200, { organizationName: result.organizationName, brandProfile: result.brandProfile });
+}
+
 async function handleBrandProfilesList(req, res, session) {
   const organizationId = organizationIdFromUrl(req, "/brand-profiles");
   const membership = await requireMembership(req, res, organizationId, "viewer", session);
@@ -4522,6 +4557,11 @@ function currentPeriodStart(granularity = "day") {
 // Defaults to that user's own (owner) organization when the client doesn't specify one — every existing
 // caller (js/live-session.js doesn't send organizationId yet) keeps working unchanged.
 async function resolveOrganizationForSession(authSession, requestedOrgId) {
+  // An organization-locked account (branding.brandId = "org:<id>") can never end up in any other
+  // organization's session, regardless of what the client requests — same precedent as the legacy
+  // per-brand-id lock's own brandId enforcement, just keyed on organizationId instead.
+  const lockedOrgId = organizationIdFromLockedBrand(authSession.branding?.brandId);
+  if (lockedOrgId) return lockedOrgId;
   if (requestedOrgId) {
     if (!SAFE_ID.test(requestedOrgId)) throw httpError(400, "Invalid organization id.");
     const membership = await db("get_membership", { organizationId: requestedOrgId, userId: authSession.id });
