@@ -26,6 +26,7 @@ export class HostView {
       leaveStudio: root.querySelector("#lvLeaveStudio"),
       guestContext: root.querySelector("#lvGuestContext"),
       guestCount: root.querySelector("#lvGuestCount"),
+      hostIdentity: root.querySelector("#lvTopHost"),
       participantStage: root.querySelector("#lvParticipantStage"),
       hostPanelStatus: root.querySelector("#lvHostPanelStatus"),
       guestPanelStatus: root.querySelector("#lvGuestPanelStatus"),
@@ -78,6 +79,11 @@ export class HostView {
       }
     });
     this.elements.leaveStudio.addEventListener("click", () => this.session.leaveStudio());
+    this.elements.hostIdentity?.addEventListener("click", () => this.editHostIdentity());
+    if (this.elements.hostIdentity) {
+      this.elements.hostIdentity.title = "Edit host name, title and company";
+      this.elements.hostIdentity.style.cursor = "pointer";
+    }
 
     this.session.on("av", (av) => this.renderAv(av));
     this.session.on("screenshare", (s) => this.renderScreenShare(s));
@@ -97,6 +103,17 @@ export class HostView {
     this.initTeleprompter();
     this.initAudience();
     this.initAiProducer();
+  }
+
+  editHostIdentity() {
+    const current = this.session.hostProfile || {};
+    const displayName = window.prompt("Host name", current.displayName || "");
+    if (displayName === null) return;
+    const title = window.prompt("Title", current.title || "");
+    if (title === null) return;
+    const company = window.prompt("Company", current.company || "");
+    if (company === null) return;
+    this.session.updateHostProfile({ displayName, title, company });
   }
 
   renderAv(av) {
@@ -176,6 +193,15 @@ export class HostView {
         roleEl.textContent = `· ${role}`;
         row.appendChild(roleEl);
       }
+      const mic = document.createElement("button");
+      mic.type = "button"; mic.className = "btn btn-ghost btn-small";
+      mic.textContent = seat.mic === false ? "Ask unmute" : "Mute";
+      mic.addEventListener("click", () => this.session.setGuestMic(seat.id, seat.mic === false));
+      const camera = document.createElement("button");
+      camera.type = "button"; camera.className = "btn btn-ghost btn-small";
+      camera.textContent = seat.camera === false ? "Ask camera on" : "Camera off";
+      camera.addEventListener("click", () => this.session.setGuestCamera(seat.id, seat.camera === false));
+      row.append(mic, camera);
       return row;
     }));
   }
