@@ -124,7 +124,7 @@ const GUEST_SEAT_COUNT = 3;
 // silently never connects, and VDO never sends ANY message back — with no timeout that left the share
 // reading as active/BINDING forever.
 const SCREEN_SHARE_CONNECT_TIMEOUT_MS = 15000;
-const PROGRAM_OUTPUT_STALE_MS = 6000;
+const PROGRAM_OUTPUT_STALE_MS = 22000;
 
 function idleProgramOutputState() {
   return {
