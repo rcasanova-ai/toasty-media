@@ -1,0 +1,108 @@
+name: One-time fix — sync Jam nginx routes to render host
+
+# PR #83 added the Peeps Jam lifecycle API (scripts/render-production-server.mjs) and the matching
+# location blocks to scripts/nginx-render.conf.example, but neither deploy-production.yml nor
+# deploy-render-helper.yml ever touches live nginx config (see docs/DEPLOYMENT.md's own warning: a route
+# added to the Node server does nothing in production until nginx has a matching block, and this has
+# bitten an entire feature branch before). This workflow closes that one gap for the Jam routes
+# specifically, via scripts/sync-nginx-jam-routes.py, which derives its patch from the .example file
+# itself (never hardcodes nginx content in this workflow) and fails closed — any ambiguity, and it exits
+# without writing anything. workflow_dispatch only: this is a one-time fix for one specific gap, not a
+# general nginx deploy pipeline, so it never runs on its own.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: toasty-render-helper
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync-nginx:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.TOASTY_RENDER_SSH_PRIVATE_KEY || secrets.TOASTY_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$SSH_PRIVATE_KEY" ]]; then
+            echo "No TOASTY_RENDER_SSH_PRIVATE_KEY or TOASTY_SSH_PRIVATE_KEY secret is set." >&2
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/toasty_render_deploy
+          chmod 600 ~/.ssh/toasty_render_deploy
+          ssh-keyscan -p 22 -H 165.22.57.61 >> ~/.ssh/known_hosts
+
+      - name: Locate the live nginx config file for render.toasty.media
+        id: locate
+        run: |
+          set -euo pipefail
+          scp -P 22 -i ~/.ssh/toasty_render_deploy -o BatchMode=yes scripts/locate-nginx-config.sh "root@165.22.57.61:/tmp/locate-nginx-config.sh"
+          FILE_PATH="$(ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "bash /tmp/locate-nginx-config.sh")"
+          if [[ -z "$FILE_PATH" ]]; then
+            echo "Could not locate the live nginx config file (no file containing the moxie/post-event-suggestions route found via nginx -T)." >&2
+            exit 1
+          fi
+          echo "Found: $FILE_PATH"
+          echo "file_path=$FILE_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Build the merged config locally and verify the patch applies cleanly
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 \
+            "cat '${{ steps.locate.outputs.file_path }}'" > /tmp/live-nginx.conf
+          python3 scripts/sync-nginx-jam-routes.py scripts/nginx-render.conf.example \
+            < /tmp/live-nginx.conf > /tmp/merged-nginx.conf
+          echo "Diff of what will change on the live host:"
+          diff -u /tmp/live-nginx.conf /tmp/merged-nginx.conf || true
+
+      - name: Backup, apply, validate with nginx -t, reload (auto-rollback on any failure)
+        run: |
+          set -euo pipefail
+          STAMP="$(date -u +%Y%m%d-%H%M%S)"
+          REMOTE="${{ steps.locate.outputs.file_path }}"
+          scp -P 22 -i ~/.ssh/toasty_render_deploy -o BatchMode=yes /tmp/merged-nginx.conf "root@165.22.57.61:/tmp/nginx-jam-merge.conf"
+          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "REMOTE='$REMOTE' STAMP='$STAMP' bash -s" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          NGINX_BIN="$(command -v nginx || true)"
+          for candidate in "$NGINX_BIN" /usr/sbin/nginx /usr/bin/nginx /sbin/nginx; do
+            if [[ -n "$candidate" && -x "$candidate" ]]; then NGINX_BIN="$candidate"; break; fi
+          done
+          if [[ -z "$NGINX_BIN" ]]; then echo "No nginx binary found." >&2; exit 1; fi
+          cp -a "$REMOTE" "$REMOTE.bak-$STAMP"
+          cp /tmp/nginx-jam-merge.conf "$REMOTE"
+          if "$NGINX_BIN" -t; then
+            systemctl reload nginx
+            echo "nginx -t passed; reloaded."
+          else
+            echo "nginx -t FAILED — restoring backup, NOT reloading." >&2
+            cp -a "$REMOTE.bak-$STAMP" "$REMOTE"
+            exit 1
+          fi
+          REMOTE_SCRIPT
+
+      - name: Verify — Jam routes now reach the app; existing routes still work
+        run: |
+          set -euo pipefail
+          JAM_STATUS="$(curl -s -o /dev/null -w '%{http_code}' https://render.toasty.media/api/jams)"
+          echo "GET /api/jams -> $JAM_STATUS"
+          if [[ "$JAM_STATUS" == "404" ]]; then
+            echo "Still 404 — nginx did not pick up the new route (or reload didn't take)." >&2
+            exit 1
+          fi
+          ORG_STATUS="$(curl -s -o /dev/null -w '%{http_code}' https://render.toasty.media/api/organizations)"
+          echo "GET /api/organizations (known-good route, regression check) -> $ORG_STATUS"
+          if [[ "$ORG_STATUS" != "401" ]]; then
+            echo "Existing route no longer behaves as expected (${ORG_STATUS}, wanted 401) — possible collateral nginx breakage." >&2
+            exit 1
+          fi
+          curl --fail --silent --show-error https://render.toasty.media/health
+          echo
+          echo "Verification passed."
