@@ -114,6 +114,11 @@ const elements = {
   guestToggleMic: document.querySelector("#guestToggleMic"),
   guestToggleCamera: document.querySelector("#guestToggleCamera"),
   guestFlipCamera: document.querySelector("#guestFlipCamera"),
+  guestDeviceSettings: document.querySelector("#guestDeviceSettings"),
+  guestDevicePanel: document.querySelector("#guestDevicePanel"),
+  guestLiveMicrophone: document.querySelector("#guestLiveMicrophone"),
+  guestLiveSpeaker: document.querySelector("#guestLiveSpeaker"),
+  guestSpeakerSupport: document.querySelector("#guestSpeakerSupport"),
   guestToggleScreen: document.querySelector("#guestToggleScreen"),
   guestEndSession: document.querySelector("#guestEndSession"),
   guestMediaRequest: document.querySelector("#guestMediaRequest"),
@@ -200,6 +205,9 @@ function bindControls() {
   elements.guestToggleMic.addEventListener("click", toggleMic);
   elements.guestToggleCamera.addEventListener("click", toggleCamera);
   elements.guestFlipCamera.addEventListener("click", flipCamera);
+  elements.guestDeviceSettings?.addEventListener("click", toggleDevicePanel);
+  elements.guestLiveMicrophone?.addEventListener("change", changeLiveMicrophone);
+  elements.guestLiveSpeaker?.addEventListener("change", changeLiveSpeaker);
   elements.guestToggleScreen.addEventListener("click", toggleScreen);
   elements.guestEndSession.addEventListener("click", leaveSession);
   elements.guestMediaRequestConfirm?.addEventListener("click", confirmMediaRequest);
@@ -1071,4 +1079,49 @@ function handleVdoMessage(message, source) {
     elements.joinState.textContent = "Host disconnected";
     elements.guestStatus.textContent = "The host connection was lost. Keep this page open if you plan to reconnect.";
   }
+}
+
+
+async function toggleDevicePanel() {
+  const opening = Boolean(elements.guestDevicePanel?.hidden);
+  if (!elements.guestDevicePanel) return;
+  elements.guestDevicePanel.hidden = !opening;
+  elements.guestDeviceSettings?.setAttribute("aria-expanded", String(opening));
+  if (opening) await hydrateLiveAudioDevices();
+}
+
+async function hydrateLiveAudioDevices() {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const inputs = devices.filter((d) => d.kind === "audioinput");
+  const outputs = devices.filter((d) => d.kind === "audiooutput");
+  if (elements.guestLiveMicrophone) {
+    elements.guestLiveMicrophone.replaceChildren(...inputs.map((d, i) => {
+      const o=document.createElement("option"); o.value=String(i); o.textContent=d.label || `Microphone ${i+1}`; return o;
+    }));
+  }
+  if (elements.guestLiveSpeaker) {
+    elements.guestLiveSpeaker.replaceChildren(...outputs.map((d) => {
+      const o=document.createElement("option"); o.value=d.deviceId; o.textContent=d.label || "Speaker"; return o;
+    }));
+    const supported = typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
+    elements.guestLiveSpeaker.disabled = !supported || outputs.length === 0;
+    if (elements.guestSpeakerSupport) elements.guestSpeakerSupport.textContent = supported
+      ? (outputs.length ? "Choose where guest audio plays." : "Your browser did not expose separate audio outputs.")
+      : "Speaker switching is not supported by this browser. Use the device/system audio selector.";
+  }
+}
+
+async function changeLiveMicrophone() {
+  const list = await engine.requestGuestDeviceList();
+  const inputs = list.filter((d) => d.kind === "audioinput");
+  const chosen = inputs[Number(elements.guestLiveMicrophone?.value || 0)];
+  const fullIndex = list.findIndex((d) => d.deviceId === chosen?.deviceId);
+  if (fullIndex >= 0) engine.changeGuestAudioDevice(fullIndex);
+}
+
+async function changeLiveSpeaker() {
+  const sinkId = elements.guestLiveSpeaker?.value;
+  if (!sinkId) return;
+  const media = [...document.querySelectorAll("audio,video")].filter((el) => !el.muted && typeof el.setSinkId === "function");
+  await Promise.allSettled(media.map((el) => el.setSinkId(sinkId)));
 }
