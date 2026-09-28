@@ -60,7 +60,7 @@ export const BRAND_THEMES = Object.freeze({
       conciergePrefix: "8ALTA Studio suggests:"
     }),
     artwork: Object.freeze({
-      backgroundArtwork: "",
+      backgroundArtwork: "https://www.8alta.com/assets/imageglobe2.png",
       backgroundWatermark: "",
       backgroundSilhouette: "",
       brandPattern: "",
