@@ -13,6 +13,7 @@ import { createScreenShareSource, ScreenShareState, screenPublisherEndedMessage 
 import { createAudioActivityMeter, activityFromVdoDetailedState } from "./audio-activity.js";
 import { createTranscriptionProvider } from "./transcription.js";
 import { ParticipantTranscriptionUplink } from "./transcript-event.js";
+import { cleanMicSettings, createCleanMicMeterPair } from "./microphone-capture.js";
 
 const MAX_GUESTS_PER_ROOM = 3;
 
@@ -80,7 +81,8 @@ const state = {
   participantId: `guest-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
   publisher: emptyPublisherSignals(),
   executedCommandIds: new Set(),
-  mediaRequest: null
+  mediaRequest: null,
+  micMeters: null
 };
 
 const engine = new VideoEngine();
@@ -227,6 +229,7 @@ async function startPreview() {
   elements.guestStatus.dataset.error = "false";
   elements.guestStatus.textContent = "Requesting camera preview…";
   try {
+    stopGuestMicMeters();
     state.previewStream = await startDevicePreview({
       videoEl: elements.cameraPreview,
       cameraSelect: elements.cameraSelect,
@@ -234,6 +237,11 @@ async function startPreview() {
       previousStream: state.previewStream,
       friendlyCameraLabels: IS_MOBILE_DEVICE
     });
+    const micTrack = state.previewStream.getAudioTracks()[0];
+    if (micTrack) {
+      console.info("[StudioAudio] actual guest microphone capture", cleanMicSettings(micTrack));
+      startGuestMicMeters(state.previewStream);
+    }
     try {
       await elements.cameraPreview.play();
     } catch (playError) {
@@ -504,9 +512,29 @@ async function flipCamera() {
 function stopPreview() {
   state.activityMeter?.stop?.();
   state.activityMeter = null;
+  stopGuestMicMeters();
   state.previewStream?.getTracks().forEach((track) => track.stop());
   state.previewStream = null;
   if (elements.cameraPreview) elements.cameraPreview.srcObject = null;
+}
+
+function startGuestMicMeters(stream) {
+  stopGuestMicMeters();
+  const samples = {};
+  const debug = new URLSearchParams(window.location.search).get("debugAudio") === "1";
+  state.micMeters = createCleanMicMeterPair(stream, {
+    onSample: (sample) => {
+      samples[sample.label] = sample;
+      window.__toastyCleanMicMeter = { samples, target: sample.target };
+      if (debug) console.debug("[StudioAudioMeter]", sample);
+    }
+  });
+}
+
+function stopGuestMicMeters() {
+  state.micMeters?.pre?.stop?.();
+  state.micMeters?.post?.stop?.();
+  state.micMeters = null;
 }
 
 function releasePreviewVideo() {
@@ -1130,4 +1158,3 @@ async function changeLiveSpeaker() {
   if (!deviceId) return;
   engine.changeGuestAudioOutputDevice(deviceId);
 }
-

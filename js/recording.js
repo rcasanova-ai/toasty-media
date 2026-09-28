@@ -1,3 +1,5 @@
+import { cleanMicAudioConstraint } from "./microphone-capture.js";
+
 const DEFAULT_MIME_TYPES = [
   "video/webm;codecs=vp9,opus",
   "video/webm;codecs=vp8,opus",
@@ -141,13 +143,7 @@ function stopRecorder(recorder) {
 }
 
 function audioDeviceConstraint(deviceId) {
-  const audio = {
-    echoCancellation: { ideal: true },
-    noiseSuppression: { ideal: true },
-    autoGainControl: { ideal: true }
-  };
-  if (deviceId) audio.deviceId = { exact: deviceId };
-  return audio;
+  return cleanMicAudioConstraint(deviceId);
 }
 
 function videoDeviceConstraint(deviceId) {

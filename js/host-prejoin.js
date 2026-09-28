@@ -10,6 +10,7 @@
 // state, not whether this class happens to exist or whether the page has loaded.
 import { startDevicePreview } from "./device-picker.js";
 import { HostState } from "./host-state.js";
+import { cleanMicSettings, createCleanMicMeterPair } from "./microphone-capture.js";
 
 function log(...args) { console.debug("[HostPrejoin]", ...args); }
 
@@ -32,6 +33,7 @@ export class HostPrejoin {
       if (!el) log("MISSING element for key:", key, "— a stale/mismatched director.html would explain a silent init failure");
     }
     this._previewStream = null;
+    this._micMeters = null;
   }
 
   async init() {
@@ -61,16 +63,8 @@ export class HostPrejoin {
       log("preview stream acquired:", this._previewStream.getTracks().map((t) => ({ kind: t.kind, label: t.label, readyState: t.readyState, settings: t.getSettings?.() || {} })));
       const micTrack = this._previewStream.getAudioTracks()[0];
       if (micTrack) {
-        const settings = micTrack.getSettings?.() || {};
-        console.info("[StudioAudio] actual microphone capture", {
-          label: micTrack.label,
-          sampleRate: settings.sampleRate ?? null,
-          channelCount: settings.channelCount ?? null,
-          echoCancellation: settings.echoCancellation ?? null,
-          noiseSuppression: settings.noiseSuppression ?? null,
-          autoGainControl: settings.autoGainControl ?? null,
-          latency: settings.latency ?? null
-        });
+        console.info("[StudioAudio] actual microphone capture", cleanMicSettings(micTrack));
+        this._startMicMeters(this._previewStream);
       }
       try {
         await this.elements.preview.play();
@@ -109,6 +103,7 @@ export class HostPrejoin {
     // second getUserMedia call happens anywhere in this method.
     const previewStream = this._previewStream;
     this._previewStream = null;
+    this._stopMicMeters();
     this.elements.preview.srcObject = null;
     this.session.joinAsHost({
       displayName: this.elements.name.value,
@@ -131,5 +126,24 @@ export class HostPrejoin {
     this.elements.card.hidden = false;
     this.elements.preview.srcObject = null;
     await this.startPreview();
+  }
+
+  _startMicMeters(stream) {
+    this._stopMicMeters();
+    const samples = {};
+    const debug = new URLSearchParams(window.location.search).get("debugAudio") === "1";
+    this._micMeters = createCleanMicMeterPair(stream, {
+      onSample: (sample) => {
+        samples[sample.label] = sample;
+        window.__toastyCleanMicMeter = { samples, target: sample.target };
+        if (debug) console.debug("[StudioAudioMeter]", sample);
+      }
+    });
+  }
+
+  _stopMicMeters() {
+    this._micMeters?.pre?.stop?.();
+    this._micMeters?.post?.stop?.();
+    this._micMeters = null;
   }
 }
