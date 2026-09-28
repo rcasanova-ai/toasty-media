@@ -1091,23 +1091,22 @@ async function toggleDevicePanel() {
 }
 
 async function hydrateLiveAudioDevices() {
-  const devices = await navigator.mediaDevices.enumerateDevices();
+  // Audio playback is inside the cross-origin VDO iframe, so parent-page sink IDs cannot route it.
+  // Query VDO's origin-scoped device list and use its iframe device API for both live selectors.
+  const devices = await engine.requestGuestDeviceList();
   const inputs = devices.filter((d) => d.kind === "audioinput");
   const outputs = devices.filter((d) => d.kind === "audiooutput");
-  if (elements.guestLiveMicrophone) {
-    elements.guestLiveMicrophone.replaceChildren(...inputs.map((d, i) => {
-      const o=document.createElement("option"); o.value=String(i); o.textContent=d.label || `Microphone ${i+1}`; return o;
-    }));
-  }
+  if (elements.guestLiveMicrophone) elements.guestLiveMicrophone.replaceChildren(...inputs.map((d, i) => {
+    const o=document.createElement("option"); o.value=String(i); o.textContent=d.label || `Microphone ${i+1}`; return o;
+  }));
   if (elements.guestLiveSpeaker) {
-    elements.guestLiveSpeaker.replaceChildren(...outputs.map((d) => {
-      const o=document.createElement("option"); o.value=d.deviceId; o.textContent=d.label || "Speaker"; return o;
+    elements.guestLiveSpeaker.replaceChildren(...outputs.map((d, i) => {
+      const o=document.createElement("option"); o.value=d.deviceId || String(i); o.textContent=d.label || `Audio output ${i+1}`; return o;
     }));
-    const supported = typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
-    elements.guestLiveSpeaker.disabled = !supported || outputs.length === 0;
-    if (elements.guestSpeakerSupport) elements.guestSpeakerSupport.textContent = supported
-      ? (outputs.length ? "Choose where guest audio plays." : "Your browser did not expose separate audio outputs.")
-      : "Speaker switching is not supported by this browser. Use the device/system audio selector.";
+    elements.guestLiveSpeaker.disabled = outputs.length === 0;
+    if (elements.guestSpeakerSupport) elements.guestSpeakerSupport.textContent = outputs.length
+      ? "Choose where session audio plays."
+      : "This browser/device does not expose selectable audio outputs. Use the phone or system audio-route control.";
   }
 }
 
@@ -1120,8 +1119,8 @@ async function changeLiveMicrophone() {
 }
 
 async function changeLiveSpeaker() {
-  const sinkId = elements.guestLiveSpeaker?.value;
-  if (!sinkId) return;
-  const media = [...document.querySelectorAll("audio,video")].filter((el) => !el.muted && typeof el.setSinkId === "function");
-  await Promise.allSettled(media.map((el) => el.setSinkId(sinkId)));
+  const deviceId = elements.guestLiveSpeaker?.value;
+  if (!deviceId) return;
+  engine.changeGuestAudioOutputDevice(deviceId);
 }
+
