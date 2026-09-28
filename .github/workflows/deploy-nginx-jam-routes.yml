@@ -45,11 +45,18 @@ jobs:
         run: |
           set -euo pipefail
           scp -P 22 -i ~/.ssh/toasty_render_deploy -o BatchMode=yes scripts/locate-nginx-config.sh "root@165.22.57.61:/tmp/locate-nginx-config.sh"
-          FILE_PATH="$(ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "bash /tmp/locate-nginx-config.sh")"
-          if [[ -z "$FILE_PATH" ]]; then
-            echo "Could not locate the live nginx config file (no file containing the moxie/post-event-suggestions route found via nginx -T)." >&2
+          # DIAG: lines go to stderr (shown directly in this step's log); only a "FOUND:<path>" line, if
+          # any, goes to stdout. set +e around this one call so a non-zero remote exit doesn't trip -e
+          # before we get to print the (already-visible) diagnostics and fail with a clear message.
+          set +e
+          OUTPUT="$(ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "bash /tmp/locate-nginx-config.sh")"
+          STATUS=$?
+          set -e
+          if [[ $STATUS -ne 0 || "$OUTPUT" != FOUND:* ]]; then
+            echo "Could not locate the live nginx config file — see DIAG lines above for what nginx -T actually reported." >&2
             exit 1
           fi
+          FILE_PATH="${OUTPUT#FOUND:}"
           echo "Found: $FILE_PATH"
           echo "file_path=$FILE_PATH" >> "$GITHUB_OUTPUT"
 
