@@ -60,6 +60,7 @@ import { createResearchProvider } from "./hottie-research.js";
 import { ParticipantRegistry, createParticipant, ParticipantRole, ConnectionStatus, SourceKind } from "./participant-registry.js";
 import { HostState } from "./host-state.js";
 import { RoomPresence } from "./room-presence.js";
+import { cleanMicSettings, createCleanMicMeterPair } from "./microphone-capture.js";
 import {
   buildCanonicalState,
   serializeControlParticipant,
@@ -215,6 +216,7 @@ export class LiveSession {
     // actually renders in the visible Host tile now (see _showHostNativeVideo). VDO's director frame is
     // mounted separately, into a hidden transport-only container, and never shown to the product.
     this._hostPreviewStream = null;
+    this._hostCleanMicMeters = null;
     // Canonical participant/source model — see js/participant-registry.js. Populated for the Host below;
     // guest entries are deliberate follow-up work, not part of this pass.
     this.participants = new ParticipantRegistry();
@@ -565,6 +567,7 @@ export class LiveSession {
     this.presence.onRejected((status, errorMessage) => this._handleHostPresenceRejected(status, errorMessage));
     this.presence.start(transportSourceId);
     this._startHostActivityMeter();
+    this._startHostCleanMicMeters();
     // Do NOT feed the Host's live microphone into the Producer/Director ProgramAudioBus.
     // ProgramAudioBus monitors to the local speakers when resumed (for example by soundboard playback).
     // Routing the live Host mic into that graph creates a direct speaker -> mic -> VDO feedback loop.
@@ -1789,6 +1792,30 @@ export class LiveSession {
     });
   }
 
+  _startHostCleanMicMeters() {
+    this._hostCleanMicMeters?.pre?.stop?.();
+    this._hostCleanMicMeters?.post?.stop?.();
+    this._hostCleanMicMeters = null;
+    const micTrack = this._hostPreviewStream?.getAudioTracks?.()[0];
+    if (!micTrack) return;
+    console.info("[StudioAudio] joined Host microphone capture", cleanMicSettings(micTrack));
+    const samples = {};
+    const debug = new URLSearchParams(window.location.search).get("debugAudio") === "1";
+    this._hostCleanMicMeters = createCleanMicMeterPair(this._hostPreviewStream, {
+      onSample: (sample) => {
+        samples[sample.label] = sample;
+        if (typeof window !== "undefined") window.__toastyCleanMicMeter = { samples, target: sample.target };
+        if (debug) console.debug("[StudioAudioMeter]", sample);
+      }
+    });
+  }
+
+  _stopHostCleanMicMeters() {
+    this._hostCleanMicMeters?.pre?.stop?.();
+    this._hostCleanMicMeters?.post?.stop?.();
+    this._hostCleanMicMeters = null;
+  }
+
   // ---- Host's own AV ----
 
   toggleMic() {
@@ -2234,6 +2261,7 @@ export class LiveSession {
     else this._stopRecordingTimer();
     this.stopTranscription();
     this._teardownProgramPreview();
+    this._stopHostCleanMicMeters();
     this._hostPreviewStream?.getTracks().forEach((track) => track.stop());
     this._hostPreviewStream = null;
     this.participants.remove("host");
@@ -2259,6 +2287,7 @@ export class LiveSession {
     this.stopTranscription();
     // VDO's own iframe teardown (disconnectAll above) never touches this — it's a plain getUserMedia
     // stream Toasty owns directly for the native tile, so nothing else will turn the camera light off.
+    this._stopHostCleanMicMeters();
     this._hostPreviewStream?.getTracks().forEach((track) => track.stop());
     this._hostPreviewStream = null;
     this.participants.remove("host");

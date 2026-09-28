@@ -1,3 +1,5 @@
+import { cleanMicAudioConstraint, cleanMicSettings } from "./microphone-capture.js";
+
 // Push-to-talk instruction capture.
 //
 // The physical hold owns recording duration — NOT SpeechRecognition's lifecycle. Real-device testing
@@ -96,14 +98,8 @@ export class PushToTalkCapture {
     this._restartAttempts = 0;
     log("requesting microphone…");
     try {
-      this._micStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: { ideal: true },
-          noiseSuppression: { ideal: true },
-          autoGainControl: { ideal: true }
-        }
-      });
-      log("getUserMedia OK, tracks:", this._micStream.getAudioTracks().map((t) => ({ label: t.label, readyState: t.readyState, muted: t.muted })));
+      this._micStream = await navigator.mediaDevices.getUserMedia({ audio: cleanMicAudioConstraint() });
+      log("getUserMedia OK, tracks:", this._micStream.getAudioTracks().map((t) => ({ ...cleanMicSettings(t), readyState: t.readyState, muted: t.muted })));
     } catch (error) {
       this._held = false;
       log("getUserMedia FAILED", error?.name, error?.message);

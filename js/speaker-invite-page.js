@@ -2,6 +2,7 @@
 import { studioRequest } from "./studio-api.js";
 import { RequiredConsentKey, OptionalConsentKey, requiredConsentKeysFor } from "./consent-policy.js";
 import { computeSpeakerReadiness, ReadinessItem } from "./speaker-readiness.js";
+import { cleanMicAudioConstraint } from "./microphone-capture.js";
 
 const token = new URLSearchParams(window.location.search).get("token") || "";
 const steps = ["stepLoading", "stepError", "stepIntro", "stepProfile", "stepTechCheck", "stepConsent", "stepReady"];
@@ -129,7 +130,7 @@ document.getElementById("runTechCheckBtn").addEventListener("click", async () =>
   let cameraOk = false;
   let micOk = false;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: cleanMicAudioConstraint() });
     cameraOk = stream.getVideoTracks().length > 0;
     micOk = stream.getAudioTracks().length > 0;
     stream.getTracks().forEach((track) => track.stop());

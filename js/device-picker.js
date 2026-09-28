@@ -3,6 +3,7 @@
 // device-selection behavior a guest already has, instead of a second hand-written copy that could quietly
 // drift out of sync: front-camera preference, Camo-camera avoidance, and the loosened-constraint retry
 // all matter just as much for a Mac host as for a phone guest.
+import { cleanMicAudioConstraint } from "./microphone-capture.js";
 
 export async function getUserMediaWithFallback(constraints) {
   try {
@@ -18,19 +19,7 @@ export async function getUserMediaWithFallback(constraints) {
 
 export function deviceConstraint(deviceId, kind) {
   if (kind === "audio") {
-    const audio = {
-      // Studio defaults to clean/pro audio. Headsets and proper microphones should not be
-      // treated like speakerphone inputs; browser speech DSP is the main source of hollow,
-      // metallic/tin-box coloration. Echo handling can be added as an explicit speaker-mode
-      // option later rather than silently degrading every microphone.
-      echoCancellation: { ideal: false },
-      noiseSuppression: { ideal: false },
-      autoGainControl: { ideal: false },
-      channelCount: { ideal: 2 },
-      sampleRate: { ideal: 48000 }
-    };
-    if (deviceId) audio.deviceId = { exact: deviceId };
-    return audio;
+    return cleanMicAudioConstraint(deviceId);
   }
   if (deviceId) return { deviceId: { exact: deviceId } };
   // Before device enumeration has populated the dropdown, there's no deviceId yet — for video, ask for

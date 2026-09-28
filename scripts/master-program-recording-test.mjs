@@ -128,15 +128,10 @@ console.log("\nProgram Renderer capture source is Program Output, not a second c
   assert(recording.includes("InvalidStateError"), "InvalidStateError incident is documented for future readers");
   const startBody = recording.slice(recording.indexOf("async start("), recording.indexOf("async stop("));
   assert(!startBody.includes("composeMasterMediaStream"), "start does not wrap capture tracks in a new MediaStream");
-  // A limiter (buildLimitedRecordingStream) now sits between capture and MediaRecorder — the actual
-  // safety property from the original incident (never re-wrap the SAME getDisplayMedia video+audio
-  // tracks together into a new MediaStream) still holds: only the video track is reused as-is, and the
-  // recorded audio track is always a genuinely new one from a MediaStreamAudioDestinationNode.
-  const limiterBody = recording.slice(recording.indexOf("function buildLimitedRecordingStream"), recording.indexOf("export class MasterProgramRecorder"));
-  assert(limiterBody.includes("capture.getVideoTracks()"), "limiter stream reuses the original video track");
-  assert(!limiterBody.includes("capture.getAudioTracks()") || !limiterBody.includes("new MediaStream([...capture.getVideoTracks(), ...capture.getAudioTracks()"), "limiter never re-wraps both original capture tracks together");
-  assert(limiterBody.includes("createDynamicsCompressor"), "recording audio passes through a limiter before MediaRecorder");
-  assert(startBody.includes("startMasterMediaRecorder(Rec, this.masterStream"), "start records the (video-original, audio-limited) stream, not the raw capture");
+  assert(!recording.includes("createDynamicsCompressor"), "recording does not add Web Audio compression before MediaRecorder");
+  assert(!recording.includes("buildLimitedRecordingStream"), "recording does not synthesize a second processed audio track");
+  assert(startBody.includes("this.masterStream = capture"), "start records the original Program Output capture stream");
+  assert(startBody.includes("startMasterMediaRecorder(Rec, this.masterStream"), "start records the raw Program Output stream");
   assert(startBody.includes("inspectMasterCapture"), "start validates live video and audio tracks before MediaRecorder");
   assert(startBody.includes("startMasterMediaRecorder"), "start uses the fallback MediaRecorder lifecycle");
   assert(recording.includes("ONE") || recording.includes("second compositor") || recording.includes("second visual truth"), "forbids a second visual truth");
@@ -474,8 +469,8 @@ console.log("\nProducer controls are Producer-only; Program Output has no REC ch
   assert(director.includes("lvRecordMarker"), "manual marker control exists");
   assert(producer.includes("STOP RECORDING"), "STOP RECORDING control");
   assert(producer.includes("RECORD PROGRAM"), "RECORD PROGRAM control");
-  assert(producer.includes("last.masterBlob"), "Download Master requires finalized MP4 blob");
-  assert(producer.includes('isMp4 ? "mp4" : "webm"'), "Download Master names the file .mp4 once finalized, .webm otherwise");
+  assert(producer.includes("last.masterBlob"), "Download Recording requires finalized MP4 blob");
+  assert(producer.includes('isMp4 ? "mp4" : "webm"'), "Download Recording names the file .mp4 once finalized, .webm otherwise");
   assert(director.includes("Share tab audio ON"), "recording UX explicitly tells producer to enable tab audio");
   assert(producer.includes("RECORDING ·"), "RECORDING timer status");
   assert(producer.includes("SAVING RECORDING"), "SAVING RECORDING status");
