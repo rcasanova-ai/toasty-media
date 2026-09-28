@@ -5135,6 +5135,17 @@ def main():
         print(json.dumps({"dub": public_dub(row)}))
         return
 
+    if action == "dub_set_display_name":
+        now = utc_now()
+        conn.execute(
+            "UPDATE dubs SET display_name = ?, updated_at = ? WHERE id = ?",
+            (payload.get("displayName") or "", now, payload["id"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM dubs WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"dub": public_dub(row)}))
+        return
+
     if action == "jam_create":
         now = utc_now()
         conn.execute(
