@@ -62,7 +62,12 @@ async function doClaim() {
   statusEl.textContent = "Claiming…";
   statusEl.classList.remove("is-error");
   try {
-    await claimDub(token);
+    const result = await claimDub(token);
+    if (result.doughTransferred > 0) {
+      const amountEl = document.createElement("p");
+      amountEl.textContent = `$${Number(result.doughTransferred).toFixed(2)} in earned Dough is now in your account.`;
+      document.getElementById("stepDone").insertBefore(amountEl, document.getElementById("stepDone").querySelector(".eg-actions"));
+    }
     showStep("stepDone");
   } catch (error) {
     statusEl.textContent = error.message || "Could not claim this Dub.";

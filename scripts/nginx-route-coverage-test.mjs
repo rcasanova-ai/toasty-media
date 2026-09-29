@@ -91,6 +91,7 @@ const PEEPS_JAM_ROUTES = [
   "/api/jam-participants/jampt_abc123/mark-completed",
   "/api/jam-participants/jampt_abc123/mark-eligible",
   "/api/jam-participants/jampt_abc123/mark-paid",
+  "/api/jam-participants/jampt_abc123/compensation",
   "/api/jam-invites/aBcDeF123456",
   "/api/jam-invites/aBcDeF123456/accept",
   "/api/jam-invites/aBcDeF123456/consent",
@@ -113,7 +114,12 @@ const PEEPS_AGENT_ROUTES = [
   "/api/peeps/demo-payments/authorize",
   "/api/dubs/dub_abc123/claim-invite",
   "/api/dub-claims/aBcDeF123456",
-  "/api/dub-claims/aBcDeF123456/claim"
+  "/api/dub-claims/aBcDeF123456/claim",
+  "/api/peeps/dough",
+  "/api/peeps/dough/funding-intents",
+  "/api/peeps/dough/funding-intents/dfi_abc123/confirm",
+  "/api/peeps/dough/withdrawals",
+  "/api/organizations/platform-admin/dough-withdrawals/dwd_abc123/status"
 ];
 
 // Every backend route this list represents, as it's actually registered in render-production-server.mjs

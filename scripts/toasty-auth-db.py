@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import math
 import os
 import sqlite3
 import sys
@@ -1394,6 +1395,24 @@ def migrate(conn):
         )
     """)
 
+    # Real funding confirmation (Stripe webhook for fiat, verified Solana transaction for crypto) needs
+    # somewhere to record what actually happened — a funding intent by itself is never money, only a
+    # provider's own confirmation is. transaction_signature/provider_reference are UNIQUE (when set) so
+    # the exact same Stripe session or on-chain transaction can never fund two different intents, on top
+    # of dough_funding_confirm's own atomic status-claim (see its action below).
+    ensure_columns(conn, "dough_funding_intents", {
+        "transaction_signature": "TEXT",
+        "paid_at": "TEXT",
+        "recipient_wallet": "TEXT",
+        "crypto_amount": "REAL",
+        "asset": "TEXT",
+    })
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_dough_funding_intents_txsig ON dough_funding_intents(transaction_signature) WHERE transaction_signature IS NOT NULL")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_dough_funding_intents_provref ON dough_funding_intents(provider_reference) WHERE provider_reference IS NOT NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dough_funding_intents_user ON dough_funding_intents(user_id, created_at)")
+
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dough_withdrawals_user ON dough_withdrawals(user_id, created_at)")
+
     # ---- Peeps agent-to-human transaction lifecycle ----
     # Request -> agent research -> candidates -> human-authorized introductions -> outreach (reuses the
     # existing jam_participant_invite email flow) -> acceptance -> booking -> Session Planner -> Jam ->
@@ -2504,6 +2523,45 @@ def public_dub(row):
         "userId": row["user_id"],
         "email": row["email"],
         "displayName": row["display_name"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def public_dough_funding_intent(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "userId": row["user_id"],
+        "amount": row["amount"],
+        "currency": row["currency"],
+        "method": row["method"],
+        "provider": row["provider"],
+        "status": row["status"],
+        "providerReference": row["provider_reference"],
+        "transactionSignature": row["transaction_signature"] if _row_has(row, "transaction_signature") else None,
+        "recipientWallet": row["recipient_wallet"] if _row_has(row, "recipient_wallet") else None,
+        "asset": row["asset"] if _row_has(row, "asset") else None,
+        "cryptoAmount": row["crypto_amount"] if _row_has(row, "crypto_amount") else None,
+        "paidAt": row["paid_at"] if _row_has(row, "paid_at") else None,
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def public_dough_withdrawal(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "userId": row["user_id"],
+        "amount": row["amount"],
+        "currency": row["currency"],
+        "method": row["method"],
+        "destination": row["destination"],
+        "status": row["status"],
+        "providerReference": row["provider_reference"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -5819,9 +5877,18 @@ def main():
         subject_id = payload["subjectId"]
         bucket = payload["bucket"]
         direction = payload["direction"]
-        amount = round(float(payload.get("amount") or 0), 6)
-        if amount <= 0 or bucket not in ("spend", "earned") or direction not in ("credit", "debit"):
-            raise ValueError("invalid_dough_entry")
+        raw_amount = payload.get("amount")
+        # Never raise on a malformed amount -- an uncaught exception here exits the python process
+        # non-zero, which the JS side can only surface as a generic 500. A clean {"error": ...} lets
+        # callers turn this into an honest 400 instead. isfinite() also rejects NaN/Infinity, which
+        # float() alone would happily accept from a permissive JSON payload.
+        try:
+            amount = round(float(raw_amount), 2)
+        except (TypeError, ValueError):
+            amount = float("nan")
+        if not math.isfinite(amount) or amount <= 0 or bucket not in ("spend", "earned") or direction not in ("credit", "debit"):
+            print(json.dumps({"posted": False, "error": "invalid_amount"}))
+            return
         now = utc_now()
         conn.execute("INSERT OR IGNORE INTO dough_accounts (subject_type, subject_id, updated_at) VALUES (?, ?, ?)", (subject_type, subject_id, now))
         existing = None
@@ -5862,16 +5929,138 @@ def main():
 
     if action == "dough_funding_intent_create":
         now = utc_now()
-        conn.execute("INSERT INTO dough_funding_intents (id, user_id, amount, currency, method, provider, status, created_at, updated_at) VALUES (?, ?, ?, 'USD', ?, ?, 'pending', ?, ?)", (payload["id"], payload["userId"], payload["amount"], payload["method"], payload.get("provider"), now, now))
+        conn.execute(
+            """
+            INSERT INTO dough_funding_intents (
+              id, user_id, amount, currency, method, provider, status, recipient_wallet, asset,
+              crypto_amount, created_at, updated_at
+            ) VALUES (?, ?, ?, 'USD', ?, ?, 'pending', ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"], payload["userId"], payload["amount"], payload["method"], payload.get("provider"),
+                payload.get("recipientWallet"), payload.get("asset"), payload.get("cryptoAmount"), now, now,
+            ),
+        )
         conn.commit()
-        print(json.dumps({"intent": {"id": payload["id"], "amount": payload["amount"], "currency": "USD", "method": payload["method"], "provider": payload.get("provider"), "status": "pending"}}))
+        print(json.dumps({"intent": public_dough_funding_intent(conn.execute("SELECT * FROM dough_funding_intents WHERE id = ?", (payload["id"],)).fetchone())}))
+        return
+
+    if action == "dough_funding_intent_get":
+        row = conn.execute("SELECT * FROM dough_funding_intents WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"intent": public_dough_funding_intent(row)}))
+        return
+
+    if action == "dough_funding_intent_set_provider_reference":
+        conn.execute("UPDATE dough_funding_intents SET provider_reference = ?, updated_at = ? WHERE id = ?", (payload["providerReference"], utc_now(), payload["id"]))
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    # Turns a funding intent into real, credited Dough — exactly once, no matter how many times a
+    # provider (Stripe webhook retries; a client re-submitting a Solana confirm) calls this. The status
+    # claim (WHERE status != 'paid', rowcount checked) and dough_post's own (kind, referenceId, subject)
+    # uniqueness are two independent idempotency layers over the same operation.
+    if action == "dough_funding_confirm":
+        now = utc_now()
+        row = conn.execute("SELECT * FROM dough_funding_intents WHERE id = ?", (payload["id"],)).fetchone()
+        if not row:
+            print(json.dumps({"ok": False, "error": "not_found"}))
+            return
+        if row["status"] == "paid":
+            print(json.dumps({"ok": True, "alreadyPaid": True, "amount": row["amount"]}))
+            return
+        try:
+            cursor = conn.execute(
+                "UPDATE dough_funding_intents SET status = 'paid', paid_at = ?, provider_reference = COALESCE(?, provider_reference), transaction_signature = ? WHERE id = ? AND status != 'paid'",
+                (now, payload.get("providerReference"), payload.get("transactionSignature"), payload["id"]),
+            )
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            print(json.dumps({"ok": False, "error": "duplicate_reference"}))
+            return
+        if cursor.rowcount != 1:
+            conn.rollback()
+            print(json.dumps({"ok": True, "alreadyPaid": True, "amount": row["amount"]}))
+            return
+        conn.execute("INSERT OR IGNORE INTO dough_accounts (subject_type, subject_id, updated_at) VALUES ('user', ?, ?)", (row["user_id"], now))
+        conn.execute("UPDATE dough_accounts SET spend_balance = spend_balance + ?, updated_at = ? WHERE subject_type = 'user' AND subject_id = ?", (row["amount"], now, row["user_id"]))
+        conn.execute(
+            "INSERT OR IGNORE INTO dough_entries (id, subject_type, subject_id, bucket, direction, amount, kind, reference_id, metadata_json, created_at) VALUES (?, 'user', ?, 'spend', 'credit', ?, 'dough_funding', ?, ?, ?)",
+            ("fund-" + payload["id"], row["user_id"], row["amount"], payload["id"], json.dumps({"method": row["method"], "provider": row["provider"]}), now),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True, "alreadyPaid": False, "amount": row["amount"]}))
         return
 
     if action == "dough_withdrawal_create":
         now = utc_now()
         conn.execute("INSERT INTO dough_withdrawals (id, user_id, amount, currency, method, destination, status, created_at, updated_at) VALUES (?, ?, ?, 'USD', ?, ?, 'requested', ?, ?)", (payload["id"], payload["userId"], payload["amount"], payload["method"], payload.get("destination"), now, now))
         conn.commit()
-        print(json.dumps({"withdrawal": {"id": payload["id"], "amount": payload["amount"], "currency": "USD", "method": payload["method"], "status": "requested"}}))
+        print(json.dumps({"withdrawal": public_dough_withdrawal(conn.execute("SELECT * FROM dough_withdrawals WHERE id = ?", (payload["id"],)).fetchone())}))
+        return
+
+    if action == "dough_withdrawal_get":
+        row = conn.execute("SELECT * FROM dough_withdrawals WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"withdrawal": public_dough_withdrawal(row)}))
+        return
+
+    # Double-click/network-retry guard: an identical request from the same user, still in flight, within
+    # the last few seconds is treated as the SAME withdrawal rather than reserving the money twice. Each
+    # individual debit is still separately balance-checked, so this is about "did the user's one click
+    # become two real requests," not about a balance ever going negative (dough_post already prevents
+    # that on its own).
+    if action == "dough_withdrawal_find_recent":
+        row = conn.execute(
+            "SELECT * FROM dough_withdrawals WHERE user_id = ? AND amount = ? AND method = ? AND destination = ? AND status IN ('requested','processing') AND created_at >= ? ORDER BY created_at DESC LIMIT 1",
+            (payload["userId"], payload["amount"], payload["method"], payload["destination"], payload["sinceIso"]),
+        ).fetchone()
+        print(json.dumps({"withdrawal": public_dough_withdrawal(row) if row else None}))
+        return
+
+    # Withdrawal state machine: requested -> processing -> paid, with failed/reversed reachable from
+    # requested or processing (and reversed reachable even from paid, e.g. a later bank clawback). Only a
+    # transition INTO failed/reversed ever refunds, and it refunds through dough_post with a reference
+    # tied to the withdrawal id, so even calling this twice for the same terminal transition cannot
+    # double-refund (the second call finds an invalid transition and does nothing).
+    if action == "dough_withdrawal_update_status":
+        now = utc_now()
+        row = conn.execute("SELECT * FROM dough_withdrawals WHERE id = ?", (payload["id"],)).fetchone()
+        if not row:
+            print(json.dumps({"ok": False, "error": "not_found"}))
+            return
+        new_status = payload["status"]
+        valid_transitions = {
+            "requested": {"processing", "failed", "reversed", "paid"},
+            "processing": {"paid", "failed", "reversed"},
+            "paid": {"reversed"},
+        }
+        if row["status"] not in valid_transitions or new_status not in valid_transitions[row["status"]]:
+            print(json.dumps({"ok": False, "error": "invalid_transition", "from": row["status"], "to": new_status}))
+            return
+        cursor = conn.execute(
+            "UPDATE dough_withdrawals SET status = ?, provider_reference = COALESCE(?, provider_reference), updated_at = ? WHERE id = ? AND status = ?",
+            (new_status, payload.get("providerReference"), now, payload["id"], row["status"]),
+        )
+        if cursor.rowcount != 1:
+            conn.rollback()
+            print(json.dumps({"ok": False, "error": "conflict"}))
+            return
+        refunded = False
+        if new_status in ("failed", "reversed"):
+            ref_credit = conn.execute(
+                "SELECT id FROM dough_entries WHERE kind = 'withdrawal_refund' AND reference_id = ? AND subject_type = 'user' AND subject_id = ?",
+                ("refund:" + row["id"], row["user_id"]),
+            ).fetchone()
+            if not ref_credit:
+                conn.execute("INSERT OR IGNORE INTO dough_accounts (subject_type, subject_id, updated_at) VALUES ('user', ?, ?)", (row["user_id"], now))
+                conn.execute("UPDATE dough_accounts SET earned_balance = earned_balance + ?, updated_at = ? WHERE subject_type = 'user' AND subject_id = ?", (row["amount"], now, row["user_id"]))
+                conn.execute(
+                    "INSERT INTO dough_entries (id, subject_type, subject_id, bucket, direction, amount, kind, reference_id, metadata_json, created_at) VALUES (?, 'user', ?, 'earned', 'credit', ?, 'withdrawal_refund', ?, ?, ?)",
+                    ("refund:" + row["id"], row["user_id"], row["amount"], "refund:" + row["id"], json.dumps({"withdrawalId": row["id"], "reason": new_status}), now),
+                )
+            refunded = True
+        conn.commit()
+        print(json.dumps({"ok": True, "status": new_status, "refunded": refunded}))
         return
 
     if action == "peeps_request_create":

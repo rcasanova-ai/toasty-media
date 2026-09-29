@@ -17,8 +17,11 @@
   <div class="section-head"><div><span class="eyebrow" id="candidatesEyebrow">Peeps found some people</span><h2 id="candidatesHeading">I found these people. Do you want introductions?</h2></div></div>
   <p class="muted" id="requestSummary"></p>
   <section class="table" id="candidatesTable"></section>
-  <div class="actions" style="margin-top:18px"><button class="btn" id="authorizeBtn">Get introductions</button><span class="muted" id="authorizeHint">Select at least one person above.</span></div>
+  <label class="muted" for="compensationAmount" style="display:block;margin-top:16px">Pay each person who joins (optional)</label>
+  <input class="field" id="compensationAmount" type="number" min="0" step="0.01" placeholder="e.g. 25.00" style="max-width:200px">
+  <div class="actions" style="margin-top:18px"><button class="btn" id="authorizeBtn">Get introductions — $<span id="introCost">0.25</span> Dough</button><span class="muted" id="authorizeHint">Select at least one person above.</span></div>
   <p class="muted" id="authorizeStatus"></p>
+  <p class="muted" id="doughShortfallPrompt" hidden><a class="link" href="./dough.html">Add Dough →</a></p>
 </section>
 
 <section id="stepResult" hidden>
@@ -124,9 +127,11 @@ $("authorizeBtn").addEventListener("click", async () => {
   if (!selected.length) { $("authorizeStatus").textContent = "Select at least one person first."; return; }
   const btn = $("authorizeBtn");
   btn.disabled = true;
+  $("doughShortfallPrompt").hidden = true;
   $("authorizeStatus").textContent = "Authorizing introductions…";
   try {
-    const result = await authorizePeepsIntroductions(request.id, selected);
+    const compensationAmount = Number($("compensationAmount").value) || 0;
+    const result = await authorizePeepsIntroductions(request.id, selected, { compensationAmount });
     introductions = result.introductions;
     const skipped = result.skipped || [];
     $("resultSummary").innerHTML = `
@@ -137,6 +142,7 @@ $("authorizeBtn").addEventListener("click", async () => {
     showStep("stepResult");
   } catch (error) {
     $("authorizeStatus").textContent = error.message || "Could not authorize introductions.";
+    if (error.doughShortfall) $("doughShortfallPrompt").hidden = false;
     btn.disabled = false;
   }
 });

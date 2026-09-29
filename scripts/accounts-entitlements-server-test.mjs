@@ -68,6 +68,14 @@ async function createSession(cookie, roomId) {
 async function main() {
   await waitForHealth();
 
+  // The very first user ever registered against a fresh database auto-bootstraps as platform admin (see
+  // toasty-auth-db.py's founder bootstrap, and scripts/platform-admin-test.mjs which verifies it) — and
+  // enforceSessionQuota() deliberately exempts platform admins from quota checks so founders/operators can
+  // exercise the Planner freely. Absorb that bootstrap slot with a throwaway registration first, so the
+  // actual account under test below is a genuine, unprivileged demo-plan user.
+  const founderDecoy = await jsonFetch("/auth/register", { method: "POST", body: { name: "Founder Decoy", email: "founder-decoy@example.com", password: "password10chars" } });
+  assert(founderDecoy.status === 201, "a throwaway first registration absorbs the platform-admin founder bootstrap");
+
   const user = await jsonFetch("/auth/register", { method: "POST", body: { name: "Demo User", email: "demo@example.com", password: "password10chars" } });
   assert(user.status === 201, "user registers (their auto-created organization defaults to the demo plan)");
 
@@ -86,20 +94,41 @@ async function main() {
   assert(secondAfterEnd.status === 200, "a new session succeeds once the concurrent slot is freed");
   await jsonFetch(`/api/sessions/${secondAfterEnd.data.session.id}/end`, { method: "POST", cookie: user.cookie, body: {} });
 
-  console.log("\nDaily session cap (demo plan: maxSessionsPerDay = 3) — 2 sessions already created above count toward it");
+  console.log("\nDaily session cap (demo plan: maxSessionsPerDay = 20) — 2 sessions already created above count toward it");
   const third = await createSession(user.cookie, "tment0003");
-  assert(third.status === 200, "third session of the day succeeds (day count now 3)");
-  await jsonFetch(`/api/sessions/${third.data.session.id}/end`, { method: "POST", cookie: user.cookie, body: {} });
+  assert(third.status === 200, "third session of the day succeeds");
+  const thirdEnded = await jsonFetch(`/api/sessions/${third.data.session.id}/end`, { method: "POST", cookie: user.cookie, body: {} });
+  assert(thirdEnded.status === 200, "ending the third session succeeds");
 
-  const fourth = await createSession(user.cookie, "tment0004");
-  assert(fourth.status === 402, "a 4th session THE SAME DAY is rejected even though no session is concurrently open");
-  assert(/per day/.test(fourth.data.error), "the daily-cap rejection message is specific, not generic");
+  // Seeding the remaining 17 sessions toward the 20/day cap through 17 more real HTTP round trips would
+  // collide with the SEPARATE per-route rate limit on POST /api/sessions (20 requests / 15 minutes —
+  // scripts/render-production-server.mjs's own `limit(..., "sessions-create", 20, ...)`), which is a
+  // different, tighter mechanism than the plan quota this section is actually testing. Seed the usage
+  // counter directly instead — the same raw-SQL escape hatch this file already uses below for the plan
+  // upgrade check — so this test proves the QUOTA boundary, not the (already-adequate,
+  // separately-enforced) request rate limit.
+  const orgsForQuota = await jsonFetch("/api/organizations", { cookie: user.cookie });
+  const orgIdForQuota = orgsForQuota.data.organizations[0].id;
+  const today = new Date().toISOString().slice(0, 10);
+  sqliteRun(`INSERT INTO usage_counters (organization_id, period_start, sessions_created, updated_at) VALUES ('${orgIdForQuota}', '${today}', 19, '${new Date().toISOString()}') ON CONFLICT(organization_id, period_start) DO UPDATE SET sessions_created = 19`);
+
+  const twentieth = await createSession(user.cookie, "tment0020");
+  assert(twentieth.status === 200, "the 20th session of the day succeeds (day count now exactly at the 20/day limit)");
+  await jsonFetch(`/api/sessions/${twentieth.data.session.id}/end`, { method: "POST", cookie: user.cookie, body: {} });
+
+  const overDailyCap = await createSession(user.cookie, "tment0021");
+  assert(overDailyCap.status === 402, "a 21st session THE SAME DAY is rejected even though no session is concurrently open");
+  assert(/per day/.test(overDailyCap.data.error), "the daily-cap rejection message is specific, not generic");
 
   console.log("\nEntitlements are enforced server-side even against a directly-forged request (no UI involved at all)");
   const forged = await jsonFetch("/api/sessions", { method: "POST", cookie: user.cookie, body: { roomId: "tmentforge", title: "forged", organizationId: undefined } });
   assert(forged.status === 402, "a raw API call with no UI in the loop is rejected exactly the same way — the limit is not a client-side illusion");
 
   console.log("\nUpgrading the plan immediately raises the limit (the check reads the LIVE plan, not a cached value)");
+  // demo and creator share the same maxSessionsPerDay (20) — this check is specifically about the
+  // CONCURRENT cap (demo: 1, creator: 2), so reset today's usage counter the daily-cap check above
+  // deliberately maxed out, rather than let that setup leak into this unrelated assertion.
+  sqliteRun(`UPDATE usage_counters SET sessions_created = 0 WHERE organization_id = '${orgIdForQuota}' AND period_start = '${today}'`);
   const orgs = await jsonFetch("/api/organizations", { cookie: user.cookie });
   const orgId = orgs.data.organizations[0].id;
   sqliteRun(`UPDATE organizations SET plan = 'creator' WHERE id = '${orgId}'`);
