@@ -1702,6 +1702,112 @@ def migrate(conn):
         """
     )
 
+    # ---- Peeps completion -> Breadcrumbs -> Dub -> outcome -> settlement -> matching ----
+    # One completion row per Jam: the durable link request -> introduction -> booking -> Jam -> Studio
+    # session -> participants -> Dubs, holding only facts that really happened.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_completions (
+          id TEXT PRIMARY KEY,
+          jam_id TEXT NOT NULL UNIQUE REFERENCES jams(id) ON DELETE CASCADE,
+          request_id TEXT NOT NULL,
+          organization_id TEXT NOT NULL,
+          studio_session_id TEXT,
+          trigger TEXT NOT NULL DEFAULT '',
+          started_at TEXT,
+          ended_at TEXT,
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          outcome_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    # Private session text. Only ever returned to members of the owning organization; never to matching.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_transcripts (
+          id TEXT PRIMARY KEY,
+          jam_id TEXT NOT NULL REFERENCES jams(id) ON DELETE CASCADE,
+          studio_session_id TEXT,
+          source TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          segments_json TEXT NOT NULL DEFAULT '[]',
+          submitted_by TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_peeps_transcripts_hash ON peeps_transcripts(jam_id, content_hash)")
+    # evidence_class: observed | participant_claim | verified | ai_suggested — never collapsed.
+    # status: proposed | accepted | corrected | rejected | verified
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_breadcrumbs (
+          id TEXT PRIMARY KEY,
+          jam_id TEXT NOT NULL REFERENCES jams(id) ON DELETE CASCADE,
+          request_id TEXT NOT NULL,
+          dub_id TEXT NOT NULL REFERENCES dubs(id),
+          jam_participant_id TEXT,
+          kind TEXT NOT NULL,
+          statement TEXT NOT NULL,
+          corrected_statement TEXT,
+          evidence_class TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'proposed',
+          topics_json TEXT NOT NULL DEFAULT '[]',
+          provenance_json TEXT NOT NULL DEFAULT '{}',
+          fingerprint TEXT NOT NULL,
+          reviewed_by_user_id TEXT,
+          reviewed_at TEXT,
+          corroborated_by_user_id TEXT,
+          corroborated_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_peeps_breadcrumbs_fp ON peeps_breadcrumbs(jam_id, dub_id, fingerprint)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_breadcrumbs_dub ON peeps_breadcrumbs(dub_id, status)")
+    # What a Dub actually shows: only entries the person accepted/corrected (or system-verified facts).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dub_profile_entries (
+          id TEXT PRIMARY KEY,
+          dub_id TEXT NOT NULL REFERENCES dubs(id) ON DELETE CASCADE,
+          breadcrumb_id TEXT NOT NULL UNIQUE,
+          kind TEXT NOT NULL,
+          statement TEXT NOT NULL,
+          evidence_class TEXT NOT NULL,
+          topics_json TEXT NOT NULL DEFAULT '[]',
+          visibility TEXT NOT NULL DEFAULT 'public',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dub_profile_entries_dub ON dub_profile_entries(dub_id)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_settlements (
+          id TEXT PRIMARY KEY,
+          jam_id TEXT NOT NULL,
+          jam_participant_id TEXT NOT NULL UNIQUE,
+          request_id TEXT NOT NULL,
+          payer_user_id TEXT NOT NULL,
+          payee_subject_type TEXT NOT NULL,
+          payee_subject_id TEXT NOT NULL,
+          amount REAL NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          reason TEXT NOT NULL DEFAULT '',
+          available_at_attempt REAL,
+          paid_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_settlements_jam ON peeps_settlements(jam_id)")
+
     bootstrap_stablecorp_brand_lock(conn)
 
     conn.commit()
@@ -3001,6 +3107,51 @@ PEEPS_INTRO_COLUMNS = {
     "contactState": "contact_state_json", "jamParticipantId": "jam_participant_id",
 }
 PEEPS_INTRO_JSON = ("response_json", "availability_json", "preferences_json", "contact_state_json")
+
+
+def public_peeps_breadcrumb(row, include_quote=True):
+    if not row:
+        return None
+    provenance = _json_or(row["provenance_json"], {})
+    if not include_quote:
+        provenance = {k: v for k, v in provenance.items() if k != "quote"}
+    return {
+        "id": row["id"], "jamId": row["jam_id"], "requestId": row["request_id"], "dubId": row["dub_id"],
+        "jamParticipantId": row["jam_participant_id"], "kind": row["kind"], "statement": row["statement"],
+        "correctedStatement": row["corrected_statement"], "evidenceClass": row["evidence_class"], "status": row["status"],
+        "topics": _json_or(row["topics_json"], []), "provenance": provenance, "reviewedAt": row["reviewed_at"],
+        "corroboratedAt": row["corroborated_at"], "createdAt": row["created_at"], "updatedAt": row["updated_at"],
+    }
+
+
+def public_peeps_completion(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"], "jamId": row["jam_id"], "requestId": row["request_id"], "organizationId": row["organization_id"],
+        "studioSessionId": row["studio_session_id"], "trigger": row["trigger"], "startedAt": row["started_at"],
+        "endedAt": row["ended_at"], "metadata": _json_or(row["metadata_json"], {}), "outcome": _json_or(row["outcome_json"], {}),
+        "createdAt": row["created_at"], "updatedAt": row["updated_at"],
+    }
+
+
+def public_peeps_settlement(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"], "jamId": row["jam_id"], "jamParticipantId": row["jam_participant_id"], "requestId": row["request_id"],
+        "payerUserId": row["payer_user_id"], "payeeSubjectType": row["payee_subject_type"], "payeeSubjectId": row["payee_subject_id"],
+        "amount": row["amount"], "status": row["status"], "reason": row["reason"], "availableAtAttempt": row["available_at_attempt"],
+        "paidAt": row["paid_at"], "createdAt": row["created_at"], "updatedAt": row["updated_at"],
+    }
+
+
+def public_dub_entry(row):
+    return {
+        "id": row["id"], "dubId": row["dub_id"], "breadcrumbId": row["breadcrumb_id"], "kind": row["kind"],
+        "statement": row["statement"], "evidenceClass": row["evidence_class"], "topics": _json_or(row["topics_json"], []),
+        "visibility": row["visibility"], "createdAt": row["created_at"],
+    }
 
 
 def session_brand_for_room(conn, room_id):
@@ -6955,6 +7106,225 @@ def main():
         )
         conn.commit()
         print(json.dumps({"ok": True}))
+        return
+
+    # ---- Peeps completion / Breadcrumbs / Dub / settlement ----
+
+    if action == "peeps_completion_upsert":
+        now = utc_now()
+        existing = conn.execute("SELECT * FROM peeps_completions WHERE jam_id = ?", (payload["jamId"],)).fetchone()
+        if existing:
+            # started/ended/metadata refresh as more real data arrives; the row itself is never duplicated.
+            conn.execute(
+                "UPDATE peeps_completions SET studio_session_id = COALESCE(?, studio_session_id), started_at = COALESCE(?, started_at), ended_at = COALESCE(?, ended_at), metadata_json = ?, updated_at = ? WHERE jam_id = ?",
+                (payload.get("studioSessionId"), payload.get("startedAt"), payload.get("endedAt"), json.dumps(payload.get("metadata") or {}), now, payload["jamId"]),
+            )
+            created = False
+        else:
+            conn.execute(
+                "INSERT INTO peeps_completions (id, jam_id, request_id, organization_id, studio_session_id, trigger, started_at, ended_at, metadata_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (payload["id"], payload["jamId"], payload["requestId"], payload["organizationId"], payload.get("studioSessionId"), payload.get("trigger") or "", payload.get("startedAt"), payload.get("endedAt"), json.dumps(payload.get("metadata") or {}), now, now),
+            )
+            created = True
+        conn.commit()
+        row = conn.execute("SELECT * FROM peeps_completions WHERE jam_id = ?", (payload["jamId"],)).fetchone()
+        print(json.dumps({"created": created, "completion": public_peeps_completion(row)}))
+        return
+
+    if action == "peeps_completion_get":
+        if payload.get("jamId"):
+            row = conn.execute("SELECT * FROM peeps_completions WHERE jam_id = ?", (payload["jamId"],)).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM peeps_completions WHERE request_id = ?", (payload["requestId"],)).fetchone()
+        print(json.dumps({"completion": public_peeps_completion(row)}))
+        return
+
+    if action == "peeps_completion_set_outcome":
+        conn.execute("UPDATE peeps_completions SET outcome_json = ?, updated_at = ? WHERE jam_id = ?", (json.dumps(payload.get("outcome") or {}), utc_now(), payload["jamId"]))
+        conn.commit()
+        row = conn.execute("SELECT * FROM peeps_completions WHERE jam_id = ?", (payload["jamId"],)).fetchone()
+        print(json.dumps({"completion": public_peeps_completion(row)}))
+        return
+
+    if action == "peeps_transcript_create":
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO peeps_transcripts (id, jam_id, studio_session_id, source, content_hash, segments_json, submitted_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (payload["id"], payload["jamId"], payload.get("studioSessionId"), payload["source"], payload["contentHash"], json.dumps(payload.get("segments") or []), payload.get("submittedBy") or "", utc_now()),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM peeps_transcripts WHERE jam_id = ? AND content_hash = ?", (payload["jamId"], payload["contentHash"])).fetchone()
+        print(json.dumps({"created": cursor.rowcount == 1, "transcript": {"id": row["id"], "jamId": row["jam_id"], "source": row["source"], "segments": _json_or(row["segments_json"], []), "createdAt": row["created_at"]}}))
+        return
+
+    if action == "peeps_transcript_list":
+        rows = conn.execute("SELECT * FROM peeps_transcripts WHERE jam_id = ? ORDER BY created_at ASC", (payload["jamId"],)).fetchall()
+        include = bool(payload.get("includeSegments"))
+        print(json.dumps({"transcripts": [{"id": r["id"], "jamId": r["jam_id"], "source": r["source"], "segmentCount": len(_json_or(r["segments_json"], [])), "createdAt": r["created_at"], **({"segments": _json_or(r["segments_json"], [])} if include else {})} for r in rows]}))
+        return
+
+    if action == "peeps_breadcrumb_create":
+        now = utc_now()
+        cursor = conn.execute(
+            """
+            INSERT OR IGNORE INTO peeps_breadcrumbs (
+              id, jam_id, request_id, dub_id, jam_participant_id, kind, statement, evidence_class, status,
+              topics_json, provenance_json, fingerprint, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"], payload["jamId"], payload["requestId"], payload["dubId"], payload.get("jamParticipantId"),
+                payload["kind"], payload["statement"], payload["evidenceClass"], payload.get("status") or "proposed",
+                json.dumps(payload.get("topics") or []), json.dumps(payload.get("provenance") or {}), payload["fingerprint"], now, now,
+            ),
+        )
+        conn.commit()
+        print(json.dumps({"created": cursor.rowcount == 1}))
+        return
+
+    if action == "peeps_breadcrumb_get":
+        row = conn.execute("SELECT * FROM peeps_breadcrumbs WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"breadcrumb": public_peeps_breadcrumb(row)}))
+        return
+
+    if action == "peeps_breadcrumb_list":
+        if payload.get("jamId"):
+            rows = conn.execute("SELECT * FROM peeps_breadcrumbs WHERE jam_id = ? ORDER BY created_at ASC", (payload["jamId"],)).fetchall()
+        elif payload.get("dubIds"):
+            ids = payload["dubIds"]
+            rows = conn.execute(f"SELECT * FROM peeps_breadcrumbs WHERE dub_id IN ({','.join('?' for _ in ids)}) ORDER BY created_at ASC", ids).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM peeps_breadcrumbs WHERE dub_id = ? ORDER BY created_at ASC", (payload["dubId"],)).fetchall()
+        print(json.dumps({"breadcrumbs": [public_peeps_breadcrumb(r) for r in rows]}))
+        return
+
+    if action == "peeps_breadcrumb_review":
+        # Compare-and-set on the review status so a double-click can't apply twice.
+        now = utc_now()
+        fields = payload.get("fields") or {}
+        row = conn.execute("SELECT * FROM peeps_breadcrumbs WHERE id = ?", (payload["id"],)).fetchone()
+        if not row:
+            print(json.dumps({"updated": False, "breadcrumb": None}))
+            return
+        expect = payload.get("expectStatuses")
+        if expect and row["status"] not in expect:
+            print(json.dumps({"updated": False, "breadcrumb": public_peeps_breadcrumb(row)}))
+            return
+        conn.execute(
+            """
+            UPDATE peeps_breadcrumbs SET status = COALESCE(?, status), corrected_statement = COALESCE(?, corrected_statement),
+              evidence_class = COALESCE(?, evidence_class), reviewed_by_user_id = COALESCE(?, reviewed_by_user_id),
+              reviewed_at = COALESCE(?, reviewed_at), corroborated_by_user_id = COALESCE(?, corroborated_by_user_id),
+              corroborated_at = COALESCE(?, corroborated_at), topics_json = COALESCE(?, topics_json), updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                fields.get("status"), fields.get("correctedStatement"), fields.get("evidenceClass"), fields.get("reviewedByUserId"),
+                now if fields.get("reviewed") else None, fields.get("corroboratedByUserId"), now if fields.get("corroborated") else None,
+                json.dumps(fields["topics"]) if "topics" in fields else None, now, payload["id"],
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM peeps_breadcrumbs WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"updated": True, "breadcrumb": public_peeps_breadcrumb(row)}))
+        return
+
+    if action == "dub_entry_upsert":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO dub_profile_entries (id, dub_id, breadcrumb_id, kind, statement, evidence_class, topics_json, visibility, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(breadcrumb_id) DO UPDATE SET statement = excluded.statement, evidence_class = excluded.evidence_class,
+              topics_json = excluded.topics_json, visibility = excluded.visibility, updated_at = excluded.updated_at
+            """,
+            (payload["id"], payload["dubId"], payload["breadcrumbId"], payload["kind"], payload["statement"], payload["evidenceClass"], json.dumps(payload.get("topics") or []), payload.get("visibility") or "public", now, now),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "dub_entry_delete":
+        conn.execute("DELETE FROM dub_profile_entries WHERE breadcrumb_id = ?", (payload["breadcrumbId"],))
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "dub_entry_list":
+        ids = payload["dubIds"]
+        rows = conn.execute(f"SELECT * FROM dub_profile_entries WHERE dub_id IN ({','.join('?' for _ in ids)}) ORDER BY created_at ASC", ids).fetchall() if ids else []
+        print(json.dumps({"entries": [public_dub_entry(r) for r in rows]}))
+        return
+
+    if action == "dub_list_by_user":
+        rows = conn.execute("SELECT * FROM dubs WHERE user_id = ?", (payload["userId"],)).fetchall()
+        print(json.dumps({"dubs": [public_dub(r) for r in rows]}))
+        return
+
+    if action == "peeps_network_dubs":
+        # Claimed Dubs (the person owns their profile) with at least one public, accepted entry: the only
+        # people who can surface to organizations OTHER than the one they met, and only through the entries
+        # they approved — never through a transcript.
+        rows = conn.execute(
+            """
+            SELECT DISTINCT d.* FROM dubs d JOIN dub_profile_entries e ON e.dub_id = d.id
+            WHERE d.user_id IS NOT NULL AND e.visibility = 'public' ORDER BY d.updated_at DESC LIMIT 200
+            """
+        ).fetchall()
+        print(json.dumps({"dubs": [public_dub(r) for r in rows]}))
+        return
+
+    if action == "peeps_settlement_list":
+        rows = conn.execute("SELECT * FROM peeps_settlements WHERE jam_id = ? ORDER BY created_at ASC", (payload["jamId"],)).fetchall()
+        print(json.dumps({"settlements": [public_peeps_settlement(r) for r in rows]}))
+        return
+
+    if action == "peeps_settlement_transfer":
+        # ONE transaction: settlement row + payer debit + payee credit. A Dough credit can never exist
+        # without the matching debit, a retry can never move money twice, and "paid" is only written after
+        # both ledger entries are committed.
+        now = utc_now()
+        amount = round(float(payload["amount"]), 2)
+        if not math.isfinite(amount) or amount <= 0:
+            print(json.dumps({"status": "invalid_amount"}))
+            return
+        pid = payload["jamParticipantId"]
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM peeps_settlements WHERE jam_participant_id = ?", (pid,)).fetchone()
+            if row and row["status"] == "paid":
+                conn.rollback()
+                print(json.dumps({"status": "already_paid", "settlement": public_peeps_settlement(row)}))
+                return
+            if not row:
+                conn.execute(
+                    "INSERT INTO peeps_settlements (id, jam_id, jam_participant_id, request_id, payer_user_id, payee_subject_type, payee_subject_id, amount, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
+                    (payload["id"], payload["jamId"], pid, payload["requestId"], payload["payerUserId"], payload["payeeSubjectType"], payload["payeeSubjectId"], amount, now, now),
+                )
+            else:
+                # The payee may have claimed their Dub since the last attempt; always pay the current owner.
+                conn.execute("UPDATE peeps_settlements SET payee_subject_type = ?, payee_subject_id = ?, amount = ? WHERE jam_participant_id = ?", (payload["payeeSubjectType"], payload["payeeSubjectId"], amount, pid))
+            conn.execute("INSERT OR IGNORE INTO dough_accounts (subject_type, subject_id, updated_at) VALUES ('user', ?, ?)", (payload["payerUserId"], now))
+            conn.execute("INSERT OR IGNORE INTO dough_accounts (subject_type, subject_id, updated_at) VALUES (?, ?, ?)", (payload["payeeSubjectType"], payload["payeeSubjectId"], now))
+            payer = conn.execute("SELECT * FROM dough_accounts WHERE subject_type = 'user' AND subject_id = ?", (payload["payerUserId"],)).fetchone()
+            available = float(payer["spend_balance"] or 0)
+            if available + 1e-9 < amount:
+                conn.execute("UPDATE peeps_settlements SET status = 'pending', reason = 'requester_funding_required', available_at_attempt = ?, updated_at = ? WHERE jam_participant_id = ?", (available, now, pid))
+                conn.commit()
+                row = conn.execute("SELECT * FROM peeps_settlements WHERE jam_participant_id = ?", (pid,)).fetchone()
+                print(json.dumps({"status": "insufficient", "available": available, "shortfall": round(amount - available, 2), "settlement": public_peeps_settlement(row)}))
+                return
+            conn.execute("UPDATE dough_accounts SET spend_balance = spend_balance - ?, updated_at = ? WHERE subject_type = 'user' AND subject_id = ?", (amount, now, payload["payerUserId"]))
+            conn.execute("UPDATE dough_accounts SET earned_balance = earned_balance + ?, updated_at = ? WHERE subject_type = ? AND subject_id = ?", (amount, now, payload["payeeSubjectType"], payload["payeeSubjectId"]))
+            conn.execute("INSERT INTO dough_entries (id, subject_type, subject_id, bucket, direction, amount, kind, reference_id, status, metadata_json, created_at) VALUES (?, 'user', ?, 'spend', 'debit', ?, 'peeps_settlement_out', ?, 'posted', ?, ?)", (payload["debitEntryId"], payload["payerUserId"], amount, "settle-out:" + pid, json.dumps({"jamId": payload["jamId"], "jamParticipantId": pid}), now))
+            conn.execute("INSERT INTO dough_entries (id, subject_type, subject_id, bucket, direction, amount, kind, reference_id, status, metadata_json, created_at) VALUES (?, ?, ?, 'earned', 'credit', ?, 'jam_earning', ?, 'posted', ?, ?)", (payload["creditEntryId"], payload["payeeSubjectType"], payload["payeeSubjectId"], amount, "settle-in:" + pid, json.dumps({"jamId": payload["jamId"], "jamParticipantId": pid}), now))
+            conn.execute("UPDATE peeps_settlements SET status = 'paid', reason = '', paid_at = ?, updated_at = ? WHERE jam_participant_id = ?", (now, now, pid))
+            conn.commit()
+        except sqlite3.OperationalError:
+            conn.rollback()
+            print(json.dumps({"status": "busy"}))
+            return
+        row = conn.execute("SELECT * FROM peeps_settlements WHERE jam_participant_id = ?", (pid,)).fetchone()
+        print(json.dumps({"status": "paid", "settlement": public_peeps_settlement(row)}))
         return
 
     # ---- Dub claim (section 27) ----

@@ -65,6 +65,8 @@ jobs:
           set -euo pipefail
           node scripts/peeps-agent-lifecycle-server-test.mjs
           node scripts/peeps-introduction-execution-server-test.mjs
+          node scripts/peeps-post-session-server-test.mjs
+          node scripts/dough-money-loop-server-test.mjs
 
       - name: Configure SSH
         env:
