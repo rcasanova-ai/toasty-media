@@ -28,11 +28,19 @@ async function init(){
     state.status=pair[0];state.organizations=pair[1].organizations||[];
     const requested=new URLSearchParams(location.search).get("org");
     state.organizationId=state.organizations.some(o=>o.id===requested)?requested:(state.organizations[0]?.id||null);
-    renderSwitcher();bindStatic();
+    renderSwitcher();bindStatic();renderOrganizationDirectory();
     if(!state.organizationId)throw new Error("No organizations exist yet.");
     await loadDetail();
     $("platformLoading").hidden=true;$("platformApp").hidden=false;
   }catch(error){$("platformLoading").innerHTML="<h2>Platform Admin unavailable</h2><p class='hint'>"+esc(error.message)+"</p>";}
+}
+
+function renderOrganizationDirectory(){
+  const root=$("paOrganizationDirectory");if(!root)return;
+  const q=($("paOrgSearch")?.value||"").trim().toLowerCase();
+  const items=state.organizations.filter(o=>!q||[o.name,o.slug,o.plan,o.subscriptionStatus].some(v=>String(v||"").toLowerCase().includes(q)));
+  root.innerHTML=items.map(o=>'<button class="platform-org-card '+(o.id===state.organizationId?'is-selected':'')+'" data-open-org="'+esc(o.id)+'" type="button"><span><strong>'+esc(o.name||"Organization")+'</strong><small>'+esc(o.slug||o.id)+'</small></span><span class="platform-org-card-meta">'+esc(human(o.plan))+' · '+esc(human(o.subscriptionStatus||"none"))+'</span></button>').join("")||'<p class="hint">No matching organizations.</p>';
+  root.querySelectorAll("[data-open-org]").forEach(btn=>btn.onclick=async()=>{state.organizationId=btn.dataset.openOrg;const url=new URL(location.href);url.searchParams.set("org",state.organizationId);history.replaceState({},"",url);renderSwitcher();await loadDetail();});
 }
 
 function renderSwitcher(){
@@ -43,6 +51,7 @@ function renderSwitcher(){
     const url=new URL(location.href);url.searchParams.set("org",state.organizationId);history.replaceState({},"",url);
     await loadDetail();
   };
+  renderOrganizationDirectory();
 }
 
 function bindStatic(){
@@ -50,6 +59,7 @@ function bindStatic(){
   $("paSaveAccount").onclick=saveAccountControls;$("paResetUsage").onclick=resetUsage;$("paSaveOrg").onclick=saveOrganization;
   $("paSaveDefaults").onclick=saveDefaults;$("paSaveBilling").onclick=saveBilling;$("paNewBrand").onclick=()=>renderBrandEditor(null,true);
   $("paInviteMember").onclick=inviteMember;$("paSaveAiKey").onclick=saveAiKey;
+  $("paOrgSearch")?.addEventListener("input",renderOrganizationDirectory);
 }
 
 function selectPanel(panel){
@@ -61,7 +71,7 @@ function selectPanel(panel){
 async function loadDetail(){
   setMessage("Loading organization…");
   state.detail=await studioRequest(orgPath("/detail"));
-  setMessage("");renderAll();
+  setMessage("");renderAll();renderOrganizationDirectory();
 }
 
 function renderAll(){
@@ -205,7 +215,7 @@ async function resetUsage(){if(!confirm("Reset every usage counter for this orga
 async function saveOrganization(){try{setMessage("Saving organization…");await post(orgPath("/basics"),{name:$("paOrgName").value,slug:$("paOrgSlug").value});await post(orgPath("/settings"),{websiteUrl:$("paWebsite").value,bookingUrl:$("paBooking").value,supportEmail:$("paSupportEmail").value,timezone:$("paTimezone").value});await refreshOrganizations();await loadDetail();setMessage("Organization updated.");}catch(e){setMessage(e.message,true);}}
 async function saveDefaults(){try{await post(orgPath("/settings"),{defaultSessionSettings:parseJson("paDefaultSession"),defaultCTA:parseJson("paDefaultCTA"),defaultEndCard:parseJson("paDefaultEndCard"),socialLinks:parseJson("paSocialLinks"),customDomainConfig:parseJson("paDomainConfig")});await loadDetail();setMessage("Organization defaults updated.");}catch(e){setMessage(e.message,true);}}
 async function saveBilling(){try{await post(orgPath("/billing-account"),{billingEmail:$("paBillingEmail").value,currency:$("paCurrency").value,preferredPaymentMethod:$("paPaymentMethod").value});await loadDetail();setMessage("Billing account updated.");}catch(e){setMessage(e.message,true);}}
-async function refreshOrganizations(){const orgs=await studioRequest("/api/organizations/platform-admin/organizations");state.organizations=orgs.organizations||[];renderSwitcher();}
+async function refreshOrganizations(){const orgs=await studioRequest("/api/organizations/platform-admin/organizations");state.organizations=orgs.organizations||[];renderSwitcher();renderOrganizationDirectory();}
 
 
 async function inviteMember(){

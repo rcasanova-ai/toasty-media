@@ -45,6 +45,13 @@
         <p id="platformMessage" class="settings-message" role="status"></p>
 
         <section class="platform-panel is-active" data-panel-view="overview">
+          <div class="settings-card platform-customer-directory">
+            <div class="panel-heading">
+              <div><h2>Customers & organizations</h2><p class="hint">Select any customer to inspect and manage their Studio configuration.</p></div>
+              <input id="paOrgSearch" type="search" placeholder="Search customers…" aria-label="Search customers">
+            </div>
+            <div id="paOrganizationDirectory" class="platform-org-directory"></div>
+          </div>
           <div id="platformStatus" class="usage-grid"></div>
           <div class="settings-card">
             <h2>Account controls</h2>
