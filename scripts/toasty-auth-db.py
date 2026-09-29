@@ -1335,6 +1335,109 @@ def migrate(conn):
     ensure_columns(conn, "live_sessions", {"jam_id": "TEXT REFERENCES jams(id)"})
     conn.execute("CREATE INDEX IF NOT EXISTS idx_live_sessions_jam ON live_sessions(jam_id)")
 
+    # ---- Peeps agent-to-human transaction lifecycle ----
+    # Request -> agent research -> candidates -> human-authorized introductions -> outreach (reuses the
+    # existing jam_participant_invite email flow) -> acceptance -> booking -> Session Planner -> Jam ->
+    # Studio -> settlement -> Breadcrumbs -> Dub claim. Additive only: everything downstream of
+    # "authorize introductions" reuses jams/jam_participants/jam_participant_invites/jam_events/dubs/
+    # payments as-is (see handlePeepsRequestAuthorize in render-production-server.mjs) rather than
+    # duplicating them — a Jam IS the booking record once scheduled_at is set, jam_events IS the
+    # Breadcrumb ledger, payments IS the settlement ledger.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_requests (
+          id TEXT PRIMARY KEY,
+          organization_id TEXT NOT NULL REFERENCES organizations(id),
+          created_by_user_id TEXT NOT NULL REFERENCES users(id),
+          who_text TEXT NOT NULL,
+          outcome_text TEXT NOT NULL,
+          working_representation_json TEXT NOT NULL DEFAULT '{}',
+          status TEXT NOT NULL DEFAULT 'researching',
+          jam_id TEXT REFERENCES jams(id),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_requests_org ON peeps_requests(organization_id, created_at)")
+
+    # One resolver pass's output for a request. source/reachability are the two axes section 5 of the
+    # brief insists stay separate: a strong match with no legitimate outreach path is not an actionable
+    # result, so reachability is tracked independently of match_score/rank.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_candidates (
+          id TEXT PRIMARY KEY,
+          request_id TEXT NOT NULL REFERENCES peeps_requests(id) ON DELETE CASCADE,
+          dub_id TEXT REFERENCES dubs(id),
+          source TEXT NOT NULL,
+          display_name TEXT NOT NULL DEFAULT '',
+          headline TEXT NOT NULL DEFAULT '',
+          evidence_json TEXT NOT NULL DEFAULT '[]',
+          match_reason TEXT NOT NULL DEFAULT '',
+          match_score REAL NOT NULL DEFAULT 0,
+          reachability TEXT NOT NULL DEFAULT 'unreachable',
+          contact_email TEXT,
+          rank INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'proposed',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_candidates_request ON peeps_candidates(request_id, rank)")
+
+    # The durable record of the human decision point (section 10) through outreach/acceptance. Status is
+    # partly derived at read time from the linked jam_participant's own status (see public_peeps_introduction
+    # in render-production-server.mjs) rather than duplicated here, so the two can never drift out of sync.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_introductions (
+          id TEXT PRIMARY KEY,
+          request_id TEXT NOT NULL REFERENCES peeps_requests(id) ON DELETE CASCADE,
+          candidate_id TEXT NOT NULL REFERENCES peeps_candidates(id),
+          dub_id TEXT NOT NULL REFERENCES dubs(id),
+          jam_id TEXT REFERENCES jams(id),
+          jam_participant_id TEXT REFERENCES jam_participants(id),
+          status TEXT NOT NULL DEFAULT 'authorized',
+          authorized_at TEXT,
+          authorized_by_user_id TEXT REFERENCES users(id),
+          outreach_sent_at TEXT,
+          decline_reason TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_introductions_request ON peeps_introductions(request_id)")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_peeps_introductions_candidate ON peeps_introductions(candidate_id)")
+
+    # Section 27 — invite an externally-discovered/unclaimed Dub to claim their identity after a real
+    # interaction. Same hash-only-token precedent as speaker_invites/jam_participant_invites.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dub_claim_invites (
+          id TEXT PRIMARY KEY,
+          dub_id TEXT NOT NULL REFERENCES dubs(id) ON DELETE CASCADE,
+          token_hash TEXT NOT NULL UNIQUE,
+          expires_at TEXT NOT NULL,
+          claimed_at TEXT,
+          claimed_by_user_id TEXT REFERENCES users(id),
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dub_claim_invites_dub ON dub_claim_invites(dub_id)")
+
+    # Booking = a Jam with a resolved time. cancellation_policy_json is read, never hardcoded penalty
+    # logic (section 18) — {lateCancellationHours, noShowHandling, replacement} with sane defaults applied
+    # by the server when absent, never baked into a migration.
+    ensure_columns(conn, "jams", {
+        "scheduled_at": "TEXT",
+        "timezone": "TEXT NOT NULL DEFAULT ''",
+        "cancellation_policy_json": "TEXT NOT NULL DEFAULT '{}'"
+    })
+
     bootstrap_stablecorp_brand_lock(conn)
 
     conn.commit()
@@ -2363,6 +2466,9 @@ def public_jam(row):
         "status": row["status"],
         "studioSessionId": row["studio_session_id"],
         "roomSecret": row["room_secret"],
+        "scheduledAt": row["scheduled_at"] if _row_has(row, "scheduled_at") else None,
+        "timezone": row["timezone"] if _row_has(row, "timezone") else "",
+        "cancellationPolicy": _json_or(row["cancellation_policy_json"], {}) if _row_has(row, "cancellation_policy_json") else {},
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -2422,6 +2528,70 @@ def public_jam_artifact(row):
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
+
+
+def public_peeps_request(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "organizationId": row["organization_id"],
+        "createdByUserId": row["created_by_user_id"],
+        "whoText": row["who_text"],
+        "outcomeText": row["outcome_text"],
+        "workingRepresentation": _json_or(row["working_representation_json"], {}),
+        "status": row["status"],
+        "jamId": row["jam_id"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def public_peeps_candidate(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"],
+        "requestId": row["request_id"],
+        "dubId": row["dub_id"],
+        "source": row["source"],
+        "displayName": row["display_name"],
+        "headline": row["headline"],
+        "evidence": _json_or(row["evidence_json"], []),
+        "matchReason": row["match_reason"],
+        "matchScore": row["match_score"],
+        "reachability": row["reachability"],
+        "contactEmail": row["contact_email"],
+        "rank": row["rank"],
+        "status": row["status"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def public_peeps_introduction(row):
+    if not row:
+        return None
+    entry = {
+        "id": row["id"],
+        "requestId": row["request_id"],
+        "candidateId": row["candidate_id"],
+        "dubId": row["dub_id"],
+        "jamId": row["jam_id"],
+        "jamParticipantId": row["jam_participant_id"],
+        "status": row["status"],
+        "authorizedAt": row["authorized_at"],
+        "authorizedByUserId": row["authorized_by_user_id"],
+        "outreachSentAt": row["outreach_sent_at"],
+        "declineReason": row["decline_reason"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+    # Derived, live status from the linked jam_participant — never duplicated/written separately here, so
+    # the two can never drift (see the table's own comment in migrate()).
+    if _row_has(row, "participant_status"):
+        entry["participantStatus"] = row["participant_status"]
+    return entry
 
 
 def session_brand_for_room(conn, room_id):
@@ -5242,6 +5412,8 @@ def main():
             "title": "title",
             "objective": "objective",
             "targetParticipantCount": "target_participant_count",
+            "scheduledAt": "scheduled_at",
+            "timezone": "timezone",
         }
         sets = []
         values = []
@@ -5249,6 +5421,9 @@ def main():
             if key in fields:
                 sets.append(f"{column} = ?")
                 values.append(fields[key])
+        if "cancellationPolicy" in fields:
+            sets.append("cancellation_policy_json = ?")
+            values.append(json.dumps(fields["cancellationPolicy"] or {}))
         if "participantCriteria" in fields:
             sets.append("participant_criteria_json = ?")
             values.append(json.dumps(fields["participantCriteria"] or {}))
@@ -5565,6 +5740,308 @@ def main():
         conn.commit()
         row = conn.execute("SELECT * FROM jam_artifacts WHERE id = ?", (payload["id"],)).fetchone()
         print(json.dumps({"artifact": public_jam_artifact(row)}))
+        return
+
+    # ---- Peeps agent-to-human transaction lifecycle ----
+
+    if action == "peeps_request_create":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO peeps_requests (
+              id, organization_id, created_by_user_id, who_text, outcome_text,
+              working_representation_json, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'researching', ?, ?)
+            """,
+            (
+                payload["id"], payload["organizationId"], payload["createdByUserId"],
+                payload.get("whoText") or "", payload.get("outcomeText") or "",
+                json.dumps(payload.get("workingRepresentation") or {}), now, now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM peeps_requests WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"request": public_peeps_request(row)}))
+        return
+
+    if action == "peeps_request_get":
+        row = conn.execute(
+            "SELECT * FROM peeps_requests WHERE id = ? AND organization_id = ?",
+            (payload["id"], payload["organizationId"]),
+        ).fetchone()
+        print(json.dumps({"request": public_peeps_request(row)}))
+        return
+
+    if action == "peeps_request_get_by_id":
+        # Internal-only, no org check — mirrors jam_get_by_id's own precedent (never exposed directly to
+        # a client response; used to resolve organizationId server-side before any membership check runs).
+        row = conn.execute("SELECT * FROM peeps_requests WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"request": public_peeps_request(row)}))
+        return
+
+    if action == "peeps_request_list":
+        rows = conn.execute(
+            "SELECT * FROM peeps_requests WHERE organization_id = ? ORDER BY created_at DESC",
+            (payload["organizationId"],),
+        ).fetchall()
+        print(json.dumps({"requests": [public_peeps_request(row) for row in rows]}))
+        return
+
+    if action == "peeps_request_update":
+        fields = payload.get("fields") or {}
+        sets = []
+        values = []
+        if "status" in fields:
+            sets.append("status = ?")
+            values.append(fields["status"])
+        if "jamId" in fields:
+            sets.append("jam_id = ?")
+            values.append(fields["jamId"])
+        if "workingRepresentation" in fields:
+            sets.append("working_representation_json = ?")
+            values.append(json.dumps(fields["workingRepresentation"] or {}))
+        now = utc_now()
+        sets.append("updated_at = ?")
+        values.append(now)
+        values.append(payload["id"])
+        if sets:
+            conn.execute(f"UPDATE peeps_requests SET {', '.join(sets)} WHERE id = ?", values)
+            conn.commit()
+        row = conn.execute("SELECT * FROM peeps_requests WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"request": public_peeps_request(row)}))
+        return
+
+    if action == "peeps_candidates_replace":
+        # Only ever replaces candidates still in "proposed" state — an already authorized/rejected
+        # candidate is a real human decision and must never be silently reset by a later resolver re-run
+        # (e.g. from "keep searching for a replacement").
+        now = utc_now()
+        conn.execute("DELETE FROM peeps_candidates WHERE request_id = ? AND status = 'proposed'", (payload["requestId"],))
+        for candidate in payload.get("candidates") or []:
+            conn.execute(
+                """
+                INSERT INTO peeps_candidates (
+                  id, request_id, dub_id, source, display_name, headline, evidence_json,
+                  match_reason, match_score, reachability, contact_email, rank, status,
+                  created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed', ?, ?)
+                """,
+                (
+                    candidate["id"], payload["requestId"], candidate.get("dubId"),
+                    candidate["source"], candidate.get("displayName") or "", candidate.get("headline") or "",
+                    json.dumps(candidate.get("evidence") or []), candidate.get("matchReason") or "",
+                    float(candidate.get("matchScore") or 0), candidate.get("reachability") or "unreachable",
+                    candidate.get("contactEmail"), int(candidate.get("rank") or 0), now, now,
+                ),
+            )
+        conn.commit()
+        rows = conn.execute(
+            "SELECT * FROM peeps_candidates WHERE request_id = ? ORDER BY rank ASC",
+            (payload["requestId"],),
+        ).fetchall()
+        print(json.dumps({"candidates": [public_peeps_candidate(row) for row in rows]}))
+        return
+
+    if action == "peeps_candidate_list":
+        rows = conn.execute(
+            "SELECT * FROM peeps_candidates WHERE request_id = ? ORDER BY rank ASC",
+            (payload["requestId"],),
+        ).fetchall()
+        print(json.dumps({"candidates": [public_peeps_candidate(row) for row in rows]}))
+        return
+
+    if action == "peeps_candidate_get":
+        row = conn.execute("SELECT * FROM peeps_candidates WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"candidate": public_peeps_candidate(row)}))
+        return
+
+    if action == "peeps_candidate_update":
+        now = utc_now()
+        fields = payload.get("fields") or {}
+        sets = []
+        values = []
+        if "status" in fields:
+            sets.append("status = ?")
+            values.append(fields["status"])
+        if "dubId" in fields:
+            sets.append("dub_id = ?")
+            values.append(fields["dubId"])
+        sets.append("updated_at = ?")
+        values.append(now)
+        values.append(payload["id"])
+        conn.execute(f"UPDATE peeps_candidates SET {', '.join(sets)} WHERE id = ?", values)
+        conn.commit()
+        row = conn.execute("SELECT * FROM peeps_candidates WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"candidate": public_peeps_candidate(row)}))
+        return
+
+    introduction_with_status_sql = """
+        SELECT pi.*, jp.status AS participant_status
+        FROM peeps_introductions pi LEFT JOIN jam_participants jp ON jp.id = pi.jam_participant_id
+        WHERE pi.id = ?
+    """
+
+    if action == "peeps_introduction_create":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO peeps_introductions (
+              id, request_id, candidate_id, dub_id, jam_id, jam_participant_id, status,
+              authorized_at, authorized_by_user_id, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"], payload["requestId"], payload["candidateId"], payload["dubId"],
+                payload.get("jamId"), payload.get("jamParticipantId"), payload.get("status") or "authorized",
+                now, payload["authorizedByUserId"], now, now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute(introduction_with_status_sql, (payload["id"],)).fetchone()
+        print(json.dumps({"introduction": public_peeps_introduction(row)}))
+        return
+
+    if action == "peeps_introduction_list":
+        rows = conn.execute(
+            """
+            SELECT pi.*, jp.status AS participant_status
+            FROM peeps_introductions pi LEFT JOIN jam_participants jp ON jp.id = pi.jam_participant_id
+            WHERE pi.request_id = ? ORDER BY pi.created_at ASC
+            """,
+            (payload["requestId"],),
+        ).fetchall()
+        print(json.dumps({"introductions": [public_peeps_introduction(row) for row in rows]}))
+        return
+
+    if action == "peeps_introduction_mark_outreach_sent":
+        now = utc_now()
+        conn.execute(
+            "UPDATE peeps_introductions SET outreach_sent_at = ?, status = 'contacted', updated_at = ? WHERE id = ?",
+            (now, now, payload["id"]),
+        )
+        conn.commit()
+        row = conn.execute(introduction_with_status_sql, (payload["id"],)).fetchone()
+        print(json.dumps({"introduction": public_peeps_introduction(row)}))
+        return
+
+    if action == "peeps_introduction_decline":
+        now = utc_now()
+        conn.execute(
+            "UPDATE peeps_introductions SET status = 'declined', decline_reason = ?, updated_at = ? WHERE id = ?",
+            (payload.get("reason") or "", now, payload["id"]),
+        )
+        conn.commit()
+        row = conn.execute(introduction_with_status_sql, (payload["id"],)).fetchone()
+        print(json.dumps({"introduction": public_peeps_introduction(row)}))
+        return
+
+    if action == "peeps_request_get_by_jam":
+        row = conn.execute("SELECT * FROM peeps_requests WHERE jam_id = ?", (payload["jamId"],)).fetchone()
+        print(json.dumps({"request": public_peeps_request(row)}))
+        return
+
+    if action == "peeps_introduction_list_by_jam":
+        rows = conn.execute(
+            """
+            SELECT pi.*, jp.status AS participant_status, pc.evidence_json, pc.match_reason, pc.headline, pc.source
+            FROM peeps_introductions pi
+            LEFT JOIN jam_participants jp ON jp.id = pi.jam_participant_id
+            LEFT JOIN peeps_candidates pc ON pc.id = pi.candidate_id
+            WHERE pi.jam_id = ? ORDER BY pi.created_at ASC
+            """,
+            (payload["jamId"],),
+        ).fetchall()
+        result = []
+        for row in rows:
+            entry = public_peeps_introduction(row)
+            entry["evidence"] = _json_or(row["evidence_json"], [])
+            entry["matchReason"] = row["match_reason"]
+            entry["headline"] = row["headline"]
+            entry["candidateSource"] = row["source"]
+            result.append(entry)
+        print(json.dumps({"introductions": result}))
+        return
+
+    # ---- Dub claim (section 27) ----
+
+    if action == "dub_get":
+        row = conn.execute("SELECT * FROM dubs WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"dub": public_dub(row)}))
+        return
+
+    if action == "dub_search_by_organization_history":
+        # "Previous Peeps interactions" (section 3.D) — Dubs this org has already recruited into a Jam
+        # before. Never crosses organization boundaries: only this org's own jam_participants rows.
+        rows = conn.execute(
+            """
+            SELECT DISTINCT d.* FROM dubs d
+            JOIN jam_participants jp ON jp.dub_id = d.id
+            JOIN jams j ON j.id = jp.jam_id
+            WHERE j.organization_id = ?
+            ORDER BY d.updated_at DESC LIMIT 25
+            """,
+            (payload["organizationId"],),
+        ).fetchall()
+        print(json.dumps({"dubs": [public_dub(row) for row in rows]}))
+        return
+
+    if action == "dub_breadcrumbs_for_dub":
+        rows = conn.execute(
+            """
+            SELECT je.* FROM jam_events je
+            JOIN jam_participants jp ON jp.id = je.jam_participant_id
+            WHERE jp.dub_id = ?
+            ORDER BY je.created_at DESC LIMIT 50
+            """,
+            (payload["dubId"],),
+        ).fetchall()
+        print(json.dumps({"events": [public_jam_event(row) for row in rows]}))
+        return
+
+    if action == "dub_claim_invite_issue":
+        now = utc_now()
+        conn.execute(
+            "INSERT INTO dub_claim_invites (id, dub_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)",
+            (payload["id"], payload["dubId"], payload["tokenHash"], payload["expiresAt"], now),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "dub_claim_invite_get":
+        row = conn.execute("SELECT * FROM dub_claim_invites WHERE token_hash = ?", (payload["tokenHash"],)).fetchone()
+        if not row:
+            print(json.dumps({"invite": None, "dub": None}))
+            return
+        dub_row = conn.execute("SELECT * FROM dubs WHERE id = ?", (row["dub_id"],)).fetchone()
+        print(json.dumps({
+            "invite": {
+                "id": row["id"], "dubId": row["dub_id"], "expiresAt": row["expires_at"], "claimedAt": row["claimed_at"],
+            },
+            "dub": public_dub(dub_row),
+        }))
+        return
+
+    if action == "dub_claim":
+        # Idempotent claim: only the FIRST caller to hit this WHERE user_id IS NULL wins — same one-shot
+        # atomic-claim pattern as jam_run_session's studio_session_id claim. A Dub can never be hijacked
+        # out from under whoever claimed it first, even under a concurrent double-claim attempt, and a
+        # single UPDATE statement is already atomic under SQLite's single-writer model without needing an
+        # explicit transaction wrapper.
+        now = utc_now()
+        cursor = conn.execute(
+            "UPDATE dubs SET user_id = ?, updated_at = ? WHERE id = ? AND user_id IS NULL",
+            (payload["userId"], now, payload["dubId"]),
+        )
+        won = cursor.rowcount == 1
+        if won:
+            conn.execute(
+                "UPDATE dub_claim_invites SET claimed_at = ?, claimed_by_user_id = ? WHERE token_hash = ? AND claimed_at IS NULL",
+                (now, payload["userId"], payload["tokenHash"]),
+            )
+        conn.commit()
+        row = conn.execute("SELECT * FROM dubs WHERE id = ?", (payload["dubId"],)).fetchone()
+        print(json.dumps({"claimed": won, "dub": public_dub(row)}))
         return
 
     if action == "jam_get_by_session":

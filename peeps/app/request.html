@@ -1,0 +1,168 @@
+<!doctype html><html><head><script>document.documentElement.classList.add("peeps-app-gated");</script><style>html.peeps-app-gated body{visibility:hidden}</style><noscript><meta http-equiv="refresh" content="0;url=/peeps/"></noscript><script type="module" src="../../js/peeps-app-gate.js"></script><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>New Request · Toasty Peeps</title><link rel="stylesheet" href="../peeps.css"></head><body><div class="app-shell"><aside class="side"><a class="side-brand" href="./"><img src="../../shared/brand/toasty-media/ToastyTransparent.png"><span class="wordmark"><b>TOASTY</b><em>Peeps</em></span></a><nav><a class="active" href="./">Find Peeps</a><a href="./searches.html">My Requests</a><a href="./jams.html">My Jams</a><a href="./calendar.html">Calendar</a><a href="./demand.html">Demand</a><a href="./dub.html">My Dub</a><a href="./profile.html">My Profile</a><a href="./dough.html">Dough</a></nav></aside><main class="workspace">
+
+<section id="stepAsk" class="finder">
+  <span class="eyebrow">Human insight, on demand</span>
+  <h2>Who do you want<br>to talk to?</h2>
+  <form id="askForm">
+    <label class="muted" for="whoText">Who do you want to talk to?</label>
+    <textarea class="field tall" id="whoText" placeholder="Fintech/payment executives in Southeast Asia who understand offline payments" required></textarea>
+    <label class="muted" for="outcomeText" style="margin-top:14px;display:block">What do you want to accomplish?</label>
+    <textarea class="field tall" id="outcomeText" placeholder="I want three interesting people for a recorded podcast about where digital payments are going." required></textarea>
+    <div class="actions" style="margin-top:16px"><button class="btn" type="submit" id="askSubmit">Find people →</button></div>
+    <p class="muted" id="askStatus"></p>
+  </form>
+</section>
+
+<section id="stepCandidates" hidden>
+  <div class="section-head"><div><span class="eyebrow" id="candidatesEyebrow">Peeps found some people</span><h2 id="candidatesHeading">I found these people. Do you want introductions?</h2></div></div>
+  <p class="muted" id="requestSummary"></p>
+  <section class="table" id="candidatesTable"></section>
+  <div class="actions" style="margin-top:18px"><button class="btn" id="authorizeBtn">Get introductions</button><span class="muted" id="authorizeHint">Select at least one person above.</span></div>
+  <p class="muted" id="authorizeStatus"></p>
+</section>
+
+<section id="stepResult" hidden>
+  <div class="section-head"><div><span class="eyebrow">Introductions sent</span><h2>Peeps reached out</h2></div></div>
+  <section class="card" id="resultSummary"></section>
+  <div class="actions" style="margin-top:16px"><a class="btn" id="openJamLink" href="#">Open Jam →</a></div>
+</section>
+
+</main></div>
+<script type="module">
+import { getPrimaryOrganizationId, createPeepsRequest, getPeepsRequest, replacePeepsCandidate, authorizePeepsIntroductions } from "../../js/peeps-jam-api.js";
+
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+let request = null;
+let candidates = [];
+let introductions = [];
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function showStep(id) {
+  for (const step of ["stepAsk", "stepCandidates", "stepResult"]) $(step).hidden = step !== id;
+}
+
+const REACHABILITY_LABEL = {
+  claimed_member: "Toasty Peeps member",
+  unclaimed_dub: "Known from a past Jam",
+  external_direct: "Verified contact found",
+  external_indirect: "No verified contact yet",
+  unreachable: "No known way to reach them"
+};
+
+function candidateRow(candidate) {
+  const needsEmail = !["claimed_member", "unclaimed_dub"].includes(candidate.reachability) && !candidate.contactEmail;
+  const disabled = candidate.status !== "proposed";
+  return `
+    <div class="row" data-candidate="${candidate.id}" style="grid-template-columns:auto 1fr auto">
+      <label style="display:flex;align-items:flex-start;gap:10px">
+        <input type="checkbox" class="candidate-select" data-id="${candidate.id}" ${disabled ? "disabled" : ""}>
+        <span>
+          <strong>${escapeHtml(candidate.displayName)}</strong> — <span class="muted">${escapeHtml(candidate.headline)}</span><br>
+          <span class="muted">${escapeHtml(candidate.matchReason)}</span><br>
+          <i class="tag${candidate.reachability === "claimed_member" || candidate.reachability === "unclaimed_dub" ? " good" : ""}">${REACHABILITY_LABEL[candidate.reachability] || candidate.reachability}</i>
+          ${candidate.status !== "proposed" ? `<i class="tag good">${escapeHtml(candidate.status)}</i>` : ""}
+          ${needsEmail && !disabled ? `<input class="field candidate-email" data-id="${candidate.id}" placeholder="Their email (you supply this — Peeps never guesses it)" style="margin-top:6px;max-width:320px">` : ""}
+        </span>
+      </label>
+      <span></span>
+      <span>${!disabled ? `<button class="btn secondary" data-replace="${candidate.id}">Not this one</button>` : ""}</span>
+    </div>`;
+}
+
+function renderCandidates() {
+  $("requestSummary").textContent = `${request.whoText} — ${request.outcomeText}`;
+  const rows = candidates.filter((c) => c.status !== "rejected").map(candidateRow).join("");
+  $("candidatesTable").innerHTML = rows || `<div class="row"><span class="muted">No candidates yet.</span></div>`;
+  $("candidatesTable").querySelectorAll("[data-replace]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        const result = await replacePeepsCandidate(request.id, btn.dataset.replace);
+        candidates = result.candidates;
+        renderCandidates();
+      } catch (error) {
+        alert(error.message || "Could not find a replacement.");
+        btn.disabled = false;
+      }
+    });
+  });
+  showStep("stepCandidates");
+}
+
+$("askForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const submitBtn = $("askSubmit");
+  submitBtn.disabled = true;
+  $("askStatus").textContent = "Peeps is researching…";
+  try {
+    const organizationId = await getPrimaryOrganizationId();
+    const result = await createPeepsRequest({
+      organizationId,
+      whoText: $("whoText").value.trim(),
+      outcomeText: $("outcomeText").value.trim()
+    });
+    request = result.request;
+    candidates = result.candidates;
+    history.replaceState(null, "", `./request.html?id=${encodeURIComponent(request.id)}`);
+    renderCandidates();
+  } catch (error) {
+    $("askStatus").textContent = error.message || "Could not process this request.";
+    submitBtn.disabled = false;
+  }
+});
+
+$("authorizeBtn").addEventListener("click", async () => {
+  const selected = [...document.querySelectorAll(".candidate-select:checked")].map((box) => {
+    const id = box.dataset.id;
+    const emailInput = document.querySelector(`.candidate-email[data-id="${id}"]`);
+    return { candidateId: id, outreachEmail: emailInput ? emailInput.value.trim() : undefined };
+  });
+  if (!selected.length) { $("authorizeStatus").textContent = "Select at least one person first."; return; }
+  const btn = $("authorizeBtn");
+  btn.disabled = true;
+  $("authorizeStatus").textContent = "Authorizing introductions…";
+  try {
+    const result = await authorizePeepsIntroductions(request.id, selected);
+    introductions = result.introductions;
+    const skipped = result.skipped || [];
+    $("resultSummary").innerHTML = `
+      <p><strong>${introductions.length}</strong> introduction${introductions.length === 1 ? "" : "s"} sent.</p>
+      ${skipped.length ? `<p class="muted">${skipped.length} skipped — no verified contact path was available for them.</p>` : ""}
+      <ul>${introductions.map((i) => `<li>Contacted — status: ${escapeHtml(i.status)}</li>`).join("")}</ul>`;
+    $("openJamLink").href = `./jam.html?id=${encodeURIComponent(result.jamId)}`;
+    showStep("stepResult");
+  } catch (error) {
+    $("authorizeStatus").textContent = error.message || "Could not authorize introductions.";
+    btn.disabled = false;
+  }
+});
+
+async function resume(id) {
+  const result = await getPeepsRequest(id);
+  request = result.request;
+  candidates = result.candidates;
+  introductions = result.introductions;
+  if (request.status === "introductions_authorized" || request.status === "booked" || request.status === "completed") {
+    const authorized = introductions.length;
+    $("resultSummary").innerHTML = `<p><strong>${authorized}</strong> introduction${authorized === 1 ? "" : "s"} sent so far.</p>`;
+    if (request.jamId) $("openJamLink").href = `./jam.html?id=${encodeURIComponent(request.jamId)}`;
+    showStep("stepResult");
+  } else {
+    renderCandidates();
+  }
+}
+
+const resumeId = params.get("id");
+const prefillWho = params.get("who");
+if (resumeId) {
+  resume(resumeId).catch((error) => { $("askStatus").textContent = error.message || "Could not load this request."; showStep("stepAsk"); });
+} else {
+  if (prefillWho) $("whoText").value = prefillWho;
+  showStep("stepAsk");
+}
+</script>
+</body></html>
