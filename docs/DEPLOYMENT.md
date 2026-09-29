@@ -134,3 +134,22 @@ APPROVE_TOASTY_RENDER_HELPER=production scripts/deploy-render-helper.sh --execut
 `TOASTY_RENDER_HELPER_PATH` must be the file `AUTH_DB_HELPER` already points at on that host (default: `<directory-of-render-production-server.mjs>/toasty-auth-db.py`).
 
 This agent environment has no render-host SSH key, so the helper cannot be copied from here. Until those variables are set and the script is executed, production continues to use whatever helper is already next to the running Node process. That remaining automation gap is: GitHub Actions still has no render-host job, because the only existing deploy secrets target LiteSpeed.
+
+## Peeps introduction execution (contact → outreach → booking → ready for session)
+
+Backend: `scripts/render-production-server.mjs` (section "PEEPS INTRODUCTION EXECUTION") + `scripts/toasty-auth-db.py`
+(migrations run on every call; additive only). Pages: `peeps/respond.html` (public, token-gated, no account) and
+`peeps/app/introduction.html` (organizer). All API routes live under `/api/peeps/…`, which the existing broad nginx
+`location ~ ^/api/peeps(/.*)?$` block already proxies — no nginx change is needed.
+
+Environment:
+
+- `RESEND_API_KEY` — the only real outreach provider. Without it, outreach is **not sent**: introductions wait at
+  `ready_for_outreach` and the UI says no provider is configured.
+- `PEEPS_TEST_ADAPTERS=1` — enables the clearly-labelled TEST/DEMO email provider (messages are recorded with status
+  `simulated`, never delivered) and `GET /api/peeps/test-outbox`. **Never set this in production.** It is ignored when
+  `RESEND_API_KEY` is set.
+- `PEEPS_OUTREACH_TTL_DAYS` (default 14) — how long an unanswered introduction stays open before it becomes `expired`.
+
+Contact destinations are stored AES-GCM encrypted (`TOASTY_TOKEN_ENCRYPTION_KEY`, falling back to the session secret — rotating it makes stored destinations undecryptable, so outreach retries would report "no automatable destination") and only ever returned masked.
+Response tokens are 256-bit, SHA-256 hashed at rest, valid 60 days, and reach exactly one introduction.

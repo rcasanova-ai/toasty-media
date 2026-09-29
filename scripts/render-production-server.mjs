@@ -1357,6 +1357,22 @@ const server = createServer(async (req, res) => {
     await handlePeepsRequestAuthorize(req, res, session);
     return;
   }
+  // Introduction execution. The response page is UNAUTHENTICATED (a candidate needs no account): the
+  // unguessable, expiring, hashed response token is the only credential and it only ever reaches ONE
+  // introduction. Everything else here is organization-scoped through requireMembership.
+  if (req.url?.startsWith("/api/peeps/respond/")) {
+    if (!limit(req, res, "peeps-respond", 60, 60 * 1000)) return;
+    await handlePeepsRespond(req, res);
+    return;
+  }
+  if (isPeepsExecutionRoute(req)) {
+    if (req.method !== "GET" && !requireCsrf(req, res)) return;
+    if (!limit(req, res, "peeps-execution", 120, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await routePeepsExecution(req, res, session);
+    return;
+  }
   if (req.method === "GET" && req.url?.startsWith("/api/peeps/requests/")) {
     if (!limit(req, res, "peeps-requests-get", 60, 60 * 1000)) return;
     const session = await requireSession(req, res);
@@ -2724,21 +2740,27 @@ async function handleLogin(req, res) {
 // transport that logs the email instead of sending it (per the brief's "use a mock transport locally"
 // requirement). Callers never touch the transport directly — sendEmailVerification/sendPasswordReset/
 // sendOrganizationInvite are the only entry points, so swapping providers later stays a one-function change.
-async function sendEmail({ to, subject, html }) {
+async function sendEmail({ to, subject, html, text, headers }) {
+  // Reserved-TLD placeholder identities (see peepsPlaceholderEmail) are never deliverable.
+  if (/\.invalid$/i.test(String(to))) return { ok: false, transport: "none" };
   if (!RESEND_API_KEY) {
     console.log(`[Toasty Email:DEV] to=${to} subject=${JSON.stringify(subject)}\n${html}`);
     return { ok: true, transport: "dev" };
   }
+  const payload = { from: EMAIL_FROM, to: [to], subject, html };
+  if (text) payload.text = text;
+  if (headers) payload.headers = headers;
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject, html })
+    body: JSON.stringify(payload)
   });
   if (!response.ok) {
     console.error("[Toasty Email] Resend send failed", response.status, await response.text().catch(() => ""));
     return { ok: false, transport: "resend" };
   }
-  return { ok: true, transport: "resend" };
+  const data = await response.json().catch(() => ({}));
+  return { ok: true, transport: "resend", id: data?.id || "" };
 }
 
 function emailActionAllowed(email) {
@@ -5055,6 +5077,9 @@ async function handleSessionSetPlan(req, res, authSession) {
   const session = await requireOwnedSession(req, res, authSession, "/plan");
   const body = await readJson(req);
   const plan = body.plan && typeof body.plan === "object" ? body.plan : {};
+  // A Peeps-booked session keeps its canonical content and booked time server-side (see peepsPlannerSave).
+  const peepsSaved = await peepsPlannerSave(session, plan, authSession);
+  if (peepsSaved) return sendJson(req, res, 200, { session: peepsSaved });
   const result = await db("session_set_plan", { id: session.id, ownerUserId: authSession.id, plan });
   sendJson(req, res, 200, { session: result.session });
 }
@@ -6088,7 +6113,7 @@ async function handleJamGet(req, res, authSession) {
   const jam = await requireOwnedJam(req, res, authSession, id, "viewer");
   if (!jam) return;
   const participants = await db("jam_participant_list", { jamId: id });
-  sendJson(req, res, 200, { jam, participants: participants.participants || [] });
+  sendJson(req, res, 200, { jam, participants: await peepsMaskParticipantContacts(jam.id, participants.participants || []) });
 }
 
 async function handleJamUpdate(req, res, authSession) {
@@ -6217,7 +6242,7 @@ async function handleJamResults(req, res, authSession) {
   };
   sendJson(req, res, 200, {
     jam,
-    participants,
+    participants: await peepsMaskParticipantContacts(jam.id, participants),
     attendance,
     payment,
     events: eventsResult.events || [],
@@ -6644,8 +6669,8 @@ async function resolveInternalCandidates(organizationId, requestTerms) {
       evidence: [{ claim: "Previous Jam participation with this organization", sourceType: "internal_breadcrumb", sourceUrl: "", sourceTitle: "Toasty Peeps history", confidence: "High" }],
       matchReason: matched.length ? `Matched: ${matched.slice(0, 4).join(", ")}; previously worked with your organization` : "Previously worked with your organization",
       matchScore: score + 15,
-      reachability: dub.userId ? "claimed_member" : (dub.email ? "unclaimed_dub" : "unreachable"),
-      contactEmail: dub.userId ? null : (dub.email || null)
+      reachability: dub.userId ? "claimed_member" : (dub.email && !/\.invalid$/i.test(dub.email) ? "unclaimed_dub" : "unreachable"),
+      contactEmail: dub.userId ? null : (dub.email && !/\.invalid$/i.test(dub.email) ? dub.email : null)
     };
   });
 }
@@ -6718,7 +6743,7 @@ async function handlePeepsRequestCreate(req, res, authSession) {
   const candidates = await runPeepsResolver(createResult.request);
   await db("peeps_request_update", { id: createResult.request.id, fields: { status: "candidates_ready" } });
   const updated = await db("peeps_request_get", { id: createResult.request.id, organizationId });
-  sendJson(req, res, 201, { request: updated.request, candidates });
+  sendJson(req, res, 201, { request: updated.request, candidates: candidates.map(peepsCandidateForClient) });
 }
 
 function peepsRequestIdFromUrl(req, suffix = "") {
@@ -6746,7 +6771,7 @@ async function handlePeepsRequestGet(req, res, authSession) {
   ]);
   sendJson(req, res, 200, {
     request,
-    candidates: candidatesResult.candidates || [],
+    candidates: (candidatesResult.candidates || []).map(peepsCandidateForClient),
     introductions: introductionsResult.introductions || []
   });
 }
@@ -6790,7 +6815,7 @@ async function handlePeepsRequestReplaceCandidate(req, res, authSession) {
   const additions = fresh.slice(0, needed).map((c) => ({ ...c, id: newId("pcand") }));
   const proposedPayload = [...stillProposed, ...additions].map((c, index) => ({ ...c, rank: settledCount + index + 1 }));
   const result = await db("peeps_candidates_replace", { requestId: id, candidates: proposedPayload });
-  sendJson(req, res, 200, { candidates: result.candidates || [] });
+  sendJson(req, res, 200, { candidates: (result.candidates || []).map(peepsCandidateForClient) });
 }
 
 // x402 discovery-style requirement, but for the INTRODUCTION workflow itself (section 9's explicit
@@ -6851,14 +6876,6 @@ async function handlePeepsDemoPaymentAuthorize(req, res, authSession) {
     amount: PEEPS_INTRODUCTION_PRICE,
     asset: "USDC"
   });
-}
-
-function peepsOutreachEmailHtml({ request, candidate, inviteUrl }) {
-  return `<p>Hi ${escapeHtml(candidate.displayName || "there")},</p>
-<p>Someone on Toasty Peeps thinks you'd be a great fit for a conversation: <strong>${escapeHtml(request.outcomeText)}</strong></p>
-<p>Why you: ${escapeHtml(candidate.matchReason || "your background looks like a strong match")}.</p>
-<p>This is a real invitation — you can review the details, ask questions, and decide whether to join. No Toasty account is required.</p>
-<p><a href="${inviteUrl}">${inviteUrl}</a></p>`;
 }
 
 // The human decision point (section 10) through outreach. Payment-gated exactly once per authorize call
@@ -7116,62 +7133,1903 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
 
   const introductions = [];
   const skipped = [];
+  const jamForAuthorize = await peepsLoadJam(jamId);
   for (const selection of selections) {
     const candidate = candidateById.get(sessionText(selection.candidateId, 80));
     if (!candidate || candidate.status !== "proposed") {
       skipped.push({ candidateId: selection.candidateId, reason: "not_available" });
       continue;
     }
-    const outreachEmail = sessionText(selection.outreachEmail, 200).toLowerCase();
-    let email = candidate.contactEmail || (EMAIL_PATTERN.test(outreachEmail) ? outreachEmail : "");
-    let dubId = candidate.dubId;
-    if (candidate.reachability === "claimed_member" && dubId) {
-      const dubResult = await db("dub_get", { id: dubId });
-      if (dubResult.dub?.userId) {
-        const userResult = await db("get_user_by_id", { id: dubResult.dub.userId });
-        if (userResult.user?.email) email = userResult.user.email;
-      }
-    }
-    if (candidate.reachability !== "claimed_member" && !email) {
-      skipped.push({ candidateId: candidate.id, reason: "no_verified_contact_path" });
-      continue;
-    }
-    if (!dubId) {
-      const dubResult = await db("dub_find_or_create", { id: newId("dub"), email, displayName: candidate.displayName });
-      dubId = dubResult.dub.id;
-      await db("peeps_candidate_update", { id: candidate.id, fields: { dubId } });
-    }
-    const participantResult = await db("jam_participant_create", { id: newId("jampt"), jamId, dubId });
-    const participant = participantResult.participant;
-    await db("peeps_candidate_update", { id: candidate.id, fields: { status: "authorized" } });
-    if (compensationAmount > 0) {
-      await db("jam_participant_update", { id: participant.id, fields: { compensationAmount, compensationStatus: "eligible" } });
-    }
-    const introResult = await db("peeps_introduction_create", {
-      id: newId("pintro"), requestId: id, candidateId: candidate.id, dubId, jamId,
-      jamParticipantId: participant.id, authorizedByUserId: authSession.id
+    const outcome = await peepsAuthorizeCandidate({
+      request, jam: jamForAuthorize, jamId, candidate, authSession, compensationAmount,
+      outreachEmail: sessionText(selection.outreachEmail, 200).toLowerCase(), paymentRef: `peeps-intro:${id}`
     });
-    let introduction = introResult.introduction;
-    await db("jam_event_create", { id: newId("jev"), jamId, jamParticipantId: participant.id, type: "invite.sent", actor: authSession.id, detail: { via: "peeps_introduction", requestId: id } });
-
-    // Outreach (section 11) — reuses the EXISTING Jam invite issue + email flow with tailored copy,
-    // never a parallel messaging system.
-    const { token, tokenHash } = issueInviteToken();
-    await db("jam_participant_invite_issue", { id: newId("jpi"), jamParticipantId: participant.id, tokenHash, expiresAt: inviteExpiry(60) });
-    const inviteUrl = `${APP_BASE_URL}/peeps/jam-invite.html?token=${token}`;
-    if (email) {
-      await sendEmail({
-        to: email,
-        subject: `A Toasty Peeps introduction: ${request.outcomeText.slice(0, 80)}`,
-        html: peepsOutreachEmailHtml({ request, candidate, inviteUrl })
-      }).catch((error) => console.error("[Toasty Email] peeps introduction outreach failed", error));
-      const markResult = await db("peeps_introduction_mark_outreach_sent", { id: introduction.id });
-      introduction = markResult.introduction;
-    }
-    introductions.push(introduction);
+    if (outcome.skipped) { skipped.push(outcome.skipped); continue; }
+    introductions.push(outcome.introduction);
   }
 
   sendJson(req, res, 200, { jamId, introductions, skipped });
+}
+
+// ====================================================================================================
+// PEEPS INTRODUCTION EXECUTION — the slice between "the requester authorized an introduction" and
+// "READY FOR SESSION". Authorized introduction -> contact resolution -> outreach (adapter) -> external
+// response page (token, no account) -> interested/decline -> only-what's-missing questions ->
+// availability -> deterministic slot intersection -> idempotent booking -> Jam/Studio link ->
+// Session Planner auto-population -> prep -> notifications -> cancel/reschedule/replacement.
+//
+// Everything reuses the existing request/candidate/dub/jam/live_sessions/jam_events rows. New rows live in
+// peeps_contact_channels / peeps_outbound_messages / peeps_response_tokens / peeps_bookings /
+// peeps_plan_versions / peeps_openings (scripts/toasty-auth-db.py).
+//
+// Honesty rules enforced here: no guessed emails; an automated channel is only "sent" when a real
+// provider actually accepted it; the TEST/DEMO provider (PEEPS_TEST_ADAPTERS=1 and no RESEND_API_KEY)
+// records status "simulated" and is labelled providerKind "test_demo" everywhere; production only ever
+// uses configured real providers.
+// ====================================================================================================
+
+const PEEPS_TEST_ADAPTERS = process.env.PEEPS_TEST_ADAPTERS === "1";
+const PEEPS_OUTREACH_TTL_DAYS = Math.max(1, Number(process.env.PEEPS_OUTREACH_TTL_DAYS) || 14);
+const PEEPS_RESPONSE_TOKEN_TTL_DAYS = 60;
+const PEEPS_MAX_OUTREACH_ATTEMPTS = 3;
+const PEEPS_DEFAULT_DURATION_MINUTES = 45;
+const PEEPS_TOKEN_SHAPE = /^[A-Za-z0-9_-]{43}$/;
+const PEEPS_REPLACEABLE_FORMATS = new Set(["podcast_guest", "expert_panel", "focus_group"]);
+const PEEPS_DECLINE_REASONS = new Set(["not_interested", "bad_timing", "wrong_fit", "no_recorded_sessions", "compensation", "other"]);
+
+// ---- Time / timezone helpers (no library: Intl only) ----
+const peepsDtfCache = new Map();
+function peepsDtf(timeZone) {
+  if (!peepsDtfCache.has(timeZone)) {
+    peepsDtfCache.set(timeZone, new Intl.DateTimeFormat("en-US", {
+      timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit"
+    }));
+  }
+  return peepsDtfCache.get(timeZone);
+}
+
+function peepsValidTimeZone(timeZone) {
+  if (!timeZone || typeof timeZone !== "string" || timeZone.length > 80) return false;
+  try { peepsDtf(timeZone); return true; } catch { return false; }
+}
+
+function peepsZoneParts(ms, timeZone) {
+  const parts = {};
+  for (const part of peepsDtf(timeZone).formatToParts(new Date(ms))) parts[part.type] = part.value;
+  return parts;
+}
+
+function peepsOffsetMs(ms, timeZone) {
+  const p = peepsZoneParts(ms, timeZone);
+  const asUtc = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day), Number(p.hour) % 24, Number(p.minute), Number(p.second));
+  return asUtc - Math.floor(ms / 1000) * 1000;
+}
+
+// "2026-10-15T09:00" as wall-clock time in `timeZone` -> UTC epoch ms (NaN when malformed/impossible).
+function peepsWallToUtcMs(wall, timeZone) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(String(wall || "").trim());
+  if (!m) return NaN;
+  const [y, mo, d, h, mi] = m.slice(1).map(Number);
+  const naive = Date.UTC(y, mo - 1, d, h, mi);
+  const check = new Date(naive);
+  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== mo - 1 || check.getUTCDate() !== d || h > 23 || mi > 59) return NaN;
+  let guess = naive - peepsOffsetMs(naive, timeZone);
+  guess = naive - peepsOffsetMs(guess, timeZone);
+  return guess;
+}
+
+function peepsUtcMsToWall(ms, timeZone) {
+  const p = peepsZoneParts(ms, timeZone);
+  return `${p.year}-${p.month}-${p.day}T${String(Number(p.hour) % 24).padStart(2, "0")}:${p.minute}`;
+}
+
+function peepsFormatInZone(isoOrMs, timeZone) {
+  const zone = peepsValidTimeZone(timeZone) ? timeZone : "UTC";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: zone, weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short"
+  }).format(new Date(isoOrMs));
+}
+
+// Availability = { timezone, windows: [{start,end}] wall-clock in that timezone, minNoticeHours }.
+// Stored with both the wall-clock form (what the person typed) and the resolved UTC instants.
+function peepsNormalizeAvailability(input, nowMs = Date.now()) {
+  const timezone = String(input?.timezone || "").trim();
+  if (!peepsValidTimeZone(timezone)) throw httpError(400, "A valid timezone (like America/New_York or Asia/Bangkok) is required.");
+  const minNoticeHours = Math.max(0, Math.min(336, Math.round(Number(input?.minNoticeHours) || 0)));
+  const raw = Array.isArray(input?.windows) ? input.windows.slice(0, 40) : [];
+  const windows = [];
+  for (const window of raw) {
+    const startMs = peepsWallToUtcMs(window?.start, timezone);
+    const endMs = peepsWallToUtcMs(window?.end, timezone);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) throw httpError(400, "Each availability window needs a start and end like 2026-10-15T09:00.");
+    if (endMs - startMs < 15 * 60 * 1000) throw httpError(400, "Each availability window must end at least 15 minutes after it starts.");
+    if (endMs <= nowMs) continue;
+    if (startMs > nowMs + 180 * 24 * 60 * 60 * 1000) continue;
+    windows.push({ start: String(window.start).trim(), end: String(window.end).trim(), startUtc: new Date(startMs).toISOString(), endUtc: new Date(endMs).toISOString() });
+  }
+  if (!windows.length) throw httpError(400, "Add at least one availability window in the future.");
+  windows.sort((a, b) => a.startUtc.localeCompare(b.startUtc));
+  return { timezone, windows, minNoticeHours, submittedAt: new Date(nowMs).toISOString() };
+}
+
+function peepsIntervals(availability, nowMs = Date.now()) {
+  if (!availability || !Array.isArray(availability.windows)) return [];
+  const earliest = nowMs + (Number(availability.minNoticeHours) || 0) * 3600 * 1000;
+  const list = [];
+  for (const w of availability.windows) {
+    const s = Math.max(Date.parse(w.startUtc), earliest);
+    const e = Date.parse(w.endUtc);
+    if (Number.isFinite(s) && Number.isFinite(e) && s < e) list.push({ s, e });
+  }
+  list.sort((a, b) => a.s - b.s);
+  const merged = [];
+  for (const item of list) {
+    const last = merged[merged.length - 1];
+    if (last && item.s <= last.e) last.e = Math.max(last.e, item.e);
+    else merged.push({ ...item });
+  }
+  return merged;
+}
+
+function peepsIntersect(a, b) {
+  const out = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    const s = Math.max(a[i].s, b[j].s);
+    const e = Math.min(a[i].e, b[j].e);
+    if (s < e) out.push({ s, e });
+    if (a[i].e < b[j].e) i += 1; else j += 1;
+  }
+  return out;
+}
+
+function peepsProposeSlots(intervals, durationMinutes, { max = 10, perInterval = 3 } = {}) {
+  const dur = durationMinutes * 60 * 1000;
+  const grid = 30 * 60 * 1000;
+  const slots = [];
+  for (const interval of intervals) {
+    let start = Math.ceil(interval.s / grid) * grid;
+    let count = 0;
+    while (start + dur <= interval.e && count < perInterval && slots.length < max) {
+      slots.push(start);
+      count += 1;
+      start += Math.max(dur, 60 * 60 * 1000);
+    }
+    if (slots.length >= max) break;
+  }
+  return slots;
+}
+
+function peepsSlotFits(intervals, startMs, durationMinutes) {
+  const end = startMs + durationMinutes * 60 * 1000;
+  return intervals.some((i) => i.s <= startMs && end <= i.e);
+}
+
+// ---- Small text helpers ----
+function peepsFirstName(name) {
+  return String(name || "").trim().split(/\s+/)[0] || "there";
+}
+
+function peepsMaskEmail(email) {
+  const [local, domain] = String(email || "").split("@");
+  if (!local || !domain) return "";
+  return `${local[0]}${"•".repeat(Math.max(2, Math.min(6, local.length - 1)))}@${domain}`;
+}
+
+function peepsDestinationHash(channel, destination) {
+  return createHash("sha256").update(`${channel}:${String(destination).trim().toLowerCase()}`).digest("hex");
+}
+
+function peepsSafePublicUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString().slice(0, 500) : "";
+  } catch { return ""; }
+}
+
+function peepsWhyText(candidate) {
+  const reason = String(candidate?.matchReason || "");
+  const matched = /^Matched:\s*([^;]+)/i.exec(reason);
+  const topics = matched ? matched[1].split(",").map((t) => t.trim()).filter(Boolean).slice(0, 3) : [];
+  if (candidate?.source === "internal_claimed_dub" || candidate?.source === "internal_unclaimed_dub") {
+    return topics.length ? `You've taken part in a Toasty Peeps conversation with this team before, and your background touches ${topics.join(", ")}.` : "You've taken part in a Toasty Peeps conversation with this team before.";
+  }
+  if (topics.length) return `Peeps suggested you because your professional background relates to ${topics.join(", ")}.`;
+  return "Peeps suggested you because your professional background looks relevant to this conversation.";
+}
+
+function peepsCandidateTopics(candidate, request) {
+  const matched = /^Matched:\s*([^;]+)/i.exec(String(candidate?.matchReason || ""));
+  const raw = matched ? matched[1].split(",").map((t) => t.trim().toLowerCase()).filter(Boolean) : [];
+  // The matcher tokenizes words, so "Southeast Asia" arrives as two tokens; put it back together and keep
+  // it as a region rather than a topic.
+  const region = raw.includes("southeast") && raw.includes("asia") ? "Southeast Asia" : "";
+  const topics = [...new Set(raw.filter((t) => !["southeast", "asia"].includes(t)).map((t) => (t === "payment" ? "payments" : t)))].slice(0, 4);
+  return { topics, subject: peepsSubject(request), region };
+}
+
+function peepsSubject(request) {
+  const outcome = String(request?.outcomeText || "");
+  const about = /\babout\s+(.+?)(?:[.!?]|$)/i.exec(outcome);
+  if (about) return about[1].trim().slice(0, 140);
+  return outcome.replace(/^i want\s+/i, "").replace(/[.!?]+$/, "").trim().slice(0, 140) || "this topic";
+}
+
+function peepsFormatLabel(type) {
+  return ({ podcast_guest: "a recorded podcast conversation", expert_panel: "a panel discussion", focus_group: "a focus group", research_interview: "a research interview", conversation: "a one-on-one conversation" })[type] || "a conversation";
+}
+
+function peepsSessionType(engagementType) {
+  return ({ podcast_guest: "podcast", expert_panel: "panel", focus_group: "focus_group", research_interview: "interview", conversation: "interview" })[engagementType] || "research_session";
+}
+
+function peepsRecordingStatus(request, jam) {
+  const required = (jam?.consentRequirements || []).includes("recording");
+  const likely = request?.workingRepresentation?.recordingLikely;
+  if (required && likely) return "planned";
+  if (likely === false) return "not_planned";
+  return required ? "planned" : "unknown";
+}
+
+function peepsCompensation(jam) {
+  const amount = Number(jam?.compensation?.amount) || 0;
+  return amount > 0 ? { amount, currency: jam.compensation.currency || "USD" } : null;
+}
+
+// ---- Adapter registry: outreach + calendar ----
+// One outbound interaction model for every channel: send -> {ok, status, threadRef, providerMessageId,
+// error}. Only email is genuinely functional; everything else is declared here as adapter-only so the
+// product can tell the truth about what it can and cannot automate.
+const PEEPS_EMAIL_CHANNELS = new Set(["peeps_member", "prior_participation_email", "public_professional_email", "requester_supplied_email"]);
+const PEEPS_CHANNEL_PRIORITY = {
+  peeps_member: 1, prior_participation_email: 2, public_professional_email: 3, requester_supplied_email: 4,
+  public_social_profile: 5, company_contact: 6, website_contact: 7, other_provider_channel: 8
+};
+
+function peepsEmailAdapter() {
+  if (RESEND_API_KEY) return { id: "email", providerKind: "real" };
+  if (PEEPS_TEST_ADAPTERS) return { id: "test_email", providerKind: "test_demo" };
+  return null;
+}
+
+function peepsAdapterCatalog() {
+  const email = peepsEmailAdapter();
+  return [
+    { id: "email", kind: "real", automatable: true, available: Boolean(RESEND_API_KEY), note: RESEND_API_KEY ? "Sends through the configured email provider. Delivery is not confirmed until the person responds." : "No email provider is configured on this deployment." },
+    { id: "test_email", kind: "test_demo", automatable: true, available: !RESEND_API_KEY && PEEPS_TEST_ADAPTERS, note: "Test/demo provider: records the message but nothing is actually delivered." },
+    { id: "peeps_a2a", kind: "adapter_only", automatable: false, available: false, note: "Peeps agent-to-agent messaging has no deployed transport yet." },
+    { id: "professional_messaging", kind: "adapter_only", automatable: false, available: false, note: "Professional messaging networks are not integrated; these paths can only be contacted manually." },
+    { id: "website_form", kind: "adapter_only", automatable: false, available: false, note: "Website and company contact forms are not automated." },
+    { id: "selected", kind: email ? email.providerKind : "none", automatable: Boolean(email), available: Boolean(email), note: email ? `Active email adapter: ${email.id}.` : "No outreach provider is available." }
+  ];
+}
+
+async function peepsAdapterSend(adapter, { to, subject, text, html, threadRef, purpose }) {
+  if (adapter.id === "email") {
+    const result = await sendEmail({ to, subject, html, text, headers: { "X-Toasty-Thread": threadRef } });
+    return result.ok
+      ? { ok: true, status: "sent", threadRef, providerMessageId: result.id || "" }
+      : { ok: false, status: "failed", error: "The email provider rejected the message." };
+  }
+  // test_email — deterministic. A local part starting with "bounce" simulates a hard delivery failure.
+  const local = String(to).split("@")[0];
+  if (/^bounce/i.test(local) || (/^latefail/i.test(local) && purpose !== "outreach")) return { ok: false, status: "failed", error: "Simulated bounce (test provider)." };
+  return { ok: true, status: "simulated", threadRef, providerMessageId: `test-${randomBytes(6).toString("hex")}`, testPayload: { to, subject, text } };
+}
+
+// Calendar adapter. The Peeps booking is authoritative; ICS is the calendar-compatible output. No
+// external calendar integration exists yet, and none is faked.
+const PEEPS_CALENDAR_ADAPTER = Object.freeze({ id: "peeps_internal", externalCalendarConnected: false, note: "The Peeps booking is authoritative. An .ics file is provided; no external calendar (Google/Outlook) is connected." });
+
+function peepsIcsEscape(value) {
+  return String(value ?? "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+}
+
+function peepsIcsStamp(iso) {
+  return new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+}
+
+function peepsBuildIcs({ booking, summary, description, location }) {
+  return [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Toasty Peeps//Introductions//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:${booking.id}@toasty.media`,
+    `DTSTAMP:${peepsIcsStamp(booking.updatedAt || new Date().toISOString())}`,
+    `DTSTART:${peepsIcsStamp(booking.startsAt)}`,
+    `DTEND:${peepsIcsStamp(booking.endsAt)}`,
+    `SEQUENCE:${booking.sequence || 0}`,
+    `SUMMARY:${peepsIcsEscape(summary)}`,
+    `DESCRIPTION:${peepsIcsEscape(description)}`,
+    `LOCATION:${peepsIcsEscape(location)}`,
+    `STATUS:${booking.status === "cancelled" ? "CANCELLED" : "CONFIRMED"}`,
+    "END:VEVENT", "END:VCALENDAR", ""
+  ].join("\r\n");
+}
+
+// Contact details Peeps found or holds never reach the organizer in the clear. Candidate lists carry only
+// a masked address; Jam participant lists mask the address of anyone who arrived through an introduction.
+function peepsCandidateForClient(candidate) {
+  return { ...candidate, contactEmail: candidate.contactEmail ? peepsMaskEmail(candidate.contactEmail) : null };
+}
+
+async function peepsMaskParticipantContacts(jamId, participants) {
+  const intros = (await db("peeps_introduction_list_by_jam", { jamId })).introductions || [];
+  const introduced = new Set(intros.map((i) => i.jamParticipantId));
+  return participants.map((p) => (introduced.has(p.id) && p.email ? { ...p, email: peepsMaskEmail(p.email) } : p));
+}
+
+// The render server is a single process, so a per-key promise chain is enough to serialize read-modify-
+// write work on one Jam's planner/setup (concurrent retries would otherwise double-create a speaker or
+// interleave plan versions). Cross-process safety still comes from the DB's UNIQUE/compare-and-set guards.
+const peepsLocks = new Map();
+async function peepsWithLock(key, fn) {
+  const previous = peepsLocks.get(key) || Promise.resolve();
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const tail = previous.then(() => gate);
+  peepsLocks.set(key, tail);
+  await previous;
+  try { return await fn(); } finally { release(); if (peepsLocks.get(key) === tail) peepsLocks.delete(key); }
+}
+
+// ---- Loading ----
+async function peepsLoadIntroduction(id) {
+  if (!SAFE_ID.test(String(id || ""))) return null;
+  const result = await db("peeps_intro_get", { id });
+  if (!result.introduction) return null;
+  return { intro: result.introduction, request: result.request, candidate: result.candidate, dub: result.dub };
+}
+
+async function requireOwnedIntroduction(req, res, authSession, id, minRole = "member") {
+  if (!SAFE_ID.test(String(id || ""))) throw httpError(400, "Invalid introduction id.");
+  const ctx = await peepsLoadIntroduction(id);
+  if (!ctx) throw httpError(404, "Introduction not found.");
+  const membership = await requireMembership(req, res, ctx.request.organizationId, minRole, authSession);
+  if (!membership) return null;
+  return ctx;
+}
+
+async function peepsLoadJam(jamId) {
+  if (!jamId) return null;
+  const lookup = await db("jam_get_by_id", { id: jamId });
+  return lookup.jam || null;
+}
+
+async function peepsRequesterInfo(request, userId) {
+  const [userResult, orgResult] = await Promise.all([
+    db("get_user_by_id", { id: userId || request.createdByUserId }),
+    db("get_organization", { id: request.organizationId })
+  ]);
+  return { user: userResult.user || null, name: userResult.user?.name || "Someone on Toasty Peeps", orgName: orgResult.organization?.name || "" };
+}
+
+// ---- Introduction state ----
+async function peepsSetIntroStatus(id, to, fields = {}, expectStatuses) {
+  const result = await db("peeps_intro_update", { id, fields: { ...fields, status: to }, expectStatuses });
+  return result;
+}
+
+// Lazy expiry: a candidate who never responds must not leave the request spinning forever. Evaluated
+// whenever an introduction is read, so no scheduler is required and there is nothing to miss.
+async function peepsRefreshIntroduction(ctx) {
+  const { intro } = ctx;
+  if (["outreach_sent", "responded"].includes(intro.status) && intro.outreachExpiresAt && Date.parse(intro.outreachExpiresAt) < Date.now()) {
+    const result = await peepsSetIntroStatus(intro.id, "expired", {}, ["outreach_sent", "responded"]);
+    if (result.updated) {
+      ctx.intro = result.introduction;
+      await db("jam_event_create", { id: newId("jev"), jamId: intro.jamId, jamParticipantId: intro.jamParticipantId, type: "introduction.expired", actor: "system", detail: { introductionId: intro.id } });
+    }
+  }
+  return ctx;
+}
+
+// ---- Contact resolution ----
+async function peepsResolveContact(ctx, { requesterSuppliedEmail = "", authorizedByUserId }) {
+  const { intro, request, candidate, dub } = ctx;
+  const authorization = { requestId: request.id, introductionId: intro.id, authorizedByUserId, authorizedAt: intro.authorizedAt, purpose: "introduction_outreach" };
+  const descriptors = [];
+  const addEmail = (channel, destination, source, verification, confidence) => {
+    const email = String(destination || "").trim().toLowerCase();
+    if (!EMAIL_PATTERN.test(email) || /\.invalid$/.test(email)) return;
+    descriptors.push({ channel, destination: email, source, verification, confidence, automatable: true });
+  };
+
+  if (dub?.userId) {
+    const userResult = await db("get_user_by_id", { id: dub.userId });
+    const member = userResult.user;
+    if (member?.email) addEmail("peeps_member", member.email, "peeps_member_account", member.emailVerifiedAt ? "verified_account_email" : "unverified_account_email", "High");
+  }
+  if (candidate.source === "internal_unclaimed_dub" && dub?.email) addEmail("prior_participation_email", dub.email, "prior_jam_participation", "previously_used_with_this_organization", "Medium");
+  if (candidate.contactEmail) addEmail("public_professional_email", candidate.contactEmail, candidate.source || "provider", "provider_reported", candidate.evidence?.[0]?.confidence || "Low");
+  if (requesterSuppliedEmail) addEmail("requester_supplied_email", requesterSuppliedEmail, "requester_supplied", "unverified_supplied_by_requester", "Low");
+
+  // Non-email public paths are recorded truthfully but never claimed as automated.
+  const pathTypes = { social: "public_social_profile", linkedin: "public_social_profile", profile: "public_social_profile", company: "company_contact", website: "website_contact", other: "other_provider_channel" };
+  for (const path of Array.isArray(candidate.contactPaths) ? candidate.contactPaths.slice(0, 8) : []) {
+    const url = peepsSafePublicUrl(path?.url);
+    const channel = pathTypes[String(path?.type || "other").toLowerCase()] || "other_provider_channel";
+    if (!url) continue;
+    descriptors.push({ channel, destination: url, publicReference: url, source: String(path?.source || candidate.source || "provider").slice(0, 80), verification: "provider_reported", confidence: String(path?.confidence || "Low").slice(0, 20), automatable: false });
+  }
+
+  for (const d of descriptors) {
+    const isEmail = PEEPS_EMAIL_CHANNELS.has(d.channel);
+    await db("peeps_channel_upsert", {
+      id: newId("pch"), introductionId: intro.id, channel: d.channel, adapter: d.automatable ? "email" : "none",
+      destinationEnc: encryptSecret(d.destination), destinationMasked: isEmail ? peepsMaskEmail(d.destination) : (d.publicReference ? new URL(d.publicReference).host : ""),
+      destinationHash: peepsDestinationHash(d.channel, d.destination), publicReference: d.publicReference || "",
+      source: d.source, verification: d.verification, confidence: d.confidence, priority: PEEPS_CHANNEL_PRIORITY[d.channel] || 99,
+      automatable: d.automatable, status: d.automatable ? "candidate" : "manual_only", authorizationContext: authorization
+    });
+  }
+  const listed = await db("peeps_channel_list", { introductionId: intro.id });
+  return listed.channels || [];
+}
+
+// ---- Messages ----
+function peepsRenderMessage(purpose, t, url) {
+  const link = url ? `\n\n${url}` : "";
+  const time = t.startsAt ? peepsFormatInZone(t.startsAt, t.displayTimezone || "UTC") : "";
+  const compLine = t.compensation ? `Compensation: $${Number(t.compensation.amount).toFixed(2)} ${t.compensation.currency || "USD"}.` : "";
+  const recLine = t.recordingState === "planned" ? "Recording: this session is expected to be recorded, and you'll be asked for consent before it starts." : (t.recordingState === "not_planned" ? "Recording: this session is not planned to be recorded." : "Recording: not decided yet.");
+  const signoff = "\n\n— Toasty Peeps";
+  const changes = Array.isArray(t.changes) && t.changes.length ? `\n\n${t.changes.map((c) => `• ${c}`).join("\n")}` : "";
+  const map = {
+    outreach: () => ({
+      subject: `${t.requesterName} would like to speak with you`,
+      text: `Hi ${peepsFirstName(t.candidateName)},\n\n${t.requesterName}${t.orgName ? ` (${t.orgName})` : ""} would like to speak with you. This is an introduction request facilitated by Toasty Peeps. Peeps has not been in touch with you before, and you do not need an account to reply.\n\nWhat it's for: ${t.outcome}\nWhy you: ${t.why}\nFormat: ${peepsFormatLabel(t.formatType)}. ${recLine}${compLine ? `\n${compLine}` : ""}\nTime: about ${t.durationMinutes} minutes (a proposal — you can suggest another length).\n\nInterested or not, it takes one click:${link}\n\nHow we found your contact details: ${t.sourceNote}\nIf you'd rather not be contacted, choose Decline on that page and that's the end of it.${signoff}`
+    }),
+    opening: () => ({
+      subject: `A last-minute opening: ${t.requesterName} would like to speak with you`,
+      text: `Hi ${peepsFirstName(t.candidateName)},\n\n${t.requesterName}${t.orgName ? ` (${t.orgName})` : ""} has a last-minute opening in an upcoming session and Toasty Peeps thought of you. This is an introduction request facilitated by Peeps; you do not need an account to reply.\n\nWhat it's for: ${t.outcome}\nWhy you: ${t.why}\nFormat: ${peepsFormatLabel(t.formatType)}. ${recLine}${compLine ? `\n${compLine}` : ""}\n${time ? `Proposed time: ${time}\n` : ""}Time: about ${t.durationMinutes} minutes.\n\nInterested or not, it takes one click:${link}\n\nHow we found your contact details: ${t.sourceNote}${signoff}`
+    }),
+    reminder: () => ({
+      subject: `Reminder: ${t.requesterName} would like to speak with you`,
+      text: `Hi ${peepsFirstName(t.candidateName)},\n\nA quick reminder about the introduction request from ${t.requesterName}${t.orgName ? ` (${t.orgName})` : ""}, facilitated by Toasty Peeps: ${t.outcome}\n\nYou can respond in one click, no account needed:${link}${signoff}`
+    }),
+    booking_confirmation: () => ({
+      subject: `Confirmed: your conversation with ${t.requesterName}`,
+      text: `Hi ${peepsFirstName(t.candidateName)},\n\nYour conversation is booked.\n\nWhen: ${time}\nWith: ${t.requesterName}${t.orgName ? ` (${t.orgName})` : ""}\nPurpose: ${t.outcome}\nLength: ${t.durationMinutes} minutes\n${recLine}${compLine ? `\n${compLine}` : ""}\n\nYour prep, consent and join link are here:${link}${signoff}`
+    }),
+    prep_update: () => ({
+      subject: `Update to your conversation with ${t.requesterName}`,
+      text: `Hi ${peepsFirstName(t.candidateName)},\n\n${t.requesterName} updated the details of your session. What changed:${changes}\n\nSee the latest prep here:${link}${signoff}`
+    }),
+    reschedule: () => ({
+      subject: `New time for your conversation with ${t.requesterName}`,
+      text: `Hi ${peepsFirstName(t.candidateName)},\n\nYour session has a new time: ${time}.${changes}\n\nDetails and your join link:${link}${signoff}`
+    }),
+    cancellation: () => ({
+      subject: `Your conversation with ${t.requesterName} was cancelled`,
+      text: `Hi ${peepsFirstName(t.candidateName)},\n\n${t.requesterName} cancelled the session${time ? ` that was scheduled for ${time}` : ""}.${t.reason ? `\nReason given: ${t.reason}` : ""}\n\nNo action is needed.${signoff}`
+    }),
+    organizer_decline: () => ({
+      subject: `${t.candidateName} declined the introduction`,
+      text: `${t.candidateName} declined this introduction${t.reason ? ` (${t.reason})` : ""}. You have not been charged again, and this is not held against ${peepsFirstName(t.candidateName)} in any way.\n\nOpen the introduction to look for a replacement:${link}${signoff}`
+    }),
+    organizer_interest: () => ({
+      subject: `${t.candidateName} is interested`,
+      text: `${t.candidateName} said they're interested in speaking with you. Peeps is collecting the last details (availability and preferences).${link}${signoff}`
+    }),
+    organizer_ready_to_schedule: () => ({
+      subject: `${t.candidateName} shared availability — ready to book`,
+      text: `${t.candidateName} shared their availability. ${t.slotCount ? `Peeps found ${t.slotCount} time${t.slotCount === 1 ? "" : "s"} that work for both of you.` : "There is no overlap with your availability yet — update yours or ask them for more times."}\n\nReview and book:${link}${signoff}`
+    }),
+    organizer_message: () => ({
+      subject: `${t.candidateName} sent you a message`,
+      text: `${t.candidateName} replied to your introduction:\n\n"${t.message}"${link}${signoff}`
+    }),
+    organizer_booking: () => ({
+      subject: `Booked: ${t.candidateName} on ${time}`,
+      text: `Your session with ${t.candidateName} is booked for ${time}. The Studio session and Session Planner are set up.${link}${signoff}`
+    }),
+    organizer_candidate_cancelled: () => ({
+      subject: `${t.candidateName} cancelled`,
+      text: `${t.candidateName} cancelled the session${time ? ` scheduled for ${time}` : ""}.${t.reason ? `\nReason: ${t.reason}` : ""}${t.lateCancellation ? "\nThis is inside your late-cancellation window. Peeps has applied no penalty automatically; any consequence follows your agreement." : ""}\n${t.next || ""}${link}${signoff}`
+    }),
+    organizer_reschedule_request: () => ({
+      subject: `${t.candidateName} asked to reschedule`,
+      text: `${t.candidateName} asked to move the session${t.reason ? ` (${t.reason})` : ""}.${link}${signoff}`
+    }),
+    organizer_unreachable: () => ({
+      subject: `Peeps couldn't reach ${t.candidateName}`,
+      text: `Peeps was not able to reach ${t.candidateName}${t.reason ? `: ${t.reason}` : ""}. Your introduction fee is preserved — you can approve a replacement without paying again.${link}${signoff}`
+    })
+  };
+  const built = (map[purpose] || map.reminder)();
+  const html = built.text.split(/\n\n/).map((para) => {
+    const escaped = escapeHtml(para).replace(/\n/g, "<br>");
+    return `<p>${escaped.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>')}</p>`;
+  }).join("");
+  return { subject: built.subject, text: built.text, html };
+}
+
+async function peepsMintResponseToken(introId) {
+  const { token, tokenHash } = issueInviteToken();
+  await db("peeps_token_issue", { id: newId("prt"), introductionId: introId, tokenHash, expiresAt: inviteExpiry(PEEPS_RESPONSE_TOKEN_TTL_DAYS) });
+  return token;
+}
+
+function peepsResponseUrl(token) {
+  return `${APP_BASE_URL}/peeps/respond.html?token=${token}`;
+}
+
+async function peepsTemplateFor(ctx, extra = {}) {
+  const { intro, request, candidate } = ctx;
+  const jam = await peepsLoadJam(intro.jamId);
+  const requester = await peepsRequesterInfo(request, intro.authorizedByUserId);
+  const channelSource = ({ peeps_member_account: "you're a Toasty Peeps member and this is your account address.", prior_jam_participation: "you took part in a previous Toasty Peeps session with this team.", requester_supplied: "the person requesting the introduction gave us this address; Peeps has not independently verified it." })[ctx.activeChannel?.source] || "it was reported by a candidate directory provider.";
+  return {
+    requesterName: requester.name, orgName: requester.orgName, candidateName: candidate.displayName,
+    outcome: request.outcomeText, why: peepsWhyText(candidate), formatType: request.workingRepresentation?.engagementType || "conversation",
+    recordingState: peepsRecordingStatus(request, jam), compensation: peepsCompensation(jam),
+    durationMinutes: intro.preferences?.durationMinutes || PEEPS_DEFAULT_DURATION_MINUTES, sourceNote: channelSource, ...extra
+  };
+}
+
+// Persist a message row, then attempt delivery. Never throws: a failed send is a recorded, retryable state.
+async function peepsSendMessage({ ctx, purpose, audience, template, needsLink = false, bookingId = null }) {
+  const adapter = peepsEmailAdapter();
+  const created = await db("peeps_message_create", {
+    id: newId("pmsg"), introductionId: ctx.intro.id, bookingId, channelId: audience === "candidate" ? ctx.activeChannel?.id || null : null,
+    purpose, audience, adapter: adapter?.id || "none", providerKind: adapter?.providerKind || "none", status: "queued",
+    threadRef: `peeps-intro-${ctx.intro.id}`, template: { ...template, needsLink }
+  });
+  return peepsDeliverMessage(created.message, ctx);
+}
+
+async function peepsRecipientEmail(ctx, audience) {
+  if (audience === "organizer") {
+    const userResult = await db("get_user_by_id", { id: ctx.intro.authorizedByUserId || ctx.request.createdByUserId });
+    return { email: userResult.user?.email || "", channel: null };
+  }
+  const channel = ctx.activeChannel;
+  if (!channel?.destinationEnc) return { email: "", channel: null };
+  try { return { email: decryptSecret(channel.destinationEnc), channel }; } catch { return { email: "", channel: null }; }
+}
+
+async function peepsDeliverMessage(message, ctx) {
+  const adapter = peepsEmailAdapter();
+  const finish = async (fields) => {
+    const updated = await db("peeps_message_update", { id: message.id, fields, includeTestPayload: PEEPS_TEST_ADAPTERS });
+    return { message: updated.message, ok: ["sent", "simulated"].includes(fields.status) };
+  };
+  if (!adapter) return finish({ status: "skipped_unavailable", error: "No outreach provider is configured on this deployment." });
+  const { email } = await peepsRecipientEmail(ctx, message.audience);
+  if (!email) return finish({ status: "skipped_unavailable", error: "There is no automatable destination for this recipient." });
+  const template = message.template || {};
+  let url = null;
+  if (message.audience === "candidate" && template.needsLink) url = peepsResponseUrl(await peepsMintResponseToken(ctx.intro.id));
+  if (message.audience === "organizer") url = `${APP_BASE_URL}/peeps/app/introduction.html?id=${ctx.intro.id}`;
+  const rendered = peepsRenderMessage(message.purpose, template, url);
+  try {
+    const result = await peepsAdapterSend(adapter, { to: email, ...rendered, threadRef: message.threadRef, purpose: message.purpose });
+    const fields = { status: result.status, adapter: adapter.id, providerKind: adapter.providerKind, threadRef: result.threadRef || message.threadRef, providerMessageId: result.providerMessageId || "", error: result.error || "", attempt: (message.attempt || 0) + (message.status === "queued" ? 0 : 1) };
+    if (adapter.providerKind === "test_demo") fields.testPayload = { ...(result.testPayload || {}), url };
+    return finish(fields);
+  } catch (error) {
+    console.error("[Peeps] outbound send failed", error);
+    return finish({ status: "failed", adapter: adapter.id, providerKind: adapter.providerKind, error: "The provider raised an error while sending." });
+  }
+}
+
+async function peepsAttachActiveChannel(ctx) {
+  const listed = await db("peeps_channel_list", { introductionId: ctx.intro.id });
+  ctx.channels = listed.channels || [];
+  ctx.activeChannel = ctx.channels.find((c) => c.id === ctx.intro.contactState?.activeChannelId) || null;
+  return ctx;
+}
+
+// ---- Outreach ----
+// Resolve -> choose the best automatable channel -> send. A failed channel falls through to the next one;
+// when nothing automatable is left the introduction is marked unreachable (never left spinning).
+async function peepsRunOutreach(ctx, { purpose = "outreach", openingContext = null } = {}) {
+  await peepsAttachActiveChannel(ctx);
+  const adapter = peepsEmailAdapter();
+  const automatable = ctx.channels.filter((c) => c.automatable && c.status !== "failed");
+  const manual = ctx.channels.filter((c) => !c.automatable).map((c) => ({ channel: c.channel, reference: c.publicReference, source: c.source }));
+
+  if (!automatable.length) {
+    const result = await peepsSetIntroStatus(ctx.intro.id, "unreachable", { contactState: { ...ctx.intro.contactState, reason: manual.length ? "manual_only" : "no_contact_path", manualOptions: manual, checkedAt: new Date().toISOString() } });
+    ctx.intro = result.introduction;
+    await db("jam_event_create", { id: newId("jev"), jamId: ctx.intro.jamId, jamParticipantId: ctx.intro.jamParticipantId, type: "introduction.unreachable", actor: "system", detail: { introductionId: ctx.intro.id, reason: manual.length ? "manual_only" : "no_contact_path" } });
+    await peepsNotifyOrganizer(ctx, "organizer_unreachable", { reason: manual.length ? "the only contact paths found can't be automated" : "no legitimate contact path was found" });
+    return ctx;
+  }
+  if (!adapter) {
+    const result = await peepsSetIntroStatus(ctx.intro.id, "ready_for_outreach", { contactState: { ...ctx.intro.contactState, blocked: "provider_unavailable", manualOptions: manual, checkedAt: new Date().toISOString() } });
+    ctx.intro = result.introduction;
+    return ctx;
+  }
+
+  for (const channel of automatable) {
+    ctx.activeChannel = channel;
+    await db("peeps_intro_update", { id: ctx.intro.id, fields: { contactState: { ...ctx.intro.contactState, activeChannelId: channel.id, blocked: null, manualOptions: manual } } });
+    const template = await peepsTemplateFor(ctx, openingContext ? { startsAt: openingContext.startsAt, displayTimezone: openingContext.displayTimezone } : {});
+    const sent = await peepsSendMessage({ ctx, purpose: openingContext ? "opening" : purpose, audience: "candidate", template, needsLink: true });
+    if (sent.ok) {
+      const result = await peepsSetIntroStatus(ctx.intro.id, "outreach_sent", {
+        outreachSentAt: new Date().toISOString(), outreachExpiresAt: inviteExpiry(PEEPS_OUTREACH_TTL_DAYS),
+        contactState: { ...ctx.intro.contactState, activeChannelId: channel.id, blocked: null, manualOptions: manual, lastOutreachProviderKind: sent.message.providerKind }
+      });
+      await db("peeps_channel_update", { id: channel.id, fields: { status: "active", lastCheckedAt: new Date().toISOString() } });
+      ctx.intro = result.introduction;
+      await db("jam_event_create", { id: newId("jev"), jamId: ctx.intro.jamId, jamParticipantId: ctx.intro.jamParticipantId, type: "outreach.sent", actor: "system", detail: { introductionId: ctx.intro.id, channel: channel.channel, providerKind: sent.message.providerKind } });
+      return ctx;
+    }
+    await db("peeps_channel_update", { id: channel.id, fields: { status: "failed", lastCheckedAt: new Date().toISOString() } });
+  }
+  const result = await peepsSetIntroStatus(ctx.intro.id, "unreachable", { contactState: { ...ctx.intro.contactState, reason: "delivery_failed", manualOptions: manual, checkedAt: new Date().toISOString() } });
+  ctx.intro = result.introduction;
+  await db("jam_event_create", { id: newId("jev"), jamId: ctx.intro.jamId, jamParticipantId: ctx.intro.jamParticipantId, type: "introduction.unreachable", actor: "system", detail: { introductionId: ctx.intro.id, reason: "delivery_failed" } });
+  await peepsNotifyOrganizer(ctx, "organizer_unreachable", { reason: "every automated outreach attempt failed" });
+  return ctx;
+}
+
+async function peepsNotifyOrganizer(ctx, purpose, extra = {}) {
+  try {
+    const template = await peepsTemplateFor(ctx, extra);
+    return await peepsSendMessage({ ctx, purpose, audience: "organizer", template });
+  } catch (error) {
+    console.error("[Peeps] organizer notification failed", error);
+    return null;
+  }
+}
+
+async function peepsNotifyCandidate(ctx, purpose, extra = {}, { needsLink = true, bookingId = null } = {}) {
+  try {
+    await peepsAttachActiveChannel(ctx);
+    const template = await peepsTemplateFor(ctx, extra);
+    return await peepsSendMessage({ ctx, purpose, audience: "candidate", template, needsLink, bookingId });
+  } catch (error) {
+    console.error("[Peeps] candidate notification failed", error);
+    return null;
+  }
+}
+
+// The authorized introduction becomes actionable: resolve contact, then run outreach.
+async function peepsStartIntroduction(ctx, { requesterSuppliedEmail = "", authorizedByUserId, openingContext = null }) {
+  const moved = await peepsSetIntroStatus(ctx.intro.id, "resolving_contact", {}, ["authorized"]);
+  if (moved.updated) ctx.intro = moved.introduction;
+  ctx.channels = await peepsResolveContact(ctx, { requesterSuppliedEmail, authorizedByUserId });
+  const ready = await peepsSetIntroStatus(ctx.intro.id, "ready_for_outreach", { contactState: { ...ctx.intro.contactState, resolvedAt: new Date().toISOString(), channelCount: ctx.channels.length } }, ["resolving_contact"]);
+  if (ready.updated) ctx.intro = ready.introduction;
+  return peepsRunOutreach(ctx, { openingContext });
+}
+
+// ---- Needs / scheduling ----
+async function peepsKnownPreferences(ctx) {
+  const stored = await db("dub_preferences_get", { dubId: ctx.intro.dubId });
+  return { ...(stored.preferences || {}), ...(ctx.intro.preferences || {}) };
+}
+
+function peepsComputeNeeds(ctx, jam, prefs) {
+  const needs = [];
+  const windows = ctx.intro.availability?.windows || [];
+  if (!windows.some((w) => Date.parse(w.endUtc) > Date.now())) needs.push("availability");
+  const recordingApplies = (jam?.consentRequirements || []).includes("recording") || ctx.request.workingRepresentation?.recordingLikely;
+  if (recordingApplies && !prefs.recordingPreference) needs.push("recording");
+  if (!prefs.durationMinutes) needs.push("duration");
+  if (!peepsCompensation(jam) && !prefs.compensation) needs.push("compensation");
+  return needs;
+}
+
+function peepsBlockers(ctx, jam, prefs) {
+  const blockers = [];
+  if (prefs.recordingPreference === "no" && (jam?.consentRequirements || []).includes("recording")) blockers.push("recording_conflict");
+  const offered = peepsCompensation(jam)?.amount || 0;
+  if (prefs.compensation?.requirement === "paid" && (Number(prefs.compensation.amount) || 1) > offered) blockers.push("compensation_mismatch");
+  return blockers;
+}
+
+async function peepsActiveBookingsForJam(jamId) {
+  const listed = await db("peeps_booking_list", { jamId });
+  return (listed.bookings || []).filter((b) => b.status === "booked" || b.status === "reschedule_requested");
+}
+
+async function peepsComputeSlots(ctx, jam) {
+  const now = Date.now();
+  const prefs = await peepsKnownPreferences(ctx);
+  const durationMinutes = Math.max(15, Math.min(240, Number(prefs.durationMinutes) || PEEPS_DEFAULT_DURATION_MINUTES));
+  const requesterAvailability = ctx.request.requesterAvailability || {};
+  const reqInt = peepsIntervals(requesterAvailability, now);
+  const candInt = peepsIntervals(ctx.intro.availability, now);
+  const result = { durationMinutes, slots: [], reason: null, groupCompatible: true, fixedSessionTime: null };
+  const others = (await peepsActiveBookingsForJam(ctx.intro.jamId)).filter((b) => b.introductionId !== ctx.intro.id && b.status === "booked");
+  let intervals;
+  if (others.length) {
+    // One Session, one time: a later guest can only join the time already booked.
+    const fixed = Date.parse(others[0].startsAt);
+    result.fixedSessionTime = others[0].startsAt;
+    intervals = candInt.filter((i) => peepsSlotFits([i], fixed, durationMinutes)).length ? [{ s: fixed, e: fixed + durationMinutes * 60 * 1000 }] : [];
+    if (!intervals.length) result.reason = "candidate_unavailable_at_session_time";
+  } else {
+    if (!reqInt.length) result.reason = "requester_availability_required";
+    else if (!candInt.length) result.reason = "candidate_availability_required";
+    else {
+      const pair = peepsIntersect(reqInt, candInt);
+      // Other accepted guests who already shared availability — prefer a time that works for all.
+      const siblings = [];
+      const introList = await db("peeps_introduction_list_by_jam", { jamId: ctx.intro.jamId });
+      for (const other of introList.introductions || []) {
+        if (other.id === ctx.intro.id || !["accepted", "scheduling"].includes(other.status)) continue;
+        const int = peepsIntervals(other.availability, now);
+        if (int.length) siblings.push(int);
+      }
+      let group = pair;
+      for (const int of siblings) group = peepsIntersect(group, int);
+      if (siblings.length && peepsProposeSlots(group, durationMinutes).length) intervals = group;
+      else { intervals = pair; result.groupCompatible = !siblings.length; }
+      if (!peepsProposeSlots(intervals, durationMinutes).length) result.reason = "no_overlapping_availability";
+    }
+  }
+  if (!result.reason) {
+    result.slots = (result.fixedSessionTime ? [Date.parse(result.fixedSessionTime)] : peepsProposeSlots(intervals, durationMinutes))
+      .map((startMs) => ({
+        startsAt: new Date(startMs).toISOString(), endsAt: new Date(startMs + durationMinutes * 60 * 1000).toISOString(),
+        requesterLocal: peepsFormatInZone(startMs, requesterAvailability.timezone), candidateLocal: peepsFormatInZone(startMs, ctx.intro.availability?.timezone)
+      }));
+  }
+  result._intervals = intervals || [];
+  return result;
+}
+
+// ---- Candidate (external) response page ----
+async function peepsLoadResponseContext(token, { touch = true } = {}) {
+  if (!PEEPS_TOKEN_SHAPE.test(String(token || ""))) throw httpError(404, "This link isn't valid.");
+  const tokenResult = await db("peeps_token_get", { tokenHash: hashInviteToken(token), touch });
+  const row = tokenResult.token;
+  if (!row) throw httpError(404, "This link isn't valid.");
+  if (row.revokedAt) throw httpError(410, "This link has been replaced or withdrawn.");
+  if (Date.parse(row.expiresAt) < Date.now()) throw httpError(410, "This link has expired. Ask the person who invited you to send a new one.");
+  const ctx = await peepsLoadIntroduction(row.introductionId);
+  if (!ctx) throw httpError(404, "This link isn't valid.");
+  await peepsAttachActiveChannel(ctx);
+  await peepsRefreshIntroduction(ctx);
+  if (touch && !ctx.intro.firstViewedAt) {
+    const viewed = await db("peeps_intro_update", { id: ctx.intro.id, fields: { firstViewedAt: new Date().toISOString() } });
+    ctx.intro = viewed.introduction;
+  }
+  return ctx;
+}
+
+function peepsPublicState(intro, booking) {
+  if (booking?.status === "reschedule_requested") return "reschedule_requested";
+  if (booking?.status === "booked") return "booked";
+  if (booking?.status === "cancelled") return "cancelled";
+  return ({ outreach_sent: "awaiting_decision", responded: "awaiting_decision", accepted: "collecting_details", scheduling: "waiting_for_booking", booked: "booked", declined: "declined", expired: "expired", cancelled: "cancelled" })[intro.status] || "unavailable";
+}
+
+async function peepsResponseView(ctx) {
+  const { intro, request, candidate } = ctx;
+  const [jam, requester, prefs, bookingResult] = await Promise.all([
+    peepsLoadJam(intro.jamId), peepsRequesterInfo(request, intro.authorizedByUserId), peepsKnownPreferences(ctx),
+    db("peeps_booking_get", { introductionId: intro.id })
+  ]);
+  const booking = bookingResult.booking;
+  const state = peepsPublicState(intro, booking);
+  const timezone = intro.availability?.timezone || prefs.timezone || "";
+  const view = {
+    state,
+    requester: { name: requester.name, organization: requester.orgName },
+    candidateName: candidate.displayName,
+    purpose: request.outcomeText,
+    whyYou: peepsWhyText(candidate),
+    format: request.workingRepresentation?.engagementType || "conversation",
+    formatLabel: peepsFormatLabel(request.workingRepresentation?.engagementType),
+    proposedDurationMinutes: prefs.durationMinutes || PEEPS_DEFAULT_DURATION_MINUTES,
+    recording: peepsRecordingStatus(request, jam),
+    compensation: peepsCompensation(jam),
+    facilitatedByPeeps: true,
+    needs: ["accepted", "scheduling"].includes(intro.status) ? peepsComputeNeeds(ctx, jam, prefs) : [],
+    known: { timezone: timezone || null, durationMinutes: prefs.durationMinutes || null, recordingPreference: prefs.recordingPreference || null, compensation: prefs.compensation || null },
+    submitted: { availability: intro.availability?.windows ? { timezone: intro.availability.timezone, windows: intro.availability.windows.map((w) => ({ start: w.start, end: w.end })), minNoticeHours: intro.availability.minNoticeHours } : null },
+    decline: intro.status === "declined" ? { reason: intro.declineReason || "" } : null,
+    outreachExpiresAt: intro.outreachExpiresAt || null,
+    booking: null
+  };
+  if (booking && ["booked", "reschedule_requested", "cancelled"].includes(booking.status)) {
+    const tz = booking.candidateTimezone || timezone || "UTC";
+    view.booking = {
+      status: booking.status, startsAt: booking.startsAt, endsAt: booking.endsAt, timezone: tz, display: peepsFormatInZone(booking.startsAt, tz),
+      durationMinutes: booking.durationMinutes, recording: booking.recordingState, compensation: booking.compensation?.amount ? booking.compensation : null,
+      cancellationPolicy: { lateCancellationHours: booking.cancellationPolicy?.lateCancellationHours ?? 24 }, planVersion: booking.planVersion
+    };
+    view.consent = { required: peepsRequiredConsent(jam, booking), captured: false };
+    if (intro.jamParticipantId) {
+      const part = await db("jam_participant_get", { id: intro.jamParticipantId });
+      view.consent.captured = Boolean(part.participant?.consentCapturedAt);
+    }
+  }
+  return view;
+}
+
+function peepsRequiredConsent(jam, booking) {
+  return (jam?.consentRequirements || []).filter((key) => !(key === "recording" && booking?.recordingState === "not_recorded"));
+}
+
+async function peepsRequireBookedContext(ctx, { allowCancelled = false } = {}) {
+  const bookingResult = await db("peeps_booking_get", { introductionId: ctx.intro.id });
+  const booking = bookingResult.booking;
+  if (!booking || (booking.status === "cancelled" && !allowCancelled)) throw httpError(409, "There is no active booking for this introduction.");
+  return booking;
+}
+
+async function handlePeepsRespond(req, res) {
+  const url = new URL(req.url, "http://x");
+  const parts = url.pathname.slice("/api/peeps/respond/".length).split("/");
+  const token = decodeURIComponent(parts[0] || "");
+  const action = parts[1] || "";
+  const ctx = await peepsLoadResponseContext(token, { touch: req.method === "GET" && !action });
+  const { intro } = ctx;
+
+  if (req.method === "GET" && !action) return sendJson(req, res, 200, await peepsResponseView(ctx));
+
+  if (req.method === "GET" && action === "prep") {
+    const booking = await peepsRequireBookedContext(ctx);
+    return sendJson(req, res, 200, await peepsBuildAttendeePrep(ctx, booking));
+  }
+  if (req.method === "GET" && action === "calendar.ics") {
+    const booking = await peepsRequireBookedContext(ctx);
+    const prep = await peepsBuildAttendeePrep(ctx, booking);
+    const ics = peepsBuildIcs({ booking, summary: `Conversation with ${prep.requester.name}`, description: `${prep.purpose}\n\nUse your personal Toasty Peeps link to open prep and join.`, location: `${APP_BASE_URL}/peeps/respond.html` });
+    setCors(req, res);
+    res.writeHead(200, { "Content-Type": "text/calendar; charset=utf-8", "Content-Disposition": 'attachment; filename="conversation.ics"' });
+    return void res.end(ics);
+  }
+  if (req.method !== "POST") throw httpError(404, "Not found.");
+  const body = await readJson(req);
+  const jam = await peepsLoadJam(intro.jamId);
+
+  if (action === "interested") {
+    if (intro.status === "declined") throw httpError(409, "You already declined this introduction.");
+    if (intro.status === "expired") throw httpError(409, "This invitation has expired.");
+    if (["outreach_sent", "responded"].includes(intro.status)) {
+      const moved = await peepsSetIntroStatus(intro.id, "accepted", { respondedAt: new Date().toISOString(), response: { ...intro.response, decision: "interested", decidedAt: new Date().toISOString() } }, ["outreach_sent", "responded"]);
+      if (moved.updated) {
+        ctx.intro = moved.introduction;
+        if (["candidate", "invited"].includes(intro.participantStatus)) await db("jam_participant_update", { id: intro.jamParticipantId, fields: { status: "accepted" } });
+        await db("jam_event_create", { id: newId("jev"), jamId: intro.jamId, jamParticipantId: intro.jamParticipantId, type: "invite.accepted", actor: intro.jamParticipantId, detail: { via: "peeps_response_page" } });
+        await peepsNotifyOrganizer(ctx, "organizer_interest", {});
+      }
+    }
+    const prefs = await peepsKnownPreferences(ctx);
+    if (ctx.intro.status === "accepted" && !peepsComputeNeeds(ctx, jam, prefs).length) await peepsAdvanceToScheduling(ctx, jam);
+    return sendJson(req, res, 200, await peepsResponseView(ctx));
+  }
+
+  if (action === "decline") {
+    if (["booked"].includes(intro.status)) throw httpError(409, "This session is already booked — use cancel instead.");
+    if (intro.status === "declined") return sendJson(req, res, 200, await peepsResponseView(ctx));
+    if (!["outreach_sent", "responded", "accepted", "scheduling"].includes(intro.status)) throw httpError(409, "This introduction can no longer be declined.");
+    const reason = PEEPS_DECLINE_REASONS.has(String(body.reason || "")) ? String(body.reason) : "";
+    const note = sessionText(body.note, 400);
+    // Evidence about THIS interaction only — nothing here touches the Dub or any global profile.
+    const moved = await peepsSetIntroStatus(intro.id, "declined", { declineReason: reason || "no_reason_given", respondedAt: new Date().toISOString(), response: { ...intro.response, decision: "declined", reason: reason || null, note: note || null, decidedAt: new Date().toISOString() } }, ["outreach_sent", "responded", "accepted", "scheduling"]);
+    if (moved.updated) {
+      ctx.intro = moved.introduction;
+      await db("jam_participant_update", { id: intro.jamParticipantId, fields: { status: "declined", removedAt: new Date().toISOString(), removedReason: reason || "declined" } });
+      await db("jam_event_create", { id: newId("jev"), jamId: intro.jamId, jamParticipantId: intro.jamParticipantId, type: "participant.declined", actor: intro.jamParticipantId, detail: { reason: reason || null, scope: "this_interaction" } });
+      await peepsNotifyOrganizer(ctx, "organizer_decline", { reason: reason ? reason.replace(/_/g, " ") : "" });
+    }
+    return sendJson(req, res, 200, await peepsResponseView(ctx));
+  }
+
+  if (action === "message") {
+    const text = sessionText(body.message, 1000);
+    if (!text) throw httpError(400, "Write a short message first.");
+    if (!["outreach_sent", "responded", "accepted", "scheduling"].includes(intro.status)) throw httpError(409, "This introduction is no longer open for messages.");
+    const messages = [...(intro.response?.messages || []), { text, at: new Date().toISOString() }].slice(-10);
+    const moved = await peepsSetIntroStatus(intro.id, intro.status === "outreach_sent" ? "responded" : intro.status, { respondedAt: new Date().toISOString(), response: { ...intro.response, messages } });
+    ctx.intro = moved.introduction;
+    await peepsNotifyOrganizer(ctx, "organizer_message", { message: text });
+    return sendJson(req, res, 200, await peepsResponseView(ctx));
+  }
+
+  if (action === "answers") {
+    if (!["accepted", "scheduling"].includes(intro.status)) throw httpError(409, intro.status === "booked" ? "This is already booked — request a reschedule to change your availability." : "Tell us you're interested first.");
+    await peepsSaveAnswers(ctx, jam, body);
+    return sendJson(req, res, 200, await peepsResponseView(ctx));
+  }
+
+  if (action === "reschedule" || action === "cancel") {
+    const booking = await peepsRequireBookedContext(ctx, { allowCancelled: action === "reschedule" });
+    if (action === "reschedule") await peepsCandidateRescheduleRequest(ctx, booking, body);
+    else await peepsCancelBooking(ctx, booking, { by: "candidate", reason: sessionText(body.reason, 400) });
+    const fresh = await peepsLoadIntroduction(intro.id);
+    await peepsAttachActiveChannel(fresh);
+    return sendJson(req, res, 200, await peepsResponseView(fresh));
+  }
+
+  if (action === "consent") {
+    const booking = await peepsRequireBookedContext(ctx);
+    return sendJson(req, res, 200, await peepsRecordCandidateConsent(ctx, jam, booking, body));
+  }
+
+  if (action === "join") {
+    const booking = await peepsRequireBookedContext(ctx);
+    if (booking.status !== "booked") throw httpError(409, "This session is not currently scheduled.");
+    if (!booking.studioSessionId) throw httpError(409, "The session room is not ready yet. Try again shortly.");
+    const { token: inviteToken, tokenHash } = issueInviteToken();
+    await db("jam_participant_invite_revoke", { jamParticipantId: intro.jamParticipantId });
+    await db("jam_participant_invite_issue", { id: newId("jpi"), jamParticipantId: intro.jamParticipantId, tokenHash, expiresAt: inviteExpiry(60) });
+    return sendJson(req, res, 200, { joinUrl: `${APP_BASE_URL}/peeps/jam-invite.html?token=${inviteToken}` });
+  }
+  throw httpError(404, "Not found.");
+}
+
+async function peepsSaveAnswers(ctx, jam, body) {
+  const { intro } = ctx;
+  const stored = await db("dub_preferences_get", { dubId: intro.dubId });
+  const prefs = { ...(intro.preferences || {}) };
+  if (body.recordingPreference !== undefined) {
+    if (!["ok", "no"].includes(body.recordingPreference)) throw httpError(400, "Recording preference must be ok or no.");
+    prefs.recordingPreference = body.recordingPreference;
+  }
+  if (body.durationMinutes !== undefined) {
+    const minutes = Math.round(Number(body.durationMinutes));
+    if (!Number.isFinite(minutes) || minutes < 15 || minutes > 240) throw httpError(400, "Meeting length must be between 15 and 240 minutes.");
+    prefs.durationMinutes = minutes;
+  }
+  if (body.compensation !== undefined) {
+    const requirement = body.compensation?.requirement;
+    if (!["none", "paid"].includes(requirement)) throw httpError(400, "Compensation must be none or paid.");
+    prefs.compensation = { requirement, amount: requirement === "paid" ? Math.max(0, Math.min(1_000_000, Number(body.compensation.amount) || 0)) : 0 };
+  }
+  if (body.formatConstraints !== undefined) prefs.formatConstraints = sessionText(body.formatConstraints, 400);
+  if (body.notes !== undefined) prefs.notes = sessionText(body.notes, 600);
+  let availability = intro.availability;
+  let availabilityChanged = false;
+  if (body.windows !== undefined) {
+    availability = peepsNormalizeAvailability({ timezone: body.timezone || stored.preferences?.timezone || availability?.timezone, windows: body.windows, minNoticeHours: body.minNoticeHours ?? availability?.minNoticeHours ?? stored.preferences?.minNoticeHours }, Date.now());
+    availabilityChanged = true;
+    prefs.timezone = availability.timezone;
+    prefs.minNoticeHours = availability.minNoticeHours;
+  } else if (body.timezone !== undefined) {
+    if (!peepsValidTimeZone(body.timezone)) throw httpError(400, "That timezone isn't recognised.");
+    prefs.timezone = body.timezone;
+  }
+  const updated = await db("peeps_intro_update", { id: intro.id, fields: { preferences: prefs, availability: availability || {}, respondedAt: intro.respondedAt || new Date().toISOString() } });
+  ctx.intro = updated.introduction;
+  // Remember only durable, low-sensitivity facts for this person — never date-specific windows.
+  await db("dub_preferences_set", { dubId: intro.dubId, preferences: { ...(stored.preferences || {}), ...(prefs.timezone ? { timezone: prefs.timezone } : {}), ...(prefs.minNoticeHours !== undefined ? { minNoticeHours: prefs.minNoticeHours } : {}), ...(prefs.formatConstraints ? { formatConstraints: prefs.formatConstraints } : {}), ...(prefs.durationMinutes ? { durationMinutes: prefs.durationMinutes } : {}) } });
+  const known = await peepsKnownPreferences(ctx);
+  if (ctx.intro.status === "accepted" && !peepsComputeNeeds(ctx, jam, known).length) await peepsAdvanceToScheduling(ctx, jam);
+  else if (ctx.intro.status === "scheduling" && availabilityChanged) await peepsNotifyReadyToSchedule(ctx, jam);
+}
+
+async function peepsNotifyReadyToSchedule(ctx, jam) {
+  const slots = await peepsComputeSlots(ctx, jam);
+  await peepsNotifyOrganizer(ctx, "organizer_ready_to_schedule", { slotCount: slots.slots.length });
+}
+
+async function peepsAdvanceToScheduling(ctx, jam) {
+  const moved = await peepsSetIntroStatus(ctx.intro.id, "scheduling", {}, ["accepted"]);
+  if (moved.updated) {
+    ctx.intro = moved.introduction;
+    await db("jam_event_create", { id: newId("jev"), jamId: ctx.intro.jamId, jamParticipantId: ctx.intro.jamParticipantId, type: "introduction.ready_to_schedule", actor: "system", detail: { introductionId: ctx.intro.id } });
+    await peepsNotifyReadyToSchedule(ctx, jam);
+  }
+}
+
+async function peepsRecordCandidateConsent(ctx, jam, booking, body) {
+  const required = peepsRequiredConsent(jam, booking);
+  const submitted = new Set(sanitizeConsentKeys(body.acceptances));
+  const displayName = sessionText(body.displayName, 120);
+  if (displayName) await db("dub_set_display_name", { id: ctx.intro.dubId, displayName });
+  await db("jam_event_create", { id: newId("jev"), jamId: ctx.intro.jamId, jamParticipantId: ctx.intro.jamParticipantId, type: "consent.recorded", actor: ctx.intro.jamParticipantId, detail: { requiredAcceptances: [...submitted], via: "peeps_response_page" } });
+  const satisfied = required.every((key) => submitted.has(key));
+  if (satisfied) await db("jam_participant_update", { id: ctx.intro.jamParticipantId, fields: { consentCapturedAt: new Date().toISOString(), consentVersion: "peeps-v1" } });
+  return { consentSatisfied: satisfied, required };
+}
+
+// ---- Booking ----
+function peepsPolicyFrom(body, format) {
+  const hours = body?.cancellationPolicy?.lateCancellationHours;
+  return {
+    lateCancellationHours: hours === undefined ? 24 : Math.max(0, Math.min(168, Math.round(Number(hours) || 0))),
+    monetaryPenalty: "none_automatic",
+    noShowHandling: "per_agreement",
+    replaceable: PEEPS_REPLACEABLE_FORMATS.has(format)
+  };
+}
+
+async function peepsBookIntroduction(ctx, authSession, body) {
+  const now = Date.now();
+  const { intro, request } = ctx;
+  const jam = await peepsLoadJam(intro.jamId);
+  const existing = (await db("peeps_booking_get", { introductionId: intro.id })).booking;
+  const isReschedule = Boolean(existing && ["booked", "reschedule_requested"].includes(existing.status));
+  if (!["scheduling", "accepted", "booked"].includes(intro.status)) throw httpError(409, `An introduction in "${intro.status}" state cannot be booked.`);
+  const prefs = await peepsKnownPreferences(ctx);
+  const needs = peepsComputeNeeds(ctx, jam, prefs).filter((n) => n === "availability");
+  if (needs.length) throw httpError(409, "The guest hasn't shared availability yet.");
+  const blockers = peepsBlockers(ctx, jam, prefs);
+  const recordingChoice = ["recorded", "not_recorded"].includes(body.recordingState) ? body.recordingState : null;
+  if (blockers.includes("recording_conflict") && recordingChoice !== "not_recorded" && !(existing?.recordingState === "not_recorded")) throw httpError(409, "The guest doesn't want to be recorded. Book with recordingState \"not_recorded\" or reconsider the introduction.");
+  if (blockers.includes("compensation_mismatch") && !body.acknowledgeBlockers) throw httpError(409, "The guest asked for compensation beyond what is offered. Adjust compensation or set acknowledgeBlockers to proceed.");
+
+  const slotInfo = await peepsComputeSlots(ctx, jam);
+  if (slotInfo.reason === "requester_availability_required") throw httpError(409, "Set your own availability first so Peeps never books a time you didn't offer.");
+  if (slotInfo.reason) throw httpError(409, slotInfo.reason === "no_overlapping_availability" ? "There is no time that works for everyone. Update your availability or ask the guest for more times." : `Cannot schedule: ${slotInfo.reason}.`);
+  let startMs = body.slotStart ? Date.parse(body.slotStart) : Date.parse(slotInfo.slots[0].startsAt);
+  if (!Number.isFinite(startMs)) throw httpError(400, "slotStart must be an ISO timestamp.");
+  const duration = slotInfo.durationMinutes;
+  const reqInt = peepsIntervals(request.requesterAvailability, now);
+  const candInt = peepsIntervals(intro.availability, now);
+  if (!slotInfo.fixedSessionTime && !(peepsSlotFits(reqInt, startMs, duration) && peepsSlotFits(candInt, startMs, duration))) throw httpError(409, "That time is outside what both of you made available.");
+  if (slotInfo.fixedSessionTime && startMs !== Date.parse(slotInfo.fixedSessionTime)) throw httpError(409, "This Session is already booked at another time; new guests must join that time.");
+
+  const startsAt = new Date(startMs).toISOString();
+  const endsAt = new Date(startMs + duration * 60 * 1000).toISOString();
+  const format = request.workingRepresentation?.engagementType || "conversation";
+
+  if (existing && existing.status === "booked" && existing.startsAt === startsAt) {
+    const setup = await peepsEnsureBookingSetup(existing, ctx, authSession);
+    return { booking: setup.booking, created: false, idempotent: true, setup: setup.setup };
+  }
+  if (isReschedule || (existing && existing.status === "cancelled")) {
+    const others = (await peepsActiveBookingsForJam(intro.jamId)).filter((b) => b.introductionId !== intro.id && b.status === "booked");
+    if (others.length && !slotInfo.fixedSessionTime) throw httpError(409, "Other guests are booked at the current session time; rescheduling would move them too.");
+    const updated = await db("peeps_booking_update", { id: existing.id, fields: { startsAt, endsAt, durationMinutes: duration, status: "booked", sequence: (existing.sequence || 0) + 1, requesterTimezone: request.requesterAvailability.timezone, candidateTimezone: intro.availability.timezone, cancelledAt: null, cancelledBy: null, cancelReason: "", lateCancellation: 0, ...(recordingChoice ? { recordingState: recordingChoice } : {}) } });
+    const setup = await peepsEnsureBookingSetup(updated.booking, ctx, authSession, { rescheduled: true });
+    await peepsSetIntroStatus(intro.id, "booked");
+    await db("jam_event_create", { id: newId("jev"), jamId: intro.jamId, jamParticipantId: intro.jamParticipantId, type: "jam.rescheduled", actor: authSession.id, detail: { bookingId: existing.id, startsAt } });
+    await peepsNotifyCandidate(ctx, "reschedule", { startsAt, displayTimezone: intro.availability.timezone, changes: [`New time: ${peepsFormatInZone(startsAt, intro.availability.timezone)}`] }, { bookingId: existing.id });
+    return { booking: setup.booking, created: false, rescheduled: true, setup: setup.setup };
+  }
+
+  const recordingState = recordingChoice || ({ planned: "recorded", not_planned: "not_recorded", unknown: "unknown" })[peepsRecordingStatus(request, jam)];
+  const created = await db("peeps_booking_create", {
+    id: newId("pbk"), requestId: request.id, introductionId: intro.id, organizationId: request.organizationId, requesterUserId: authSession.id,
+    candidateDubId: intro.dubId, jamId: intro.jamId, jamParticipantId: intro.jamParticipantId, startsAt, endsAt,
+    requesterTimezone: request.requesterAvailability.timezone, candidateTimezone: intro.availability.timezone, durationMinutes: duration,
+    format, compensation: peepsCompensation(jam) || {}, recordingState, cancellationPolicy: peepsPolicyFrom(body, format)
+  });
+  const setup = await peepsEnsureBookingSetup(created.booking, ctx, authSession, { firstTime: created.created });
+  if (created.created) {
+    await peepsSetIntroStatus(intro.id, "booked");
+    await db("peeps_request_update", { id: request.id, fields: { status: "booked" } });
+    await db("jam_event_create", { id: newId("jev"), jamId: intro.jamId, jamParticipantId: intro.jamParticipantId, type: "jam.booked", actor: authSession.id, detail: { bookingId: created.booking.id, introductionId: intro.id, startsAt, durationMinutes: duration } });
+    await peepsNotifyCandidate(ctx, "booking_confirmation", { startsAt, displayTimezone: intro.availability.timezone, durationMinutes: duration }, { bookingId: created.booking.id });
+    await peepsNotifyOrganizer(ctx, "organizer_booking", { startsAt, displayTimezone: request.requesterAvailability.timezone });
+  }
+  return { booking: setup.booking, created: created.created, setup: setup.setup };
+}
+
+// Idempotent reconcile of every downstream link: Jam schedule -> Studio session -> speaker -> planner ->
+// prep baseline. Each step records its own outcome so a partial failure is visible and retryable instead
+// of leaving a half-built booking, and re-running never duplicates anything.
+async function peepsEnsureBookingSetup(booking, ctx, authSession, options = {}) {
+  return peepsWithLock(`jam:${booking.jamId}`, async () => peepsEnsureBookingSetupLocked((await db("peeps_booking_get", { id: booking.id })).booking || booking, ctx, authSession, options));
+}
+
+async function peepsEnsureBookingSetupLocked(booking, ctx, authSession, { firstTime = false, rescheduled = false } = {}) {
+  const setup = { ...(booking.setup || {}) };
+  const jam = await peepsLoadJam(booking.jamId);
+  const testFail = PEEPS_TEST_ADAPTERS && ctx.testFailStep;
+  let session = null;
+  let current = booking;
+  try {
+    if (booking.status === "booked") {
+      const wall = peepsUtcMsToWall(Date.parse(booking.startsAt), booking.requesterTimezone || "UTC");
+      await db("jam_update", { id: jam.id, organizationId: jam.organizationId, fields: { scheduledAt: wall, timezone: booking.requesterTimezone, cancellationPolicy: booking.cancellationPolicy } });
+    }
+    setup.jam = { ok: true, jamId: jam.id };
+  } catch (error) { setup.jam = { ok: false, error: "Could not update the Jam schedule." }; }
+
+  try {
+    if (testFail === "studio") throw new Error("test failure");
+    const run = await runJamSessionCore(jam, authSession, {});
+    session = run.session;
+    if (session?.id && booking.studioSessionId !== session.id) {
+      const linked = await db("peeps_booking_update", { id: booking.id, fields: { studioSessionId: session.id } });
+      current = linked.booking;
+    }
+    setup.studio = { ok: Boolean(session?.id), studioSessionId: session?.id || null };
+    if (!session?.id) setup.studio.error = "Studio session unavailable.";
+  } catch (error) {
+    setup.studio = { ok: false, error: error?.statusCode === 402 ? "Your plan's session limit was reached." : "Could not create the Studio session." };
+  }
+
+  if (session?.id && booking.status === "booked") {
+    try {
+      await peepsUpsertSpeaker(session, ctx, current);
+      setup.speaker = { ok: true };
+    } catch (error) { console.error("[Peeps] speaker upsert failed", error); setup.speaker = { ok: false, error: "Could not add the guest to the planner." }; }
+    try {
+      if (testFail === "planner") throw new Error("test failure");
+      await peepsPopulatePlan({ booking: current, ctx, jam, session, authSession, rescheduled });
+      setup.planner = { ok: true };
+    } catch (error) {
+      console.error("[Peeps] planner population failed", error);
+      setup.planner = { ok: false, error: "The Session Planner could not be populated. Retry from the session page." };
+    }
+  }
+  const saved = await db("peeps_booking_update", { id: booking.id, fields: { setup } });
+  current = saved.booking;
+  return { booking: current, setup, session };
+}
+
+async function peepsUpsertSpeaker(session, ctx, booking) {
+  const listed = await db("speaker_list", { sessionId: session.id });
+  let speaker = (listed.speakers || []).find((s) => s.peepsPersonId === booking.candidateDubId);
+  const headline = ctx.candidate.headline || "";
+  const evidenceClaim = ctx.candidate.evidence?.[0]?.claim || "";
+  const location = /\(([^)]+)\)\s*$/.exec(evidenceClaim)?.[1] || "";
+  if (!speaker) {
+    // Email deliberately left blank: the organizer never receives the guest's contact details through
+    // the planner — Peeps holds them and does the contacting.
+    await db("speaker_create", { id: newId("spk"), sessionId: session.id, organizationId: session.organizationId, email: "", sessionRole: "Guest", displayName: ctx.candidate.displayName });
+    const relisted = await db("speaker_list", { sessionId: session.id });
+    speaker = (relisted.speakers || []).find((s) => !s.peepsPersonId && s.displayName === ctx.candidate.displayName) || null;
+  }
+  if (speaker) {
+    await db("speaker_update", { id: speaker.id, fields: { peepsPersonId: booking.candidateDubId, sessionRole: "Guest", displayName: ctx.candidate.displayName, title: headline, location, speakerTimezone: booking.candidateTimezone, selectionReason: peepsWhyText(ctx.candidate) } });
+  }
+}
+
+// ---- Session Planner content ----
+function peepsQuestionsFor(ctx, jam) {
+  const { request, candidate } = ctx;
+  const type = request.workingRepresentation?.engagementType || "conversation";
+  const { topics, subject } = peepsCandidateTopics(candidate, request);
+  const headline = String(candidate.headline || "").trim();
+  const location = /\(([^)]+)\)\s*$/.exec(candidate.evidence?.[0]?.claim || "")?.[1] || "";
+  const first = topics[0];
+  const lc = headline ? headline.charAt(0).toLowerCase() + headline.slice(1) : "";
+  const out = [];
+  if (type === "podcast_guest") {
+    if (lc) out.push(`You work as ${lc}. What does a normal week look like, and what problem keeps coming back?`);
+    out.push(first ? `Where does ${first} work well today, and where does it still break down?` : `What is the most misunderstood part of ${subject}?`);
+    out.push(`From your seat, what has actually changed about ${subject} over the last two years that outsiders tend to miss?`);
+    if (location) out.push(`How do people in ${location} really deal with this when conditions aren't ideal — and what should listeners elsewhere borrow?`);
+    if (topics[1]) out.push(`How do ${topics[0]} and ${topics[1]} connect in practice?`);
+    out.push(`Give us one prediction about ${subject} you'd bet on, and one popular prediction you think is wrong.`);
+    out.push(`If listeners remember one thing about ${subject}, what should it be — and where can they follow your work?`);
+  } else if (type === "expert_panel") {
+    out.push(lc ? `As ${lc}: what's your single sharpest take on ${subject}?` : `What's your single sharpest take on ${subject}?`);
+    out.push(first ? `What does the panel usually get wrong about ${first}?` : `Where does conventional wisdom on ${subject} fall short?`);
+    out.push("Where do you disagree with the other panelists — and why?");
+    out.push(`What would change your mind about ${subject} in the next 12 months?`);
+  } else if (type === "focus_group") {
+    out.push(first ? `Walk us through the last time ${first} came up in your work.` : `Walk us through the last time ${subject} came up in your work.`);
+    out.push("What did you try, and what got in the way?");
+    out.push("What would a genuinely better option look like?");
+    out.push("What would make you trust a new solution enough to switch?");
+  } else if (type === "research_interview") {
+    out.push(lc ? `In your role (${lc}), how is ${subject} handled today?` : `How is ${subject} handled where you work today?`);
+    out.push(first ? `What is hardest about ${first} in practice?` : "What is hardest about this in practice?");
+    out.push("Which workarounds have you built, and what do they cost?");
+    out.push("What would you want decision-makers to understand that they don't?");
+  } else {
+    out.push(lc ? `You work as ${lc}. What are you focused on right now?` : `What are you focused on right now around ${subject}?`);
+    out.push(first ? `What's your honest read on ${first}?` : `What's your honest read on ${subject}?`);
+    out.push(`What would make this conversation useful for you — and for ${request.outcomeText ? "the goal we set out with" : "us"}?`);
+  }
+  return out.slice(0, 8);
+}
+
+function peepsTopicsFor(ctx) {
+  const { topics, subject, region } = peepsCandidateTopics(ctx.candidate, ctx.request);
+  const list = [...topics];
+  if (region) list.push(region);
+  if (subject && subject !== "this topic") list.unshift(subject);
+  return [...new Set(list)].slice(0, 6);
+}
+
+function peepsTalkingPoints(ctx, prefs, booking) {
+  const points = [];
+  if (ctx.candidate.headline) points.push(`Open by acknowledging their role: ${ctx.candidate.headline}.`);
+  points.push(`Tie everything back to your goal: ${ctx.request.outcomeText}`);
+  if (booking.recordingState === "recorded") points.push("Confirm recording consent at the start, on the record.");
+  if (prefs?.formatConstraints) points.push(`Respect their format constraint: ${prefs.formatConstraints}`);
+  if (booking.compensation?.amount) points.push(`Compensation of $${Number(booking.compensation.amount).toFixed(2)} ${booking.compensation.currency || "USD"} is part of this — mention how and when it's settled.`);
+  points.push("Close by agreeing follow-up (CTA) and how they'd like to be credited.");
+  return points;
+}
+
+async function peepsReadPlan(session) {
+  const result = await db("session_get", { id: session.id, ownerUserId: session.ownerUserId });
+  return result.session?.plan || {};
+}
+
+function peepsParticipantFacingSnapshot(plan, booking) {
+  const peeps = plan.peeps || {};
+  const visible = (peeps.questions || []).filter((q) => !q.forDubId || q.forDubId === booking.candidateDubId).map((q) => q.text);
+  return {
+    objective: peeps.objective || "", startsAt: booking.startsAt, durationMinutes: booking.durationMinutes, format: peeps.formatLabel || "",
+    recording: booking.recordingState, compensation: booking.compensation?.amount || 0, topics: (peeps.topics || []).map((t) => t.text),
+    questions: visible, instructions: peeps.participantInstructions || "", requirements: (peeps.specialRequirements || []).map((r) => r.text),
+    guests: (peeps.participants || []).filter((p) => p.status !== "removed").length
+  };
+}
+
+function peepsSnapshotHash(snapshot) {
+  return createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
+}
+
+function peepsChangeLines(before, after) {
+  const lines = [];
+  if (!before) return lines;
+  if (before.startsAt !== after.startsAt) lines.push("The date/time changed.");
+  if (before.durationMinutes !== after.durationMinutes) lines.push(`Length is now ${after.durationMinutes} minutes.`);
+  if (before.recording !== after.recording) lines.push(after.recording === "recorded" ? "The session will be recorded." : "The session will no longer be recorded.");
+  if (JSON.stringify(before.questions) !== JSON.stringify(after.questions)) lines.push("The questions were updated.");
+  if (JSON.stringify(before.topics) !== JSON.stringify(after.topics)) lines.push("The topics were updated.");
+  if (before.instructions !== after.instructions) lines.push("There are new instructions for you.");
+  if (JSON.stringify(before.requirements) !== JSON.stringify(after.requirements)) lines.push("Special requirements changed.");
+  if (before.objective !== after.objective) lines.push("The session's purpose was updated.");
+  if (before.guests !== after.guests) lines.push("The lineup of guests changed.");
+  return lines;
+}
+
+async function peepsPrimaryBooking(jamId) {
+  const listed = await db("peeps_booking_list", { jamId });
+  const active = (listed.bookings || []).filter((b) => b.status !== "cancelled");
+  return active[0] || (listed.bookings || [])[0] || null;
+}
+
+// Create or refresh plan.peeps + the standard planner fields. Never overwrites organizer edits: existing
+// questions/topics/instructions stay; a new guest only adds their own guest-specific questions.
+async function peepsPopulatePlan({ booking, ctx, jam, session, authSession, rescheduled = false }) {
+  const plan = await peepsReadPlan(session);
+  const requester = await peepsRequesterInfo(ctx.request, authSession.id);
+  const prefs = await peepsKnownPreferences(ctx);
+  const engagementType = ctx.request.workingRepresentation?.engagementType || "conversation";
+  const before = plan.peeps ? peepsParticipantFacingSnapshot(plan, booking) : null;
+  const unchangedCheck = plan.peeps ? JSON.stringify(plan) : null;
+  const peeps = plan.peeps || {
+    requestId: ctx.request.id, jamId: jam.id, objective: jam.objective || ctx.request.outcomeText, desiredOutcome: ctx.request.outcomeText,
+    audience: ctx.request.whoText, engagementType, formatLabel: peepsFormatLabel(engagementType), questions: [], topics: peepsTopicsFor(ctx).map((text) => ({ id: newId("top"), text, source: "generated" })),
+    participantInstructions: "", specialRequirements: [], followUp: { cta: "" }, privateNotes: "", participants: [], version: 0,
+    provenance: { generatedFrom: ["request.whoText", "request.outcomeText", "candidate.evidence", "participant.answers", "booking"], candidateSource: ctx.candidate.source }
+  };
+  peeps.recording = { state: booking.recordingState, consentRequired: peepsRequiredConsent(jam, booking) };
+  peeps.compensation = booking.compensation?.amount ? booking.compensation : null;
+  if (!peeps.participants.some((p) => p.dubId === booking.candidateDubId)) {
+    peeps.participants.push({ dubId: booking.candidateDubId, introductionId: ctx.intro.id, bookingId: booking.id, displayName: ctx.candidate.displayName, headline: ctx.candidate.headline, role: "Guest", status: "booked", whySelected: ctx.candidate.matchReason, evidence: ctx.candidate.evidence || [], candidateSource: ctx.candidate.source });
+  } else {
+    peeps.participants = peeps.participants.map((p) => (p.dubId === booking.candidateDubId ? { ...p, bookingId: booking.id, status: booking.status === "booked" ? "booked" : p.status } : p));
+  }
+  if (!peeps.questions.some((q) => q.forDubId === booking.candidateDubId)) {
+    // Generated questions are written about THIS guest, so they stay attached to them; anything the
+    // organizer adds themselves is shared session-wide.
+    peepsQuestionsFor(ctx, jam).forEach((text) => peeps.questions.push({ id: newId("q"), text, forDubId: booking.candidateDubId, source: "generated", updatedAt: new Date().toISOString() }));
+  }
+  // Talking points are about one guest, so they're kept per guest — a shared field would flip between
+  // guests every time a different booking's setup re-ran.
+  peeps.talkingPointsByDub = { ...(peeps.talkingPointsByDub || {}), [booking.candidateDubId]: peepsTalkingPoints(ctx, prefs, booking) };
+  plan.peeps = peeps;
+  peepsMirrorStandardFields(plan, booking, session, requester);
+  // Re-running setup (retry, refresh, heal) must be a true no-op: no new version, no churn.
+  if (unchangedCheck && JSON.stringify(plan) === unchangedCheck) return;
+  peeps.updatedAt = new Date().toISOString();
+  const snapshot = peepsParticipantFacingSnapshot(plan, booking);
+  const change = { kind: before ? (rescheduled ? "rescheduled" : "guest_added") : "generated", lines: peepsChangeLines(before, snapshot) };
+  await peepsSavePlan({ booking, session, plan, change, participantFacing: !before || change.lines.length > 0, editedBy: authSession.id });
+  if (!booking.notifiedHash) await db("peeps_booking_update", { id: booking.id, fields: { notifiedHash: peepsSnapshotHash(snapshot) } });
+}
+
+function peepsMirrorStandardFields(plan, booking, session, requester) {
+  const peeps = plan.peeps;
+  plan.description = peeps.objective;
+  plan.sessionType = peepsSessionType(peeps.engagementType);
+  plan.deliveryMode = "live";
+  plan.visibility = "private";
+  plan.scheduledAt = peepsUtcMsToWall(Date.parse(booking.startsAt), booking.requesterTimezone || "UTC");
+  plan.timezone = booking.requesterTimezone || "";
+  plan.expectedDurationMinutes = booking.durationMinutes;
+  plan.hostName = plan.hostName || requester?.name || "";
+  plan.registrationRequired = false;
+  const others = (plan.runOfShow || []).filter((item) => !String(item.id || "").startsWith("ros_q_"));
+  const span = Math.max(3, Math.floor((booking.durationMinutes || 45) / Math.max(1, peeps.questions.length)));
+  const mirrored = peeps.questions.map((q, index) => ({ id: `ros_q_${q.id}`, label: q.text, startOffset: index * span, notes: q.forDubId ? "Guest-specific" : "" }));
+  plan.runOfShow = [...mirrored, ...others];
+  plan.readinessChecklist = { ...(plan.readinessChecklist || {}), recordingConfigured: booking.recordingState === "recorded" ? Boolean(plan.readinessChecklist?.recordingConfigured) : true };
+}
+
+async function peepsSavePlan({ booking, session, plan, change, participantFacing, editedBy }) {
+  const primary = (await peepsPrimaryBooking(booking.jamId)) || booking;
+  const bumped = await db("peeps_booking_bump_version", { id: primary.id });
+  const version = bumped.booking.planVersion;
+  plan.peeps.version = version;
+  await db("session_set_plan", { id: session.id, ownerUserId: session.ownerUserId, plan });
+  await db("peeps_plan_version_add", {
+    id: newId("ppv"), bookingId: primary.id, version, editedBy, change, participantFacing: Boolean(participantFacing),
+    snapshot: { objective: plan.peeps.objective, topics: plan.peeps.topics, questions: plan.peeps.questions, participantInstructions: plan.peeps.participantInstructions, specialRequirements: plan.peeps.specialRequirements, recording: plan.peeps.recording, startsAt: booking.startsAt, privateNotesLength: (plan.peeps.privateNotes || "").length }
+  });
+  return version;
+}
+
+// ---- Prep ----
+async function peepsSessionForBooking(booking, authSession) {
+  const jam = await peepsLoadJam(booking.jamId);
+  const sessionId = booking.studioSessionId || jam?.studioSessionId;
+  if (!sessionId) return { jam, session: null, plan: {} };
+  const found = await db("session_get_internal", { id: sessionId });
+  const session = found.session || null;
+  return { jam, session, plan: session ? await peepsReadPlan(session) : {} };
+}
+
+async function peepsBuildOrganizerPrep(ctx, booking, plan, jam) {
+  const prefs = await peepsKnownPreferences(ctx);
+  const peeps = plan.peeps || {};
+  const source = ({ demo_directory_provider: "Toasty Peeps demo candidate directory (a labelled test source, not a live search)", internal_claimed_dub: "A Toasty Peeps member you've worked with", internal_unclaimed_dub: "Someone from a previous Jam with your organization" })[ctx.candidate.source] || "Candidate directory provider";
+  return {
+    role: "organizer", generatedAt: new Date().toISOString(), planVersion: peeps.version || 0,
+    who: { name: ctx.candidate.displayName, headline: ctx.candidate.headline, source },
+    whySelected: ctx.candidate.matchReason, evidence: ctx.candidate.evidence || [],
+    context: { requestedWho: ctx.request.whoText, requestedOutcome: ctx.request.outcomeText },
+    desiredOutcome: peeps.desiredOutcome || ctx.request.outcomeText,
+    schedule: { startsAt: booking.startsAt, display: peepsFormatInZone(booking.startsAt, booking.requesterTimezone), timezone: booking.requesterTimezone, durationMinutes: booking.durationMinutes },
+    questions: (peeps.questions || []).map((q) => ({ id: q.id, text: q.text, forGuest: q.forDubId ? ctx.candidate.displayName : null })),
+    topics: (peeps.topics || []).map((t) => t.text), talkingPoints: peeps.talkingPointsByDub?.[booking.candidateDubId] || peepsTalkingPoints(ctx, prefs, booking),
+    participantRequirements: {
+      recordingPreference: prefs.recordingPreference || null, compensation: prefs.compensation || null, formatConstraints: prefs.formatConstraints || null,
+      guestTimezone: booking.candidateTimezone, notes: prefs.notes || null
+    },
+    privateNotes: peeps.privateNotes || "", recording: booking.recordingState, compensation: booking.compensation?.amount ? booking.compensation : null,
+    links: peepsLinks(booking, jam)
+  };
+}
+
+// The attendee view is a strict whitelist — it is assembled from named fields, never by filtering the
+// organizer object, so private research/notes cannot leak by omission.
+async function peepsBuildAttendeePrep(ctx, booking) {
+  const jam = await peepsLoadJam(booking.jamId);
+  const requester = await peepsRequesterInfo(ctx.request, ctx.intro.authorizedByUserId);
+  const { session } = await peepsSessionForBooking(booking, { id: booking.requesterUserId });
+  const plan = session ? await peepsReadPlan(session) : {};
+  const peeps = plan.peeps || {};
+  const tz = booking.candidateTimezone || "UTC";
+  const questions = (peeps.questions || []).filter((q) => !q.forDubId || q.forDubId === booking.candidateDubId).map((q) => q.text);
+  const activeGuests = (peeps.participants || []).filter((p) => p.dubId !== booking.candidateDubId && p.status !== "removed").length;
+  let consentCaptured = false;
+  if (ctx.intro.jamParticipantId) consentCaptured = Boolean((await db("jam_participant_get", { id: ctx.intro.jamParticipantId })).participant?.consentCapturedAt);
+  return {
+    role: "attendee", planVersion: peeps.version || 0, status: booking.status,
+    requester: { name: requester.name, organization: requester.orgName },
+    purpose: peeps.objective || ctx.request.outcomeText,
+    format: peeps.formatLabel || peepsFormatLabel(booking.format),
+    schedule: { startsAt: booking.startsAt, endsAt: booking.endsAt, timezone: tz, display: peepsFormatInZone(booking.startsAt, tz), durationMinutes: booking.durationMinutes },
+    recording: { state: booking.recordingState, statement: booking.recordingState === "recorded" ? "This session will be recorded. You will be asked for consent before it starts." : (booking.recordingState === "not_recorded" ? "This session will not be recorded." : "Recording has not been decided yet.") },
+    compensation: booking.compensation?.amount ? booking.compensation : null,
+    topics: (peeps.topics || []).map((t) => t.text), questions, instructions: peeps.participantInstructions || "",
+    requirements: (peeps.specialRequirements || []).map((r) => r.text),
+    otherGuestCount: activeGuests,
+    whatIsExpected: ["Join a few minutes early from a quiet place with a working microphone (and camera if you're comfortable).", "Read the questions above — you don't need to prepare formal answers.", ...(booking.recordingState === "recorded" ? ["Give recording consent below before you join."] : [])],
+    consent: { required: peepsRequiredConsent(jam, booking), captured: consentCaptured },
+    joinPath: { available: Boolean(booking.studioSessionId) && booking.status === "booked", how: "Choose Join on this page to open the session lobby." },
+    cancellation: { lateCancellationHours: booking.cancellationPolicy?.lateCancellationHours ?? 24, note: "Any consequence of a late cancellation follows the applicable agreement; Peeps applies no automatic penalty." }
+  };
+}
+
+function peepsLinks(booking, jam) {
+  const sid = booking.studioSessionId || jam?.studioSessionId;
+  return {
+    introduction: `/peeps/app/introduction.html?id=${booking.introductionId}`,
+    studio: sid ? `/studio/director.html?session=${encodeURIComponent(sid)}` : null,
+    planner: sid ? `/studio/plan.html?session=${encodeURIComponent(sid)}&org=${encodeURIComponent(booking.organizationId)}` : null,
+    jam: `/peeps/app/jam.html?id=${encodeURIComponent(booking.jamId)}`
+  };
+}
+
+async function peepsReadiness(booking, ctx, jam, plan) {
+  const peeps = plan?.peeps || {};
+  const participant = ctx.intro.jamParticipantId ? (await db("jam_participant_get", { id: ctx.intro.jamParticipantId })).participant : null;
+  const items = [
+    { key: "introduction_authorized", label: "Introduction authorized", ok: Boolean(ctx.intro.authorizedAt) },
+    { key: "participant_accepted", label: "Guest accepted", ok: ctx.intro.response?.decision === "interested" && ["accepted", "confirmed", "attended"].includes(participant?.status) },
+    { key: "booked", label: "Time booked", ok: booking.status === "booked" },
+    { key: "jam_linked", label: "Jam linked", ok: Boolean(booking.jamId && jam) },
+    { key: "studio_linked", label: "Studio session linked", ok: Boolean(booking.studioSessionId) },
+    { key: "planner_populated", label: "Session Planner populated", ok: Boolean(peeps.objective) },
+    { key: "questions_ready", label: "Questions ready", ok: (peeps.questions || []).length > 0 },
+    { key: "prep_generated", label: "Prep generated", ok: Boolean(peeps.objective && (peeps.questions || []).length) },
+    { key: "consent_path", label: "Consent path available", ok: Boolean(participant) && (jam?.consentRequirements || []).length >= 0 },
+    { key: "join_path", label: "Join path available", ok: Boolean(booking.studioSessionId && jam?.roomSecret) }
+  ];
+  return { ready: items.every((i) => i.ok), items, consentCaptured: Boolean(participant?.consentCapturedAt) };
+}
+
+async function peepsBookingView(booking, ctx, authSession, { reconcile = true } = {}) {
+  let current = booking;
+  const failing = Object.values(current.setup || {}).some((step) => step && step.ok === false) || !current.studioSessionId || !current.setup?.planner;
+  if (reconcile && current.status === "booked" && failing) {
+    const rebuilt = await peepsEnsureBookingSetup(current, ctx, authSession);
+    current = rebuilt.booking;
+  }
+  const { jam, session, plan } = await peepsSessionForBooking(current, authSession);
+  const readiness = await peepsReadiness(current, ctx, jam, plan);
+  if (readiness.ready && !current.readyAt && current.status === "booked") {
+    const marked = await db("peeps_booking_update", { id: current.id, fields: { readyAt: new Date().toISOString() }, expectStatuses: ["booked"] });
+    current = marked.booking;
+    await db("jam_event_create", { id: newId("jev"), jamId: current.jamId, jamParticipantId: current.jamParticipantId, type: "session.ready", actor: "system", detail: { bookingId: current.id } });
+  }
+  const versions = await db("peeps_plan_version_list", { bookingId: ((await peepsPrimaryBooking(current.jamId)) || current).id, limit: 20 });
+  return {
+    booking: current,
+    state: readiness.ready ? "READY_FOR_SESSION" : (current.status === "booked" ? "PREPARING" : current.status.toUpperCase()),
+    readiness,
+    guest: { name: ctx.candidate.displayName, headline: ctx.candidate.headline },
+    purpose: plan.peeps?.objective || ctx.request.outcomeText,
+    when: { startsAt: current.startsAt, display: peepsFormatInZone(current.startsAt, current.requesterTimezone), timezone: current.requesterTimezone },
+    plan: plan.peeps || null,
+    versions: (versions.versions || []).map((v) => ({ version: v.version, at: v.createdAt, participantFacing: v.participantFacing, change: v.change })),
+    links: peepsLinks(current, jam),
+    calendar: { adapter: PEEPS_CALENDAR_ADAPTER.id, externalCalendarConnected: PEEPS_CALENDAR_ADAPTER.externalCalendarConnected, note: PEEPS_CALENDAR_ADAPTER.note }
+  };
+}
+
+// ---- Organizer edits ----
+async function peepsEditPlan(booking, ctx, authSession, body) {
+  return peepsWithLock(`jam:${booking.jamId}`, () => peepsEditPlanLocked(booking, ctx, authSession, body));
+}
+
+async function peepsEditPlanLocked(booking, ctx, authSession, body) {
+  const { jam, session, plan } = await peepsSessionForBooking(booking, authSession);
+  if (!session) throw httpError(409, "The Studio session isn't ready yet — rebuild the booking first.");
+  if (!plan.peeps) throw httpError(409, "The Session Planner hasn't been populated yet — rebuild the booking first.");
+  const primary = (await peepsPrimaryBooking(booking.jamId)) || booking;
+  if (body.baseVersion !== undefined && Number(body.baseVersion) !== (plan.peeps.version || 0)) throw httpError(409, "The plan changed since you loaded it. Reload and re-apply your edit.");
+  const beforeSnapshots = new Map();
+  const bookings = await peepsActiveBookingsForJam(booking.jamId);
+  for (const b of bookings) beforeSnapshots.set(b.id, peepsParticipantFacingSnapshot(plan, b));
+  const peeps = plan.peeps;
+  const now = new Date().toISOString();
+  let recordingChanged = null;
+  if (body.objective !== undefined) peeps.objective = sessionText(body.objective, 1200);
+  if (body.desiredOutcome !== undefined) peeps.desiredOutcome = sessionText(body.desiredOutcome, 1200);
+  if (Array.isArray(body.questions)) {
+    peeps.questions = body.questions.slice(0, 40).map((q) => {
+      const text = sessionText(typeof q === "string" ? q : q?.text, 400);
+      if (!text) return null;
+      const prev = peeps.questions.find((p) => p.id === q?.id);
+      return { id: prev?.id || newId("q"), text, forDubId: prev ? prev.forDubId : (q?.forDubId || null), source: prev && prev.text === text ? prev.source : "organizer", updatedAt: prev && prev.text === text ? prev.updatedAt : now };
+    }).filter(Boolean);
+  }
+  if (Array.isArray(body.topics)) peeps.topics = body.topics.slice(0, 20).map((t) => sessionText(typeof t === "string" ? t : t?.text, 200)).filter(Boolean).map((text) => ({ id: newId("top"), text, source: "organizer" }));
+  if (body.participantInstructions !== undefined) peeps.participantInstructions = sessionText(body.participantInstructions, 1200);
+  if (Array.isArray(body.specialRequirements)) peeps.specialRequirements = body.specialRequirements.slice(0, 20).map((r) => sessionText(typeof r === "string" ? r : r?.text, 300)).filter(Boolean).map((text) => ({ id: newId("req"), text }));
+  if (body.privateNotes !== undefined) peeps.privateNotes = sessionText(body.privateNotes, 4000);
+  if (body.followUp?.cta !== undefined) peeps.followUp = { cta: sessionText(body.followUp.cta, 300) };
+  if (["recorded", "not_recorded"].includes(body.recordingState)) {
+    recordingChanged = body.recordingState;
+    peeps.recording = { ...(peeps.recording || {}), state: recordingChanged };
+    for (const b of bookings) await db("peeps_booking_update", { id: b.id, fields: { recordingState: recordingChanged } });
+  }
+  const refreshed = recordingChanged ? (await peepsActiveBookingsForJam(booking.jamId)) : bookings;
+  const requester = await peepsRequesterInfo(ctx.request, authSession.id);
+  peeps.updatedAt = now;
+  peepsMirrorStandardFields(plan, refreshed.find((b) => b.id === booking.id) || booking, session, requester);
+  const afterSnapshot = peepsParticipantFacingSnapshot(plan, refreshed.find((b) => b.id === booking.id) || booking);
+  const lines = peepsChangeLines(beforeSnapshots.get(booking.id), afterSnapshot);
+  await peepsSavePlan({ booking: primary, session, plan, change: { kind: "organizer_edit", fields: Object.keys(body).filter((k) => k !== "baseVersion"), lines }, participantFacing: lines.length > 0, editedBy: authSession.id });
+  await peepsNotifyAttendeesOfChanges({ bookings: refreshed, plan, jam, lines, before: beforeSnapshots });
+  return { version: plan.peeps.version, participantFacingChanged: lines.length > 0, notified: lines.length > 0, changes: lines };
+}
+
+async function peepsNotifyAttendeesOfChanges({ bookings, plan, before }) {
+  let sent = 0;
+  for (const b of bookings) {
+    const snapshot = peepsParticipantFacingSnapshot(plan, b);
+    const hash = peepsSnapshotHash(snapshot);
+    if (hash === b.notifiedHash) continue;
+    const lines = peepsChangeLines(before.get(b.id) || null, snapshot);
+    const ctx = await peepsLoadIntroduction(b.introductionId);
+    if (!ctx) continue;
+    await db("peeps_booking_update", { id: b.id, fields: { notifiedHash: hash } });
+    if (!lines.length) continue;
+    await peepsNotifyCandidate(ctx, "prep_update", { changes: lines }, { bookingId: b.id });
+    sent += 1;
+  }
+  return sent;
+}
+
+// ---- Cancellation / reschedule / replacement ----
+async function peepsCancelBooking(ctx, booking, { by, reason }) {
+  if (booking.status === "cancelled") return booking;
+  const hoursUntil = (Date.parse(booking.startsAt) - Date.now()) / 3600000;
+  const lateWindow = booking.cancellationPolicy?.lateCancellationHours ?? 24;
+  const late = hoursUntil < lateWindow;
+  // No monetary consequence is ever computed here — only whether the policy's window was crossed.
+  const result = await db("peeps_booking_update", { id: booking.id, fields: { status: "cancelled", cancelledAt: new Date().toISOString(), cancelledBy: by, cancelReason: reason || "", lateCancellation: late ? 1 : 0, sequence: (booking.sequence || 0) + 1 }, expectStatuses: ["booked", "reschedule_requested"] });
+  if (!result.updated) return result.booking;
+  await peepsSetIntroStatus(ctx.intro.id, by === "candidate" ? "cancelled" : "scheduling");
+  await db("jam_event_create", { id: newId("jev"), jamId: booking.jamId, jamParticipantId: booking.jamParticipantId, type: by === "candidate" ? "participant.cancelled" : "jam.cancelled", actor: by === "candidate" ? booking.jamParticipantId : booking.requesterUserId, detail: { bookingId: booking.id, reason: reason || null, lateCancellation: late, monetaryPenalty: "none_automatic" } });
+  const replaceable = booking.cancellationPolicy?.replaceable && PEEPS_REPLACEABLE_FORMATS.has(booking.format);
+  if (by === "candidate") {
+    if (replaceable) await peepsCreateOpening(ctx, result.booking);
+    await peepsNotifyOrganizer(ctx, "organizer_candidate_cancelled", { startsAt: booking.startsAt, displayTimezone: booking.requesterTimezone, reason, lateCancellation: late, next: replaceable ? "This format supports a replacement: review last-minute replacement candidates on the introduction page." : "For a one-on-one, the next step is to reschedule — ask them for new times." });
+  } else {
+    await db("jam_participant_update", { id: booking.jamParticipantId, fields: { status: "accepted" } });
+    await peepsNotifyCandidate(ctx, "cancellation", { startsAt: booking.startsAt, displayTimezone: booking.candidateTimezone, reason }, { needsLink: false, bookingId: booking.id });
+  }
+  return result.booking;
+}
+
+async function peepsCandidateRescheduleRequest(ctx, booking, body) {
+  if (!["booked", "cancelled"].includes(booking.status) || (booking.status === "cancelled" && booking.cancelledBy !== "candidate")) throw httpError(409, "This session isn't currently booked.");
+  const reason = sessionText(body.reason, 400);
+  const jam = await peepsLoadJam(ctx.intro.jamId);
+  if (body.windows !== undefined) {
+    const availability = peepsNormalizeAvailability({ timezone: body.timezone || ctx.intro.availability?.timezone, windows: body.windows, minNoticeHours: body.minNoticeHours ?? ctx.intro.availability?.minNoticeHours }, Date.now());
+    const updated = await db("peeps_intro_update", { id: ctx.intro.id, fields: { availability } });
+    ctx.intro = updated.introduction;
+  }
+  await db("peeps_booking_update", { id: booking.id, fields: { status: "reschedule_requested" }, expectStatuses: ["booked", "cancelled"] });
+  await peepsSetIntroStatus(ctx.intro.id, "scheduling");
+  await db("jam_event_create", { id: newId("jev"), jamId: booking.jamId, jamParticipantId: booking.jamParticipantId, type: "participant.reschedule_requested", actor: booking.jamParticipantId, detail: { bookingId: booking.id, reason: reason || null } });
+  await peepsNotifyOrganizer(ctx, "organizer_reschedule_request", { reason });
+  void jam;
+}
+
+async function peepsCreateOpening(ctx, booking) {
+  const jam = await peepsLoadJam(booking.jamId);
+  const context = {
+    purpose: ctx.request.outcomeText, startsAt: booking.startsAt, durationMinutes: booking.durationMinutes, format: booking.format,
+    formatLabel: peepsFormatLabel(booking.format), recording: booking.recordingState, compensation: booking.compensation?.amount ? booking.compensation : null,
+    requiredFit: ctx.request.whoText, displayTimezone: booking.requesterTimezone
+  };
+  void jam;
+  const created = await db("peeps_opening_create", { id: newId("pop"), requestId: ctx.request.id, jamId: booking.jamId, bookingId: booking.id, replacesIntroductionId: ctx.intro.id, context });
+  return created.opening;
+}
+
+async function peepsQualifiedReplacements(request, excludeCandidateId) {
+  const listed = await db("peeps_candidate_list", { requestId: request.id });
+  const usable = (listed.candidates || []).filter((c) => c.status === "proposed" && c.id !== excludeCandidateId && (["claimed_member", "unclaimed_dub"].includes(c.reachability) || c.contactEmail || (c.contactPaths || []).length || c.reachability === "external_indirect"));
+  return usable.sort((a, b) => b.matchScore - a.matchScore);
+}
+
+async function peepsFindReplacement(ctx, authSession) {
+  const { intro, request } = ctx;
+  if (!["declined", "unreachable", "expired", "cancelled"].includes(intro.status)) throw httpError(409, `An introduction in "${intro.status}" state has nothing to replace.`);
+  const bookingResult = await db("peeps_booking_get", { introductionId: intro.id });
+  const booking = bookingResult.booking;
+  let opening;
+  if (booking && booking.status === "cancelled") opening = await peepsCreateOpening(ctx, booking);
+  else {
+    const jam = await peepsLoadJam(intro.jamId);
+    const created = await db("peeps_opening_create", { id: newId("pop"), requestId: request.id, jamId: intro.jamId, bookingId: null, replacesIntroductionId: intro.id, context: {
+      purpose: request.outcomeText, startsAt: null, durationMinutes: PEEPS_DEFAULT_DURATION_MINUTES, format: request.workingRepresentation?.engagementType || "conversation",
+      formatLabel: peepsFormatLabel(request.workingRepresentation?.engagementType), recording: peepsRecordingStatus(request, jam), compensation: peepsCompensation(jam), requiredFit: request.whoText
+    } });
+    opening = created.opening;
+  }
+  let qualified = await peepsQualifiedReplacements(request, ctx.candidate.id);
+  let discovered = false;
+  if (!qualified.length) {
+    // Nobody previously qualified is left: go back to discovery, exactly like "keep searching".
+    const requestTerms = tokenizePeepsText(`${request.whoText} ${request.outcomeText}`);
+    const existing = (await db("peeps_candidate_list", { requestId: request.id })).candidates || [];
+    const used = new Set(existing.map((c) => c.displayName));
+    const [internal, demo] = await Promise.all([resolveInternalCandidates(request.organizationId, requestTerms), Promise.resolve(resolveDemoDirectoryCandidates(requestTerms))]);
+    const fresh = [...internal, ...demo].filter((c) => !used.has(c.displayName)).sort((a, b) => b.matchScore - a.matchScore).slice(0, 3).map((c) => ({ ...c, id: newId("pcand") }));
+    const proposed = existing.filter((c) => c.status === "proposed");
+    const settled = existing.length - proposed.length;
+    await db("peeps_candidates_replace", { requestId: request.id, candidates: [...proposed, ...fresh].map((c, i) => ({ ...c, rank: settled + i + 1 })) });
+    qualified = await peepsQualifiedReplacements(request, ctx.candidate.id);
+    discovered = true;
+  }
+  void authSession;
+  return { opening, candidates: qualified.map((c) => ({ id: c.id, displayName: c.displayName, headline: c.headline, matchReason: c.matchReason, matchScore: c.matchScore, reachability: c.reachability, needsContactFromRequester: !["claimed_member", "unclaimed_dub"].includes(c.reachability) && !c.contactEmail && !(c.contactPaths || []).length })), discovered };
+}
+
+async function peepsApproveReplacement(ctx, opening, authSession, body) {
+  const candidateId = sessionText(body.candidateId, 80);
+  const candidateResult = await db("peeps_candidate_get", { id: candidateId });
+  const candidate = candidateResult.candidate;
+  if (!candidate || candidate.requestId !== ctx.request.id) throw httpError(404, "Candidate not found for this request.");
+  if (candidate.status !== "proposed") throw httpError(409, "That candidate is no longer available.");
+  const claim = await db("peeps_opening_update", { id: opening.id, fields: { status: "filled", chosenCandidateId: candidate.id }, expectStatuses: ["open"] });
+  if (!claim.updated) throw httpError(409, "This opening was already filled.");
+  const jam = await peepsLoadJam(opening.jamId);
+  const outcome = await peepsAuthorizeCandidate({
+    request: ctx.request, jam, jamId: opening.jamId, candidate, authSession, compensationAmount: Number(jam?.compensation?.amount) || 0,
+    outreachEmail: sessionText(body.outreachEmail, 200).toLowerCase(), replaces: ctx.intro, paymentRef: ctx.intro.paymentRef || `peeps-intro:${ctx.request.id}`, openingId: opening.id
+  });
+  if (!outcome.introduction) {
+    await db("peeps_opening_update", { id: opening.id, fields: { status: "open", chosenCandidateId: null } });
+    throw httpError(409, "That candidate has no legitimate contact path yet — supply one you hold, or pick someone else.");
+  }
+  await db("peeps_opening_update", { id: opening.id, fields: { replacementIntroductionId: outcome.introduction.id } });
+  return outcome.introduction;
+}
+
+// ---- Authorization -> Introduction (shared by /authorize and replacement approval) ----
+async function peepsAuthorizeCandidate({ request, jam, jamId, candidate, authSession, compensationAmount, outreachEmail, replaces = null, paymentRef, openingId = null }) {
+  let dubId = candidate.dubId;
+  const hasProviderPath = Boolean(candidate.contactEmail) || (candidate.contactPaths || []).length > 0 || ["claimed_member", "unclaimed_dub"].includes(candidate.reachability);
+  const supplied = EMAIL_PATTERN.test(outreachEmail || "") ? outreachEmail : "";
+  if (!hasProviderPath && !supplied) return { skipped: { candidateId: candidate.id, reason: "no_verified_contact_path" } };
+  if (!dubId) {
+    // Only an email that some real source gave us can anchor an identity; a provider path with no email
+    // gets a placeholder-free Dub only when an email exists. Otherwise the Dub is created from the
+    // requester-supplied or provider email.
+    // A candidate reachable only through a public profile/website path has no email. The Dub row needs
+    // one, so it gets a reserved-TLD (.invalid) placeholder that can never receive mail and is never
+    // treated as a contact channel.
+    const anchorEmail = candidate.contactEmail || supplied || `no-email+${candidate.id}@dub.invalid`;
+    dubId = (await db("dub_find_or_create", { id: newId("dub"), email: anchorEmail, displayName: candidate.displayName })).dub.id;
+    await db("peeps_candidate_update", { id: candidate.id, fields: { dubId } });
+  }
+  // Identity collision: two different candidates resolving to the same Dub must never become two
+  // introductions on one Jam participant.
+  const participant = (await db("jam_participant_create", { id: newId("jampt"), jamId, dubId })).participant;
+  const sameParticipant = (await db("peeps_intro_find_by_jam_participant", { jamParticipantId: participant.id })).introductions || [];
+  if (sameParticipant.some((i) => !["declined", "unreachable", "expired", "cancelled"].includes(i.status) && i.requestId === request.id)) {
+    return { skipped: { candidateId: candidate.id, reason: "duplicate_identity" } };
+  }
+  await db("peeps_candidate_update", { id: candidate.id, fields: { status: "authorized" } });
+  if (compensationAmount > 0) await db("jam_participant_update", { id: participant.id, fields: { compensationAmount, compensationStatus: "eligible" } });
+  const created = await db("peeps_introduction_create", { id: newId("pintro"), requestId: request.id, candidateId: candidate.id, dubId, jamId, jamParticipantId: participant.id, authorizedByUserId: authSession.id });
+  await db("peeps_intro_update", { id: created.introduction.id, fields: { paymentRef: paymentRef || `peeps-intro:${request.id}`, replacesIntroductionId: replaces?.id || null, openingId } });
+  await db("jam_event_create", { id: newId("jev"), jamId, jamParticipantId: participant.id, type: "introduction.authorized", actor: authSession.id, detail: { requestId: request.id, introductionId: created.introduction.id, replaces: replaces?.id || null } });
+  const ctx = await peepsLoadIntroduction(created.introduction.id);
+  let openingContext = null;
+  if (openingId) {
+    const opening = (await db("peeps_opening_get", { id: openingId })).opening;
+    if (opening?.context) openingContext = { startsAt: opening.context.startsAt, displayTimezone: opening.context.displayTimezone };
+  }
+  try {
+    await peepsStartIntroduction(ctx, { requesterSuppliedEmail: supplied, authorizedByUserId: authSession.id, openingContext });
+  } catch (error) {
+    // Never leave an authorized (and paid-for) introduction stuck mid-flight: park it where the
+    // requester can see it and retry outreach.
+    console.error("[Peeps] starting introduction failed", error);
+    await db("peeps_intro_update", { id: created.introduction.id, fields: { status: "ready_for_outreach", contactState: { blocked: "resolution_error" } } });
+  }
+  return { introduction: (await peepsLoadIntroduction(created.introduction.id)).intro, ctx };
+}
+
+// ---- Organizer views ----
+function peepsChannelView(channel) {
+  return {
+    id: channel.id, channel: channel.channel, adapter: channel.adapter, destination: channel.destinationMasked, publicReference: channel.publicReference || null,
+    source: channel.source, verification: channel.verification, confidence: channel.confidence, automatable: channel.automatable, status: channel.status,
+    lastCheckedAt: channel.lastCheckedAt, authorizationContext: { purpose: channel.authorizationContext?.purpose, authorizedAt: channel.authorizationContext?.authorizedAt }
+  };
+}
+
+function peepsMessageView(message) {
+  const label = message.providerKind === "test_demo" && message.status === "simulated" ? "Simulated by the test provider — nothing was delivered."
+    : message.status === "sent" ? "Handed to the email provider. Delivery isn't confirmed until they respond."
+    : message.status === "failed" ? "Delivery failed." : message.status === "skipped_unavailable" ? "Not sent: no provider available." : message.status;
+  return { id: message.id, purpose: message.purpose, audience: message.audience, adapter: message.adapter, providerKind: message.providerKind, status: message.status, attempt: message.attempt, error: message.error || null, threadRef: message.threadRef, createdAt: message.createdAt, delivery: label };
+}
+
+async function peepsIntroductionView(ctx) {
+  await peepsRefreshIntroduction(ctx);
+  await peepsAttachActiveChannel(ctx);
+  const jam = await peepsLoadJam(ctx.intro.jamId);
+  const [messagesResult, bookingResult, prefs] = await Promise.all([db("peeps_message_list", { introductionId: ctx.intro.id }), db("peeps_booking_get", { introductionId: ctx.intro.id }), peepsKnownPreferences(ctx)]);
+  const messages = messagesResult.messages || [];
+  const outreachAttempts = messages.filter((m) => ["outreach", "reminder", "opening"].includes(m.purpose) && m.audience === "candidate").length;
+  const intro = ctx.intro;
+  const status = intro.status;
+  const nextActions = [];
+  if (status === "ready_for_outreach") nextActions.push("retry_outreach");
+  if (["outreach_sent", "responded"].includes(status) && outreachAttempts < PEEPS_MAX_OUTREACH_ATTEMPTS) nextActions.push("retry_outreach");
+  if (["declined", "unreachable", "expired", "cancelled"].includes(status)) nextActions.push("find_replacement");
+  if (["unreachable", "expired"].includes(status) && outreachAttempts < PEEPS_MAX_OUTREACH_ATTEMPTS) nextActions.push("retry_outreach");
+  if (["scheduling", "accepted"].includes(status)) { if (!ctx.request.requesterAvailability?.windows?.length) nextActions.push("set_availability"); nextActions.push("book"); }
+  if (status === "booked") nextActions.push("review_prep", "edit_plan", "open_studio", "cancel", "reschedule");
+  const view = {
+    introduction: { id: intro.id, status, requestId: intro.requestId, jamId: intro.jamId, authorizedAt: intro.authorizedAt, outreachSentAt: intro.outreachSentAt, outreachExpiresAt: intro.outreachExpiresAt, respondedAt: intro.respondedAt, firstViewedAt: intro.firstViewedAt, declineReason: intro.declineReason, paymentRef: intro.paymentRef ? "preserved" : null, replacesIntroductionId: intro.replacesIntroductionId },
+    candidate: { id: ctx.candidate.id, displayName: ctx.candidate.displayName, headline: ctx.candidate.headline, matchReason: ctx.candidate.matchReason, source: ctx.candidate.source },
+    contact: { channels: ctx.channels.map(peepsChannelView), activeChannelId: intro.contactState?.activeChannelId || null, blocked: intro.contactState?.blocked || null, reason: intro.contactState?.reason || null, manualOptions: intro.contactState?.manualOptions || [] },
+    adapters: peepsAdapterCatalog(),
+    messages: messages.map(peepsMessageView),
+    response: { decision: intro.response?.decision || null, reason: intro.response?.reason || null, messages: intro.response?.messages || [], preferences: { recordingPreference: prefs.recordingPreference || null, durationMinutes: prefs.durationMinutes || null, compensation: prefs.compensation || null, formatConstraints: prefs.formatConstraints || null, timezone: prefs.timezone || null, notes: prefs.notes || null } },
+    availability: intro.availability?.windows ? { timezone: intro.availability.timezone, minNoticeHours: intro.availability.minNoticeHours, windows: intro.availability.windows.map((w) => ({ start: w.start, end: w.end })) } : null,
+    requesterAvailability: ctx.request.requesterAvailability?.windows ? { timezone: ctx.request.requesterAvailability.timezone, minNoticeHours: ctx.request.requesterAvailability.minNoticeHours, windows: ctx.request.requesterAvailability.windows.map((w) => ({ start: w.start, end: w.end })) } : null,
+    blockers: peepsBlockers(ctx, jam, prefs),
+    needs: ["accepted", "scheduling"].includes(status) ? peepsComputeNeeds(ctx, jam, prefs) : [],
+    booking: bookingResult.booking ? { id: bookingResult.booking.id, status: bookingResult.booking.status, startsAt: bookingResult.booking.startsAt, planVersion: bookingResult.booking.planVersion, readyAt: bookingResult.booking.readyAt } : null,
+    outreachAttempts, maxOutreachAttempts: PEEPS_MAX_OUTREACH_ATTEMPTS, nextActions: [...new Set(nextActions)]
+  };
+  return view;
+}
+
+// ---- Organizer routes ----
+async function requireOwnedBooking(req, res, authSession, id, minRole = "member") {
+  if (!SAFE_ID.test(String(id || ""))) throw httpError(400, "Invalid booking id.");
+  const result = await db("peeps_booking_get", { id });
+  if (!result.booking) throw httpError(404, "Booking not found.");
+  const membership = await requireMembership(req, res, result.booking.organizationId, minRole, authSession);
+  if (!membership) return null;
+  const ctx = await peepsLoadIntroduction(result.booking.introductionId);
+  if (!ctx) throw httpError(404, "Booking not found.");
+  await peepsAttachActiveChannel(ctx);
+  return { booking: result.booking, ctx };
+}
+
+function peepsExecutionPath(req) {
+  const url = new URL(req.url, "http://x");
+  return { url, parts: url.pathname.split("/").filter(Boolean).slice(2) };
+}
+
+function isPeepsExecutionRoute(req) {
+  const path = String(req.url || "").split("?")[0];
+  return /^\/api\/peeps\/(introductions|bookings|openings|messages)\/[^/]+/.test(path)
+    || /^\/api\/peeps\/requests\/[^/]+\/availability$/.test(path)
+    || path === "/api/peeps/test-outbox";
+}
+
+async function routePeepsExecution(req, res, authSession) {
+  const { url, parts } = peepsExecutionPath(req);
+  const [kind, id, action] = parts;
+  const method = req.method;
+
+  if (kind === "test-outbox" && method === "GET") {
+    if (!PEEPS_TEST_ADAPTERS) throw httpError(404, "Not found.");
+    const requestId = url.searchParams.get("requestId") || "";
+    const request = await requireOwnedPeepsRequest(req, res, authSession, requestId, "viewer");
+    if (!request) return;
+    const listed = await db("peeps_message_list", { requestId, includeTestPayload: true });
+    return sendJson(req, res, 200, { messages: listed.messages || [] });
+  }
+
+  if (kind === "requests" && action === "availability" && method === "POST") {
+    const request = await requireOwnedPeepsRequest(req, res, authSession, id, "member");
+    if (!request) return;
+    const availability = peepsNormalizeAvailability(await readJson(req), Date.now());
+    const saved = await db("peeps_request_set_availability", { id, availability });
+    return sendJson(req, res, 200, { requesterAvailability: saved.request.requesterAvailability });
+  }
+
+  if (kind === "introductions") {
+    const ctx = await requireOwnedIntroduction(req, res, authSession, id, method === "GET" ? "viewer" : "member");
+    if (!ctx) return;
+    if (method === "GET" && !action) return sendJson(req, res, 200, await peepsIntroductionView(ctx));
+    if (method === "GET" && action === "slots") {
+      await peepsRefreshIntroduction(ctx);
+      const jam = await peepsLoadJam(ctx.intro.jamId);
+      const slots = await peepsComputeSlots(ctx, jam);
+      const prefs = await peepsKnownPreferences(ctx);
+      const { _intervals, ...publicSlots } = slots;
+      return sendJson(req, res, 200, { ...publicSlots, blockers: peepsBlockers(ctx, jam, prefs), needs: peepsComputeNeeds(ctx, jam, prefs), requesterTimezone: ctx.request.requesterAvailability?.timezone || null, candidateTimezone: ctx.intro.availability?.timezone || null });
+    }
+    if (method !== "POST") throw httpError(404, "Not found.");
+    const body = await readJson(req);
+
+    if (action === "retry-outreach") {
+      await peepsRefreshIntroduction(ctx);
+      if (!["ready_for_outreach", "outreach_sent", "responded", "unreachable", "expired"].includes(ctx.intro.status)) throw httpError(409, `Outreach can't be retried from "${ctx.intro.status}".`);
+      const before = (await db("peeps_message_list", { introductionId: ctx.intro.id })).messages || [];
+      const attempts = before.filter((m) => ["outreach", "reminder", "opening"].includes(m.purpose) && m.audience === "candidate").length;
+      if (attempts >= PEEPS_MAX_OUTREACH_ATTEMPTS) throw httpError(409, "The maximum number of outreach attempts was reached. Look for a replacement instead.");
+      await peepsAttachActiveChannel(ctx);
+      if (!ctx.channels.length) ctx.channels = await peepsResolveContact(ctx, { authorizedByUserId: ctx.intro.authorizedByUserId });
+      for (const channel of ctx.channels.filter((c) => c.status === "failed")) await db("peeps_channel_update", { id: channel.id, fields: { status: "candidate" } });
+      if (["unreachable", "expired"].includes(ctx.intro.status)) {
+        const moved = await peepsSetIntroStatus(ctx.intro.id, "ready_for_outreach", {}, ["unreachable", "expired"]);
+        ctx.intro = moved.introduction;
+      }
+      await peepsRunOutreach(ctx, { purpose: ctx.intro.outreachSentAt ? "reminder" : "outreach" });
+      return sendJson(req, res, 200, await peepsIntroductionView(await peepsLoadIntroduction(ctx.intro.id)));
+    }
+
+    if (action === "find-replacement") {
+      await peepsRefreshIntroduction(ctx);
+      return sendJson(req, res, 200, await peepsFindReplacement(ctx, authSession));
+    }
+
+    if (action === "book" || action === "reschedule") {
+      await peepsRefreshIntroduction(ctx);
+      if (PEEPS_TEST_ADAPTERS && req.headers["x-peeps-test-fail"]) ctx.testFailStep = String(req.headers["x-peeps-test-fail"]);
+      await peepsAttachActiveChannel(ctx);
+      const outcome = await peepsBookIntroduction(ctx, authSession, body);
+      const fresh = await peepsLoadIntroduction(ctx.intro.id);
+      await peepsAttachActiveChannel(fresh);
+      const view = await peepsBookingView(outcome.booking, fresh, authSession, { reconcile: false });
+      return sendJson(req, res, outcome.created ? 201 : 200, { ...view, created: Boolean(outcome.created), idempotent: Boolean(outcome.idempotent), rescheduled: Boolean(outcome.rescheduled) });
+    }
+    throw httpError(404, "Not found.");
+  }
+
+  if (kind === "bookings") {
+    const owned = await requireOwnedBooking(req, res, authSession, id, method === "GET" ? "viewer" : "member");
+    if (!owned) return;
+    const { booking, ctx } = owned;
+    if (method === "GET" && !action) return sendJson(req, res, 200, await peepsBookingView(booking, ctx, authSession));
+    if (method === "GET" && action === "prep") {
+      const role = url.searchParams.get("role") === "attendee" ? "attendee" : "organizer";
+      if (role === "attendee") return sendJson(req, res, 200, await peepsBuildAttendeePrep(ctx, booking));
+      const { jam, plan } = await peepsSessionForBooking(booking, authSession);
+      return sendJson(req, res, 200, await peepsBuildOrganizerPrep(ctx, booking, plan, jam));
+    }
+    if (method === "GET" && action === "calendar.ics") {
+      const ics = peepsBuildIcs({ booking, summary: `Session with ${ctx.candidate.displayName}`, description: ctx.request.outcomeText, location: `${APP_BASE_URL}${peepsLinks(booking, null).studio || ""}` });
+      setCors(req, res);
+      res.writeHead(200, { "Content-Type": "text/calendar; charset=utf-8", "Content-Disposition": 'attachment; filename="session.ics"' });
+      return void res.end(ics);
+    }
+    if (method !== "POST") throw httpError(404, "Not found.");
+    const body = await readJson(req);
+    if (action === "rebuild") {
+      const rebuilt = await peepsEnsureBookingSetup(booking, ctx, authSession);
+      return sendJson(req, res, 200, await peepsBookingView(rebuilt.booking, ctx, authSession, { reconcile: false }));
+    }
+    if (action === "plan") {
+      if (booking.status !== "booked") throw httpError(409, "Only a booked session's plan can be edited.");
+      const edit = await peepsEditPlan(booking, ctx, authSession, body);
+      return sendJson(req, res, 200, { edit, ...(await peepsBookingView(booking, ctx, authSession, { reconcile: false })) });
+    }
+    if (action === "cancel") {
+      const cancelled = await peepsCancelBooking(ctx, booking, { by: "organizer", reason: sessionText(body.reason, 400) });
+      const fresh = await peepsLoadIntroduction(ctx.intro.id);
+      await peepsAttachActiveChannel(fresh);
+      const view = await peepsBookingView(cancelled, fresh, authSession, { reconcile: false });
+      return sendJson(req, res, 200, { ...view, lateCancellation: cancelled.lateCancellation, monetaryPenalty: "none_automatic", next: PEEPS_REPLACEABLE_FORMATS.has(booking.format) ? "find_replacement_or_reschedule" : "reschedule" });
+    }
+    throw httpError(404, "Not found.");
+  }
+
+  if (kind === "openings" && action === "approve" && method === "POST") {
+    const opening = (await db("peeps_opening_get", { id })).opening;
+    if (!opening) throw httpError(404, "Opening not found.");
+    const ctx = await requireOwnedIntroduction(req, res, authSession, opening.replacesIntroductionId, "member");
+    if (!ctx) return;
+    const introduction = await peepsApproveReplacement(ctx, opening, authSession, await readJson(req));
+    return sendJson(req, res, 201, { introduction: { id: introduction.id, status: introduction.status, replacesIntroductionId: introduction.replacesIntroductionId }, paymentRelationship: "preserved_no_new_charge" });
+  }
+
+  if (kind === "messages" && action === "retry" && method === "POST") {
+    const message = (await db("peeps_message_get", { id })).message;
+    if (!message) throw httpError(404, "Message not found.");
+    const ctx = await requireOwnedIntroduction(req, res, authSession, message.introductionId, "member");
+    if (!ctx) return;
+    if (!["failed", "skipped_unavailable"].includes(message.status)) throw httpError(409, "Only a failed message can be retried.");
+    if ((message.attempt || 1) >= 5) throw httpError(409, "This message has been retried too many times.");
+    await peepsAttachActiveChannel(ctx);
+    const result = await peepsDeliverMessage(message, ctx);
+    return sendJson(req, res, 200, { message: peepsMessageView(result.message) });
+  }
+  throw httpError(404, "Not found.");
+}
+
+// The classic Session Planner (studio/plan.html) saves the WHOLE plan. For a Peeps-booked session that
+// would clobber Peeps' canonical content with whatever stale copy the browser loaded, so the server keeps
+// plan.peeps authoritative, keeps the booked time authoritative, and only accepts question edits made
+// through the planner's run-of-show (ros_q_* rows). Returns null when this session isn't Peeps-managed.
+async function peepsPlannerSave(session, incoming, authSession) {
+  if (!session.jamId) return null;
+  return peepsWithLock(`jam:${session.jamId}`, async () => peepsPlannerSaveLocked((await db("session_get_internal", { id: session.id })).session || session, incoming, authSession));
+}
+
+async function peepsPlannerSaveLocked(session, incoming, authSession) {
+  const oldPlan = session.plan || {};
+  if (!oldPlan.peeps || !session.jamId) return null;
+  const bookings = await peepsActiveBookingsForJam(session.jamId);
+  const primary = bookings.find((b) => b.status === "booked") || bookings[0];
+  if (!primary) return null;
+  const before = new Map(bookings.map((b) => [b.id, peepsParticipantFacingSnapshot(oldPlan, b)]));
+  const plan = { ...incoming, peeps: JSON.parse(JSON.stringify(oldPlan.peeps)) };
+  const rows = new Map((plan.runOfShow || []).map((item) => [item.id, item]));
+  const hasQuestionRows = [...rows.keys()].some((k) => String(k).startsWith("ros_q_"));
+  if (hasQuestionRows) {
+    const now = new Date().toISOString();
+    plan.peeps.questions = plan.peeps.questions.filter((q) => rows.has(`ros_q_${q.id}`)).map((q) => {
+      const label = sessionText(rows.get(`ros_q_${q.id}`).label, 400);
+      return label && label !== q.text ? { ...q, text: label, source: "organizer", updatedAt: now } : q;
+    });
+  }
+  const ctx = await peepsLoadIntroduction(primary.introductionId);
+  const requester = await peepsRequesterInfo(ctx.request, authSession.id);
+  peepsMirrorStandardFields(plan, primary, session, requester);
+  const changed = bookings.some((b) => peepsChangeLines(before.get(b.id), peepsParticipantFacingSnapshot(plan, b)).length > 0);
+  const jam = await peepsLoadJam(session.jamId);
+  if (changed) {
+    await peepsSavePlan({ booking: primary, session, plan, change: { kind: "planner_edit", lines: peepsChangeLines(before.get(primary.id), peepsParticipantFacingSnapshot(plan, primary)) }, participantFacing: true, editedBy: authSession.id });
+    await peepsNotifyAttendeesOfChanges({ bookings, plan, jam, before });
+  } else {
+    await db("session_set_plan", { id: session.id, ownerUserId: session.ownerUserId, plan });
+  }
+  return (await db("session_get_internal", { id: session.id })).session;
 }
 
 function inferSessionPlannerType(jam) {
@@ -7325,7 +9183,7 @@ async function handleJamPackage(req, res, authSession) {
     sendJson(req, res, 200, {
       scope: "organizer",
       jam: { id: jam.id, title: jam.title, objective: jam.objective, status: jam.status },
-      participants,
+      participants: await peepsMaskParticipantContacts(jam.id, participants),
       artifacts,
       events: eventsResult.events || [],
       nextSteps: buildPeepsNextSteps(jam, participants)

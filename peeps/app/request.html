@@ -25,7 +25,7 @@
 </section>
 
 <section id="stepResult" hidden>
-  <div class="section-head"><div><span class="eyebrow">Introductions sent</span><h2>Peeps reached out</h2></div></div>
+  <div class="section-head"><div><span class="eyebrow">Introductions authorized</span><h2>Peeps is reaching out</h2></div></div>
   <section class="card" id="resultSummary"></section>
   <div class="actions" style="margin-top:16px"><a class="btn" id="openJamLink" href="#">Open Jam →</a></div>
 </section>
@@ -42,6 +42,15 @@ let introductions = [];
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+const INTRO_STATUS = {
+  authorized: "Authorized", resolving_contact: "Finding a contact path", ready_for_outreach: "Ready to contact", outreach_sent: "Contacted — waiting for a reply",
+  responded: "Replied", accepted: "Interested", scheduling: "Ready to schedule", booked: "Booked", declined: "Declined", unreachable: "Couldn't be reached", expired: "No reply", cancelled: "Cancelled"
+};
+function introLine(i) {
+  const name = (candidates.find((c) => c.id === i.candidateId) || {}).displayName || "Guest";
+  return `<li><a class="link" href="./introduction.html?id=${encodeURIComponent(i.id)}">${escapeHtml(name)}</a> — ${escapeHtml(INTRO_STATUS[i.status] || i.status)}</li>`;
 }
 
 function showStep(id) {
@@ -135,9 +144,9 @@ $("authorizeBtn").addEventListener("click", async () => {
     introductions = result.introductions;
     const skipped = result.skipped || [];
     $("resultSummary").innerHTML = `
-      <p><strong>${introductions.length}</strong> introduction${introductions.length === 1 ? "" : "s"} sent.</p>
+      <p><strong>${introductions.length}</strong> introduction${introductions.length === 1 ? "" : "s"} authorized.</p>
       ${skipped.length ? `<p class="muted">${skipped.length} skipped — no verified contact path was available for them.</p>` : ""}
-      <ul>${introductions.map((i) => `<li>Contacted — status: ${escapeHtml(i.status)}</li>`).join("")}</ul>`;
+      <ul>${introductions.map(introLine).join("")}</ul>`;
     $("openJamLink").href = `./jam.html?id=${encodeURIComponent(result.jamId)}`;
     showStep("stepResult");
   } catch (error) {
@@ -154,7 +163,7 @@ async function resume(id) {
   introductions = result.introductions;
   if (request.status === "introductions_authorized" || request.status === "booked" || request.status === "completed") {
     const authorized = introductions.length;
-    $("resultSummary").innerHTML = `<p><strong>${authorized}</strong> introduction${authorized === 1 ? "" : "s"} sent so far.</p>`;
+    $("resultSummary").innerHTML = `<p><strong>${authorized}</strong> introduction${authorized === 1 ? "" : "s"} so far.</p><ul>${introductions.map(introLine).join("")}</ul>`;
     if (request.jamId) $("openJamLink").href = `./jam.html?id=${encodeURIComponent(request.jamId)}`;
     showStep("stepResult");
   } else {

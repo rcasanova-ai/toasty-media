@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="referrer" content="no-referrer">
+    <title>Introduction request · Toasty Peeps</title>
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="stylesheet" href="./peeps.css">
+    <style>
+      body{min-height:100vh}
+      .rsp{max-width:680px;margin:0 auto;padding:28px 18px 80px}
+      .rsp-brand{display:flex;align-items:center;gap:10px;margin:6px 0 22px}
+      .rsp-brand img{width:44px;height:44px;object-fit:contain}
+      .rsp-brand b{font:900 17px 'Libre Franklin',Arial}
+      .rsp-brand em{font:800 15px Georgia,serif;color:#8b5e1c;margin-left:4px}
+      .rsp h1{font-size:clamp(28px,5vw,40px);line-height:1.05;letter-spacing:-.03em;margin:6px 0 14px}
+      .rsp .card{margin-bottom:16px}
+      .rsp dl{display:grid;grid-template-columns:120px 1fr;gap:10px 14px;margin:14px 0 0}
+      .rsp dt{font-size:12px;font-weight:800;color:#7a6256;text-transform:uppercase;letter-spacing:.06em}
+      .rsp dd{margin:0;font-size:15px;line-height:1.5}
+      .rsp .choices{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+      .rsp .choices .btn{min-width:130px}
+      .rsp .btn.quiet{background:#fff;color:#4a2d2a;border:1px solid var(--line)}
+      .rsp .win{display:grid;grid-template-columns:1.2fr 1fr 1fr auto;gap:8px;align-items:center;margin-bottom:8px}
+      .rsp .win .field{margin:0}
+      .rsp .note{font-size:13px;color:#7a6256;line-height:1.55}
+      .rsp .ok{color:#26765a;font-weight:800}
+      .rsp .err{color:#8e3434;font-weight:700;min-height:1.2em}
+      .rsp ul.q{padding-left:20px;line-height:1.6}
+      .rsp .check{display:flex;gap:10px;align-items:flex-start;margin:10px 0;font-size:14px;line-height:1.5}
+      [hidden]{display:none !important}
+      @media(max-width:560px){.rsp dl{grid-template-columns:1fr}.rsp .win{grid-template-columns:1fr 1fr}}
+    </style>
+  </head>
+  <body>
+    <main class="rsp">
+      <div class="rsp-brand"><img src="../shared/brand/toasty-media/ToastyTransparent.png" alt=""><span><b>TOASTY</b><em>Peeps</em></span></div>
+      <div id="root"><p class="muted">Loading your introduction…</p></div>
+    </main>
+    <script type="module" src="../js/peeps-respond-page.js"></script>
+  </body>
+</html>
