@@ -97,10 +97,20 @@
         <section class="platform-panel" data-panel-view="members">
           <div class="settings-card">
             <div class="panel-heading"><div><h2>Members & access</h2><p class="hint">Roles and account status are platform-authoritative here.</p></div></div>
+            <h3>Create login now</h3>
+            <p class="hint">Create a customer member immediately with a temporary password. Their account is locked to this customer's Studio brand.</p>
+            <div class="form-grid four">
+              <label>Name<input id="paCreateName" type="text" placeholder="Customer name"></label>
+              <label>Email<input id="paCreateEmail" type="email" placeholder="name@example.com"></label>
+              <label>Temporary password<input id="paCreatePassword" type="password" autocomplete="new-password" placeholder="10+ characters"></label>
+              <label>Role<select id="paCreateRole"><option value="member">Member</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></label>
+            </div>
+            <button id="paCreateMember" class="btn primary" type="button">Create customer login</button>
+            <h3>Or send an invite</h3>
             <div class="form-grid three">
               <label>Invite email<input id="paInviteEmail" type="email" placeholder="name@example.com"></label>
               <label>Role<select id="paInviteRole"><option value="member">Member</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></label>
-              <label>&nbsp;<button id="paInviteMember" class="btn primary" type="button">Send invite</button></label>
+              <label>&nbsp;<button id="paInviteMember" class="btn" type="button">Send invite</button></label>
             </div>
             <div class="table-wrap">
               <table class="settings-table">

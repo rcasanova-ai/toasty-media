@@ -58,7 +58,7 @@ function bindStatic(){
   document.querySelectorAll(".platform-nav-btn").forEach(btn=>btn.addEventListener("click",()=>selectPanel(btn.dataset.panel)));
   $("paSaveAccount").onclick=saveAccountControls;$("paResetUsage").onclick=resetUsage;$("paSaveOrg").onclick=saveOrganization;
   $("paSaveDefaults").onclick=saveDefaults;$("paSaveBilling").onclick=saveBilling;$("paNewBrand").onclick=()=>renderBrandEditor(null,true);
-  $("paInviteMember").onclick=inviteMember;$("paSaveAiKey").onclick=saveAiKey;
+  $("paInviteMember").onclick=inviteMember;$("paCreateMember").onclick=createMember;$("paSaveAiKey").onclick=saveAiKey;
   $("paOrgSearch")?.addEventListener("input",renderOrganizationDirectory);
 }
 
@@ -108,10 +108,27 @@ function renderMembers(){
     '<tr><td><strong>'+esc(m.userName||"User")+'</strong><br><small>'+esc(m.userEmail||m.userId)+'</small></td>'+
     '<td><select data-member-role="'+esc(m.userId)+'">'+["viewer","member","admin","owner"].map(r=>'<option value="'+r+'" '+(r===m.role?'selected':'')+'>'+human(r)+'</option>').join("")+'</select></td>'+
     '<td><select data-member-status="'+esc(m.userId)+'"><option value="active" '+(m.userStatus==="active"?'selected':'')+'>Active</option><option value="suspended" '+(m.userStatus==="suspended"?'selected':'')+'>Suspended</option></select></td>'+
-    '<td class="platform-row-actions"><button class="btn" data-save-member="'+esc(m.userId)+'" type="button">Save</button><button class="btn" data-remove-member="'+esc(m.userId)+'" type="button">Remove</button></td></tr>'
+    '<td class="platform-row-actions"><button class="btn" data-save-member="'+esc(m.userId)+'" type="button">Save</button>'+(m.userPlatformRole==="platform_admin"?'':'<button class="btn" data-reset-member="'+esc(m.userId)+'" type="button">Reset password</button>')+'<button class="btn" data-remove-member="'+esc(m.userId)+'" type="button">Remove</button></td></tr>'
   ).join("");
   document.querySelectorAll("[data-save-member]").forEach(b=>b.onclick=()=>saveMember(b.dataset.saveMember));
+  document.querySelectorAll("[data-reset-member]").forEach(b=>b.onclick=()=>resetMemberPassword(b.dataset.resetMember));
   document.querySelectorAll("[data-remove-member]").forEach(b=>b.onclick=()=>removeMember(b.dataset.removeMember));
+}
+
+async function createMember(){
+  const name=$("paCreateName").value.trim(),email=$("paCreateEmail").value.trim(),password=$("paCreatePassword").value,role=$("paCreateRole").value;
+  try{
+    setMessage("Creating customer login…");
+    await post(orgPath("/member-create"),{name,email,password,role});
+    $("paCreateName").value="";$("paCreateEmail").value="";$("paCreatePassword").value="";
+    await loadDetail();setMessage("Customer login created. Give the temporary password to the customer securely.");
+  }catch(e){setMessage(e.message,true);}
+}
+
+async function resetMemberPassword(userId){
+  const m=memberById(userId);const password=prompt("Enter a new temporary password for "+(m?.userEmail||"this member")+" (minimum 10 characters):");
+  if(password===null)return;
+  try{setMessage("Resetting password…");await post(orgPath("/member-password-reset"),{userId,password});setMessage("Password reset. Existing sessions for this user are invalidated.");}catch(e){setMessage(e.message,true);}
 }
 
 async function saveMember(userId){

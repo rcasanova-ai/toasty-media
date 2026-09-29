@@ -356,7 +356,7 @@ const server = createServer(async (req, res) => {
     }
   }
   {
-    const actionMatch = req.url?.match(/^\/api\/organizations\/platform-admin\/organizations\/([^/]+)\/(basics|settings|onboarding|billing-account|member-role|member-status|member-remove|member-invite|invite-revoke|brand-profile|brand-profile-delete|ai-provider-save)$/);
+    const actionMatch = req.url?.match(/^\/api\/organizations\/platform-admin\/organizations\/([^/]+)\/(basics|settings|onboarding|billing-account|member-role|member-status|member-remove|member-invite|member-create|member-password-reset|invite-revoke|brand-profile|brand-profile-delete|ai-provider-save)$/);
     if (req.method === "POST" && actionMatch) {
       if (!requireCsrf(req, res) || !limit(req, res, "platform-admin-write", 120, 15 * 60 * 1000)) return;
       const session = await requirePlatformAdmin(req, res);
@@ -370,6 +370,8 @@ const server = createServer(async (req, res) => {
       else if (action === "member-status") await handlePlatformMemberStatus(req, res, session, organizationId);
       else if (action === "member-remove") await handlePlatformMemberRemove(req, res, organizationId);
       else if (action === "member-invite") await handlePlatformMemberInvite(req, res, session, organizationId);
+      else if (action === "member-create") await handlePlatformMemberCreate(req, res, organizationId);
+      else if (action === "member-password-reset") await handlePlatformMemberPasswordReset(req, res, session, organizationId);
       else if (action === "invite-revoke") await handlePlatformInviteRevoke(req, res, organizationId);
       else if (action === "ai-provider-save") await handlePlatformAiProviderSave(req, res, organizationId);
       else if (action === "brand-profile") await handlePlatformBrandProfileSave(req, res, organizationId);
@@ -2928,7 +2930,20 @@ async function handlePlatformStatus(req, res, session) {
   });
 }
 
-async function handlePlatformOrganizations(req, res) {
+async function handlePlatformOrganizations(req, res, authSession) {
+  const skinLabels = { toasty: "Toasty Media", "8alta": "8ALTA", santati: "Santati", optimai: "OptimAI", tangem: "Tangem", superteam: "Superteam", peeps: "Toasty Peeps", zenify: "Zenify" };
+  await db("platform_ensure_skin_organizations", {
+    ownerUserId: authSession.id,
+    skins: [...KNOWN_BRAND_IDS].map((themeId) => ({
+      themeId,
+      name: skinLabels[themeId] || themeId,
+      slug: "skin-" + themeId,
+      organizationId: randomUUID(),
+      membershipId: randomUUID(),
+      brandProfileId: randomUUID(),
+      brandName: (skinLabels[themeId] || themeId) + " Default"
+    }))
+  });
   const result = await db("platform_list_organizations", {});
   sendJson(req, res, 200, { organizations: result.organizations || [] });
 }
@@ -3068,6 +3083,47 @@ async function handlePlatformMemberStatus(req, res, authSession, organizationId)
   const result = await db("platform_set_user_status", { userId, status });
   if (result.error === "invalid_status") throw httpError(400, "Invalid user status.");
   sendJson(req, res, 200, { user: result.user });
+}
+
+async function handlePlatformMemberCreate(req, res, organizationId) {
+  const body = await readJson(req);
+  const name = cleanName(body?.name);
+  const email = normalizeEmail(body?.email);
+  const password = String(body?.password || "");
+  const role = ["viewer", "member", "admin"].includes(body?.role) ? body.role : "member";
+  if (!name || !email || !password) throw httpError(400, "Name, email, and temporary password are required.");
+  if (!EMAIL_PATTERN.test(email)) throw httpError(400, "Enter a valid email address.");
+  if (password.length < 10) throw httpError(400, "Temporary password must be at least 10 characters.");
+  const existing = await db("get_user_by_email", { email });
+  let user = existing.user;
+  if (!user) {
+    const result = await db("create_user", { id: randomUUID(), name, email, passwordHash: await hashPassword(password) });
+    if (!result.user) throw httpError(500, "Account could not be created.");
+    user = result.user;
+  } else {
+    const membership = await db("get_membership", { organizationId, userId: user.id });
+    if (membership.membership) throw httpError(409, "That user is already a member of this customer account.");
+    await db("platform_set_user_password", { userId: user.id, passwordHash: await hashPassword(password) });
+  }
+  const membership = await db("create_membership", { id: randomUUID(), organizationId, userId: user.id, role });
+  if (!membership.membership) throw httpError(500, "Member could not be added.");
+  await db("user_set_branding", { id: user.id, mode: "locked", brandId: ORG_BRAND_ID_PREFIX + organizationId });
+  sendJson(req, res, 201, { user: { id: user.id, name: user.name, email: user.email }, membership: membership.membership });
+}
+
+async function handlePlatformMemberPasswordReset(req, res, authSession, organizationId) {
+  const body = await readJson(req);
+  const userId = sessionText(body?.userId, 80);
+  const password = String(body?.password || "");
+  if (!SAFE_ID.test(userId)) throw httpError(400, "Invalid user id.");
+  if (password.length < 10) throw httpError(400, "Temporary password must be at least 10 characters.");
+  if (userId === authSession.id) throw httpError(400, "Use your own account security settings to change the Platform Admin password.");
+  const membership = await db("get_membership", { organizationId, userId });
+  if (!membership.membership) throw httpError(404, "Member not found.");
+  const target = await db("get_user_by_id", { id: userId });
+  if (isPlatformAdmin(target.user)) throw httpError(400, "Platform Admin passwords cannot be reset from customer controls.");
+  await db("platform_set_user_password", { userId, passwordHash: await hashPassword(password) });
+  sendJson(req, res, 200, { ok: true });
 }
 
 async function handlePlatformMemberInvite(req, res, authSession, organizationId) {

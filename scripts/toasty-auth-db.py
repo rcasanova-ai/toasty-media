@@ -3200,6 +3200,58 @@ def main():
 
     # Platform-admin actions are intentionally only callable by the Node server after its own
     # requirePlatformAdmin() check. The SQLite helper itself is not network-addressable.
+    if action == "platform_ensure_skin_organizations":
+        now = utc_now()
+        owner_user_id = payload["ownerUserId"]
+        skins = payload.get("skins") or []
+        created = []
+        for skin in skins:
+            theme_id = skin.get("themeId")
+            if not is_valid_brand_id(theme_id) or str(theme_id).startswith(ORG_BRAND_ID_PREFIX):
+                continue
+            existing = conn.execute(
+                """SELECT o.* FROM organizations o JOIN brand_profiles b ON b.organization_id = o.id
+                   WHERE b.base_theme_id = ? ORDER BY o.created_at ASC LIMIT 1""", (theme_id,)
+            ).fetchone()
+            if existing:
+                continue
+            try:
+                conn.execute(
+                    """INSERT INTO organizations (id, name, slug, owner_user_id, active_brand_profile_id, plan, subscription_status, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, NULL, 'demo', 'none', ?, ?)""",
+                    (skin["organizationId"], skin["name"], skin["slug"], owner_user_id, now, now),
+                )
+                conn.execute(
+                    "INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 'owner', ?, ?)",
+                    (skin["membershipId"], skin["organizationId"], owner_user_id, now, now),
+                )
+                conn.execute("INSERT INTO organization_settings (organization_id, onboarding_completed_at, updated_at) VALUES (?, ?, ?)", (skin["organizationId"], now, now))
+                conn.execute(
+                    """INSERT INTO brand_profiles (id, organization_id, name, base_theme_id, overrides_json, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, '{}', ?, ?)""",
+                    (skin["brandProfileId"], skin["organizationId"], skin["brandName"], theme_id, now, now),
+                )
+                conn.execute("UPDATE organizations SET active_brand_profile_id = ?, updated_at = ? WHERE id = ?", (skin["brandProfileId"], now, skin["organizationId"]))
+                created.append(skin["organizationId"])
+            except sqlite3.IntegrityError:
+                conn.rollback()
+                continue
+        conn.commit()
+        print(json.dumps({"ok": True, "created": created}))
+        return
+
+    if action == "platform_set_user_password":
+        now = utc_now()
+        conn.execute(
+            """UPDATE users SET password_hash = ?, password_version = COALESCE(password_version, 1) + 1,
+               updated_at = ? WHERE id = ?""",
+            (payload["passwordHash"], now, payload["userId"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (payload["userId"],)).fetchone()
+        print(json.dumps({"user": public_user(row, conn)}))
+        return
+
     if action == "platform_list_organizations":
         rows = conn.execute(
             """
