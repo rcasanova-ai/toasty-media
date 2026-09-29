@@ -1147,6 +1147,13 @@ const server = createServer(async (req, res) => {
   // These two take a query string (?role=/&participantId=), so they're matched on the query-string-safe
   // pathname — and, like /results above, must be registered before the generic "GET /api/jams/:id"
   // catch-all further below, or that catch-all would misread "jam_x/prep" as a literal jam id.
+  if (requestPathname(req).startsWith("/api/jams/") && requestPathname(req).endsWith("/transcript") && (req.method === "GET" || req.method === "POST")) {
+    if (req.method === "POST" && !requireCsrf(req, res)) return;
+    if (!limit(req, res, "jams-transcript", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res); if (!session) return;
+    if (req.method === "POST") await handleJamTranscriptCreate(req, res, session); else await handleJamTranscriptGet(req, res, session);
+    return;
+  }
   if (req.method === "GET" && requestPathname(req).startsWith("/api/jams/") && requestPathname(req).endsWith("/prep")) {
     if (!limit(req, res, "jams-prep", 60, 60 * 1000)) return;
     const session = await requireSession(req, res);
@@ -4838,6 +4845,7 @@ async function handleSessionEnd(req, res, authSession) {
   if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
   const result = await db("session_end", { id, ownerUserId: authSession.id, endedBy: authSession.id });
   if (!result.session) throw httpError(404, "Session not found.");
+  if (result.session.jamId) await peepsFinalizeJam(result.session.jamId, "studio_session_ended").catch((error) => console.error("[Peeps] completion pipeline failed", error));
   sendJson(req, res, 200, { session: result.session });
 }
 
@@ -6190,6 +6198,8 @@ async function handleJamComplete(req, res, authSession) {
   if (!jam) return;
   const result = await db("jam_update", { id, organizationId: jam.organizationId, fields: { status: "completed" } });
   await db("jam_event_create", { id: newId("jev"), jamId: id, type: "jam.completed", actor: authSession.id });
+  // Peeps-created Jams: record the completion, propose Breadcrumbs, evaluate the outcome (idempotent).
+  await peepsFinalizeJam(id, "organizer_marked_complete").catch((error) => console.error("[Peeps] completion pipeline failed", error));
   // Sections 26/27 — a claimed participant is told their Breadcrumbs were updated; an unclaimed one is
   // invited to claim their Dub. Never blocks the completion response on email delivery.
   notifyPeepsParticipantsOfCompletion(result.jam).catch((error) => console.error("[Peeps] post-completion notification failed", error));
@@ -6659,20 +6669,28 @@ function inferPeepsWorkingRepresentation(whoText, outcomeText) {
 async function resolveInternalCandidates(organizationId, requestTerms) {
   const result = await db("dub_search_by_organization_history", { organizationId });
   const dubs = result.dubs || [];
-  return dubs.map((dub) => {
+  const entries = dubs.length ? ((await db("dub_entry_list", { dubIds: dubs.map((d) => d.id) })).entries || []) : [];
+  const internal = dubs.map((dub) => {
     const { matched, score } = scorePeepsDemoCandidate(tokenizePeepsText(dub.displayName || ""), requestTerms);
+    // Safe derived evidence from earlier Jams (participant-approved Breadcrumbs), capped so a single
+    // strong interaction can never swamp the base match. Never raw transcript or private session data.
+    const signal = peepsEvidenceBonus(entries.filter((e) => e.dubId === dub.id), requestTerms);
+    const evidence = [{ claim: "Previous Jam participation with this organization", sourceType: "internal_breadcrumb", sourceUrl: "", sourceTitle: "Toasty Peeps history", confidence: "High" }];
+    if (signal.matched) evidence.push(peepsEvidenceClaim(signal));
     return {
       source: dub.userId ? "internal_claimed_dub" : "internal_unclaimed_dub",
       dubId: dub.id,
       displayName: dub.displayName || dub.email,
       headline: dub.userId ? "Toasty Peeps member you've worked with before" : "Previously part of a Jam with your organization",
-      evidence: [{ claim: "Previous Jam participation with this organization", sourceType: "internal_breadcrumb", sourceUrl: "", sourceTitle: "Toasty Peeps history", confidence: "High" }],
-      matchReason: matched.length ? `Matched: ${matched.slice(0, 4).join(", ")}; previously worked with your organization` : "Previously worked with your organization",
-      matchScore: score + 15,
+      evidence,
+      matchReason: matched.length ? `Matched: ${matched.slice(0, 4).join(", ")}; previously worked with your organization` : (signal.topics.length ? `Matched: ${signal.topics.join(", ")}; previously worked with your organization` : "Previously worked with your organization"),
+      matchScore: score + 15 + signal.bonus,
       reachability: dub.userId ? "claimed_member" : (dub.email && !/\.invalid$/i.test(dub.email) ? "unclaimed_dub" : "unreachable"),
       contactEmail: dub.userId ? null : (dub.email && !/\.invalid$/i.test(dub.email) ? dub.email : null)
     };
   });
+  const network = await peepsNetworkCandidates(organizationId, requestTerms, new Set(dubs.map((d) => d.id)));
+  return [...internal, ...network];
 }
 
 // Source B: the demo directory. reachability is always "external_indirect" here on purpose — this
@@ -7604,6 +7622,10 @@ function peepsRenderMessage(purpose, t, url) {
       subject: `Your conversation with ${t.requesterName} was cancelled`,
       text: `Hi ${peepsFirstName(t.candidateName)},\n\n${t.requesterName} cancelled the session${time ? ` that was scheduled for ${time}` : ""}.${t.reason ? `\nReason given: ${t.reason}` : ""}\n\nNo action is needed.${signoff}`
     }),
+    breadcrumbs_ready: () => ({
+      subject: "Review what Peeps learned from your conversation",
+      text: `Hi ${peepsFirstName(t.candidateName)},\n\nThanks for taking part. From the session, Peeps proposed a few notes about your experience — for example things you said about your work. Nothing is added to your Dub unless you approve it: you can accept, correct or reject each one.${link}${signoff}`
+    }),
     organizer_decline: () => ({
       subject: `${t.candidateName} declined the introduction`,
       text: `${t.candidateName} declined this introduction${t.reason ? ` (${t.reason})` : ""}. You have not been charged again, and this is not held against ${peepsFirstName(t.candidateName)} in any way.\n\nOpen the introduction to look for a replacement:${link}${signoff}`
@@ -7936,6 +7958,8 @@ async function peepsResponseView(ctx) {
       durationMinutes: booking.durationMinutes, recording: booking.recordingState, compensation: booking.compensation?.amount ? booking.compensation : null,
       cancellationPolicy: { lateCancellationHours: booking.cancellationPolicy?.lateCancellationHours ?? 24 }, planVersion: booking.planVersion
     };
+    const post = await peepsPostSessionView(ctx);
+    if (post) { view.postSession = post; if (booking.status === "booked") view.state = "completed"; }
     view.consent = { required: peepsRequiredConsent(jam, booking), captured: false };
     if (intro.jamParticipantId) {
       const part = await db("jam_participant_get", { id: intro.jamParticipantId });
@@ -7981,6 +8005,15 @@ async function handlePeepsRespond(req, res) {
   if (req.method !== "POST") throw httpError(404, "Not found.");
   const body = await readJson(req);
   const jam = await peepsLoadJam(intro.jamId);
+
+  if (action === "breadcrumbs" && parts[3] === "review") {
+    // The token reaches exactly one introduction -> one Dub. Anything else is "not found".
+    const bid = SAFE_ID.test(String(parts[2] || "")) ? parts[2] : "";
+    const breadcrumb = (await db("peeps_breadcrumb_get", { id: bid })).breadcrumb;
+    if (!breadcrumb || breadcrumb.dubId !== intro.dubId || breadcrumb.jamId !== intro.jamId) throw httpError(404, "Breadcrumb not found.");
+    const updated = await peepsReviewBreadcrumb(breadcrumb, { action: body.action, statement: body.statement });
+    return sendJson(req, res, 200, { breadcrumb: peepsBreadcrumbView(updated), postSession: await peepsPostSessionView(ctx) });
+  }
 
   if (action === "interested") {
     if (intro.status === "declined") throw httpError(409, "You already declined this introduction.");
@@ -8855,7 +8888,8 @@ function peepsExecutionPath(req) {
 function isPeepsExecutionRoute(req) {
   const path = String(req.url || "").split("?")[0];
   return /^\/api\/peeps\/(introductions|bookings|openings|messages)\/[^/]+/.test(path)
-    || /^\/api\/peeps\/requests\/[^/]+\/availability$/.test(path)
+    || /^\/api\/peeps\/requests\/[^/]+\/(availability|lifecycle|reconcile|outcome|settle)$/.test(path)
+    || /^\/api\/peeps\/(breadcrumbs\/[^/]+\/corroborate|my-dub(\/breadcrumbs\/[^/]+\/review)?)$/.test(path)
     || path === "/api/peeps/test-outbox";
 }
 
@@ -8863,6 +8897,7 @@ async function routePeepsExecution(req, res, authSession) {
   const { url, parts } = peepsExecutionPath(req);
   const [kind, id, action] = parts;
   const method = req.method;
+  if (await routePeepsPostSession(req, res, authSession, parts)) return;
 
   if (kind === "test-outbox" && method === "GET") {
     if (!PEEPS_TEST_ADAPTERS) throw httpError(404, "Not found.");
@@ -9030,6 +9065,561 @@ async function peepsPlannerSaveLocked(session, incoming, authSession) {
     await db("session_set_plan", { id: session.id, ownerUserId: session.ownerUserId, plan });
   }
   return (await db("session_get_internal", { id: session.id })).session;
+}
+
+
+// ====================================================================================================
+// PEEPS POST-SESSION LOOP — Jam completion -> verified Breadcrumbs -> Dub -> outcome -> Dough
+// settlement -> matching. Only facts that genuinely exist are recorded: a transcript exists only if
+// someone with access to the session submitted one (Studio does not persist transcripts server-side),
+// attendance only comes from participant events, consent only from recorded consent. Nothing here
+// invents a recording, transcript, attendance, consent, completion, balance or payment.
+//
+// Evidence classes are never collapsed:
+//   observed          — something the system saw (e.g. substantive discussion of a requested topic)
+//   participant_claim — something the participant said, attributed to their speaker label
+//   verified          — a system-of-record fact (attendance), OR a claim the participant confirmed AND
+//                       the requester corroborated
+//   ai_suggested      — reserved for model-derived suggestions; nothing generates these yet
+// Only participant-approved (or system-verified) entries ever reach a Dub.
+// ====================================================================================================
+
+const PEEPS_BREADCRUMB_KINDS = {
+  participation: "Took part in a Toasty Peeps conversation",
+  expertise_demonstrated: "Demonstrated expertise",
+  experience_stated: "Stated experience",
+  credential_discussed: "Mentioned a credential",
+  commitment_made: "Made a commitment",
+  outcome_achieved: "Described an outcome",
+  connection_offered: "Offered a connection"
+};
+const PEEPS_MAX_TRANSCRIPT_SEGMENTS = 2000;
+const PEEPS_LIFECYCLE_ORDER = ["booked", "session_completed", "outcome_pending", "outcome_verified", "completed", "payment_pending", "paid"];
+
+function peepsNormalizeTranscript(body) {
+  let segments = [];
+  if (Array.isArray(body?.segments)) {
+    segments = body.segments.slice(0, PEEPS_MAX_TRANSCRIPT_SEGMENTS).map((s) => ({
+      speaker: sessionText(s?.speaker, 80), text: sessionText(s?.text, 2000), startMs: Number.isFinite(Number(s?.startMs)) ? Number(s.startMs) : null
+    }));
+  } else if (typeof body?.text === "string") {
+    segments = body.text.split(/\r?\n/).slice(0, PEEPS_MAX_TRANSCRIPT_SEGMENTS).map((line) => {
+      const m = /^\s*([^:]{1,80}):\s*(.+)$/.exec(line);
+      return m ? { speaker: sessionText(m[1], 80), text: sessionText(m[2], 2000), startMs: null } : null;
+    }).filter(Boolean);
+  }
+  segments = segments.filter((s) => s.speaker && s.text);
+  if (!segments.length) throw httpError(400, "The transcript needs at least one segment with a speaker and text (or lines like \"Speaker: text\").");
+  return segments;
+}
+
+function peepsSentences(text) {
+  return String(text).split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter((s) => s.split(/\s+/).length >= 5 && s.length <= 400);
+}
+
+const PEEPS_CLAIM_RULES = [
+  { kind: "experience_stated", test: (s) => /\b(I|we|my)\b/i.test(s) && (/\b\d{1,2}\+?\s+years?\b/i.test(s) || /\b(?:I(?:'ve| have)?|we(?:'ve| have)?)\s+(?:been\s+)?(?:worked|spent|led|run|ran|built|launched|founded|managed|scaled|operated)\b/i.test(s)) },
+  { kind: "credential_discussed", test: (s) => /\b(I|we|my)\b/i.test(s) && /\b(certified|certification|licensed|licence|license|Ph\.?D|MBA|CPA|CFA|CISSP|degree in)\b/i.test(s) },
+  { kind: "commitment_made", test: (s) => /\b(I will|I'll|we will|we'll|I can|I promise|I'm going to|I am going to)\s+(?:definitely\s+)?(?:introduce|send|share|follow up|connect|help|email|write|make)\b/i.test(s) },
+  { kind: "outcome_achieved", test: (s) => /\b(I|we)\b/i.test(s) && /\b(reduced|increased|grew|launched|cut|saved|reached|processed|onboarded|doubled|tripled)\b/i.test(s) && /\d/.test(s) },
+  { kind: "connection_offered", test: (s) => /\b(introduc(?:e|ed|ing) you to|connect(?:ed)? you (?:with|to))\b/i.test(s) }
+];
+
+// Words that say nothing about a person's domain must never count as topical evidence.
+const PEEPS_GENERIC_TOPICS = new Set(["research", "report", "show", "work", "works", "working", "years", "year", "interview", "guest", "guests", "podcast", "recorded", "recording", "conversation", "people", "after", "before", "would", "could", "their", "there", "which", "these", "those", "being", "other", "every", "first", "having", "think", "going", "really", "using", "build", "building", "built", "launch", "launched", "certified", "professional", "reduced", "failed", "transactions", "send", "spent", "tell", "welcome", "thanks", "thank", "make", "made", "into", "from", "with", "that", "this", "have", "will", "been", "were", "when", "what", "your", "them", "then", "than", "more", "most", "some", "such", "just", "like", "also", "about", "across", "percent", "twelve", "merchant", "merchants"]);
+const peepsStem = (t) => String(t).replace(/s$/, "");
+function peepsTopicTokens(text, limit = 10) {
+  return [...tokenizePeepsText(text)].filter((t) => t.length > 3 && !PEEPS_GENERIC_TOPICS.has(t)).slice(0, limit);
+}
+
+// Map a transcript speaker label to a Jam participant. Only an unambiguous label match counts; the
+// requester/host and anyone unmatched are never attributed a Breadcrumb.
+function peepsAttributeSpeaker(label, participants, hostName) {
+  const l = String(label || "").trim().toLowerCase();
+  if (!l || l === "host" || l === "producer" || (hostName && l === String(hostName).toLowerCase())) return null;
+  const exact = participants.filter((p) => String(p.displayName || "").trim().toLowerCase() === l);
+  if (exact.length === 1) return exact[0];
+  const first = participants.filter((p) => String(p.displayName || "").trim().toLowerCase().split(/\s+/)[0] === l.split(/\s+/)[0] && l.split(/\s+/).length === 1);
+  return first.length === 1 ? first[0] : null;
+}
+
+function peepsFingerprint(kind, sentence) {
+  return createHash("sha256").update(`${kind}:${String(sentence).toLowerCase().replace(/\s+/g, " ").trim()}`).digest("hex").slice(0, 32);
+}
+
+function peepsExtractBreadcrumbs({ transcripts, participants, requestTerms, hostName, jam, requestId }) {
+  const found = [];
+  let unattributed = 0;
+  for (const transcript of transcripts) {
+    const topicHits = new Map();
+    transcript.segments.forEach((segment, index) => {
+      const participant = peepsAttributeSpeaker(segment.speaker, participants, hostName);
+      if (!participant) { unattributed += 1; return; }
+      if (!["attended", "completed"].includes(participant.status)) return; // never attribute to someone who wasn't there
+      const base = { jamId: jam.id, requestId, studioSessionId: transcript.studioSessionId || jam.studioSessionId, transcriptId: transcript.id, segmentIndex: index, speaker: segment.speaker, attribution: "speaker_label_match", source: transcript.source };
+      for (const sentence of peepsSentences(segment.text)) {
+        for (const rule of PEEPS_CLAIM_RULES) {
+          if (!rule.test(sentence)) continue;
+          const short = sentence.length > 220 ? `${sentence.slice(0, 217)}...` : sentence;
+          found.push({
+            dubId: participant.dubId, jamParticipantId: participant.id, kind: rule.kind, evidenceClass: "participant_claim",
+            statement: `${PEEPS_BREADCRUMB_KINDS[rule.kind]}: “${short}”`, topics: peepsTopicTokens(sentence),
+            fingerprint: peepsFingerprint(rule.kind, sentence), provenance: { ...base, quote: sentence.slice(0, 240), method: `rule:${rule.kind}`, confidence: "rule_match" }
+          });
+        }
+      }
+      const hits = [...tokenizePeepsText(segment.text)].filter((t) => requestTerms.has(t));
+      if (hits.length >= 2 && segment.text.split(/\s+/).length >= 12) {
+        const entry = topicHits.get(participant.id) || { participant, terms: new Set(), segments: [], base };
+        hits.forEach((h) => entry.terms.add(h));
+        entry.segments.push(index);
+        topicHits.set(participant.id, entry);
+      }
+    });
+    for (const entry of topicHits.values()) {
+      const terms = [...entry.terms].slice(0, 6);
+      found.push({
+        dubId: entry.participant.dubId, jamParticipantId: entry.participant.id, kind: "expertise_demonstrated", evidenceClass: "observed",
+        statement: `Discussed ${terms.join(", ")} substantively across ${entry.segments.length} contribution${entry.segments.length === 1 ? "" : "s"}`,
+        topics: terms, fingerprint: peepsFingerprint("expertise_demonstrated", terms.sort().join(",")),
+        provenance: { ...entry.base, segmentIndex: entry.segments[0], segmentIndexes: entry.segments.slice(0, 20), method: "rule:topic_overlap", confidence: "rule_match", quote: undefined }
+      });
+    }
+  }
+  return { found, unattributed };
+}
+
+async function peepsLoadTranscripts(jamId) {
+  const listed = await db("peeps_transcript_list", { jamId, includeSegments: true });
+  return listed.transcripts || [];
+}
+
+async function peepsRequestForJam(jamId) {
+  return (await db("peeps_request_get_by_jam", { jamId })).request || null;
+}
+
+// ---- Completion pipeline (idempotent; safe to call from every trigger any number of times) ----
+async function peepsFinalizeJam(jamId, trigger) {
+  const request = await peepsRequestForJam(jamId);
+  if (!request) return null; // not a Peeps-created Jam
+  return peepsWithLock(`final:${jamId}`, async () => {
+    const jam = await peepsLoadJam(jamId);
+    if (!jam) return null;
+    // Never fabricate a completion: it exists only once the Jam was marked complete or its Studio session
+    // actually ended (or a completion was already recorded).
+    const sessionProbe = jam.studioSessionId ? (await db("session_get_internal", { id: jam.studioSessionId })).session : null;
+    const alreadyRecorded = Boolean((await db("peeps_completion_get", { jamId })).completion);
+    if (!alreadyRecorded && jam.status !== "completed" && sessionProbe?.status !== "ENDED") return null;
+    const [participantsResult, sessionResult, artifactsResult, bookingsResult, transcripts] = await Promise.all([
+      db("jam_participant_list", { jamId }),
+      jam.studioSessionId ? db("session_get_internal", { id: jam.studioSessionId }) : Promise.resolve({ session: null }),
+      db("jam_artifact_list", { jamId }),
+      db("peeps_booking_list", { jamId }),
+      peepsLoadTranscripts(jamId)
+    ]);
+    const participants = (participantsResult.participants || []).filter((p) => !["removed", "declined"].includes(p.status));
+    const session = sessionResult.session;
+    const bookings = bookingsResult.bookings || [];
+    const metadata = {
+      studioSessionId: jam.studioSessionId || null, jamStatus: jam.status, sessionStatus: session?.status || null,
+      participants: participants.map((p) => ({ participantId: p.id, dubId: p.dubId, status: p.status, attendedAt: p.attendedAt || null, completedAt: p.completedAt || null, consentCaptured: Boolean(p.consentCapturedAt) })),
+      artifacts: (artifactsResult.artifacts || []).map((a) => ({ id: a.id, type: a.artifactType, status: a.status, hasReference: Boolean(a.storageReference) })),
+      transcript: { present: transcripts.length > 0, count: transcripts.length },
+      bookingIds: bookings.map((b) => b.id)
+    };
+    const prior = (await db("peeps_completion_get", { jamId })).completion;
+    metadata.notifiedDubs = prior?.metadata?.notifiedDubs || [];
+    const up = await db("peeps_completion_upsert", {
+      id: newId("pcmp"), jamId, requestId: request.id, organizationId: request.organizationId, studioSessionId: jam.studioSessionId || null,
+      trigger, startedAt: session?.startedAt || null, endedAt: session?.endedAt || null, metadata
+    });
+    const completion = up.completion;
+
+    // Breadcrumbs: observed/verified facts + transcript-derived proposals. Each is INSERT-OR-IGNORE on a
+    // content fingerprint, so re-running never duplicates and never resurrects a rejected one.
+    const attended = participants.filter((p) => ["attended", "completed"].includes(p.status));
+    let created = 0;
+    for (const p of attended) {
+      const res = await db("peeps_breadcrumb_create", {
+        id: newId("bc"), jamId, requestId: request.id, dubId: p.dubId, jamParticipantId: p.id, kind: "participation", evidenceClass: "verified", status: "verified",
+        statement: PEEPS_BREADCRUMB_KINDS.participation, topics: [], fingerprint: peepsFingerprint("participation", jamId),
+        provenance: { jamId, requestId: request.id, studioSessionId: jam.studioSessionId || null, source: "jam_events", method: "system_of_record", attendedAt: p.attendedAt || null, completedAt: p.completedAt || null }
+      });
+      if (res.created) {
+        created += 1;
+        const bc = ((await db("peeps_breadcrumb_list", { jamId })).breadcrumbs || []).find((b) => b.dubId === p.dubId && b.kind === "participation");
+        if (bc) await db("dub_entry_upsert", { id: newId("dpe"), dubId: p.dubId, breadcrumbId: bc.id, kind: bc.kind, statement: bc.statement, evidenceClass: "verified", topics: [], visibility: "private" });
+      }
+    }
+    if (transcripts.length) {
+      const requester = await peepsRequesterInfo(request, jam.createdByUserId);
+      const dubNames = await Promise.all(participants.map(async (p) => ({ ...p, displayName: p.displayName || (await db("dub_get", { id: p.dubId })).dub?.displayName || "" })));
+      const { found } = peepsExtractBreadcrumbs({ transcripts, participants: dubNames, requestTerms: tokenizePeepsText(`${request.whoText} ${request.outcomeText}`), hostName: requester.name, jam, requestId: request.id });
+      for (const b of found) {
+        const res = await db("peeps_breadcrumb_create", { id: newId("bc"), jamId, requestId: request.id, dubId: b.dubId, jamParticipantId: b.jamParticipantId, kind: b.kind, evidenceClass: b.evidenceClass, status: "proposed", statement: b.statement, topics: b.topics, fingerprint: b.fingerprint, provenance: b.provenance });
+        if (res.created) created += 1;
+      }
+    }
+    await peepsAdvanceRequestState(request, "session_completed");
+    const outcome = await peepsEvaluateOutcome({ request, jam, participants, artifacts: artifactsResult.artifacts || [], completion });
+    await db("peeps_completion_set_outcome", { jamId, outcome });
+    await peepsAdvanceRequestState(request, outcome.state);
+    const owed = participants.filter((p) => ["attended", "completed"].includes(p.status) && Number(p.compensationAmount) > 0 && p.compensationStatus !== "paid");
+    let state = outcome.state === "outcome_verified" ? "completed" : outcome.state;
+    if (state === "completed" && owed.length) state = "payment_pending";
+    if (state === "completed" && participants.some((p) => Number(p.compensationAmount) > 0) && !owed.length) state = "paid";
+    await peepsAdvanceRequestState(request, state);
+    await peepsNotifyBreadcrumbsReady(jam, request, attended);
+    return { completion: (await db("peeps_completion_get", { jamId })).completion, created };
+  });
+}
+
+async function peepsAdvanceRequestState(request, state) {
+  const current = (await db("peeps_request_get_by_id", { id: request.id })).request?.status || request.status;
+  const rank = (s) => PEEPS_LIFECYCLE_ORDER.indexOf(s);
+  // Monotonic: the lifecycle only moves forward (a late transcript can't roll 'paid' back).
+  if (rank(state) > rank(current) || rank(current) === -1) await db("peeps_request_update", { id: request.id, fields: { status: state } });
+}
+
+// Deterministic outcome evaluation. A meeting having occurred is NOT an outcome.
+async function peepsEvaluateOutcome({ request, jam, participants, artifacts, completion }) {
+  const wanted = request.workingRepresentation?.desiredCandidateCount || 3;
+  const attended = participants.filter((p) => ["attended", "completed"].includes(p.status));
+  const recordingRequired = Boolean(request.workingRepresentation?.recordingLikely) && (jam.consentRequirements || []).includes("recording");
+  const recording = artifacts.find((a) => a.artifactType === "recording" && a.status === "ready" && a.storageReference);
+  const previous = completion?.outcome || {};
+  const criteria = [
+    { key: "participants_attended", label: `${wanted} guest${wanted === 1 ? "" : "s"} took part`, required: true, met: attended.length >= wanted, evidence: `${attended.length} of ${wanted} attended` },
+    { key: "consent_captured", label: "Every attendee gave required consent", required: true, met: attended.length > 0 && attended.every((p) => p.consentCapturedAt), evidence: `${attended.filter((p) => p.consentCapturedAt).length} of ${attended.length} consented` },
+    { key: "recording_present", label: "A recording exists", required: recordingRequired, met: Boolean(recording), evidence: recording ? "recording reference on file" : (recordingRequired ? "no recording reference has been added" : "not required") }
+  ];
+  const partial = Boolean(previous.acceptedPartial);
+  const missing = criteria.filter((c) => c.required && !c.met && !(partial && c.key === "participants_attended"));
+  const verified = attended.length > 0 && !missing.length;
+  return {
+    state: verified ? "outcome_verified" : "outcome_pending", criteria, acceptedPartial: partial,
+    basis: verified ? (partial && attended.length < wanted ? "requester_accepted_partial" : "deterministic_evidence") : null,
+    verifiedAt: verified ? (previous.verifiedAt || new Date().toISOString()) : null, evaluatedAt: new Date().toISOString()
+  };
+}
+
+async function peepsNotifyBreadcrumbsReady(jam, request, attended) {
+  const completion = (await db("peeps_completion_get", { jamId: jam.id })).completion;
+  const already = new Set(completion?.metadata?.notifiedDubs || []);
+  const proposed = new Set(((await db("peeps_breadcrumb_list", { jamId: jam.id })).breadcrumbs || []).filter((b) => b.kind !== "participation" && b.status === "proposed").map((b) => b.dubId));
+  for (const p of attended) {
+    if (already.has(p.dubId) || !proposed.has(p.dubId)) continue;
+    const intros = (await db("peeps_intro_find_by_jam_participant", { jamParticipantId: p.id })).introductions || [];
+    const intro = intros.find((i) => i.requestId === request.id);
+    if (!intro) continue;
+    const ctx = await peepsLoadIntroduction(intro.id);
+    if (!ctx) continue;
+    await peepsNotifyCandidate(ctx, "breadcrumbs_ready", {}, { needsLink: true });
+    already.add(p.dubId);
+  }
+  await db("peeps_completion_upsert", { id: "unused", jamId: jam.id, requestId: request.id, organizationId: request.organizationId, metadata: { ...(completion?.metadata || {}), notifiedDubs: [...already] } });
+}
+
+// ---- Settlement ----
+async function peepsSettleJam(jam, authSession) {
+  if (jam.createdByUserId !== authSession.id) throw httpError(403, "Only the person who authorized and funded this request can settle it.");
+  const request = await peepsRequestForJam(jam.id);
+  const participants = (await db("jam_participant_list", { jamId: jam.id })).participants || [];
+  const settlements = [];
+  for (const participant of participants) {
+    if (!["attended", "completed"].includes(participant.status)) continue;
+    if (participant.compensationStatus === "paid") { settlements.push({ participantId: participant.id, status: "already_paid" }); continue; }
+    const amount = Number(participant.compensationAmount) || 0;
+    if (amount <= 0) { settlements.push({ participantId: participant.id, status: "no_compensation_due" }); continue; }
+    const dub = (await db("dub_get", { id: participant.dubId })).dub;
+    const paymentId = `pay_settle_${participant.id}`;
+    const result = await db("peeps_settlement_transfer", {
+      id: newId("pset"), jamId: jam.id, jamParticipantId: participant.id, requestId: request?.id || "", payerUserId: jam.createdByUserId,
+      payeeSubjectType: dub?.userId ? "user" : "dub", payeeSubjectId: dub?.userId || participant.dubId, amount,
+      debitEntryId: newId("dle"), creditEntryId: newId("dle")
+    });
+    if (result.status === "paid") {
+      await db("record_payment", {
+        id: paymentId, paymentKind: "BOOKING_SETTLEMENT", rail: "dough-ledger", provider: "toasty-peeps", purpose: "jam-participant-settlement",
+        status: "PAYMENT_RELEASED", network: "internal", amount, currency: "USD", policyDecision: "APPROVED", approvalSource: "SETTLEMENT_POLICY",
+        metadata: { jamId: jam.id, jamParticipantId: participant.id, verificationStatus: "DOUGH_LEDGER", payer: jam.createdByUserId }
+      });
+      await db("jam_participant_update", { id: participant.id, fields: { compensationStatus: "paid" } });
+      await db("jam_event_create", { id: newId("jev"), jamId: jam.id, jamParticipantId: participant.id, type: "payment.paid", actor: authSession.id, detail: { amount, paymentId, rail: "dough" } });
+      settlements.push({ participantId: participant.id, status: "settled_to_dough", paymentId, amount });
+    } else if (result.status === "insufficient") {
+      settlements.push({ participantId: participant.id, status: "payment_pending", amount, reason: "requester_funding_required", shortfall: result.shortfall, available: result.available, fundUrl: "/peeps/app/dough.html" });
+    } else if (result.status === "already_paid") {
+      settlements.push({ participantId: participant.id, status: "already_paid" });
+    } else {
+      settlements.push({ participantId: participant.id, status: "settlement_error", amount });
+    }
+  }
+  if (request) {
+    const refreshed = (await db("jam_participant_list", { jamId: jam.id })).participants || [];
+    const owing = refreshed.filter((p) => ["attended", "completed"].includes(p.status) && Number(p.compensationAmount) > 0);
+    const outcome = (await db("peeps_completion_get", { jamId: jam.id })).completion?.outcome;
+    if (owing.length && owing.every((p) => p.compensationStatus === "paid") && outcome?.state === "outcome_verified") await peepsAdvanceRequestState(request, "paid");
+    else if (owing.length && outcome?.state === "outcome_verified") await peepsAdvanceRequestState(request, "payment_pending");
+  }
+  return settlements;
+}
+
+// ---- Lifecycle view (requester) ----
+async function peepsLifecycleView(request) {
+  const jam = await peepsLoadJam(request.jamId);
+  const [completionResult, bookingsResult, settlements] = await Promise.all([
+    request.jamId ? db("peeps_completion_get", { jamId: request.jamId }) : Promise.resolve({}),
+    db("peeps_booking_list", { requestId: request.id }),
+    request.jamId ? db("peeps_settlement_list", { jamId: request.jamId }) : Promise.resolve({ settlements: [] })
+  ]);
+  const completion = completionResult.completion || null;
+  const participants = jam ? ((await db("jam_participant_list", { jamId: jam.id })).participants || []) : [];
+  const booked = (bookingsResult.bookings || []).some((b) => b.status === "booked");
+  const outcome = completion?.outcome || null;
+  const owed = participants.filter((p) => ["attended", "completed"].includes(p.status) && Number(p.compensationAmount) > 0);
+  const totalOwed = owed.reduce((sum, p) => sum + Number(p.compensationAmount), 0);
+  const paid = owed.filter((p) => p.compensationStatus === "paid");
+  const stages = [
+    { key: "booked", label: "Booked", status: booked || completion ? "done" : "current" },
+    { key: "session", label: "Session", status: completion ? "done" : (booked ? "current" : "pending") },
+    { key: "completed", label: "Completed", status: completion ? "done" : "pending" },
+    { key: "outcome", label: "Outcome", status: outcome?.state === "outcome_verified" ? "done" : (completion ? "current" : "pending") },
+    { key: "settlement", label: "Settlement", status: totalOwed > 0 ? (paid.length === owed.length ? "done" : (outcome?.state === "outcome_verified" ? "current" : "pending")) : (outcome?.state === "outcome_verified" ? "done" : "pending") }
+  ];
+  const first = (settlements.settlements || []).find((s) => s.status === "pending" && s.reason === "requester_funding_required");
+  return {
+    state: request.status, stages, completion: completion ? { id: completion.id, startedAt: completion.startedAt, endedAt: completion.endedAt, trigger: completion.trigger, participants: completion.metadata.participants, artifacts: completion.metadata.artifacts, transcriptPresent: Boolean(completion.metadata.transcript?.present) } : null,
+    outcome,
+    settlement: {
+      totalOwed, paid: paid.reduce((s, p) => s + Number(p.compensationAmount), 0), status: !totalOwed ? "none_due" : paid.length === owed.length ? "paid" : "pending",
+      items: owed.map((p) => ({ participantId: p.id, amount: p.compensationAmount, status: p.compensationStatus === "paid" ? "paid" : "pending" })),
+      remaining: first ? { reason: "requester_funding_required", shortfall: Math.max(0, totalOwed - paid.reduce((s, p) => s + Number(p.compensationAmount), 0) - (first.availableAtAttempt || 0)), fundUrl: "/peeps/app/dough.html" } : null
+    }
+  };
+}
+
+// ---- Breadcrumb review (participant, via response token or claimed-Dub session) ----
+function peepsBreadcrumbView(b, { forOrganizer = false } = {}) {
+  return {
+    id: b.id, kind: b.kind, kindLabel: PEEPS_BREADCRUMB_KINDS[b.kind] || b.kind, statement: b.correctedStatement || b.statement, originalStatement: b.correctedStatement ? b.statement : undefined,
+    evidenceClass: b.evidenceClass, status: b.status, corroborated: Boolean(b.corroboratedAt),
+    provenance: { jamId: b.provenance.jamId, method: b.provenance.method, source: b.provenance.source, speaker: b.provenance.speaker, segmentIndex: b.provenance.segmentIndex, transcriptId: b.provenance.transcriptId, attribution: b.provenance.attribution, quote: b.provenance.quote },
+    ...(forOrganizer ? { dubId: b.dubId } : {})
+  };
+}
+
+async function peepsReviewBreadcrumb(breadcrumb, { action, statement, userId }) {
+  if (breadcrumb.kind === "participation") throw httpError(409, "This is a system-recorded fact and doesn't need review.");
+  if (!["accept", "correct", "reject"].includes(action)) throw httpError(400, "Choose accept, correct or reject.");
+  const now = new Date().toISOString();
+  void now;
+  if (action === "reject") {
+    const res = await db("peeps_breadcrumb_review", { id: breadcrumb.id, expectStatuses: ["proposed", "accepted", "corrected", "verified"], fields: { status: "rejected", reviewed: true, reviewedByUserId: userId || "participant_token" } });
+    await db("dub_entry_delete", { breadcrumbId: breadcrumb.id });
+    return res.breadcrumb;
+  }
+  let corrected;
+  if (action === "correct") {
+    corrected = sessionText(statement, 400);
+    if (!corrected) throw httpError(400, "Write the corrected statement.");
+  }
+  const status = breadcrumb.corroboratedAt && action === "accept" ? "verified" : (action === "correct" ? "corrected" : "accepted");
+  const evidenceClass = status === "verified" ? "verified" : (breadcrumb.evidenceClass === "observed" && action === "accept" ? "observed" : "participant_claim");
+  const topics = peepsTopicTokens(corrected || breadcrumb.statement);
+  const res = await db("peeps_breadcrumb_review", { id: breadcrumb.id, fields: { status, correctedStatement: corrected, evidenceClass, reviewed: true, reviewedByUserId: userId || "participant_token", topics } });
+  const final = res.breadcrumb;
+  // Only NOW does anything reach the Dub — and it's exactly what the person approved.
+  await db("dub_entry_upsert", { id: newId("dpe"), dubId: final.dubId, breadcrumbId: final.id, kind: final.kind, statement: final.correctedStatement || final.statement, evidenceClass: final.evidenceClass, topics: final.topics.length ? final.topics : topics, visibility: "public" });
+  return final;
+}
+
+async function peepsPostSessionView(ctx) {
+  const jamId = ctx.intro.jamId;
+  const completion = (await db("peeps_completion_get", { jamId })).completion;
+  if (!completion) return null;
+  const breadcrumbs = ((await db("peeps_breadcrumb_list", { dubId: ctx.intro.dubId })).breadcrumbs || []).filter((b) => b.jamId === jamId);
+  const participant = ctx.intro.jamParticipantId ? (await db("jam_participant_get", { id: ctx.intro.jamParticipantId })).participant : null;
+  const dub = ctx.dub;
+  const entries = ((await db("dub_entry_list", { dubIds: [ctx.intro.dubId] })).entries || []);
+  const amount = Number(participant?.compensationAmount) || 0;
+  const attended = ["attended", "completed"].includes(participant?.status);
+  const compensation = !amount ? { status: "none", message: "No compensation was part of this conversation." }
+    : !attended ? { status: "not_owed", message: "Compensation is owed once you've taken part." }
+    : participant.compensationStatus === "paid" ? { status: "paid", amount, message: dub?.userId ? `$${amount.toFixed(2)} was added to your Dough.` : `$${amount.toFixed(2)} is being held on your Dub — claim it to access your Dough.` }
+    : { status: "pending", amount, message: "Your compensation is on its way — it's released as soon as the person who invited you completes payment." };
+  return {
+    stages: [
+      { key: "completed", label: "Jam completed", done: true },
+      { key: "proposed", label: "Breadcrumbs proposed", done: breadcrumbs.some((b) => b.kind !== "participation") },
+      { key: "reviewed", label: "You reviewed them", done: breadcrumbs.some((b) => ["accepted", "corrected", "verified", "rejected"].includes(b.status)) },
+      { key: "dub", label: "Dub improved", done: entries.some((e) => e.visibility === "public") },
+      { key: "comp", label: "Compensation", done: compensation.status === "paid" || compensation.status === "none" }
+    ],
+    attended, breadcrumbs: breadcrumbs.filter((b) => b.kind !== "participation").map((b) => peepsBreadcrumbView(b)),
+    verifiedFacts: breadcrumbs.filter((b) => b.kind === "participation").map((b) => ({ id: b.id, statement: b.statement, evidenceClass: b.evidenceClass })),
+    dub: { claimed: Boolean(dub?.userId), entryCount: entries.length }, compensation
+  };
+}
+
+// ---- Matching: safe, derived evidence only ----
+function peepsEvidenceBonus(entries, requestTerms) {
+  const stems = new Set([...requestTerms].filter((t) => !PEEPS_GENERIC_TOPICS.has(t)).map(peepsStem));
+  const matched = entries.filter((e) => e.kind !== "participation" && (e.topics || []).some((t) => stems.has(peepsStem(t))));
+  const verified = matched.filter((e) => e.evidenceClass === "verified");
+  const interactions = entries.filter((e) => e.kind === "participation").length;
+  // Diminishing returns + a hard cap: one strong Jam helps, it can never swamp the base match score.
+  const raw = 4 * Math.sqrt(matched.length) + 2 * Math.sqrt(verified.length) + Math.min(2, interactions);
+  const bonus = Math.min(12, Math.round(raw));
+  const topics = [...new Set(matched.flatMap((e) => e.topics || []).filter((t) => stems.has(peepsStem(t))))].slice(0, 4);
+  return { bonus, matched: matched.length, verified: verified.length, interactions, topics };
+}
+
+function peepsEvidenceClaim(signal) {
+  const topics = signal.topics.length ? ` (${signal.topics.join(", ")})` : "";
+  return { claim: `Has ${signal.matched} participant-approved Breadcrumb${signal.matched === 1 ? "" : "s"} relevant to this request${topics}${signal.verified ? `, ${signal.verified} verified` : ""}, from ${signal.interactions || 1} previous Peeps interaction${(signal.interactions || 1) === 1 ? "" : "s"}.`, sourceType: "peeps_breadcrumbs", sourceUrl: "", sourceTitle: "Toasty Peeps Breadcrumbs (participant-approved; no session content)", confidence: signal.verified ? "High" : "Medium" };
+}
+
+async function peepsNetworkCandidates(organizationId, requestTerms, excludeDubIds) {
+  const network = (await db("peeps_network_dubs", {})).dubs || [];
+  const fresh = network.filter((d) => !excludeDubIds.has(d.id));
+  if (!fresh.length) return [];
+  const entries = (await db("dub_entry_list", { dubIds: fresh.map((d) => d.id) })).entries || [];
+  const out = [];
+  for (const dub of fresh) {
+    const own = entries.filter((e) => e.dubId === dub.id && e.visibility === "public");
+    const signal = peepsEvidenceBonus(own, requestTerms);
+    if (!signal.matched) continue;
+    out.push({
+      source: "peeps_network_dub", dubId: dub.id, displayName: dub.displayName || "Toasty Peeps member",
+      headline: "Toasty Peeps member with participant-approved Breadcrumbs", evidence: [peepsEvidenceClaim(signal)],
+      matchReason: `Matched: ${signal.topics.join(", ") || "related Breadcrumbs"}`, matchScore: Math.min(90, 20 + 13 * Math.min(3, signal.topics.length || 1) + signal.bonus),
+      reachability: "claimed_member", contactEmail: null
+    });
+  }
+  return out;
+}
+
+// ---- Post-session HTTP handlers ----
+async function handleJamTranscriptCreate(req, res, authSession) {
+  const jam = await requireOwnedJam(req, res, authSession, jamIdFromPathname(req, "/transcript"), "member");
+  if (!jam) return;
+  if (!jam.studioSessionId) throw httpError(409, "This Jam has no Studio session yet, so there is nothing a transcript could belong to.");
+  const body = await readJson(req, 1024 * 1024);
+  const segments = peepsNormalizeTranscript(body);
+  const contentHash = createHash("sha256").update(JSON.stringify(segments)).digest("hex");
+  // Studio doesn't persist transcripts itself, so a transcript here is ALWAYS an attested upload by a
+  // member of the owning organization — recorded as exactly that.
+  const created = await db("peeps_transcript_create", { id: newId("ptr"), jamId: jam.id, studioSessionId: jam.studioSessionId, source: "organizer_upload", contentHash, segments, submittedBy: authSession.id });
+  if (created.created) {
+    await db("jam_artifact_create", { id: newId("jart"), jamId: jam.id, studioSessionId: jam.studioSessionId, artifactType: "transcript", storageReference: `peeps-transcript:${created.transcript.id}`, status: "ready" });
+    await db("jam_event_create", { id: newId("jev"), jamId: jam.id, type: "transcript.added", actor: authSession.id, detail: { transcriptId: created.transcript.id, segmentCount: segments.length, source: "organizer_upload" } });
+  }
+  const finalized = await peepsFinalizeJam(jam.id, "transcript_added");
+  sendJson(req, res, created.created ? 201 : 200, { transcript: { id: created.transcript.id, source: created.transcript.source, segmentCount: segments.length, created: created.created }, breadcrumbsProposed: finalized ? ((await db("peeps_breadcrumb_list", { jamId: jam.id })).breadcrumbs || []).filter((b) => b.kind !== "participation").length : 0, completionRecorded: Boolean(finalized) });
+}
+
+async function handleJamTranscriptGet(req, res, authSession) {
+  const jam = await requireOwnedJam(req, res, authSession, jamIdFromPathname(req, "/transcript"), "member");
+  if (!jam) return;
+  const transcripts = await peepsLoadTranscripts(jam.id);
+  sendJson(req, res, 200, { transcripts });
+}
+
+async function peepsRequireOwnedBreadcrumb(req, res, authSession, id, minRole = "member") {
+  if (!SAFE_ID.test(String(id || ""))) throw httpError(400, "Invalid Breadcrumb id.");
+  const breadcrumb = (await db("peeps_breadcrumb_get", { id })).breadcrumb;
+  if (!breadcrumb) throw httpError(404, "Breadcrumb not found.");
+  const jam = await peepsLoadJam(breadcrumb.jamId);
+  const membership = jam ? await requireMembership(req, res, jam.organizationId, minRole, authSession) : null;
+  if (!membership) return null;
+  return { breadcrumb, jam };
+}
+
+// Requester corroboration: a human attesting "yes, that matches what happened". Together with the
+// participant's own confirmation this is the ONLY route to the `verified` evidence class for a claim.
+async function peepsCorroborate(breadcrumb, authSession) {
+  if (breadcrumb.kind === "participation") throw httpError(409, "System-recorded facts are already verified.");
+  if (breadcrumb.status === "rejected") throw httpError(409, "The participant rejected this Breadcrumb.");
+  const confirmed = ["accepted", "corrected", "verified"].includes(breadcrumb.status);
+  const res = await db("peeps_breadcrumb_review", { id: breadcrumb.id, fields: { corroborated: true, corroboratedByUserId: authSession.id, ...(confirmed ? { status: "verified", evidenceClass: "verified" } : {}) } });
+  if (confirmed) await db("dub_entry_upsert", { id: newId("dpe"), dubId: breadcrumb.dubId, breadcrumbId: breadcrumb.id, kind: breadcrumb.kind, statement: breadcrumb.correctedStatement || breadcrumb.statement, evidenceClass: "verified", topics: breadcrumb.topics, visibility: "public" });
+  return res.breadcrumb;
+}
+
+async function peepsRequestLifecycleFull(request) {
+  const lifecycle = await peepsLifecycleView(request);
+  const jamId = request.jamId;
+  const breadcrumbs = jamId ? ((await db("peeps_breadcrumb_list", { jamId })).breadcrumbs || []) : [];
+  const jam = jamId ? await peepsLoadJam(jamId) : null;
+  const participants = jam ? ((await db("jam_participant_list", { jamId })).participants || []) : [];
+  const nameByDub = new Map(participants.map((p) => [p.dubId, p.displayName || "Guest"]));
+  const transcripts = jamId ? ((await db("peeps_transcript_list", { jamId })).transcripts || []) : [];
+  const artifacts = jamId ? ((await db("jam_artifact_list", { jamId })).artifacts || []) : [];
+  return {
+    ...lifecycle, jamId, studioSessionId: jam?.studioSessionId || null,
+    guests: participants.filter((p) => !["removed", "declined"].includes(p.status)).map((p) => ({ participantId: p.id, name: p.displayName || "Guest", status: p.status, consentCaptured: Boolean(p.consentCapturedAt), compensationStatus: p.compensationStatus })),
+    transcripts, recordingPresent: artifacts.some((a) => a.artifactType === "recording" && a.status === "ready" && a.storageReference),
+    breadcrumbs: breadcrumbs.filter((b) => b.kind !== "participation").map((b) => ({ ...peepsBreadcrumbView(b, { forOrganizer: true }), guest: nameByDub.get(b.dubId) || "Guest" })),
+    verifiedFacts: breadcrumbs.filter((b) => b.kind === "participation").length
+  };
+}
+
+async function routePeepsPostSession(req, res, authSession, parts) {
+  const method = req.method;
+  const [kind, id, action] = parts;
+  if (kind === "requests") {
+    const request = await requireOwnedPeepsRequest(req, res, authSession, id, method === "GET" ? "viewer" : "member");
+    if (!request) return true;
+    if (method === "GET" && action === "lifecycle") { sendJson(req, res, 200, await peepsRequestLifecycleFull((await db("peeps_request_get_by_id", { id })).request)); return true; }
+    if (method !== "POST") return false;
+    if (action === "reconcile") {
+      if (!request.jamId) throw httpError(409, "This request has no Jam yet.");
+      await peepsFinalizeJam(request.jamId, "manual_reconcile");
+      sendJson(req, res, 200, await peepsRequestLifecycleFull((await db("peeps_request_get_by_id", { id })).request)); return true;
+    }
+    if (action === "outcome") {
+      const body = await readJson(req);
+      const completion = request.jamId ? (await db("peeps_completion_get", { jamId: request.jamId })).completion : null;
+      if (!completion) throw httpError(409, "There is no completed session to evaluate yet.");
+      if (body.acceptPartial === true) {
+        await db("peeps_completion_set_outcome", { jamId: request.jamId, outcome: { ...(completion.outcome || {}), acceptedPartial: true } });
+      }
+      await peepsFinalizeJam(request.jamId, "outcome_evaluated");
+      sendJson(req, res, 200, await peepsRequestLifecycleFull((await db("peeps_request_get_by_id", { id })).request)); return true;
+    }
+    if (action === "settle") {
+      if (!request.jamId) throw httpError(409, "This request has no Jam yet.");
+      const jam = await peepsLoadJam(request.jamId);
+      const settlements = await peepsSettleJam(jam, authSession);
+      sendJson(req, res, 200, { settlements, lifecycle: await peepsRequestLifecycleFull((await db("peeps_request_get_by_id", { id })).request) }); return true;
+    }
+    return false;
+  }
+  if (kind === "breadcrumbs" && action === "corroborate" && method === "POST") {
+    const owned = await peepsRequireOwnedBreadcrumb(req, res, authSession, id, "member");
+    if (!owned) return true;
+    const updated = await peepsCorroborate(owned.breadcrumb, authSession);
+    sendJson(req, res, 200, { breadcrumb: peepsBreadcrumbView(updated, { forOrganizer: true }) }); return true;
+  }
+  if (kind === "my-dub") {
+    const dubs = (await db("dub_list_by_user", { userId: authSession.id })).dubs || [];
+    if (method === "GET" && !id) {
+      const dubIds = dubs.map((d) => d.id);
+      const breadcrumbs = dubIds.length ? ((await db("peeps_breadcrumb_list", { dubIds })).breadcrumbs || []) : [];
+      const entries = dubIds.length ? ((await db("dub_entry_list", { dubIds })).entries || []) : [];
+      sendJson(req, res, 200, { dubs: dubs.map((d) => ({ id: d.id, displayName: d.displayName })), proposed: breadcrumbs.filter((b) => b.status === "proposed").map(peepsBreadcrumbView), reviewed: breadcrumbs.filter((b) => ["accepted", "corrected", "verified", "rejected"].includes(b.status) && b.kind !== "participation").map(peepsBreadcrumbView), entries }); return true;
+    }
+    // POST /api/peeps/my-dub/breadcrumbs/:id/review
+    if (method === "POST" && id === "breadcrumbs" && parts[3] === "review") {
+      const breadcrumb = (await db("peeps_breadcrumb_get", { id: SAFE_ID.test(String(action || "")) ? action : "" })).breadcrumb;
+      if (!breadcrumb || !dubs.some((d) => d.id === breadcrumb.dubId)) throw httpError(404, "Breadcrumb not found.");
+      const body = await readJson(req);
+      const updated = await peepsReviewBreadcrumb(breadcrumb, { action: body.action, statement: body.statement, userId: authSession.id });
+      sendJson(req, res, 200, { breadcrumb: peepsBreadcrumbView(updated) }); return true;
+    }
+  }
+  return false;
 }
 
 function inferSessionPlannerType(jam) {
@@ -9231,41 +9821,17 @@ async function handleJamReplaceParticipant(req, res, authSession) {
   sendJson(req, res, 200, { jam: updated.jam, suggestedReplacement, requestId: request?.id || null });
 }
 
-// Settlement (section 23) — idempotent via a payment id deterministically keyed to the participant, so
-// calling /settle twice never pays twice (record_payment's own ON CONFLICT(id) DO UPDATE makes the second
-// call a no-op update of the same row). Always the clearly-labeled demo rail: there is no participant
-// payout wallet anywhere in this data model yet, so a real on-chain payout has nowhere legitimate to go —
-// flagged plainly in the final report rather than faked here.
+// Settlement (section 23) — the payer's Dough is debited and the participant's credited in ONE ledger
+// transaction (peeps_settlement_transfer), idempotent per participant, so calling /settle twice never pays
+// twice and Dough can never be created from nothing. Rail is the internal Dough ledger; moving Dough out to
+// a bank/wallet is a separate withdrawal.
 async function handleJamSettle(req, res, authSession) {
   const jam = await requireOwnedJam(req, res, authSession, jamIdFromUrl(req, "/settle"), "member");
   if (!jam) return;
-  const participantsResult = await db("jam_participant_list", { jamId: jam.id });
-  const participants = participantsResult.participants || [];
-  const settlements = [];
-  for (const participant of participants) {
-    if (!["attended", "completed"].includes(participant.status)) continue;
-    if (participant.compensationStatus === "paid") { settlements.push({ participantId: participant.id, status: "already_paid" }); continue; }
-    const amount = Number(participant.compensationAmount) || 0;
-    if (amount <= 0) { settlements.push({ participantId: participant.id, status: "no_compensation_due" }); continue; }
-    const paymentId = `pay_settle_${participant.id}`;
-    const dubResult = await db("dub_get", { id: participant.dubId });
-    const dub = dubResult.dub;
-    const subjectType = dub?.userId ? "user" : "dub";
-    const subjectId = dub?.userId || participant.dubId;
-    const credit = await db("dough_post", {
-      id: newId("dle"), subjectType, subjectId, bucket: "earned", direction: "credit", amount,
-      kind: "jam_earning", referenceId: paymentId, metadata: { jamId: jam.id, jamParticipantId: participant.id }
-    });
-    await db("record_payment", {
-      id: paymentId, paymentKind: "BOOKING_SETTLEMENT", rail: "dough-ledger", provider: "toasty-peeps",
-      purpose: "jam-participant-settlement", status: "PAYMENT_RELEASED", network: "internal", amount,
-      currency: "USD", policyDecision: "APPROVED", approvalSource: "SETTLEMENT_POLICY",
-      metadata: { jamId: jam.id, jamParticipantId: participant.id, verificationStatus: "DOUGH_LEDGER", beneficiary: { subjectType, subjectId } }
-    });
-    await db("jam_participant_update", { id: participant.id, fields: { compensationStatus: "paid" } });
-    await db("jam_event_create", { id: newId("jev"), jamId: jam.id, jamParticipantId: participant.id, type: "payment.paid", actor: authSession.id, detail: { amount, paymentId, rail: "dough" } });
-    settlements.push({ participantId: participant.id, status: credit.posted || credit.idempotent ? "settled_to_dough" : "settlement_error", paymentId, amount });
-  }
+  // One settlement core for every entry point: the payer's funded Dough is DEBITED in the same ledger
+  // transaction that credits the participant, so Dough can never be minted. If the payer can't cover it,
+  // the settlement stays honestly pending (see peepsSettleJam / peeps_settlement_transfer).
+  const settlements = await peepsSettleJam(jam, authSession);
   sendJson(req, res, 200, { settlements });
 }
 

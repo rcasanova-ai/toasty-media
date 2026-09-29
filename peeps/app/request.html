@@ -161,9 +161,10 @@ async function resume(id) {
   request = result.request;
   candidates = result.candidates;
   introductions = result.introductions;
-  if (request.status === "introductions_authorized" || request.status === "booked" || request.status === "completed") {
+  if (["introductions_authorized", "booked", "session_completed", "outcome_pending", "outcome_verified", "completed", "payment_pending", "paid"].includes(request.status)) {
     const authorized = introductions.length;
-    $("resultSummary").innerHTML = `<p><strong>${authorized}</strong> introduction${authorized === 1 ? "" : "s"} so far.</p><ul>${introductions.map(introLine).join("")}</ul>`;
+    $("resultSummary").innerHTML = `<p><strong>${authorized}</strong> introduction${authorized === 1 ? "" : "s"} so far.</p><ul>${introductions.map(introLine).join("")}</ul>
+      ${request.jamId ? `<p><a class="btn secondary" href="./outcome.html?request=${encodeURIComponent(request.id)}">Session, outcome &amp; settlement →</a></p>` : ""}`;
     if (request.jamId) $("openJamLink").href = `./jam.html?id=${encodeURIComponent(request.jamId)}`;
     showStep("stepResult");
   } else {

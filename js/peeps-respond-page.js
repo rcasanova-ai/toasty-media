@@ -147,10 +147,34 @@ function bookedSection(prep) {
     <p class="note">Late-cancellation window: ${b.cancellationPolicy.lateCancellationHours} hours. Any consequence follows the agreement with ${esc(view.requester.name)}; Peeps applies no automatic penalty.</p></section>` : ""}`;
 }
 
+const CLASS_LABEL = { observed: "Observed", participant_claim: "Your claim", verified: "Verified", ai_suggested: "AI suggestion" };
+const STATUS_LABEL = { proposed: "Needs your review", accepted: "Accepted", corrected: "Corrected by you", rejected: "Rejected", verified: "Verified" };
+
+function postSessionHtml() {
+  const p = view.postSession;
+  const c = p.compensation;
+  return `<section class="card"><span class="eyebrow">After your conversation</span><h1>Thanks for taking part</h1>
+    <div class="choices" style="margin-top:6px">${p.stages.map((s) => `<span class="tag ${s.done ? "good" : ""}">${s.done ? "✓ " : ""}${esc(s.label)}</span>`).join("")}</div></section>
+  <section class="card"><h2 style="margin-top:0">What Peeps learned — your call</h2>
+    <p class="note">These are proposals drawn from what was said. <b>Nothing appears on your Dub unless you approve it.</b> Accept, correct or reject each one.</p>
+    ${p.breadcrumbs.length ? p.breadcrumbs.map((b) => `<div class="card" style="box-shadow:none;margin:12px 0" data-bc="${esc(b.id)}">
+      <span class="tag">${esc(b.kindLabel)}</span> <span class="tag">${esc(CLASS_LABEL[b.evidenceClass] || b.evidenceClass)}</span> <span class="tag ${["accepted", "corrected", "verified"].includes(b.status) ? "good" : ""}">${esc(STATUS_LABEL[b.status] || b.status)}</span>
+      <p style="margin:10px 0 6px">${esc(b.statement)}</p>
+      <p class="note">Source: your words in this session${b.provenance.segmentIndex !== undefined ? ` (segment ${Number(b.provenance.segmentIndex) + 1})` : ""}. Only you and the organizer of this session can see the source.</p>
+      <div class="choices"><button class="btn quiet bc-accept">Accept</button><button class="btn quiet bc-correct">Correct</button><button class="btn quiet bc-reject">Reject</button></div>
+      <div class="bc-fix" hidden><textarea class="field" maxlength="400">${esc(b.statement)}</textarea><button class="btn bc-save">Save my version</button></div></div>`).join("") : `<p class="note">Nothing was proposed from this session — no transcript was available, and Peeps doesn't guess.</p>`}
+    ${p.verifiedFacts.length ? `<p class="note">System-recorded: ${p.verifiedFacts.map((f) => esc(f.statement)).join("; ")}.</p>` : ""}
+    <p class="err" id="bcErr"></p></section>
+  <section class="card"><h3 style="margin-top:0">Your Dub</h3><p class="note">${p.dub.claimed ? "Your approved Breadcrumbs are on your Dub." : "Your Dub is unclaimed. Approved entries are kept for you; claim your Dub to manage them and access your Dough."}</p></section>
+  <section class="card"><h3 style="margin-top:0">Compensation</h3><p>${esc(c.message)}</p></section>`;
+}
+
 function render() {
   const v = view;
   let html = "";
-  if (v.state === "declined") {
+  if (v.postSession && v.state === "completed") {
+    html = postSessionHtml();
+  } else if (v.state === "declined") {
     html = `<section class="card"><h1>Thanks — we've let them know</h1><p class="note">You declined this introduction. Nothing more will be sent, and this isn't held against you in any way.</p></section>`;
   } else if (v.state === "expired") {
     html = `<section class="card"><h1>This invitation has expired</h1><p class="note">Ask ${esc(v.requester.name)} if they'd like to send a fresh one.</p></section>`;
@@ -200,6 +224,17 @@ async function wire() {
     });
   }
   wireQuestion();
+  document.querySelectorAll("[data-bc]").forEach((card) => {
+    const bid = card.dataset.bc;
+    const send = async (body) => {
+      try { const result = await peepsRespond(token, `breadcrumbs/${encodeURIComponent(bid)}/review`, body); view = { ...view, postSession: result.postSession }; render(); }
+      catch (e) { document.getElementById("bcErr").textContent = e.message; }
+    };
+    card.querySelector(".bc-accept").addEventListener("click", () => send({ action: "accept" }));
+    card.querySelector(".bc-reject").addEventListener("click", () => send({ action: "reject" }));
+    card.querySelector(".bc-correct").addEventListener("click", () => { card.querySelector(".bc-fix").hidden = false; });
+    card.querySelector(".bc-save").addEventListener("click", () => send({ action: "correct", statement: card.querySelector("textarea").value }));
+  });
   if (document.getElementById("bookedRoot")) {
     let prep = null;
     if (v.booking.status === "booked") { try { prep = await peepsRespond(token, "prep"); } catch { prep = null; } }

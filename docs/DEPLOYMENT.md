@@ -153,3 +153,17 @@ Environment:
 
 Contact destinations are stored AES-GCM encrypted (`TOASTY_TOKEN_ENCRYPTION_KEY`, falling back to the session secret — rotating it makes stored destinations undecryptable, so outreach retries would report "no automatable destination") and only ever returned masked.
 Response tokens are 256-bit, SHA-256 hashed at rest, valid 60 days, and reach exactly one introduction.
+
+## Peeps post-session loop (completion → Breadcrumbs → Dub → outcome → settlement → matching)
+
+Same two backend files; additive migrations only (`peeps_completions`, `peeps_transcripts`, `peeps_breadcrumbs`,
+`dub_profile_entries`, `peeps_settlements`). New routes are under `/api/peeps/…` and `/api/jams/:id/transcript`, both already
+proxied by existing nginx blocks. Pages: `peeps/app/outcome.html` (requester) and the post-session section of `peeps/respond.html`.
+
+- A completion is recorded only when a Jam is marked complete or its Studio session ends. Studio does not persist transcripts,
+  so a transcript is an attested upload by an organization member; Breadcrumbs are proposals until the participant approves them.
+- Settlement debits the requester's spend Dough and credits the participant in one SQLite transaction
+  (`peeps_settlement_transfer`); an unfunded requester leaves the settlement `pending` with the exact shortfall. The legacy
+  `/api/jams/:id/settle` now uses the same core (it previously credited Dough without debiting anyone).
+- Matching consumes only participant-approved Breadcrumb entries (bonus capped at 12 points); raw transcripts never leave the
+  owning organization.

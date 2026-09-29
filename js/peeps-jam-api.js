@@ -162,3 +162,11 @@ export async function peepsRespond(token, action = "", body) {
   return payload;
 }
 export const peepsRespondCalendarUrl = (token) => `${studioApiEndpoint()}/api/peeps/respond/${enc(token)}/calendar.ics`;
+
+// ---- Post-session: completion -> Breadcrumbs -> outcome -> settlement ----
+export const getPeepsLifecycle = (requestId) => studioRequest(`/api/peeps/requests/${enc(requestId)}/lifecycle`);
+export const reconcilePeepsRequest = (requestId) => studioRequest(`/api/peeps/requests/${enc(requestId)}/reconcile`, { method: "POST", body: "{}" });
+export const evaluatePeepsOutcome = (requestId, fields = {}) => studioRequest(`/api/peeps/requests/${enc(requestId)}/outcome`, { method: "POST", body: JSON.stringify(fields) });
+export const settlePeepsRequest = (requestId) => studioRequest(`/api/peeps/requests/${enc(requestId)}/settle`, { method: "POST", body: "{}" });
+export const corroboratePeepsBreadcrumb = (id) => studioRequest(`/api/peeps/breadcrumbs/${enc(id)}/corroborate`, { method: "POST", body: "{}" });
+export const submitJamTranscript = (jamId, fields) => studioRequest(`/api/jams/${enc(jamId)}/transcript`, { method: "POST", body: JSON.stringify(fields) });
