@@ -126,3 +126,39 @@ export const submitJamConsent = (token, body) =>
   inviteRequest(`/api/jam-invites/${encodeURIComponent(token)}/consent`, { method: "POST", body: JSON.stringify(body) });
 
 export const getDubClaim = (token) => inviteRequest(`/api/dub-claims/${encodeURIComponent(token)}`);
+
+// ---- Peeps introduction execution (contact -> outreach -> response -> booking -> ready for session) ----
+const enc = encodeURIComponent;
+export const getPeepsIntroduction = (id) => studioRequest(`/api/peeps/introductions/${enc(id)}`);
+export const getPeepsIntroductionSlots = (id) => studioRequest(`/api/peeps/introductions/${enc(id)}/slots`);
+export const retryPeepsOutreach = (id) => studioRequest(`/api/peeps/introductions/${enc(id)}/retry-outreach`, { method: "POST", body: "{}" });
+export const findPeepsReplacement = (id) => studioRequest(`/api/peeps/introductions/${enc(id)}/find-replacement`, { method: "POST", body: "{}" });
+export const approvePeepsReplacement = (openingId, fields) => studioRequest(`/api/peeps/openings/${enc(openingId)}/approve`, { method: "POST", body: JSON.stringify(fields) });
+export const bookPeepsIntroduction = (id, fields = {}) => studioRequest(`/api/peeps/introductions/${enc(id)}/book`, { method: "POST", body: JSON.stringify(fields) });
+export const setPeepsRequesterAvailability = (requestId, availability) => studioRequest(`/api/peeps/requests/${enc(requestId)}/availability`, { method: "POST", body: JSON.stringify(availability) });
+export const getPeepsBooking = (id) => studioRequest(`/api/peeps/bookings/${enc(id)}`);
+export const getPeepsBookingPrep = (id, role = "organizer") => studioRequest(`/api/peeps/bookings/${enc(id)}/prep?role=${role}`);
+export const editPeepsBookingPlan = (id, fields) => studioRequest(`/api/peeps/bookings/${enc(id)}/plan`, { method: "POST", body: JSON.stringify(fields) });
+export const cancelPeepsBooking = (id, reason = "") => studioRequest(`/api/peeps/bookings/${enc(id)}/cancel`, { method: "POST", body: JSON.stringify({ reason }) });
+export const rebuildPeepsBooking = (id) => studioRequest(`/api/peeps/bookings/${enc(id)}/rebuild`, { method: "POST", body: "{}" });
+export const retryPeepsMessage = (id) => studioRequest(`/api/peeps/messages/${enc(id)}/retry`, { method: "POST", body: "{}" });
+
+// Unauthenticated, response-token-gated calls for the external person's page (peeps/respond.html). No
+// cookies are sent: the token in the URL is the only credential, and it reaches exactly one introduction.
+export async function peepsRespond(token, action = "", body) {
+  const response = await fetch(`${studioApiEndpoint()}/api/peeps/respond/${enc(token)}${action ? `/${action}` : ""}`, {
+    method: body === undefined ? "GET" : "POST",
+    credentials: "omit",
+    headers: body === undefined ? {} : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+  let payload = {};
+  try { payload = await response.json(); } catch { /* empty */ }
+  if (!response.ok) {
+    const error = new Error(payload.error || "Something went wrong. Please try again.");
+    error.status = response.status;
+    throw error;
+  }
+  return payload;
+}
+export const peepsRespondCalendarUrl = (token) => `${studioApiEndpoint()}/api/peeps/respond/${enc(token)}/calendar.ics`;

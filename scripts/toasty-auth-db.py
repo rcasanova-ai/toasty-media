@@ -1516,6 +1516,192 @@ def migrate(conn):
         "cancellation_policy_json": "TEXT NOT NULL DEFAULT '{}'"
     })
 
+    # ---- Peeps introduction execution (contact -> outreach -> response -> booking -> ready) ----
+    # Extends the EXISTING peeps_introductions/peeps_candidates/jams rows rather than adding a parallel
+    # model. status vocabulary: authorized, resolving_contact, ready_for_outreach, outreach_sent,
+    # responded, accepted, declined, unreachable, expired, scheduling, booked, cancelled. The legacy
+    # value 'contacted' is the same thing as outreach_sent and is migrated below.
+    ensure_columns(conn, "peeps_introductions", {
+        "response_json": "TEXT NOT NULL DEFAULT '{}'",
+        "availability_json": "TEXT NOT NULL DEFAULT '{}'",
+        "preferences_json": "TEXT NOT NULL DEFAULT '{}'",
+        "contact_state_json": "TEXT NOT NULL DEFAULT '{}'",
+        "first_viewed_at": "TEXT",
+        "responded_at": "TEXT",
+        "outreach_expires_at": "TEXT",
+        "payment_ref": "TEXT",
+        "replaces_introduction_id": "TEXT",
+        "opening_id": "TEXT",
+    })
+    conn.execute("UPDATE peeps_introductions SET status = 'outreach_sent' WHERE status = 'contacted'")
+    ensure_columns(conn, "peeps_requests", {"requester_availability_json": "TEXT NOT NULL DEFAULT '{}'"})
+    ensure_columns(conn, "peeps_candidates", {"contact_paths_json": "TEXT NOT NULL DEFAULT '[]'"})
+
+    # One row per way we might legitimately reach a person, with provenance. destination_enc is AES-GCM
+    # ciphertext (encryptSecret in the Node server); destination_masked is the only form ever returned to
+    # an organizer. destination_hash lets us dedupe without decrypting.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_contact_channels (
+          id TEXT PRIMARY KEY,
+          introduction_id TEXT NOT NULL REFERENCES peeps_introductions(id) ON DELETE CASCADE,
+          channel TEXT NOT NULL,
+          adapter TEXT NOT NULL DEFAULT '',
+          destination_enc TEXT NOT NULL DEFAULT '',
+          destination_masked TEXT NOT NULL DEFAULT '',
+          destination_hash TEXT NOT NULL DEFAULT '',
+          public_reference TEXT NOT NULL DEFAULT '',
+          source TEXT NOT NULL DEFAULT '',
+          verification TEXT NOT NULL DEFAULT 'unverified',
+          confidence TEXT NOT NULL DEFAULT '',
+          priority INTEGER NOT NULL DEFAULT 99,
+          automatable INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'candidate',
+          last_checked_at TEXT,
+          authorization_context_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_peeps_channels_dest ON peeps_contact_channels(introduction_id, channel, destination_hash)")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_outbound_messages (
+          id TEXT PRIMARY KEY,
+          introduction_id TEXT NOT NULL REFERENCES peeps_introductions(id) ON DELETE CASCADE,
+          booking_id TEXT,
+          channel_id TEXT,
+          purpose TEXT NOT NULL,
+          audience TEXT NOT NULL DEFAULT 'candidate',
+          adapter TEXT NOT NULL DEFAULT '',
+          provider_kind TEXT NOT NULL DEFAULT 'real',
+          status TEXT NOT NULL DEFAULT 'queued',
+          thread_ref TEXT NOT NULL DEFAULT '',
+          provider_message_id TEXT NOT NULL DEFAULT '',
+          attempt INTEGER NOT NULL DEFAULT 1,
+          error TEXT NOT NULL DEFAULT '',
+          template_json TEXT NOT NULL DEFAULT '{}',
+          test_payload_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_messages_intro ON peeps_outbound_messages(introduction_id, created_at)")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_response_tokens (
+          id TEXT PRIMARY KEY,
+          introduction_id TEXT NOT NULL REFERENCES peeps_introductions(id) ON DELETE CASCADE,
+          token_hash TEXT NOT NULL UNIQUE,
+          expires_at TEXT NOT NULL,
+          revoked_at TEXT,
+          first_used_at TEXT,
+          last_used_at TEXT,
+          use_count INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_tokens_intro ON peeps_response_tokens(introduction_id)")
+
+    # A booking is one introduction's confirmed time. UNIQUE(introduction_id) is the idempotency guarantee:
+    # a retry, refresh or double-click can never create a second booking; a reschedule updates this row.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_bookings (
+          id TEXT PRIMARY KEY,
+          request_id TEXT NOT NULL REFERENCES peeps_requests(id) ON DELETE CASCADE,
+          introduction_id TEXT NOT NULL UNIQUE REFERENCES peeps_introductions(id),
+          organization_id TEXT NOT NULL REFERENCES organizations(id),
+          requester_user_id TEXT NOT NULL,
+          candidate_dub_id TEXT NOT NULL,
+          jam_id TEXT,
+          jam_participant_id TEXT,
+          studio_session_id TEXT,
+          starts_at TEXT NOT NULL,
+          ends_at TEXT NOT NULL,
+          requester_timezone TEXT NOT NULL DEFAULT '',
+          candidate_timezone TEXT NOT NULL DEFAULT '',
+          duration_minutes INTEGER NOT NULL DEFAULT 45,
+          format TEXT NOT NULL DEFAULT 'conversation',
+          compensation_json TEXT NOT NULL DEFAULT '{}',
+          recording_state TEXT NOT NULL DEFAULT 'unknown',
+          cancellation_policy_json TEXT NOT NULL DEFAULT '{}',
+          status TEXT NOT NULL DEFAULT 'booked',
+          calendar_json TEXT NOT NULL DEFAULT '{}',
+          plan_version INTEGER NOT NULL DEFAULT 0,
+          notified_hash TEXT NOT NULL DEFAULT '',
+          setup_json TEXT NOT NULL DEFAULT '{}',
+          ready_at TEXT,
+          cancelled_at TEXT,
+          cancelled_by TEXT,
+          cancel_reason TEXT NOT NULL DEFAULT '',
+          late_cancellation INTEGER NOT NULL DEFAULT 0,
+          sequence INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_bookings_request ON peeps_bookings(request_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_bookings_jam ON peeps_bookings(jam_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_bookings_session ON peeps_bookings(studio_session_id)")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_plan_versions (
+          id TEXT PRIMARY KEY,
+          booking_id TEXT NOT NULL REFERENCES peeps_bookings(id) ON DELETE CASCADE,
+          version INTEGER NOT NULL,
+          snapshot_json TEXT NOT NULL DEFAULT '{}',
+          change_json TEXT NOT NULL DEFAULT '{}',
+          participant_facing INTEGER NOT NULL DEFAULT 0,
+          edited_by TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_peeps_plan_versions ON peeps_plan_versions(booking_id, version)")
+
+    # "Last-minute opening" — outreach context for replacing a guest (session purpose, time, duration,
+    # format, recording, compensation, required fit). The organizer approves a candidate before anyone is
+    # substituted.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_openings (
+          id TEXT PRIMARY KEY,
+          request_id TEXT NOT NULL REFERENCES peeps_requests(id) ON DELETE CASCADE,
+          jam_id TEXT,
+          booking_id TEXT,
+          replaces_introduction_id TEXT NOT NULL,
+          context_json TEXT NOT NULL DEFAULT '{}',
+          status TEXT NOT NULL DEFAULT 'open',
+          chosen_candidate_id TEXT,
+          replacement_introduction_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_peeps_openings_replaces ON peeps_openings(replaces_introduction_id)")
+
+    # What a person has told Peeps about themselves (timezone, minimum notice, format constraints) so a
+    # later introduction never asks again. Deliberately excludes date-specific availability windows —
+    # those go stale and are never carried across introductions or organizations.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dub_preferences (
+          dub_id TEXT PRIMARY KEY REFERENCES dubs(id) ON DELETE CASCADE,
+          preferences_json TEXT NOT NULL DEFAULT '{}',
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+
     bootstrap_stablecorp_brand_lock(conn)
 
     conn.commit()
@@ -2657,6 +2843,7 @@ def public_peeps_request(row):
         "whoText": row["who_text"],
         "outcomeText": row["outcome_text"],
         "workingRepresentation": _json_or(row["working_representation_json"], {}),
+        "requesterAvailability": _json_or(row["requester_availability_json"], {}) if _row_has(row, "requester_availability_json") else {},
         "status": row["status"],
         "jamId": row["jam_id"],
         "createdAt": row["created_at"],
@@ -2679,6 +2866,7 @@ def public_peeps_candidate(row):
         "matchScore": row["match_score"],
         "reachability": row["reachability"],
         "contactEmail": row["contact_email"],
+        "contactPaths": _json_or(row["contact_paths_json"], []) if _row_has(row, "contact_paths_json") else [],
         "rank": row["rank"],
         "status": row["status"],
         "createdAt": row["created_at"],
@@ -2704,11 +2892,115 @@ def public_peeps_introduction(row):
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
+    for key, column, default in (
+        ("response", "response_json", {}), ("availability", "availability_json", {}),
+        ("preferences", "preferences_json", {}), ("contactState", "contact_state_json", {}),
+    ):
+        if _row_has(row, column):
+            entry[key] = _json_or(row[column], default)
+    for key, column in (
+        ("firstViewedAt", "first_viewed_at"), ("respondedAt", "responded_at"),
+        ("outreachExpiresAt", "outreach_expires_at"), ("paymentRef", "payment_ref"),
+        ("replacesIntroductionId", "replaces_introduction_id"), ("openingId", "opening_id"),
+    ):
+        if _row_has(row, column):
+            entry[key] = row[column]
     # Derived, live status from the linked jam_participant — never duplicated/written separately here, so
     # the two can never drift (see the table's own comment in migrate()).
     if _row_has(row, "participant_status"):
         entry["participantStatus"] = row["participant_status"]
     return entry
+
+
+def public_peeps_channel(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"], "introductionId": row["introduction_id"], "channel": row["channel"],
+        "adapter": row["adapter"], "destinationEnc": row["destination_enc"],
+        "destinationMasked": row["destination_masked"], "publicReference": row["public_reference"],
+        "source": row["source"], "verification": row["verification"], "confidence": row["confidence"],
+        "priority": row["priority"], "automatable": bool(row["automatable"]), "status": row["status"],
+        "lastCheckedAt": row["last_checked_at"],
+        "authorizationContext": _json_or(row["authorization_context_json"], {}),
+        "createdAt": row["created_at"], "updatedAt": row["updated_at"],
+    }
+
+
+def public_peeps_message(row, include_test_payload=False):
+    if not row:
+        return None
+    entry = {
+        "id": row["id"], "introductionId": row["introduction_id"], "bookingId": row["booking_id"],
+        "channelId": row["channel_id"], "purpose": row["purpose"], "audience": row["audience"],
+        "adapter": row["adapter"], "providerKind": row["provider_kind"], "status": row["status"],
+        "threadRef": row["thread_ref"], "providerMessageId": row["provider_message_id"],
+        "attempt": row["attempt"], "error": row["error"], "template": _json_or(row["template_json"], {}),
+        "createdAt": row["created_at"], "updatedAt": row["updated_at"],
+    }
+    if include_test_payload:
+        entry["testPayload"] = _json_or(row["test_payload_json"], {})
+    return entry
+
+
+def public_peeps_booking(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"], "requestId": row["request_id"], "introductionId": row["introduction_id"],
+        "organizationId": row["organization_id"], "requesterUserId": row["requester_user_id"],
+        "candidateDubId": row["candidate_dub_id"], "jamId": row["jam_id"],
+        "jamParticipantId": row["jam_participant_id"], "studioSessionId": row["studio_session_id"],
+        "startsAt": row["starts_at"], "endsAt": row["ends_at"],
+        "requesterTimezone": row["requester_timezone"], "candidateTimezone": row["candidate_timezone"],
+        "durationMinutes": row["duration_minutes"], "format": row["format"],
+        "compensation": _json_or(row["compensation_json"], {}), "recordingState": row["recording_state"],
+        "cancellationPolicy": _json_or(row["cancellation_policy_json"], {}), "status": row["status"],
+        "calendar": _json_or(row["calendar_json"], {}), "planVersion": row["plan_version"],
+        "notifiedHash": row["notified_hash"], "setup": _json_or(row["setup_json"], {}),
+        "readyAt": row["ready_at"], "cancelledAt": row["cancelled_at"], "cancelledBy": row["cancelled_by"],
+        "cancelReason": row["cancel_reason"], "lateCancellation": bool(row["late_cancellation"]),
+        "sequence": row["sequence"], "createdAt": row["created_at"], "updatedAt": row["updated_at"],
+    }
+
+
+def public_peeps_opening(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"], "requestId": row["request_id"], "jamId": row["jam_id"], "bookingId": row["booking_id"],
+        "replacesIntroductionId": row["replaces_introduction_id"], "context": _json_or(row["context_json"], {}),
+        "status": row["status"], "chosenCandidateId": row["chosen_candidate_id"],
+        "replacementIntroductionId": row["replacement_introduction_id"],
+        "createdAt": row["created_at"], "updatedAt": row["updated_at"],
+    }
+
+
+def _apply_update(conn, table, row_id, fields, column_map, json_columns=(), extra_where="", extra_params=()):
+    """Shared column-mapped UPDATE for the Peeps execution tables. Returns the rowcount so callers can
+    implement compare-and-set (expected-status) idempotency."""
+    sets, values = [], []
+    for key, column in column_map.items():
+        if key in fields:
+            sets.append(f"{column} = ?")
+            value = fields[key]
+            values.append(json.dumps(value if value is not None else ({} if column in json_columns else None)) if column in json_columns else value)
+    sets.append("updated_at = ?")
+    values.append(utc_now())
+    values.append(row_id)
+    cursor = conn.execute(f"UPDATE {table} SET {', '.join(sets)} WHERE id = ? {extra_where}", values + list(extra_params))
+    conn.commit()
+    return cursor.rowcount
+
+
+PEEPS_INTRO_COLUMNS = {
+    "status": "status", "outreachSentAt": "outreach_sent_at", "declineReason": "decline_reason",
+    "firstViewedAt": "first_viewed_at", "respondedAt": "responded_at", "outreachExpiresAt": "outreach_expires_at",
+    "paymentRef": "payment_ref", "replacesIntroductionId": "replaces_introduction_id", "openingId": "opening_id",
+    "response": "response_json", "availability": "availability_json", "preferences": "preferences_json",
+    "contactState": "contact_state_json", "jamParticipantId": "jam_participant_id",
+}
+PEEPS_INTRO_JSON = ("response_json", "availability_json", "preferences_json", "contact_state_json")
 
 
 def session_brand_for_room(conn, room_id):
@@ -4423,6 +4715,13 @@ def main():
             "title": row["title"],
             "capturePolicy": capture_policy,
         }))
+        return
+
+    if action == "session_get_internal":
+        # Server-only lookup by id with no owner check — callers (Peeps execution) have already proven
+        # organization membership. Never exposed through a route.
+        row = conn.execute("SELECT * FROM live_sessions WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"session": public_session(row)}))
         return
 
     if action == "session_get_organization":
@@ -6235,7 +6534,7 @@ def main():
     if action == "peeps_introduction_mark_outreach_sent":
         now = utc_now()
         conn.execute(
-            "UPDATE peeps_introductions SET outreach_sent_at = ?, status = 'contacted', updated_at = ? WHERE id = ?",
+            "UPDATE peeps_introductions SET outreach_sent_at = ?, status = 'outreach_sent', updated_at = ? WHERE id = ?",
             (now, now, payload["id"]),
         )
         conn.commit()
@@ -6279,6 +6578,383 @@ def main():
             entry["candidateSource"] = row["source"]
             result.append(entry)
         print(json.dumps({"introductions": result}))
+        return
+
+    # ---- Peeps introduction execution ----
+
+    if action == "peeps_intro_get":
+        # Internal, server-only read joining everything the execution flow needs. The Node layer decides
+        # what each audience may see — raw contact data (contactEmail, dub email) never leaves the server.
+        row = conn.execute(
+            """
+            SELECT pi.*, jp.status AS participant_status
+            FROM peeps_introductions pi LEFT JOIN jam_participants jp ON jp.id = pi.jam_participant_id
+            WHERE pi.id = ?
+            """,
+            (payload["id"],),
+        ).fetchone()
+        if not row:
+            print(json.dumps({"introduction": None}))
+            return
+        request_row = conn.execute("SELECT * FROM peeps_requests WHERE id = ?", (row["request_id"],)).fetchone()
+        candidate_row = conn.execute("SELECT * FROM peeps_candidates WHERE id = ?", (row["candidate_id"],)).fetchone()
+        dub_row = conn.execute("SELECT * FROM dubs WHERE id = ?", (row["dub_id"],)).fetchone()
+        print(json.dumps({
+            "introduction": public_peeps_introduction(row),
+            "request": public_peeps_request(request_row),
+            "candidate": public_peeps_candidate(candidate_row),
+            "dub": public_dub(dub_row),
+        }))
+        return
+
+    if action == "peeps_intro_update":
+        expect = payload.get("expectStatuses")
+        where, params = "", []
+        if expect:
+            where = f"AND status IN ({','.join('?' for _ in expect)})"
+            params = list(expect)
+        count = _apply_update(conn, "peeps_introductions", payload["id"], payload.get("fields") or {}, PEEPS_INTRO_COLUMNS, PEEPS_INTRO_JSON, where, params)
+        row = conn.execute(introduction_with_status_sql, (payload["id"],)).fetchone()
+        print(json.dumps({"updated": count == 1, "introduction": public_peeps_introduction(row)}))
+        return
+
+    if action == "peeps_intro_find_by_jam_participant":
+        rows = conn.execute(
+            """
+            SELECT pi.*, jp.status AS participant_status
+            FROM peeps_introductions pi LEFT JOIN jam_participants jp ON jp.id = pi.jam_participant_id
+            WHERE pi.jam_participant_id = ? ORDER BY pi.created_at ASC
+            """,
+            (payload["jamParticipantId"],),
+        ).fetchall()
+        print(json.dumps({"introductions": [public_peeps_introduction(row) for row in rows]}))
+        return
+
+    if action == "peeps_request_set_availability":
+        conn.execute(
+            "UPDATE peeps_requests SET requester_availability_json = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(payload.get("availability") or {}), utc_now(), payload["id"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM peeps_requests WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"request": public_peeps_request(row)}))
+        return
+
+    if action == "peeps_candidate_set_contact_paths":
+        conn.execute(
+            "UPDATE peeps_candidates SET contact_paths_json = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(payload.get("contactPaths") or []), utc_now(), payload["id"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "peeps_channel_upsert":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO peeps_contact_channels (
+              id, introduction_id, channel, adapter, destination_enc, destination_masked, destination_hash,
+              public_reference, source, verification, confidence, priority, automatable, status,
+              last_checked_at, authorization_context_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"], payload["introductionId"], payload["channel"], payload.get("adapter") or "",
+                payload.get("destinationEnc") or "", payload.get("destinationMasked") or "",
+                payload.get("destinationHash") or "", payload.get("publicReference") or "",
+                payload.get("source") or "", payload.get("verification") or "unverified",
+                payload.get("confidence") or "", int(payload.get("priority") or 99),
+                1 if payload.get("automatable") else 0, payload.get("status") or "candidate", now,
+                json.dumps(payload.get("authorizationContext") or {}), now, now,
+            ),
+        )
+        conn.execute(
+            "UPDATE peeps_contact_channels SET last_checked_at = ? WHERE introduction_id = ? AND channel = ? AND destination_hash = ?",
+            (now, payload["introductionId"], payload["channel"], payload.get("destinationHash") or ""),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "peeps_channel_list":
+        rows = conn.execute(
+            "SELECT * FROM peeps_contact_channels WHERE introduction_id = ? ORDER BY priority ASC, created_at ASC",
+            (payload["introductionId"],),
+        ).fetchall()
+        print(json.dumps({"channels": [public_peeps_channel(row) for row in rows]}))
+        return
+
+    if action == "peeps_channel_update":
+        _apply_update(conn, "peeps_contact_channels", payload["id"], payload.get("fields") or {}, {
+            "status": "status", "lastCheckedAt": "last_checked_at", "verification": "verification", "confidence": "confidence",
+        })
+        row = conn.execute("SELECT * FROM peeps_contact_channels WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"channel": public_peeps_channel(row)}))
+        return
+
+    if action == "peeps_message_create":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO peeps_outbound_messages (
+              id, introduction_id, booking_id, channel_id, purpose, audience, adapter, provider_kind, status,
+              thread_ref, attempt, template_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"], payload["introductionId"], payload.get("bookingId"), payload.get("channelId"),
+                payload["purpose"], payload.get("audience") or "candidate", payload.get("adapter") or "",
+                payload.get("providerKind") or "real", payload.get("status") or "queued",
+                payload.get("threadRef") or "", int(payload.get("attempt") or 1),
+                json.dumps(payload.get("template") or {}), now, now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM peeps_outbound_messages WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"message": public_peeps_message(row)}))
+        return
+
+    if action == "peeps_message_update":
+        fields = payload.get("fields") or {}
+        _apply_update(conn, "peeps_outbound_messages", payload["id"], fields, {
+            "status": "status", "threadRef": "thread_ref", "providerMessageId": "provider_message_id",
+            "error": "error", "attempt": "attempt", "testPayload": "test_payload_json", "adapter": "adapter",
+            "providerKind": "provider_kind", "channelId": "channel_id",
+        }, ("test_payload_json",))
+        row = conn.execute("SELECT * FROM peeps_outbound_messages WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"message": public_peeps_message(row, bool(payload.get("includeTestPayload")))}))
+        return
+
+    if action == "peeps_message_get":
+        row = conn.execute("SELECT * FROM peeps_outbound_messages WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"message": public_peeps_message(row, bool(payload.get("includeTestPayload")))}))
+        return
+
+    if action == "peeps_message_list":
+        if payload.get("requestId"):
+            rows = conn.execute(
+                """
+                SELECT m.* FROM peeps_outbound_messages m JOIN peeps_introductions pi ON pi.id = m.introduction_id
+                WHERE pi.request_id = ? ORDER BY m.created_at ASC
+                """,
+                (payload["requestId"],),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM peeps_outbound_messages WHERE introduction_id = ? ORDER BY created_at ASC",
+                (payload["introductionId"],),
+            ).fetchall()
+        include = bool(payload.get("includeTestPayload"))
+        print(json.dumps({"messages": [public_peeps_message(row, include) for row in rows]}))
+        return
+
+    if action == "peeps_token_issue":
+        now = utc_now()
+        if payload.get("revokeExisting"):
+            conn.execute(
+                "UPDATE peeps_response_tokens SET revoked_at = ? WHERE introduction_id = ? AND revoked_at IS NULL",
+                (now, payload["introductionId"]),
+            )
+        conn.execute(
+            "INSERT INTO peeps_response_tokens (id, introduction_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?)",
+            (payload["id"], payload["introductionId"], payload["tokenHash"], payload["expiresAt"], now),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "peeps_token_get":
+        row = conn.execute("SELECT * FROM peeps_response_tokens WHERE token_hash = ?", (payload["tokenHash"],)).fetchone()
+        if not row:
+            print(json.dumps({"token": None}))
+            return
+        if payload.get("touch"):
+            now = utc_now()
+            conn.execute(
+                "UPDATE peeps_response_tokens SET use_count = use_count + 1, last_used_at = ?, first_used_at = COALESCE(first_used_at, ?) WHERE id = ?",
+                (now, now, row["id"]),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM peeps_response_tokens WHERE id = ?", (row["id"],)).fetchone()
+        print(json.dumps({"token": {
+            "id": row["id"], "introductionId": row["introduction_id"], "expiresAt": row["expires_at"],
+            "revokedAt": row["revoked_at"], "firstUsedAt": row["first_used_at"], "lastUsedAt": row["last_used_at"],
+            "useCount": row["use_count"],
+        }}))
+        return
+
+    if action == "peeps_token_revoke":
+        conn.execute(
+            "UPDATE peeps_response_tokens SET revoked_at = ? WHERE introduction_id = ? AND revoked_at IS NULL",
+            (utc_now(), payload["introductionId"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    booking_columns = {
+        "jamId": "jam_id", "jamParticipantId": "jam_participant_id", "studioSessionId": "studio_session_id",
+        "startsAt": "starts_at", "endsAt": "ends_at", "requesterTimezone": "requester_timezone",
+        "candidateTimezone": "candidate_timezone", "durationMinutes": "duration_minutes", "format": "format",
+        "compensation": "compensation_json", "recordingState": "recording_state",
+        "cancellationPolicy": "cancellation_policy_json", "status": "status", "calendar": "calendar_json",
+        "planVersion": "plan_version", "notifiedHash": "notified_hash", "setup": "setup_json",
+        "readyAt": "ready_at", "cancelledAt": "cancelled_at", "cancelledBy": "cancelled_by",
+        "cancelReason": "cancel_reason", "lateCancellation": "late_cancellation", "sequence": "sequence",
+    }
+    booking_json = ("compensation_json", "cancellation_policy_json", "calendar_json", "setup_json")
+
+    if action == "peeps_booking_create":
+        # INSERT OR IGNORE on UNIQUE(introduction_id): the idempotency guarantee. Reports whether this call
+        # actually created the row so callers only fire one-time side effects on the winner.
+        now = utc_now()
+        cursor = conn.execute(
+            """
+            INSERT OR IGNORE INTO peeps_bookings (
+              id, request_id, introduction_id, organization_id, requester_user_id, candidate_dub_id, jam_id,
+              jam_participant_id, starts_at, ends_at, requester_timezone, candidate_timezone, duration_minutes,
+              format, compensation_json, recording_state, cancellation_policy_json, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'booked', ?, ?)
+            """,
+            (
+                payload["id"], payload["requestId"], payload["introductionId"], payload["organizationId"],
+                payload["requesterUserId"], payload["candidateDubId"], payload.get("jamId"),
+                payload.get("jamParticipantId"), payload["startsAt"], payload["endsAt"],
+                payload.get("requesterTimezone") or "", payload.get("candidateTimezone") or "",
+                int(payload.get("durationMinutes") or 45), payload.get("format") or "conversation",
+                json.dumps(payload.get("compensation") or {}), payload.get("recordingState") or "unknown",
+                json.dumps(payload.get("cancellationPolicy") or {}), now, now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM peeps_bookings WHERE introduction_id = ?", (payload["introductionId"],)).fetchone()
+        print(json.dumps({"created": cursor.rowcount == 1, "booking": public_peeps_booking(row)}))
+        return
+
+    if action == "peeps_booking_get":
+        if payload.get("id"):
+            row = conn.execute("SELECT * FROM peeps_bookings WHERE id = ?", (payload["id"],)).fetchone()
+        elif payload.get("introductionId"):
+            row = conn.execute("SELECT * FROM peeps_bookings WHERE introduction_id = ?", (payload["introductionId"],)).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM peeps_bookings WHERE studio_session_id = ? ORDER BY created_at ASC LIMIT 1", (payload["studioSessionId"],)).fetchone()
+        print(json.dumps({"booking": public_peeps_booking(row)}))
+        return
+
+    if action == "peeps_booking_list":
+        if payload.get("jamId"):
+            rows = conn.execute("SELECT * FROM peeps_bookings WHERE jam_id = ? ORDER BY created_at ASC", (payload["jamId"],)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM peeps_bookings WHERE request_id = ? ORDER BY created_at ASC", (payload["requestId"],)).fetchall()
+        print(json.dumps({"bookings": [public_peeps_booking(row) for row in rows]}))
+        return
+
+    if action == "peeps_booking_update":
+        expect = payload.get("expectStatuses")
+        where, params = "", []
+        if expect:
+            where = f"AND status IN ({','.join('?' for _ in expect)})"
+            params = list(expect)
+        count = _apply_update(conn, "peeps_bookings", payload["id"], payload.get("fields") or {}, booking_columns, booking_json, where, params)
+        row = conn.execute("SELECT * FROM peeps_bookings WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"updated": count == 1, "booking": public_peeps_booking(row)}))
+        return
+
+    if action == "peeps_booking_bump_version":
+        # Atomic increment so two concurrent organizer edits can never produce the same version number.
+        conn.execute(
+            "UPDATE peeps_bookings SET plan_version = plan_version + 1, updated_at = ? WHERE id = ?",
+            (utc_now(), payload["id"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM peeps_bookings WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"booking": public_peeps_booking(row)}))
+        return
+
+    if action == "peeps_plan_version_add":
+        try:
+            conn.execute(
+                """
+                INSERT INTO peeps_plan_versions (id, booking_id, version, snapshot_json, change_json, participant_facing, edited_by, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload["id"], payload["bookingId"], int(payload["version"]),
+                    json.dumps(payload.get("snapshot") or {}), json.dumps(payload.get("change") or {}),
+                    1 if payload.get("participantFacing") else 0, payload.get("editedBy") or "", utc_now(),
+                ),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            pass
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "peeps_plan_version_list":
+        rows = conn.execute(
+            "SELECT * FROM peeps_plan_versions WHERE booking_id = ? ORDER BY version DESC LIMIT ?",
+            (payload["bookingId"], int(payload.get("limit") or 30)),
+        ).fetchall()
+        print(json.dumps({"versions": [{
+            "id": r["id"], "bookingId": r["booking_id"], "version": r["version"],
+            "snapshot": _json_or(r["snapshot_json"], {}), "change": _json_or(r["change_json"], {}),
+            "participantFacing": bool(r["participant_facing"]), "editedBy": r["edited_by"], "createdAt": r["created_at"],
+        } for r in rows]}))
+        return
+
+    if action == "peeps_opening_create":
+        now = utc_now()
+        cursor = conn.execute(
+            """
+            INSERT OR IGNORE INTO peeps_openings (
+              id, request_id, jam_id, booking_id, replaces_introduction_id, context_json, status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'open', ?, ?)
+            """,
+            (
+                payload["id"], payload["requestId"], payload.get("jamId"), payload.get("bookingId"),
+                payload["replacesIntroductionId"], json.dumps(payload.get("context") or {}), now, now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM peeps_openings WHERE replaces_introduction_id = ?", (payload["replacesIntroductionId"],)).fetchone()
+        print(json.dumps({"created": cursor.rowcount == 1, "opening": public_peeps_opening(row)}))
+        return
+
+    if action == "peeps_opening_get":
+        row = conn.execute("SELECT * FROM peeps_openings WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"opening": public_peeps_opening(row)}))
+        return
+
+    if action == "peeps_opening_update":
+        expect = payload.get("expectStatuses")
+        where, params = "", []
+        if expect:
+            where = f"AND status IN ({','.join('?' for _ in expect)})"
+            params = list(expect)
+        count = _apply_update(conn, "peeps_openings", payload["id"], payload.get("fields") or {}, {
+            "status": "status", "chosenCandidateId": "chosen_candidate_id",
+            "replacementIntroductionId": "replacement_introduction_id", "context": "context_json",
+        }, ("context_json",), where, params)
+        row = conn.execute("SELECT * FROM peeps_openings WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"updated": count == 1, "opening": public_peeps_opening(row)}))
+        return
+
+    if action == "dub_preferences_get":
+        row = conn.execute("SELECT * FROM dub_preferences WHERE dub_id = ?", (payload["dubId"],)).fetchone()
+        print(json.dumps({"preferences": _json_or(row["preferences_json"], {}) if row else {}}))
+        return
+
+    if action == "dub_preferences_set":
+        conn.execute(
+            """
+            INSERT INTO dub_preferences (dub_id, preferences_json, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(dub_id) DO UPDATE SET preferences_json = excluded.preferences_json, updated_at = excluded.updated_at
+            """,
+            (payload["dubId"], json.dumps(payload.get("preferences") or {}), utc_now()),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
         return
 
     # ---- Dub claim (section 27) ----

@@ -51,7 +51,7 @@ async function waitForHealth() {
 // recipient would use readDiscoveryPaymentProof's real-proof path instead (same code path already
 // exercised by /api/agent/find-experts's own tests).
 const server = spawn("node", [join(ROOT, "scripts", "render-production-server.mjs")], {
-  env: { ...process.env, TOASTY_RENDER_PORT: String(PORT), TOASTY_AUTH_DB: dbPath, TOASTY_AUTH_DB_HELPER: helper, TOASTY_SESSION_SECRET: "peeps-agent-test-secret", RESEND_API_KEY: "", SVM_PAY_TO: "", TOASTY_EXPERTS_X402_RECIPIENT: "" },
+  env: { ...process.env, TOASTY_RENDER_PORT: String(PORT), TOASTY_AUTH_DB: dbPath, TOASTY_AUTH_DB_HELPER: helper, TOASTY_SESSION_SECRET: "peeps-agent-test-secret", RESEND_API_KEY: "", SVM_PAY_TO: "", TOASTY_EXPERTS_X402_RECIPIENT: "", PEEPS_TEST_ADAPTERS: "1" },
   stdio: ["ignore", "pipe", "pipe"]
 });
 let serverOutput = "";
@@ -134,7 +134,7 @@ async function main() {
   ]);
   assert(authorize.status === 200, "authorizing with an organizer-supplied real contact succeeds");
   assert(authorize.data.introductions.length === 3, "three introductions are created");
-  assert(authorize.data.introductions.every((i) => i.status === "contacted" && i.outreachSentAt), "outreach was actually sent for each (the existing Jam invite email flow, reused)");
+  assert(authorize.data.introductions.every((i) => i.status === "outreach_sent" && i.outreachSentAt), "outreach was actually sent for each (the existing Jam invite email flow, reused)");
   const jamId = authorize.data.jamId;
   assert(jamId, "a Jam is created to host the engagement — no parallel booking/session system");
 
