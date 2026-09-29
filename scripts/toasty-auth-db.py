@@ -1335,6 +1335,65 @@ def migrate(conn):
     ensure_columns(conn, "live_sessions", {"jam_id": "TEXT REFERENCES jams(id)"})
     conn.execute("CREATE INDEX IF NOT EXISTS idx_live_sessions_jam ON live_sessions(jam_id)")
 
+    # ---- Dough: application ledger, not a crypto token ----
+    # Humans see ordinary USD-denominated balances. Crypto/x402/Solana are settlement rails underneath.
+    # Accounts can belong to a real user or an unclaimed Dub so earnings are never lost before claim.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS dough_accounts (
+          subject_type TEXT NOT NULL CHECK(subject_type IN ('user','dub')),
+          subject_id TEXT NOT NULL,
+          spend_balance REAL NOT NULL DEFAULT 0,
+          earned_balance REAL NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY(subject_type, subject_id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS dough_entries (
+          id TEXT PRIMARY KEY,
+          subject_type TEXT NOT NULL,
+          subject_id TEXT NOT NULL,
+          bucket TEXT NOT NULL CHECK(bucket IN ('spend','earned')),
+          direction TEXT NOT NULL CHECK(direction IN ('credit','debit')),
+          amount REAL NOT NULL CHECK(amount > 0),
+          kind TEXT NOT NULL,
+          reference_id TEXT,
+          status TEXT NOT NULL DEFAULT 'posted',
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dough_entries_subject ON dough_entries(subject_type, subject_id, created_at)")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_dough_entries_idempotency ON dough_entries(kind, reference_id, subject_type, subject_id) WHERE reference_id IS NOT NULL")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS dough_funding_intents (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          amount REAL NOT NULL,
+          currency TEXT NOT NULL DEFAULT 'USD',
+          method TEXT NOT NULL,
+          provider TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          provider_reference TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS dough_withdrawals (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          amount REAL NOT NULL,
+          currency TEXT NOT NULL DEFAULT 'USD',
+          method TEXT NOT NULL,
+          destination TEXT,
+          status TEXT NOT NULL DEFAULT 'requested',
+          provider_reference TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+    """)
+
     # ---- Peeps agent-to-human transaction lifecycle ----
     # Request -> agent research -> candidates -> human-authorized introductions -> outreach (reuses the
     # existing jam_participant_invite email flow) -> acceptance -> booking -> Session Planner -> Jam ->
@@ -5743,6 +5802,77 @@ def main():
         return
 
     # ---- Peeps agent-to-human transaction lifecycle ----
+
+    # ---- Dough ledger actions ----
+    if action == "dough_get":
+        subject_type = payload.get("subjectType") or "user"
+        subject_id = payload["subjectId"]
+        now = utc_now()
+        conn.execute("INSERT OR IGNORE INTO dough_accounts (subject_type, subject_id, updated_at) VALUES (?, ?, ?)", (subject_type, subject_id, now))
+        row = conn.execute("SELECT * FROM dough_accounts WHERE subject_type = ? AND subject_id = ?", (subject_type, subject_id)).fetchone()
+        entries = conn.execute("SELECT * FROM dough_entries WHERE subject_type = ? AND subject_id = ? ORDER BY created_at DESC LIMIT 50", (subject_type, subject_id)).fetchall()
+        print(json.dumps({"account": {"subjectType": row["subject_type"], "subjectId": row["subject_id"], "spendBalance": row["spend_balance"], "earnedBalance": row["earned_balance"], "totalBalance": row["spend_balance"] + row["earned_balance"], "updatedAt": row["updated_at"]}, "entries": [{"id": e["id"], "bucket": e["bucket"], "direction": e["direction"], "amount": e["amount"], "kind": e["kind"], "referenceId": e["reference_id"], "status": e["status"], "metadata": _json_or(e["metadata_json"], {}), "createdAt": e["created_at"]} for e in entries]}))
+        return
+
+    if action == "dough_post":
+        subject_type = payload.get("subjectType") or "user"
+        subject_id = payload["subjectId"]
+        bucket = payload["bucket"]
+        direction = payload["direction"]
+        amount = round(float(payload.get("amount") or 0), 6)
+        if amount <= 0 or bucket not in ("spend", "earned") or direction not in ("credit", "debit"):
+            raise ValueError("invalid_dough_entry")
+        now = utc_now()
+        conn.execute("INSERT OR IGNORE INTO dough_accounts (subject_type, subject_id, updated_at) VALUES (?, ?, ?)", (subject_type, subject_id, now))
+        existing = None
+        if payload.get("referenceId"):
+            existing = conn.execute("SELECT id FROM dough_entries WHERE kind = ? AND reference_id = ? AND subject_type = ? AND subject_id = ?", (payload["kind"], payload["referenceId"], subject_type, subject_id)).fetchone()
+        if existing:
+            conn.commit()
+            row = conn.execute("SELECT * FROM dough_accounts WHERE subject_type = ? AND subject_id = ?", (subject_type, subject_id)).fetchone()
+            print(json.dumps({"posted": False, "idempotent": True, "account": {"spendBalance": row["spend_balance"], "earnedBalance": row["earned_balance"]}}))
+            return
+        column = "spend_balance" if bucket == "spend" else "earned_balance"
+        row = conn.execute("SELECT * FROM dough_accounts WHERE subject_type = ? AND subject_id = ?", (subject_type, subject_id)).fetchone()
+        current = float(row[column] or 0)
+        if direction == "debit" and current + 1e-9 < amount:
+            print(json.dumps({"posted": False, "insufficient": True, "available": current}))
+            return
+        delta = amount if direction == "credit" else -amount
+        conn.execute(f"UPDATE dough_accounts SET {column} = {column} + ?, updated_at = ? WHERE subject_type = ? AND subject_id = ?", (delta, now, subject_type, subject_id))
+        conn.execute("INSERT INTO dough_entries (id, subject_type, subject_id, bucket, direction, amount, kind, reference_id, status, metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'posted', ?, ?)", (payload["id"], subject_type, subject_id, bucket, direction, amount, payload["kind"], payload.get("referenceId"), json.dumps(payload.get("metadata") or {}), now))
+        conn.commit()
+        row = conn.execute("SELECT * FROM dough_accounts WHERE subject_type = ? AND subject_id = ?", (subject_type, subject_id)).fetchone()
+        print(json.dumps({"posted": True, "account": {"spendBalance": row["spend_balance"], "earnedBalance": row["earned_balance"]}}))
+        return
+
+    if action == "dough_transfer_dub_to_user":
+        dub_id, user_id, now = payload["dubId"], payload["userId"], utc_now()
+        conn.execute("INSERT OR IGNORE INTO dough_accounts (subject_type, subject_id, updated_at) VALUES ('user', ?, ?)", (user_id, now))
+        dub = conn.execute("SELECT * FROM dough_accounts WHERE subject_type = 'dub' AND subject_id = ?", (dub_id,)).fetchone()
+        amount = float(dub["earned_balance"] or 0) if dub else 0
+        if amount > 0:
+            conn.execute("UPDATE dough_accounts SET earned_balance = 0, updated_at = ? WHERE subject_type = 'dub' AND subject_id = ?", (now, dub_id))
+            conn.execute("UPDATE dough_accounts SET earned_balance = earned_balance + ?, updated_at = ? WHERE subject_type = 'user' AND subject_id = ?", (amount, now, user_id))
+            ref = "claim:" + dub_id
+            conn.execute("INSERT OR IGNORE INTO dough_entries (id, subject_type, subject_id, bucket, direction, amount, kind, reference_id, metadata_json, created_at) VALUES (?, 'user', ?, 'earned', 'credit', ?, 'dub_claim_transfer', ?, '{}', ?)", (payload["id"], user_id, amount, ref, now))
+        conn.commit()
+        print(json.dumps({"transferred": amount}))
+        return
+
+    if action == "dough_funding_intent_create":
+        now = utc_now()
+        conn.execute("INSERT INTO dough_funding_intents (id, user_id, amount, currency, method, provider, status, created_at, updated_at) VALUES (?, ?, ?, 'USD', ?, ?, 'pending', ?, ?)", (payload["id"], payload["userId"], payload["amount"], payload["method"], payload.get("provider"), now, now))
+        conn.commit()
+        print(json.dumps({"intent": {"id": payload["id"], "amount": payload["amount"], "currency": "USD", "method": payload["method"], "provider": payload.get("provider"), "status": "pending"}}))
+        return
+
+    if action == "dough_withdrawal_create":
+        now = utc_now()
+        conn.execute("INSERT INTO dough_withdrawals (id, user_id, amount, currency, method, destination, status, created_at, updated_at) VALUES (?, ?, ?, 'USD', ?, ?, 'requested', ?, ?)", (payload["id"], payload["userId"], payload["amount"], payload["method"], payload.get("destination"), now, now))
+        conn.commit()
+        print(json.dumps({"withdrawal": {"id": payload["id"], "amount": payload["amount"], "currency": "USD", "method": payload["method"], "status": "requested"}}))
+        return
 
     if action == "peeps_request_create":
         now = utc_now()

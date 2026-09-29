@@ -50,6 +50,13 @@ export const replaceJamParticipant = (jamId, removedParticipantId, reason = "") 
   studioRequest(`/api/jams/${encodeURIComponent(jamId)}/replace-participant`, { method: "POST", body: JSON.stringify({ removedParticipantId, reason }) });
 export const settleJam = (jamId) => studioRequest(`/api/jams/${encodeURIComponent(jamId)}/settle`, { method: "POST", body: "{}" });
 
+// ---- Dough ----
+export const getDough = () => studioRequest("/api/peeps/dough");
+export const createDoughFundingIntent = (amount, method) =>
+  studioRequest("/api/peeps/dough/funding-intents", { method: "POST", body: JSON.stringify({ amount, method }) });
+export const requestDoughWithdrawal = (amount, method, destination) =>
+  studioRequest("/api/peeps/dough/withdrawals", { method: "POST", body: JSON.stringify({ amount, method, destination }) });
+
 // ---- Peeps agent-to-human transaction lifecycle (request -> research -> candidates -> introductions) ----
 
 export const createPeepsRequest = (fields) => studioRequest("/api/peeps/requests", { method: "POST", body: JSON.stringify(fields) });
