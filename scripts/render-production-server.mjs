@@ -1291,6 +1291,23 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // ---- Dough application ledger ----
+  if (req.method === "GET" && req.url === "/api/peeps/dough") {
+    if (!limit(req, res, "dough-get", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res); if (!session) return;
+    await handleDoughGet(req, res, session); return;
+  }
+  if (req.method === "POST" && req.url === "/api/peeps/dough/funding-intents") {
+    if (!requireCsrf(req, res) || !limit(req, res, "dough-fund", 10, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res); if (!session) return;
+    await handleDoughFundingIntent(req, res, session); return;
+  }
+  if (req.method === "POST" && req.url === "/api/peeps/dough/withdrawals") {
+    if (!requireCsrf(req, res) || !limit(req, res, "dough-withdraw", 6, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res); if (!session) return;
+    await handleDoughWithdrawal(req, res, session); return;
+  }
+
   // ==================================================================================================
   // PEEPS AGENT-TO-HUMAN TRANSACTION LIFECYCLE — "who do you want to talk to?" / "what do you want to
   // accomplish?" through candidates, human-authorized introductions, outreach, booking and into the
@@ -6821,6 +6838,45 @@ function peepsOutreachEmailHtml({ request, candidate, inviteUrl }) {
 // (not per candidate) — the introduction workflow itself is what's being paid for. Never fabricates a
 // contact channel: a candidate with no verified email (claimed_member/unclaimed_dub already have one;
 // everyone else needs the organizer to explicitly supply one) is skipped, not silently "introduced."
+async function handleDoughGet(req, res, authSession) {
+  const result = await db("dough_get", { subjectType: "user", subjectId: authSession.id });
+  sendJson(req, res, 200, result);
+}
+
+async function handleDoughFundingIntent(req, res, authSession) {
+  const body = await readJson(req);
+  const amount = Math.round(Number(body.amount) * 100) / 100;
+  if (!Number.isFinite(amount) || amount < 1 || amount > 100000) throw httpError(400, "Funding amount must be between $1 and $100,000.");
+  const method = sessionText(body.method, 20).toLowerCase();
+  if (!["fiat", "crypto"].includes(method)) throw httpError(400, "Funding method must be fiat or crypto.");
+  // This is intentionally an intent, never a fake credit. A configured ramp/provider must confirm money
+  // before dough_post credits spend_balance. Until then the UI says pending.
+  const provider = method === "crypto" ? "solana-usdc" : (process.env.TOASTY_DOUGH_FIAT_PROVIDER || "unconfigured");
+  const result = await db("dough_funding_intent_create", { id: newId("dfi"), userId: authSession.id, amount, method, provider });
+  sendJson(req, res, 201, {
+    ...result,
+    funding: method === "crypto" && BILLING_SOLANA_RECIPIENT ? {
+      network: BILLING_SOLANA_NETWORK, asset: "USDC", recipient: BILLING_SOLANA_RECIPIENT, tokenMint: BILLING_USDC_MINT
+    } : null,
+    requiresProvider: provider === "unconfigured"
+  });
+}
+
+async function handleDoughWithdrawal(req, res, authSession) {
+  const body = await readJson(req);
+  const amount = Math.round(Number(body.amount) * 100) / 100;
+  if (!Number.isFinite(amount) || amount <= 0) throw httpError(400, "Enter a valid withdrawal amount.");
+  const method = sessionText(body.method, 20).toLowerCase();
+  if (!["bank", "crypto"].includes(method)) throw httpError(400, "Withdrawal method must be bank or crypto.");
+  const destination = sessionText(body.destination, 240);
+  if (!destination) throw httpError(400, "A payout destination is required.");
+  const withdrawalId = newId("dwd");
+  const debit = await db("dough_post", { id: newId("dle"), subjectType: "user", subjectId: authSession.id, bucket: "earned", direction: "debit", amount, kind: "withdrawal_reserve", referenceId: withdrawalId, metadata: { method } });
+  if (!debit.posted) throw httpError(409, "Not enough earned Dough to withdraw that amount.");
+  const result = await db("dough_withdrawal_create", { id: withdrawalId, userId: authSession.id, amount, method, destination });
+  sendJson(req, res, 201, { ...result, payoutStatus: "requested", note: "Dough is reserved. External payout executes only through a configured payout provider." });
+}
+
 async function handlePeepsRequestAuthorize(req, res, authSession) {
   const id = peepsRequestIdFromUrl(req, "/authorize");
   const request = await requireOwnedPeepsRequest(req, res, authSession, id, "member");
@@ -6829,7 +6885,17 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
   const selections = Array.isArray(body.candidates) ? body.candidates : [];
   if (!selections.length) throw httpError(400, "Select at least one candidate to introduce.");
 
-  const proof = readDiscoveryPaymentProof(req, PEEPS_INTRODUCTION_PRICE);
+  // Dough is the human-facing payment abstraction. Spend it first; only fall back to a direct x402
+  // proof for crypto-native callers or deployments that have not funded Dough yet.
+  const doughChargeRef = `peeps-intro:${id}`;
+  const doughCharge = await db("dough_post", {
+    id: newId("dle"), subjectType: "user", subjectId: authSession.id, bucket: "spend", direction: "debit",
+    amount: PEEPS_INTRODUCTION_PRICE, kind: "peeps_introduction", referenceId: doughChargeRef,
+    metadata: { requestId: id, candidateIds: selections.map((s) => s.candidateId) }
+  });
+  const proof = doughCharge.posted || doughCharge.idempotent
+    ? { ok: true, demo: false, payerWallet: null, transactionSignature: null, paymentSignature: null, approvalSource: "DOUGH_BALANCE", dough: true }
+    : readDiscoveryPaymentProof(req, PEEPS_INTRODUCTION_PRICE);
   if (!proof.ok) {
     sendPeepsIntroductionPaymentRequirement(req, res, proof.reason);
     return;
@@ -6857,22 +6923,22 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
   await db("record_payment", {
     id: newId("pay"),
     paymentKind: "EXPERT_DISCOVERY",
-    rail: proof.demo ? "demo-x402-simulated" : "x402-solana-usdc",
+    rail: proof.dough ? "dough-ledger" : (proof.demo ? "demo-x402-simulated" : "x402-solana-usdc"),
     provider: "toasty-peeps",
     purpose: "peeps introduction authorization",
     status: "PAYMENT_VERIFIED",
-    network: proof.demo ? "demo" : TOASTY_SOLANA_NETWORK,
+    network: proof.dough ? "internal" : (proof.demo ? "demo" : TOASTY_SOLANA_NETWORK),
     payerWallet: proof.payerWallet,
-    payeeWallet: TOASTY_EXPERT_DISCOVERY_RECIPIENT || "demo-recipient",
+    payeeWallet: proof.dough ? null : (TOASTY_EXPERT_DISCOVERY_RECIPIENT || "demo-recipient"),
     amount: PEEPS_INTRODUCTION_PRICE,
     currency: "USDC",
-    tokenMint: proof.demo ? null : TOASTY_USDC_MINT,
+    tokenMint: (proof.demo || proof.dough) ? null : TOASTY_USDC_MINT,
     transactionSignature: proof.transactionSignature,
     paymentRequirement: peepsIntroductionPaymentRequirement(),
     paymentSignature: proof.paymentSignature,
     policyDecision: "APPROVED",
     approvalSource: proof.approvalSource,
-    metadata: { requestId: id, jamId, candidateIds: selections.map((s) => s.candidateId), verificationStatus: proof.demo ? "DEMO_SIMULATED" : "VERIFIED" }
+    metadata: { requestId: id, jamId, candidateIds: selections.map((s) => s.candidateId), verificationStatus: proof.dough ? "DOUGH_LEDGER" : (proof.demo ? "DEMO_SIMULATED" : "VERIFIED") }
   });
 
   const introductions = [];
@@ -7148,24 +7214,23 @@ async function handleJamSettle(req, res, authSession) {
     const amount = Number(participant.compensationAmount) || 0;
     if (amount <= 0) { settlements.push({ participantId: participant.id, status: "no_compensation_due" }); continue; }
     const paymentId = `pay_settle_${participant.id}`;
+    const dubResult = await db("dub_get", { id: participant.dubId });
+    const dub = dubResult.dub;
+    const subjectType = dub?.userId ? "user" : "dub";
+    const subjectId = dub?.userId || participant.dubId;
+    const credit = await db("dough_post", {
+      id: newId("dle"), subjectType, subjectId, bucket: "earned", direction: "credit", amount,
+      kind: "jam_earning", referenceId: paymentId, metadata: { jamId: jam.id, jamParticipantId: participant.id }
+    });
     await db("record_payment", {
-      id: paymentId,
-      paymentKind: "BOOKING_SETTLEMENT",
-      rail: "demo-x402-simulated",
-      provider: "toasty-peeps",
-      purpose: "jam-participant-settlement",
-      status: "PAYMENT_RELEASED",
-      network: "demo",
-      amount,
-      currency: "USDC",
-      transactionSignature: `demo-settle-${participant.id}`,
-      policyDecision: "APPROVED",
-      approvalSource: "SETTLEMENT_POLICY",
-      metadata: { jamId: jam.id, jamParticipantId: participant.id, verificationStatus: "DEMO_SIMULATED" }
+      id: paymentId, paymentKind: "BOOKING_SETTLEMENT", rail: "dough-ledger", provider: "toasty-peeps",
+      purpose: "jam-participant-settlement", status: "PAYMENT_RELEASED", network: "internal", amount,
+      currency: "USD", policyDecision: "APPROVED", approvalSource: "SETTLEMENT_POLICY",
+      metadata: { jamId: jam.id, jamParticipantId: participant.id, verificationStatus: "DOUGH_LEDGER", beneficiary: { subjectType, subjectId } }
     });
     await db("jam_participant_update", { id: participant.id, fields: { compensationStatus: "paid" } });
-    await db("jam_event_create", { id: newId("jev"), jamId: jam.id, jamParticipantId: participant.id, type: "payment.paid", actor: authSession.id, detail: { amount, paymentId } });
-    settlements.push({ participantId: participant.id, status: "settled", paymentId, amount });
+    await db("jam_event_create", { id: newId("jev"), jamId: jam.id, jamParticipantId: participant.id, type: "payment.paid", actor: authSession.id, detail: { amount, paymentId, rail: "dough" } });
+    settlements.push({ participantId: participant.id, status: credit.posted || credit.idempotent ? "settled_to_dough" : "settlement_error", paymentId, amount });
   }
   sendJson(req, res, 200, { settlements });
 }
@@ -7224,7 +7289,8 @@ async function handleDubClaimClaim(req, res, authSession) {
   if (new Date(result.invite.expiresAt).getTime() < Date.now()) throw httpError(410, "This claim link has expired.");
   const claimResult = await db("dub_claim", { dubId: result.invite.dubId, tokenHash, userId: authSession.id });
   if (!claimResult.claimed) throw httpError(409, "This Dub has already been claimed.");
-  sendJson(req, res, 200, { dub: claimResult.dub });
+  const doughTransfer = await db("dough_transfer_dub_to_user", { id: newId("dle"), dubId: result.invite.dubId, userId: authSession.id });
+  sendJson(req, res, 200, { dub: claimResult.dub, doughTransferred: doughTransfer.transferred || 0 });
 }
 
 // Sections 26/27 — called once a Jam completes. A claimed participant is told their Breadcrumbs were
