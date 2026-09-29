@@ -576,7 +576,7 @@ server {
         proxy_send_timeout 20s;
     }
 
-    location ~ ^/api/jam-participants/[^/]+(/invite|/confirm|/remove|/mark-attended|/mark-completed|/mark-eligible|/mark-paid)?$ {
+    location ~ ^/api/jam-participants/[^/]+(/invite|/confirm|/remove|/mark-attended|/mark-completed|/mark-eligible|/mark-paid|/compensation)?$ {
         limit_req zone=toasty_settings burst=20 nodelay;
 
         if ($request_method = OPTIONS) {

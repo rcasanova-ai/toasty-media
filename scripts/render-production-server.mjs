@@ -1307,6 +1307,21 @@ const server = createServer(async (req, res) => {
     const session = await requireSession(req, res); if (!session) return;
     await handleDoughWithdrawal(req, res, session); return;
   }
+  if (req.method === "POST" && req.url?.startsWith("/api/peeps/dough/funding-intents/") && req.url.endsWith("/confirm")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "dough-fund-confirm", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res); if (!session) return;
+    await handleDoughFundingConfirm(req, res, session); return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/organizations/platform-admin/dough-withdrawals/") && req.url.endsWith("/status")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "platform-admin-write", 60, 15 * 60 * 1000)) return;
+    const session = await requirePlatformAdmin(req, res); if (!session) return;
+    await handleDoughWithdrawalStatusUpdate(req, res, session); return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jam-participants/") && req.url.endsWith("/compensation")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jam-participant-compensation", 40, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res); if (!session) return;
+    await handleJamParticipantSetCompensation(req, res, session); return;
+  }
 
   // ==================================================================================================
   // PEEPS AGENT-TO-HUMAN TRANSACTION LIFECYCLE — "who do you want to talk to?" / "what do you want to
@@ -3769,12 +3784,24 @@ async function handleStripeWebhook(req, res) {
 
   const obj = event.data?.object || {};
   if (event.type === "checkout.session.completed") {
-    const organizationId = obj.client_reference_id || obj.metadata?.organizationId;
-    const plan = obj.metadata?.plan;
-    if (organizationId && plan) {
-      await db("upsert_billing_account", { organizationId, stripeCustomerId: obj.customer });
-      await db("create_subscription", { id: randomUUID(), organizationId, provider: "stripe", plan, status: "active", externalSubscriptionId: obj.subscription });
-      await db("update_organization", { id: organizationId, plan, subscriptionStatus: "active" });
+    // Two different products can complete a Stripe Checkout session: organization plan billing
+    // (client_reference_id/metadata.organizationId+plan) and Dough funding (metadata.kind ==
+    // "dough_funding"). Distinguish by the metadata this same webhook's two callers each set, never by
+    // guessing — an unrecognized session is simply ignored, not treated as a billing event.
+    if (obj.metadata?.kind === "dough_funding") {
+      const intentId = obj.metadata?.doughFundingIntentId || obj.client_reference_id;
+      if (intentId) {
+        const confirm = await db("dough_funding_confirm", { id: intentId, providerReference: obj.id });
+        if (confirm.error) console.error("[Toasty Dough] Stripe funding confirmation failed for intent", intentId, confirm.error);
+      }
+    } else {
+      const organizationId = obj.client_reference_id || obj.metadata?.organizationId;
+      const plan = obj.metadata?.plan;
+      if (organizationId && plan) {
+        await db("upsert_billing_account", { organizationId, stripeCustomerId: obj.customer });
+        await db("create_subscription", { id: randomUUID(), organizationId, provider: "stripe", plan, status: "active", externalSubscriptionId: obj.subscription });
+        await db("update_organization", { id: organizationId, plan, subscriptionStatus: "active" });
+      }
     }
   } else if (event.type === "customer.subscription.updated" || event.type === "customer.subscription.deleted") {
     const organizationId = obj.metadata?.organizationId;
@@ -4379,7 +4406,7 @@ function parseCookies(header) {
 const DB_EXPECTED_ERRORS = new Set([
   "duplicate_email", "kicked", "full", "invalid_mode", "invalid_brand", "brand_forbidden",
   "duplicate_slug", "already_member", "invalid_token", "expired_token", "duplicate_reference", "duplicate_signature",
-  "slug_taken"
+  "slug_taken", "invalid_amount", "not_found", "invalid_transition", "conflict"
 ]);
 
 async function db(action, values = {}) {
@@ -6843,23 +6870,75 @@ async function handleDoughGet(req, res, authSession) {
   sendJson(req, res, 200, result);
 }
 
+// Fiat funding reuses the SAME Stripe adapter as organization billing (stripeRequest/stripeConfigured),
+// just in one-time "payment" mode instead of "subscription" mode — never a second billing system. Crypto
+// funding reuses the same BILLING_SOLANA_* recipient/mint configuration and (via handleDoughFundingConfirm
+// below) the exact verifySolanaTransactionForIntent anti-fraud checks Solana org billing already has:
+// wrong recipient, wrong mint, underpayment, failed/unconfirmed tx, and a transaction_signature UNIQUE
+// constraint so the same on-chain payment can never fund two intents.
 async function handleDoughFundingIntent(req, res, authSession) {
   const body = await readJson(req);
   const amount = Math.round(Number(body.amount) * 100) / 100;
   if (!Number.isFinite(amount) || amount < 1 || amount > 100000) throw httpError(400, "Funding amount must be between $1 and $100,000.");
   const method = sessionText(body.method, 20).toLowerCase();
   if (!["fiat", "crypto"].includes(method)) throw httpError(400, "Funding method must be fiat or crypto.");
-  // This is intentionally an intent, never a fake credit. A configured ramp/provider must confirm money
-  // before dough_post credits spend_balance. Until then the UI says pending.
-  const provider = method === "crypto" ? "solana-usdc" : (process.env.TOASTY_DOUGH_FIAT_PROVIDER || "unconfigured");
-  const result = await db("dough_funding_intent_create", { id: newId("dfi"), userId: authSession.id, amount, method, provider });
-  sendJson(req, res, 201, {
-    ...result,
-    funding: method === "crypto" && BILLING_SOLANA_RECIPIENT ? {
-      network: BILLING_SOLANA_NETWORK, asset: "USDC", recipient: BILLING_SOLANA_RECIPIENT, tokenMint: BILLING_USDC_MINT
-    } : null,
-    requiresProvider: provider === "unconfigured"
+
+  if (method === "crypto") {
+    if (!solanaBillingConfigured() || !BILLING_USDC_MINT) return sendJson(req, res, 503, { error: "Crypto funding isn't configured on this server yet." });
+    const intentId = newId("dfi");
+    const created = await db("dough_funding_intent_create", {
+      id: intentId, userId: authSession.id, amount, method, provider: "solana-usdc",
+      recipientWallet: BILLING_SOLANA_RECIPIENT, asset: "USDC", cryptoAmount: amount
+    });
+    sendJson(req, res, 201, {
+      intent: created.intent,
+      funding: { network: BILLING_SOLANA_NETWORK, asset: "USDC", recipient: BILLING_SOLANA_RECIPIENT, tokenMint: BILLING_USDC_MINT, cryptoAmount: amount },
+      requiresProvider: false
+    });
+    return;
+  }
+
+  const intentId = newId("dfi");
+  if (!stripeConfigured()) {
+    // Honest, never fabricated: the intent exists so the attempt is recorded, but nothing will ever
+    // credit it until a real card/bank provider is configured. The UI must say exactly this.
+    const created = await db("dough_funding_intent_create", { id: intentId, userId: authSession.id, amount, method, provider: "unconfigured" });
+    sendJson(req, res, 201, { intent: created.intent, funding: null, requiresProvider: true });
+    return;
+  }
+  const created = await db("dough_funding_intent_create", { id: intentId, userId: authSession.id, amount, method, provider: "stripe" });
+  const checkoutSession = await stripeRequest("/checkout/sessions", {
+    mode: "payment",
+    customer_email: authSession.email,
+    line_items: [{ price_data: { currency: "usd", product_data: { name: "Toasty Dough" }, unit_amount: Math.round(amount * 100) }, quantity: 1 }],
+    client_reference_id: intentId,
+    metadata: { kind: "dough_funding", doughFundingIntentId: intentId, userId: authSession.id },
+    success_url: `${APP_BASE_URL}/peeps/app/dough.html?funded=pending`,
+    cancel_url: `${APP_BASE_URL}/peeps/app/dough.html?funded=cancelled`
   });
+  await db("dough_funding_intent_set_provider_reference", { id: intentId, providerReference: checkoutSession.id });
+  sendJson(req, res, 201, { intent: created.intent, checkoutUrl: checkoutSession.url, requiresProvider: false });
+}
+
+// Crypto-side counterpart to the Stripe webhook below — a human pastes the transaction signature they
+// just broadcast from their own wallet, this independently verifies it against the Solana RPC (never
+// trusts the client's say-so), then credits exactly once.
+async function handleDoughFundingConfirm(req, res, authSession) {
+  const intentId = decodeURIComponent(req.url.slice("/api/peeps/dough/funding-intents/".length, -"/confirm".length));
+  if (!SAFE_ID.test(intentId)) throw httpError(400, "Invalid funding intent id.");
+  const intentResult = await db("dough_funding_intent_get", { id: intentId });
+  if (!intentResult.intent) throw httpError(404, "Funding intent not found.");
+  const intent = intentResult.intent;
+  if (intent.userId !== authSession.id) throw httpError(403, "This funding intent does not belong to you.");
+  if (intent.status === "paid") return sendJson(req, res, 200, { confirmed: true, alreadyPaid: true, amount: intent.amount });
+  if (!intent.recipientWallet || !intent.cryptoAmount) throw httpError(400, "This funding intent is not a crypto intent.");
+  const body = await readJson(req);
+  const transactionSignature = String(body?.transactionSignature || "").trim();
+  if (!transactionSignature) throw httpError(400, "transactionSignature is required.");
+  await verifySolanaTransactionForIntent({ recipientWallet: intent.recipientWallet, asset: intent.asset || "USDC", cryptoAmount: intent.cryptoAmount }, transactionSignature);
+  const confirm = await db("dough_funding_confirm", { id: intentId, providerReference: transactionSignature, transactionSignature });
+  if (confirm.error === "duplicate_reference") throw httpError(409, "This transaction has already been used to fund a different request.");
+  sendJson(req, res, 200, { confirmed: true, alreadyPaid: Boolean(confirm.alreadyPaid), amount: confirm.amount });
 }
 
 async function handleDoughWithdrawal(req, res, authSession) {
@@ -6870,11 +6949,74 @@ async function handleDoughWithdrawal(req, res, authSession) {
   if (!["bank", "crypto"].includes(method)) throw httpError(400, "Withdrawal method must be bank or crypto.");
   const destination = sessionText(body.destination, 240);
   if (!destination) throw httpError(400, "A payout destination is required.");
+
+  // Double-click/retry guard — see dough_withdrawal_find_recent's own comment. Returns the existing
+  // in-flight request instead of reserving the money a second time.
+  const recentCutoff = new Date(Date.now() - 30_000).toISOString();
+  const existing = await db("dough_withdrawal_find_recent", { userId: authSession.id, amount, method, destination, sinceIso: recentCutoff });
+  if (existing.withdrawal) {
+    sendJson(req, res, 200, { withdrawal: existing.withdrawal, payoutStatus: existing.withdrawal.status, deduplicated: true, note: "An identical withdrawal request is already in flight." });
+    return;
+  }
+
   const withdrawalId = newId("dwd");
   const debit = await db("dough_post", { id: newId("dle"), subjectType: "user", subjectId: authSession.id, bucket: "earned", direction: "debit", amount, kind: "withdrawal_reserve", referenceId: withdrawalId, metadata: { method } });
+  if (debit.error === "invalid_amount") throw httpError(400, "Enter a valid withdrawal amount.");
   if (!debit.posted) throw httpError(409, "Not enough earned Dough to withdraw that amount.");
-  const result = await db("dough_withdrawal_create", { id: withdrawalId, userId: authSession.id, amount, method, destination });
-  sendJson(req, res, 201, { ...result, payoutStatus: "requested", note: "Dough is reserved. External payout executes only through a configured payout provider." });
+  const created = await db("dough_withdrawal_create", { id: withdrawalId, userId: authSession.id, amount, method, destination });
+
+  // Crypto payout executes for real, synchronously, when a funded payer keypair is configured — reusing
+  // settleUsdc exactly as jam settlement already does. No pretending: if the CLI/keypair isn't there, or
+  // the transfer itself fails, the reservation is refunded immediately rather than left stuck pending
+  // forever, and the user gets an honest error instead of a false "processing."
+  if (method === "crypto" && TOASTY_SOLANA_PAYER_KEYPAIR) {
+    try {
+      const settlement = await settleUsdc({ recipient: destination, amount });
+      await db("dough_withdrawal_update_status", { id: withdrawalId, status: "paid", providerReference: settlement.transactionSignature });
+      sendJson(req, res, 201, { withdrawal: { ...created.withdrawal, status: "paid", providerReference: settlement.transactionSignature }, payoutStatus: "paid", note: "USDC sent." });
+      return;
+    } catch (error) {
+      await db("dough_withdrawal_update_status", { id: withdrawalId, status: "failed" });
+      throw httpError(502, `Crypto payout failed and your Dough has been refunded: ${error.message || "transfer error"}`);
+    }
+  }
+
+  sendJson(req, res, 201, { withdrawal: created.withdrawal, payoutStatus: "requested", note: "Dough is reserved. A real payout provider is not configured for this method yet — an operator will process this manually." });
+}
+
+// Bank withdrawals have no automated payout rail (reusing existing Toasty infrastructure means Stripe
+// customer billing, which has no built-in path to pay an individual out — "do not invent bank payouts").
+// A platform admin drives the real-world state here instead: mark it processing once actually sent
+// through whatever external payout mechanism ops uses, then paid/failed once that resolves. Moving to
+// failed or reversed refunds automatically and exactly once (see dough_withdrawal_update_status).
+async function handleDoughWithdrawalStatusUpdate(req, res, authSession) {
+  const id = decodeURIComponent(req.url.slice("/api/organizations/platform-admin/dough-withdrawals/".length, -"/status".length));
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid withdrawal id.");
+  const body = await readJson(req);
+  const status = sessionText(body.status, 20);
+  if (!["processing", "paid", "failed", "reversed"].includes(status)) throw httpError(400, "Invalid status.");
+  const providerReference = sessionText(body.providerReference, 200) || undefined;
+  const result = await db("dough_withdrawal_update_status", { id, status, providerReference });
+  if (result.error === "not_found") throw httpError(404, "Withdrawal not found.");
+  if (result.error === "invalid_transition") throw httpError(409, `Cannot move a withdrawal from "${result.from}" to "${result.to}".`);
+  if (result.error === "conflict") throw httpError(409, "This withdrawal's status changed concurrently — reload and retry.");
+  sendJson(req, res, 200, result);
+}
+
+// Extends compensationAmount onto the existing jam_participant_update action with real HTTP-reachable
+// validation — previously nothing in this codebase ever set this column, so every Jam settlement resolved
+// to $0 regardless of what an organizer intended to pay. Amount is optional-per-participant (a Jam can
+// mix paid and unpaid roles) and can be lowered/raised any time before settlement; settlement itself
+// (handleJamSettle) is what actually locks it in once paid.
+async function handleJamParticipantSetCompensation(req, res, authSession) {
+  const id = jamParticipantIdFromUrl(req, "/compensation");
+  const owned = await requireOwnedJamParticipant(req, res, authSession, id, "member");
+  if (!owned) return;
+  const body = await readJson(req);
+  const amount = Math.round(Number(body.amount) * 100) / 100;
+  if (!Number.isFinite(amount) || amount < 0 || amount > 1_000_000) throw httpError(400, "Enter a valid compensation amount.");
+  const result = await db("jam_participant_update", { id, fields: { compensationAmount: amount, compensationStatus: amount > 0 ? "eligible" : "not_eligible" } });
+  sendJson(req, res, 200, { participant: result.participant });
 }
 
 async function handlePeepsRequestAuthorize(req, res, authSession) {
@@ -6886,23 +7028,54 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
   if (!selections.length) throw httpError(400, "Select at least one candidate to introduce.");
 
   // Dough is the human-facing payment abstraction. Spend it first; only fall back to a direct x402
-  // proof for crypto-native callers or deployments that have not funded Dough yet.
-  const doughChargeRef = `peeps-intro:${id}`;
-  const doughCharge = await db("dough_post", {
-    id: newId("dle"), subjectType: "user", subjectId: authSession.id, bucket: "spend", direction: "debit",
-    amount: PEEPS_INTRODUCTION_PRICE, kind: "peeps_introduction", referenceId: doughChargeRef,
-    metadata: { requestId: id, candidateIds: selections.map((s) => s.candidateId) }
-  });
-  const proof = doughCharge.posted || doughCharge.idempotent
-    ? { ok: true, demo: false, payerWallet: null, transactionSignature: null, paymentSignature: null, approvalSource: "DOUGH_BALANCE", dough: true }
-    : readDiscoveryPaymentProof(req, PEEPS_INTRODUCTION_PRICE);
-  if (!proof.ok) {
-    sendPeepsIntroductionPaymentRequirement(req, res, proof.reason);
-    return;
+  // proof for crypto-native callers or deployments that have not funded Dough yet. Insufficient Dough
+  // balance is its own case (never silently demand a raw wallet signature from a normal person who has
+  // no wallet — section 6) — it gets a clear, human-readable shortfall message, with the x402
+  // requirement ALSO included in the same response so an agent/power-user caller can still pay that way
+  // in one round trip if they choose to.
+  // A caller that already brought its own x402 proof (an agent, section 7) is honored directly and never
+  // touched by Dough at all — Dough is the HUMAN default, not the only rail. Everyone else (the normal
+  // Peeps UI, no wallet involved) spends Dough first.
+  let proof;
+  if (req.headers["x-payment-signature"]) {
+    proof = readDiscoveryPaymentProof(req, PEEPS_INTRODUCTION_PRICE);
+    if (!proof.ok) {
+      sendPeepsIntroductionPaymentRequirement(req, res, proof.reason);
+      return;
+    }
+  } else {
+    const doughChargeRef = `peeps-intro:${id}`;
+    const doughCharge = await db("dough_post", {
+      id: newId("dle"), subjectType: "user", subjectId: authSession.id, bucket: "spend", direction: "debit",
+      amount: PEEPS_INTRODUCTION_PRICE, kind: "peeps_introduction", referenceId: doughChargeRef,
+      metadata: { requestId: id, candidateIds: selections.map((s) => s.candidateId) }
+    });
+    if (doughCharge.posted || doughCharge.idempotent) {
+      proof = { ok: true, demo: false, payerWallet: null, transactionSignature: null, paymentSignature: null, approvalSource: "DOUGH_BALANCE", dough: true };
+    } else {
+      // insufficient (or, in principle, invalid_amount on a fixed constant — should never happen): never
+      // silently demand a raw wallet signature from a normal person who has no wallet (section 6). The
+      // x402 requirement is ALSO included so an agent/power-user caller can retry that way in one round
+      // trip if they choose to, without a separate lookup call.
+      const requirement = peepsIntroductionPaymentRequirement("insufficient_dough");
+      sendJson(req, res, 402, {
+        ...requirement,
+        error: "Not enough Dough.",
+        message: `This introduction costs $${PEEPS_INTRODUCTION_PRICE.toFixed(2)} Dough. You have $${Number(doughCharge.available || 0).toFixed(2)} available to spend.`,
+        doughShortfall: { required: PEEPS_INTRODUCTION_PRICE, available: Number(doughCharge.available || 0) },
+        fundUrl: "/peeps/app/dough.html"
+      });
+      return;
+    }
   }
 
   const candidatesResult = await db("peeps_candidate_list", { requestId: id });
   const candidateById = new Map((candidatesResult.candidates || []).map((c) => [c.id, c]));
+
+  // What the organizer pays EACH PARTICIPANT for taking part — separate from PEEPS_INTRODUCTION_PRICE,
+  // which is what they pay Peeps for the introduction workflow itself. Optional: many Jams are unpaid.
+  // This is the one place that value ever gets attached, so a settlement later has something real to pay.
+  const compensationAmount = Math.max(0, Math.min(1_000_000, Math.round((Number(body.compensationAmount) || 0) * 100) / 100));
 
   let jamId = request.jamId;
   if (!jamId) {
@@ -6913,7 +7086,7 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
       title: request.whoText.slice(0, 160) || "Peeps introduction",
       objective: request.outcomeText,
       targetParticipantCount: selections.length,
-      compensation: {},
+      compensation: compensationAmount > 0 ? { amount: compensationAmount, currency: "USD" } : {},
       consentRequirements: ["terms_of_service", "recording"]
     });
     jamId = jamResult.jam.id;
@@ -6971,6 +7144,9 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
     const participantResult = await db("jam_participant_create", { id: newId("jampt"), jamId, dubId });
     const participant = participantResult.participant;
     await db("peeps_candidate_update", { id: candidate.id, fields: { status: "authorized" } });
+    if (compensationAmount > 0) {
+      await db("jam_participant_update", { id: participant.id, fields: { compensationAmount, compensationStatus: "eligible" } });
+    }
     const introResult = await db("peeps_introduction_create", {
       id: newId("pintro"), requestId: id, candidateId: candidate.id, dubId, jamId,
       jamParticipantId: participant.id, authorizedByUserId: authSession.id

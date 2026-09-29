@@ -16,5 +16,12 @@ try{
   r=db("dough_transfer_dub_to_user",{id:"e6",dubId:"dub1",userId:"u2"}); assert.equal(r.transferred,7.5);
   r=db("dough_get",{subjectType:"user",subjectId:"u2"}); assert.equal(r.account.earnedBalance,7.5);
   r=db("dough_get",{subjectType:"dub",subjectId:"dub1"}); assert.equal(r.account.earnedBalance,0);
-  console.log("Dough ledger: 9 assertions passed");
+
+  // Malformed amounts are rejected cleanly (never an uncaught exception the JS side can only see as a 500).
+  r=db("dough_post",{id:"e7",subjectType:"user",subjectId:"u1",bucket:"spend",direction:"debit",amount:"not-a-number",kind:"bad",referenceId:"bad1"}); assert.equal(r.error,"invalid_amount");
+  r=db("dough_post",{id:"e8",subjectType:"user",subjectId:"u1",bucket:"spend",direction:"debit",amount:NaN,kind:"bad",referenceId:"bad2"}); assert.equal(r.error,"invalid_amount");
+  r=db("dough_post",{id:"e9",subjectType:"user",subjectId:"u1",bucket:"spend",direction:"debit",amount:-5,kind:"bad",referenceId:"bad3"}); assert.equal(r.error,"invalid_amount");
+  r=db("dough_post",{id:"e10",subjectType:"user",subjectId:"u1",bucket:"spend",direction:"debit",amount:Infinity,kind:"bad",referenceId:"bad4"}); assert.equal(r.error,"invalid_amount");
+
+  console.log("Dough ledger: 13 assertions passed");
 } finally { rmSync(dir,{recursive:true,force:true}); }

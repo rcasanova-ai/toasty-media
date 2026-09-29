@@ -54,8 +54,12 @@ export const settleJam = (jamId) => studioRequest(`/api/jams/${encodeURIComponen
 export const getDough = () => studioRequest("/api/peeps/dough");
 export const createDoughFundingIntent = (amount, method) =>
   studioRequest("/api/peeps/dough/funding-intents", { method: "POST", body: JSON.stringify({ amount, method }) });
+export const confirmDoughFunding = (intentId, transactionSignature) =>
+  studioRequest(`/api/peeps/dough/funding-intents/${encodeURIComponent(intentId)}/confirm`, { method: "POST", body: JSON.stringify({ transactionSignature }) });
 export const requestDoughWithdrawal = (amount, method, destination) =>
   studioRequest("/api/peeps/dough/withdrawals", { method: "POST", body: JSON.stringify({ amount, method, destination }) });
+export const setJamParticipantCompensation = (participantId, amount) =>
+  studioRequest(`/api/jam-participants/${encodeURIComponent(participantId)}/compensation`, { method: "POST", body: JSON.stringify({ amount }) });
 
 // ---- Peeps agent-to-human transaction lifecycle (request -> research -> candidates -> introductions) ----
 
@@ -77,33 +81,26 @@ async function rawPost(path, body, headers = {}) {
   return { status: response.status, ok: response.ok, data: payload };
 }
 
-// Authorizing introductions is payment-gated (x402, section 9). This drives the full round trip: try the
-// authorize call; if it comes back 402, pay through whichever provider the response names — currently
-// always the demo provider on a deployment with no real Solana recipient configured (see
-// handlePeepsRequestAuthorize's own comment) — and retry once with the proof attached. A deployment with
-// real payment infrastructure would need a real wallet-signing flow here instead; this throws a clear
-// error rather than pretending to pay in that case.
-export async function authorizePeepsIntroductions(requestId, candidates) {
+// Authorizing introductions is payment-gated, but the server now always tries Dough first (section 9) —
+// a normal person never sees x402/wallet language here. Three outcomes: it just works (Dough covered
+// it), Dough balance is too low (a structured, human-readable shortfall the caller can turn into an
+// "Add Dough" prompt), or — only for a deployment/caller that skips Dough entirely and submits its own
+// x402 proof headers directly (agents, section 7) — a raw payment-required error. This function itself
+// never signs or submits a wallet transaction; that stays exclusively in js/peeps-jam-api.js's Advanced/
+// crypto surface for callers who explicitly want it.
+export async function authorizePeepsIntroductions(requestId, candidates, { compensationAmount } = {}) {
   const path = `/api/peeps/requests/${encodeURIComponent(requestId)}/authorize`;
-  const first = await rawPost(path, { candidates });
-  if (first.status !== 402) {
-    if (!first.ok) throw new Error(first.data.error || "Could not authorize introductions.");
-    return first.data;
+  const result = await rawPost(path, { candidates, compensationAmount });
+  if (result.status === 402) {
+    const error = new Error(result.data.message || result.data.error || "Payment is required to authorize this introduction.");
+    if (result.data.doughShortfall) {
+      error.doughShortfall = result.data.doughShortfall;
+      error.fundUrl = result.data.fundUrl;
+    }
+    throw error;
   }
-  if (!first.data.demo) {
-    throw new Error("This deployment requires a real x402/Solana payment, which this page does not yet support submitting.");
-  }
-  const demoPay = await studioRequest("/api/peeps/demo-payments/authorize", { method: "POST", body: JSON.stringify({ requestId }) });
-  const second = await rawPost(path, { candidates }, {
-    "X-Payment-Signature": demoPay.paymentSignature,
-    "X-Solana-Transaction-Signature": demoPay.transactionSignature,
-    "X-Payment-Asset": demoPay.asset,
-    "X-Payment-Amount": String(demoPay.amount),
-    "X-Payer-Wallet": demoPay.payerWallet,
-    "X-Approval-Source": demoPay.approvalSource
-  });
-  if (!second.ok) throw new Error(second.data.error || "Could not authorize introductions.");
-  return second.data;
+  if (!result.ok) throw new Error(result.data.error || "Could not authorize introductions.");
+  return result.data;
 }
 
 export const issueDubClaimInvite = (dubId, organizationId) =>

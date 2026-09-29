@@ -1,0 +1,119 @@
+name: One-time fix — sync jam-participant compensation nginx route to render host
+
+# Extends the already-live /api/jam-participants/... location block's alternation with /compensation so
+# POST /api/jam-participants/:id/compensation (setting how much a participant is paid — without this,
+# every Jam settlement resolves to $0 regardless of what the organizer intended) actually reaches the
+# app. Same recurring class of gap as the other one-time nginx sync workflows in this repo — see
+# scripts/sync-nginx-jam-participant-compensation-route.py's own header for why this can't just extend
+# an earlier sync script (their own block/line presence checks would no-op on an already-live block).
+# workflow_dispatch only: one-time fix for one specific gap, not a general nginx deploy pipeline.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: toasty-render-helper
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync-nginx:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.TOASTY_RENDER_SSH_PRIVATE_KEY || secrets.TOASTY_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$SSH_PRIVATE_KEY" ]]; then
+            echo "No TOASTY_RENDER_SSH_PRIVATE_KEY or TOASTY_SSH_PRIVATE_KEY secret is set." >&2
+            exit 1
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/toasty_render_deploy
+          chmod 600 ~/.ssh/toasty_render_deploy
+          ssh-keyscan -p 22 -H 165.22.57.61 >> ~/.ssh/known_hosts
+
+      - name: Clean up any stray backup left in sites-enabled/ by an earlier failed attempt
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 \
+            "find /etc/nginx/sites-enabled -maxdepth 1 -name '*.bak-*' -print -delete"
+
+      - name: Locate the live nginx config file for render.toasty.media
+        id: locate
+        run: |
+          set -euo pipefail
+          scp -P 22 -i ~/.ssh/toasty_render_deploy -o BatchMode=yes scripts/locate-nginx-config.sh "root@165.22.57.61:/tmp/locate-nginx-config.sh"
+          set +e
+          OUTPUT="$(ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "bash /tmp/locate-nginx-config.sh")"
+          STATUS=$?
+          set -e
+          if [[ $STATUS -ne 0 || "$OUTPUT" != FOUND:* ]]; then
+            echo "Could not locate the live nginx config file — see DIAG lines above for what nginx -T actually reported." >&2
+            exit 1
+          fi
+          FILE_PATH="${OUTPUT#FOUND:}"
+          echo "Found: $FILE_PATH"
+          echo "file_path=$FILE_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Build the merged config locally and verify the patch applies cleanly
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 \
+            "cat '${{ steps.locate.outputs.file_path }}'" > /tmp/live-nginx.conf
+          python3 scripts/sync-nginx-jam-participant-compensation-route.py scripts/nginx-render.conf.example \
+            < /tmp/live-nginx.conf > /tmp/merged-nginx.conf
+          echo "Diff of what will change on the live host:"
+          diff -u /tmp/live-nginx.conf /tmp/merged-nginx.conf || true
+
+      - name: Backup, apply, validate with nginx -t, reload (auto-rollback on any failure)
+        run: |
+          set -euo pipefail
+          STAMP="$(date -u +%Y%m%d-%H%M%S)"
+          REMOTE="${{ steps.locate.outputs.file_path }}"
+          scp -P 22 -i ~/.ssh/toasty_render_deploy -o BatchMode=yes /tmp/merged-nginx.conf "root@165.22.57.61:/tmp/nginx-compensation-merge.conf"
+          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "REMOTE='$REMOTE' STAMP='$STAMP' bash -s" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          NGINX_BIN="$(command -v nginx || true)"
+          for candidate in "$NGINX_BIN" /usr/sbin/nginx /usr/bin/nginx /sbin/nginx; do
+            if [[ -n "$candidate" && -x "$candidate" ]]; then NGINX_BIN="$candidate"; break; fi
+          done
+          if [[ -z "$NGINX_BIN" ]]; then echo "No nginx binary found." >&2; exit 1; fi
+          BACKUP_DIR="/root/nginx-jam-backups"
+          mkdir -p "$BACKUP_DIR"
+          BACKUP_PATH="$BACKUP_DIR/$(basename "$REMOTE").bak-$STAMP"
+          cp -a "$REMOTE" "$BACKUP_PATH"
+          cp /tmp/nginx-compensation-merge.conf "$REMOTE"
+          if "$NGINX_BIN" -t; then
+            systemctl reload nginx
+            echo "nginx -t passed; reloaded."
+          else
+            echo "nginx -t FAILED — restoring backup, NOT reloading." >&2
+            cp -a "$BACKUP_PATH" "$REMOTE"
+            exit 1
+          fi
+          REMOTE_SCRIPT
+
+      - name: Verify — the compensation route now reaches the app; existing jam-participant routes still work
+        run: |
+          set -euo pipefail
+          COMP_STATUS="$(curl -s -o /dev/null -w '%{http_code}' -X POST https://render.toasty.media/api/jam-participants/jampt_doesnotexist/compensation)"
+          echo "POST /api/jam-participants/:id/compensation -> $COMP_STATUS"
+          if [[ "$COMP_STATUS" == "404" ]]; then
+            echo "Still 404 — nginx did not pick up the new alternation (or reload didn't take)." >&2
+            exit 1
+          fi
+          JAM_STATUS="$(curl -s -o /dev/null -w '%{http_code}' https://render.toasty.media/api/jams)"
+          echo "GET /api/jams (known-good route, regression check) -> $JAM_STATUS"
+          if [[ "$JAM_STATUS" == "404" ]]; then
+            echo "Existing route no longer behaves as expected (404) — possible collateral nginx breakage." >&2
+            exit 1
+          fi
+          curl --fail --silent --show-error https://render.toasty.media/health
+          echo
+          echo "Verification passed."
