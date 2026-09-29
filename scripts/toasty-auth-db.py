@@ -3218,8 +3218,8 @@ def main():
             try:
                 conn.execute(
                     """INSERT INTO organizations (id, name, slug, owner_user_id, active_brand_profile_id, plan, subscription_status, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, 'demo', 'none', ?, ?)""",
-                    (skin["organizationId"], skin["name"], skin["slug"], owner_user_id, skin["brandProfileId"], now, now),
+                       VALUES (?, ?, ?, ?, NULL, 'demo', 'none', ?, ?)""",
+                    (skin["organizationId"], skin["name"], skin["slug"], owner_user_id, now, now),
                 )
                 conn.execute(
                     "INSERT INTO memberships (id, organization_id, user_id, role, created_at, updated_at) VALUES (?, ?, ?, 'owner', ?, ?)",
@@ -3231,6 +3231,7 @@ def main():
                        VALUES (?, ?, ?, ?, '{}', ?, ?)""",
                     (skin["brandProfileId"], skin["organizationId"], skin["brandName"], theme_id, now, now),
                 )
+                conn.execute("UPDATE organizations SET active_brand_profile_id = ?, updated_at = ? WHERE id = ?", (skin["brandProfileId"], now, skin["organizationId"]))
                 created.append(skin["organizationId"])
             except sqlite3.IntegrityError:
                 conn.rollback()
