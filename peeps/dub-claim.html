@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Claim Your Dub — Toasty Peeps</title>
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="stylesheet" href="../css/brand.css">
+    <link rel="stylesheet" href="../css/event-growth.css">
+  </head>
+  <body>
+    <main class="eg-shell">
+      <div class="eg-card">
+        <div class="eg-brand">
+          <img src="../shared/brand/toasty-media/ToastyTransparent.png" alt="Toasty Peeps">
+        </div>
+
+        <section id="stepLoading" class="eg-step is-active">
+          <p>Loading…</p>
+        </section>
+
+        <section id="stepError" class="eg-step">
+          <p class="eg-kicker">Dub claim</p>
+          <h1 id="errorTitle">This link isn't valid</h1>
+          <p id="errorMessage">This claim link has expired or was already used.</p>
+        </section>
+
+        <section id="stepClaim" class="eg-step">
+          <p class="eg-kicker">You were part of a real conversation</p>
+          <h1 id="dubName">Claim your Dub</h1>
+          <p>Claim your Dub to manage your profile, availability, participation preferences and the evidence created through your interactions.</p>
+
+          <p class="eg-section-title">Your Breadcrumbs</p>
+          <div id="breadcrumbList"></div>
+
+          <div id="signedOutPanel">
+            <p class="eg-section-title">Sign in or create an account to claim it</p>
+            <div class="eg-field">
+              <label for="authName">Name (new account only)</label>
+              <input id="authName" type="text" maxlength="120">
+            </div>
+            <div class="eg-field">
+              <label for="authEmail">Email</label>
+              <input id="authEmail" type="email" maxlength="200" autocomplete="email">
+            </div>
+            <div class="eg-field">
+              <label for="authPassword">Password</label>
+              <input id="authPassword" type="password" maxlength="200" autocomplete="current-password">
+            </div>
+            <div class="eg-actions">
+              <button class="eg-btn-ghost" type="button" id="registerBtn">Create account &amp; claim</button>
+              <button class="eg-btn" type="button" id="signInBtn">Sign in &amp; claim</button>
+            </div>
+          </div>
+
+          <div id="signedInPanel" hidden>
+            <div class="eg-actions">
+              <span></span>
+              <button class="eg-btn" type="button" id="claimBtn">Claim this Dub</button>
+            </div>
+          </div>
+          <p class="eg-status" id="claimStatus"></p>
+        </section>
+
+        <section id="stepDone" class="eg-step">
+          <p class="eg-kicker">Claimed</p>
+          <h1>This Dub is yours</h1>
+          <p>Sign in to Toasty Peeps any time to manage your profile, availability and preferences.</p>
+          <div class="eg-actions"><span></span><a class="eg-btn" href="./app/">Open Peeps →</a></div>
+        </section>
+      </div>
+    </main>
+    <script type="module" src="../js/peeps-dub-claim-page.js"></script>
+  </body>
+</html>

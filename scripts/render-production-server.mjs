@@ -1144,6 +1144,23 @@ const server = createServer(async (req, res) => {
     await handleJamResults(req, res, session);
     return;
   }
+  // These two take a query string (?role=/&participantId=), so they're matched on the query-string-safe
+  // pathname — and, like /results above, must be registered before the generic "GET /api/jams/:id"
+  // catch-all further below, or that catch-all would misread "jam_x/prep" as a literal jam id.
+  if (req.method === "GET" && requestPathname(req).startsWith("/api/jams/") && requestPathname(req).endsWith("/prep")) {
+    if (!limit(req, res, "jams-prep", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamPrep(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && requestPathname(req).startsWith("/api/jams/") && requestPathname(req).endsWith("/package")) {
+    if (!limit(req, res, "jams-package", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamPackage(req, res, session);
+    return;
+  }
   if (req.method === "POST" && req.url?.startsWith("/api/jams/") && req.url.endsWith("/access")) {
     if (!limit(req, res, "jams-access", 60, 60 * 1000)) return;
     await handleJamAccess(req, res);
@@ -1233,6 +1250,31 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // New Jam sub-resources for the Peeps agent-to-human lifecycle (booking, prep, settlement, package,
+  // last-minute replacement). Registered before the generic "GET /api/jams/:id" catch-all further above
+  // has a chance to misread a suffix like "/prep" as part of the jam id.
+  if (req.method === "POST" && req.url?.startsWith("/api/jams/") && req.url.endsWith("/book")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jams-book", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamBook(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jams/") && req.url.endsWith("/replace-participant")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jams-replace-participant", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamReplaceParticipant(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/jams/") && req.url.endsWith("/settle")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "jams-settle", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleJamSettle(req, res, session);
+    return;
+  }
+
   if (req.method === "GET" && req.url?.startsWith("/api/jam-invites/")) {
     if (!limit(req, res, "jam-invite-get", 60, 60 * 1000)) return;
     await handleJamInviteGet(req, res);
@@ -1246,6 +1288,78 @@ const server = createServer(async (req, res) => {
   if (req.method === "POST" && req.url?.startsWith("/api/jam-invites/") && req.url.endsWith("/consent")) {
     if (!limit(req, res, "jam-invite-consent", 30, 15 * 60 * 1000)) return;
     await handleJamInviteConsent(req, res);
+    return;
+  }
+
+  // ==================================================================================================
+  // PEEPS AGENT-TO-HUMAN TRANSACTION LIFECYCLE — "who do you want to talk to?" / "what do you want to
+  // accomplish?" through candidates, human-authorized introductions, outreach, booking and into the
+  // existing Jam/Studio lifecycle above. Organizer routes are org-scoped via requireMembership. Demo
+  // payment endpoint is clearly a demo/test provider — see handlePeepsDemoPaymentAuthorize's own comment.
+  // ==================================================================================================
+  if (req.method === "POST" && req.url === "/api/peeps/requests") {
+    if (!requireCsrf(req, res) || !limit(req, res, "peeps-requests-create", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handlePeepsRequestCreate(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && (req.url === "/api/peeps/requests" || req.url?.startsWith("/api/peeps/requests?"))) {
+    if (!limit(req, res, "peeps-requests-list", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handlePeepsRequestList(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/peeps/requests/") && req.url.endsWith("/replace-candidate")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "peeps-requests-replace-candidate", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handlePeepsRequestReplaceCandidate(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/peeps/requests/") && req.url.endsWith("/authorize")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "peeps-requests-authorize", 15, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handlePeepsRequestAuthorize(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/peeps/requests/")) {
+    if (!limit(req, res, "peeps-requests-get", 60, 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handlePeepsRequestGet(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/peeps/demo-payments/authorize") {
+    if (!requireCsrf(req, res) || !limit(req, res, "peeps-demo-payment", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handlePeepsDemoPaymentAuthorize(req, res, session);
+    return;
+  }
+
+  // ---- Dub claim (section 27 — invite an externally-discovered/unclaimed Dub to claim their identity
+  // after a real interaction). GET is unauthenticated (a claimant has no session yet); claiming itself
+  // requires one, since it attaches the Dub to a real Toasty user. ----
+  if (req.method === "POST" && req.url?.startsWith("/api/dubs/") && req.url.endsWith("/claim-invite")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "dub-claim-invite-issue", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleDubClaimInviteIssue(req, res, session);
+    return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/api/dub-claims/")) {
+    if (!limit(req, res, "dub-claims-get", 60, 60 * 1000)) return;
+    await handleDubClaimGet(req, res);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/dub-claims/") && req.url.endsWith("/claim")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "dub-claim-claim", 20, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleDubClaimClaim(req, res, session);
     return;
   }
 
@@ -2064,7 +2178,7 @@ function x402DiscoveryRequirement(reason = "payment_required") {
   };
 }
 
-function readDiscoveryPaymentProof(req) {
+function readDiscoveryPaymentProof(req, expectedAmount = TOASTY_EXPERT_DISCOVERY_PRICE) {
   const paymentSignature = String(req.headers["x-payment-signature"] || "").trim();
   const transactionSignature = String(req.headers["x-solana-transaction-signature"] || paymentSignature).trim();
   const asset = String(req.headers["x-payment-asset"] || "").trim().toUpperCase();
@@ -2073,9 +2187,11 @@ function readDiscoveryPaymentProof(req) {
   const approvalSource = String(req.headers["x-approval-source"] || "POLICY").trim().toUpperCase().slice(0, 40);
   if (!paymentSignature) return { ok: false, reason: "missing_payment_signature" };
   if (asset !== "USDC") return { ok: false, reason: "invalid_asset" };
-  if (Math.abs(amount - TOASTY_EXPERT_DISCOVERY_PRICE) > 0.0000001) return { ok: false, reason: "invalid_amount" };
+  if (Math.abs(amount - expectedAmount) > 0.0000001) return { ok: false, reason: "invalid_amount" };
   if (!/^[a-zA-Z0-9._:-]{24,160}$/.test(transactionSignature)) return { ok: false, reason: "invalid_transaction_signature" };
-  return { ok: true, paymentSignature, transactionSignature, payerWallet, approvalSource };
+  // A demo-provider signature is always prefixed "demo-" (see handlePeepsDemoPaymentAuthorize) — never
+  // confusable with a real Solana signature, and never itself treated as chain-verified.
+  return { ok: true, paymentSignature, transactionSignature, payerWallet, approvalSource, demo: transactionSignature.startsWith("demo-") };
 }
 
 function normalizeExpertRequest(body = {}) {
@@ -5853,6 +5969,17 @@ function jamIdFromUrl(req, suffix = "") {
   return decodeURIComponent(path);
 }
 
+// Query-string-safe path, for the handful of GET routes below (prep/package) that take ?role=/&participantId=.
+function requestPathname(req) {
+  return req.url.split("?")[0];
+}
+
+function jamIdFromPathname(req, suffix) {
+  const prefix = "/api/jams/";
+  const pathname = requestPathname(req);
+  return decodeURIComponent(pathname.slice(prefix.length, -suffix.length));
+}
+
 function jamParticipantIdFromUrl(req, suffix) {
   const prefix = "/api/jam-participants/";
   return decodeURIComponent(req.url.slice(prefix.length, -suffix.length));
@@ -5947,18 +6074,16 @@ async function handleJamUpdate(req, res, authSession) {
 // call repeatedly: a jam that already has a studioSessionId just gets that same session echoed back,
 // whether this is a genuine double-click, a browser refresh mid-creation, or a client retry after a
 // dropped response.
-async function handleJamRunSession(req, res, authSession) {
-  const id = jamIdFromUrl(req, "/run-session");
-  const jam = await requireOwnedJam(req, res, authSession, id, "member");
-  if (!jam) return;
-  const body = await readJson(req);
+// Shared by handleJamRunSession (organizer clicks "Run Session") and handleJamBook (booking triggers it
+// implicitly so the Session Planner has a session to attach to) — the same idempotent claim either way.
+async function runJamSessionCore(jam, authSession, body = {}) {
   // Only worth enforcing when we might actually create a new session — a jam that already has one should
   // never surface a spurious quota error on what is really just an idempotent no-op re-click.
   if (!jam.studioSessionId) await enforceSessionQuota(jam.organizationId, authSession);
   const brandId = resolveAuthoritativeBrandId(authSession, body.brandId);
   const setup = sanitizeSessionSetup({ sessionType: "jam", brandId, policy: { capturePolicy: body.capturePolicy } });
   const result = await db("jam_run_session", {
-    jamId: id,
+    jamId: jam.id,
     sessionId: newId("ls"),
     roomId: randomUUID().replace(/-/g, ""),
     ownerUserId: authSession.id,
@@ -5970,7 +6095,7 @@ async function handleJamRunSession(req, res, authSession) {
   if (result.created) {
     await db("jam_event_create", {
       id: newId("jev"),
-      jamId: id,
+      jamId: jam.id,
       type: "studio_session.created",
       actor: authSession.id,
       detail: { studioSessionId: result.session.id }
@@ -5978,6 +6103,15 @@ async function handleJamRunSession(req, res, authSession) {
     await db("increment_usage", { organizationId: jam.organizationId, periodStart: currentPeriodStart("day"), deltas: { sessionsCreated: 1 } });
     await db("increment_usage", { organizationId: jam.organizationId, periodStart: currentPeriodStart("month"), deltas: { sessionsCreated: 1 } });
   }
+  return result;
+}
+
+async function handleJamRunSession(req, res, authSession) {
+  const id = jamIdFromUrl(req, "/run-session");
+  const jam = await requireOwnedJam(req, res, authSession, id, "member");
+  if (!jam) return;
+  const body = await readJson(req);
+  const result = await runJamSessionCore(jam, authSession, body);
   sendJson(req, res, 200, { created: result.created, session: result.session, jam: result.jam });
 }
 
@@ -5987,6 +6121,9 @@ async function handleJamComplete(req, res, authSession) {
   if (!jam) return;
   const result = await db("jam_update", { id, organizationId: jam.organizationId, fields: { status: "completed" } });
   await db("jam_event_create", { id: newId("jev"), jamId: id, type: "jam.completed", actor: authSession.id });
+  // Sections 26/27 — a claimed participant is told their Breadcrumbs were updated; an unclaimed one is
+  // invited to claim their Dub. Never blocks the completion response on email delivery.
+  notifyPeepsParticipantsOfCompletion(result.jam).catch((error) => console.error("[Peeps] post-completion notification failed", error));
   sendJson(req, res, 200, { jam: result.jam });
 }
 
@@ -6377,6 +6514,750 @@ async function handleSessionJamContext(req, res, authSession) {
       }
     }
   });
+}
+
+// ====================================================================================================
+// PEEPS AGENT-TO-HUMAN TRANSACTION LIFECYCLE
+//
+// Request (who/what, verbatim) -> agent research (internal Peeps history + a labeled demo candidate
+// directory) -> candidates ranked by match AND reachability kept as separate axes (section 5) -> human
+// authorizes introductions -> x402 payment (real when SVM_PAY_TO is configured, otherwise the CLEARLY
+// labeled demo provider below) -> Jam + jam_participants + the EXISTING invite/email flow -> acceptance
+// (existing jam-invite accept/consent) -> booking (Jam gains scheduledAt) -> Session Planner
+// auto-populated -> prep -> the EXISTING Jam/Studio lifecycle -> settlement -> post-session package ->
+// Breadcrumbs (jam_events, already the ledger) -> Dub claim. Everything past "authorize introductions"
+// deliberately reuses jams/jam_participants/jam_participant_invites/jam_events/dubs/payments/plan_json
+// as-is rather than a parallel booking/engagement system.
+// ====================================================================================================
+
+const PEEPS_INTRODUCTION_PRICE = 0.25;
+
+// A general-purpose, deterministic demo candidate directory — CLEARLY a demo/test provider (source:
+// "demo_directory_provider" on every result), never presented as a live external search. Spans multiple
+// domains/regions on purpose so the resolver isn't overfit to one query; several entries are tuned to
+// match the brief's own golden-demo query ("fintech/payments executives in Southeast Asia who understand
+// offline payments") without being the ONLY thing this directory can match. No contact info is attached
+// to any entry — see resolveDemoDirectoryCandidates's own comment on why that's never fabricated here.
+const PEEPS_DEMO_DIRECTORY = Object.freeze([
+  { name: "Anong Srisuk", headline: "Payments product lead at a Thai digital wallet operator", location: "Bangkok, Thailand", languages: ["Thai", "English"], topics: ["offline payments", "qr payments", "digital wallets", "financial inclusion", "thailand fintech", "southeast asia"] },
+  { name: "Budi Hartono", headline: "VP of Payments Partnerships, Indonesian e-money platform", location: "Jakarta, Indonesia", languages: ["Indonesian", "English"], topics: ["e-money", "offline payments", "agent banking", "southeast asia fintech", "interoperability"] },
+  { name: "Mei Lin Tan", headline: "Head of Merchant Payments, Singapore-based fintech", location: "Singapore", languages: ["English", "Mandarin"], topics: ["merchant payments", "offline payments", "cross-border payments", "central bank digital currency", "southeast asia"] },
+  { name: "Isabela Santos", headline: "Product lead, offline-first payments for underbanked merchants", location: "Sao Paulo, Brazil", languages: ["Portuguese", "English"], topics: ["offline payments", "underbanked merchants", "financial inclusion", "payments infrastructure"] },
+  { name: "Carlos Rivera", headline: "Payments infrastructure engineer, Latin American remittance startup", location: "Mexico City, Mexico", languages: ["Spanish", "English"], topics: ["remittances", "payments infrastructure", "stablecoins", "cross-border payments"] },
+  { name: "Nadia Okafor", headline: "Mobile money strategy advisor, East Africa", location: "Nairobi, Kenya", languages: ["English", "Swahili"], topics: ["mobile money", "offline payments", "financial inclusion", "agent networks"] },
+  { name: "Hiroshi Tanaka", headline: "QR payments standards researcher", location: "Tokyo, Japan", languages: ["Japanese", "English"], topics: ["qr payments", "payments standards", "interoperability", "asia pacific fintech"] },
+  { name: "Priya Menon", headline: "Digital health platform operator", location: "Bengaluru, India", languages: ["English", "Hindi"], topics: ["digital health", "clinical workflow", "healthcare access"] },
+  { name: "Lukas Becker", headline: "Climate finance and carbon markets advisor", location: "Berlin, Germany", languages: ["German", "English"], topics: ["climate finance", "carbon markets", "esg", "sustainability"] },
+  { name: "Grace Osei", headline: "AI infrastructure and data center strategist", location: "London, United Kingdom", languages: ["English"], topics: ["ai infrastructure", "data centers", "enterprise technology"] },
+  { name: "Daniel Kwon", headline: "Consumer research lead for streaming and media", location: "Seoul, South Korea", languages: ["Korean", "English"], topics: ["media", "consumer research", "streaming", "entertainment"] },
+  { name: "Fatima Al-Sayed", headline: "Cybersecurity incident response lead", location: "Dubai, United Arab Emirates", languages: ["Arabic", "English"], topics: ["cybersecurity", "incident response", "cloud security"] }
+]);
+
+const PEEPS_STOPWORDS = new Set(["about", "after", "and", "are", "for", "from", "into", "need", "the", "this", "with", "who", "what", "want", "talk", "accomplish", "looking", "someone", "people"]);
+function tokenizePeepsText(value = "") {
+  return new Set(String(value).toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((term) => term.length > 2 && !PEEPS_STOPWORDS.has(term)));
+}
+
+function scorePeepsDemoCandidate(candidateTerms, requestTerms) {
+  const matched = [...requestTerms].filter((term) => candidateTerms.has(term) || [...candidateTerms].some((c) => c.includes(term) || term.includes(c)));
+  return { matched, score: Math.min(97, 20 + matched.length * 13) };
+}
+
+// The one place "internal working hypotheses" (section 2) get inferred — deliberately never touches
+// whoText/outcomeText themselves, which are persisted verbatim and never overwritten.
+function inferPeepsWorkingRepresentation(whoText, outcomeText) {
+  const combined = `${whoText} ${outcomeText}`.toLowerCase();
+  const engagementType = /podcast/.test(combined) ? "podcast_guest"
+    : /panel/.test(combined) ? "expert_panel"
+    : /focus group/.test(combined) ? "focus_group"
+    : /interview/.test(combined) ? "research_interview"
+    : "conversation";
+  const recordingLikely = !/off.?the.?record|no recording|not recorded/.test(combined);
+  const countMatch = outcomeText.match(/\b(\d{1,2})\b/);
+  const desiredCandidateCount = countMatch ? Math.min(10, Math.max(1, Number(countMatch[1]))) : 3;
+  return {
+    engagementType,
+    recordingLikely,
+    desiredCandidateCount,
+    searchStrategy: "internal_history_then_demo_directory",
+    inferredAt: new Date().toISOString()
+  };
+}
+
+// Source A: "previous Peeps interactions" (section 3.D) — Dubs this organization has already recruited
+// into a Jam before. A brand-new org with zero history simply gets none here, which is the "Peeps must
+// work with zero network" case the brief requires to still be useful (the demo directory below covers it).
+async function resolveInternalCandidates(organizationId, requestTerms) {
+  const result = await db("dub_search_by_organization_history", { organizationId });
+  const dubs = result.dubs || [];
+  return dubs.map((dub) => {
+    const { matched, score } = scorePeepsDemoCandidate(tokenizePeepsText(dub.displayName || ""), requestTerms);
+    return {
+      source: dub.userId ? "internal_claimed_dub" : "internal_unclaimed_dub",
+      dubId: dub.id,
+      displayName: dub.displayName || dub.email,
+      headline: dub.userId ? "Toasty Peeps member you've worked with before" : "Previously part of a Jam with your organization",
+      evidence: [{ claim: "Previous Jam participation with this organization", sourceType: "internal_breadcrumb", sourceUrl: "", sourceTitle: "Toasty Peeps history", confidence: "High" }],
+      matchReason: matched.length ? `Matched: ${matched.slice(0, 4).join(", ")}; previously worked with your organization` : "Previously worked with your organization",
+      matchScore: score + 15,
+      reachability: dub.userId ? "claimed_member" : (dub.email ? "unclaimed_dub" : "unreachable"),
+      contactEmail: dub.userId ? null : (dub.email || null)
+    };
+  });
+}
+
+// Source B: the demo directory. reachability is always "external_indirect" here on purpose — this
+// provider has no real, verified contact channel for anyone in it (see the directory's own comment), so
+// it never claims "external_direct" and contactEmail is always null. A real provider adapter (public web
+// search with an explicit mailto, a paid x402 data provider, ...) is the only thing allowed to set either.
+function resolveDemoDirectoryCandidates(requestTerms) {
+  return PEEPS_DEMO_DIRECTORY.map((candidate) => {
+    const candidateTerms = tokenizePeepsText([candidate.name, candidate.headline, candidate.location, ...candidate.languages, ...candidate.topics].join(" "));
+    const { matched, score } = scorePeepsDemoCandidate(candidateTerms, requestTerms);
+    return {
+      source: "demo_directory_provider",
+      dubId: null,
+      displayName: candidate.name,
+      headline: candidate.headline,
+      evidence: [{
+        claim: `${candidate.headline} (${candidate.location})`,
+        sourceType: "demo_directory",
+        sourceUrl: "",
+        sourceTitle: "Toasty Peeps demo candidate directory — replace with a live provider adapter",
+        confidence: matched.length >= 2 ? "Medium" : "Low"
+      }],
+      matchReason: matched.length ? `Matched: ${matched.slice(0, 4).join(", ")}` : "General category fit",
+      matchScore: score,
+      reachability: "external_indirect",
+      contactEmail: null
+    };
+  }).filter((candidate) => candidate.matchScore > 30);
+}
+
+async function runPeepsResolver(request) {
+  const requestTerms = tokenizePeepsText(`${request.whoText} ${request.outcomeText}`);
+  const [internal, demo] = await Promise.all([
+    resolveInternalCandidates(request.organizationId, requestTerms),
+    Promise.resolve(resolveDemoDirectoryCandidates(requestTerms))
+  ]);
+  const desiredCount = request.workingRepresentation?.desiredCandidateCount || 3;
+  const reachabilityRank = { claimed_member: 0, unclaimed_dub: 1, external_direct: 1, external_indirect: 2, unreachable: 3 };
+  const merged = [...internal, ...demo]
+    .sort((a, b) => {
+      const rankDiff = (reachabilityRank[a.reachability] ?? 3) - (reachabilityRank[b.reachability] ?? 3);
+      return rankDiff !== 0 ? rankDiff : b.matchScore - a.matchScore;
+    })
+    .slice(0, Math.max(desiredCount, 3) + 2)
+    .map((candidate, index) => ({ ...candidate, id: newId("pcand"), rank: index + 1 }));
+  const result = await db("peeps_candidates_replace", { requestId: request.id, candidates: merged });
+  return result.candidates || [];
+}
+
+async function handlePeepsRequestCreate(req, res, authSession) {
+  const body = await readJson(req);
+  const organizationId = await resolveOrganizationForSession(authSession, body.organizationId);
+  if (!organizationId) throw httpError(400, "You must belong to an organization to make a Peeps request.");
+  const membership = await requireMembership(req, res, organizationId, "member", authSession);
+  if (!membership) return;
+  const whoText = sessionText(body.whoText, 600);
+  const outcomeText = sessionText(body.outcomeText, 1200);
+  if (!whoText) throw httpError(400, "Tell Peeps who you want to talk to.");
+  if (!outcomeText) throw httpError(400, "Tell Peeps what you want to accomplish.");
+  const createResult = await db("peeps_request_create", {
+    id: newId("preq"),
+    organizationId,
+    createdByUserId: authSession.id,
+    whoText,
+    outcomeText,
+    workingRepresentation: inferPeepsWorkingRepresentation(whoText, outcomeText)
+  });
+  const candidates = await runPeepsResolver(createResult.request);
+  await db("peeps_request_update", { id: createResult.request.id, fields: { status: "candidates_ready" } });
+  const updated = await db("peeps_request_get", { id: createResult.request.id, organizationId });
+  sendJson(req, res, 201, { request: updated.request, candidates });
+}
+
+function peepsRequestIdFromUrl(req, suffix = "") {
+  const prefix = "/api/peeps/requests/";
+  const path = suffix ? req.url.slice(prefix.length, -suffix.length) : req.url.slice(prefix.length);
+  return decodeURIComponent(path);
+}
+
+async function requireOwnedPeepsRequest(req, res, authSession, id, minRole = "member") {
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid request id.");
+  const lookup = await db("peeps_request_get_by_id", { id });
+  if (!lookup.request) throw httpError(404, "Request not found.");
+  const membership = await requireMembership(req, res, lookup.request.organizationId, minRole, authSession);
+  if (!membership) return null;
+  return lookup.request;
+}
+
+async function handlePeepsRequestGet(req, res, authSession) {
+  const id = peepsRequestIdFromUrl(req);
+  const request = await requireOwnedPeepsRequest(req, res, authSession, id, "viewer");
+  if (!request) return;
+  const [candidatesResult, introductionsResult] = await Promise.all([
+    db("peeps_candidate_list", { requestId: id }),
+    db("peeps_introduction_list", { requestId: id })
+  ]);
+  sendJson(req, res, 200, {
+    request,
+    candidates: candidatesResult.candidates || [],
+    introductions: introductionsResult.introductions || []
+  });
+}
+
+async function handlePeepsRequestList(req, res, authSession) {
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const organizationId = await resolveOrganizationForSession(authSession, url.searchParams.get("organizationId"));
+  if (!organizationId) return sendJson(req, res, 200, { requests: [] });
+  const membership = await requireMembership(req, res, organizationId, "viewer", authSession);
+  if (!membership) return;
+  const result = await db("peeps_request_list", { organizationId });
+  sendJson(req, res, 200, { requests: result.requests || [] });
+}
+
+// "Keep searching" (section 6 / failure case "fewer than 3 candidates" or "candidates but nobody
+// reachable") — rejects one candidate and tops the shortlist back up. Never touches an already
+// authorized/rejected candidate; only ever replaces the still-"proposed" ones (see
+// peeps_candidates_replace's own comment).
+async function handlePeepsRequestReplaceCandidate(req, res, authSession) {
+  const id = peepsRequestIdFromUrl(req, "/replace-candidate");
+  const request = await requireOwnedPeepsRequest(req, res, authSession, id, "member");
+  if (!request) return;
+  const body = await readJson(req);
+  const candidateId = sessionText(body.candidateId, 80);
+  if (candidateId) await db("peeps_candidate_update", { id: candidateId, fields: { status: "rejected" } });
+
+  const existingResult = await db("peeps_candidate_list", { requestId: id });
+  const existing = existingResult.candidates || [];
+  const usedNames = new Set(existing.map((c) => c.displayName));
+  const requestTerms = tokenizePeepsText(`${request.whoText} ${request.outcomeText}`);
+  const [internal, demo] = await Promise.all([
+    resolveInternalCandidates(request.organizationId, requestTerms),
+    Promise.resolve(resolveDemoDirectoryCandidates(requestTerms))
+  ]);
+  const fresh = [...internal, ...demo].filter((c) => !usedNames.has(c.displayName)).sort((a, b) => b.matchScore - a.matchScore);
+
+  const stillProposed = existing.filter((c) => c.status === "proposed" && c.id !== candidateId);
+  const settledCount = existing.length - stillProposed.length - (existing.some((c) => c.id === candidateId) ? 1 : 0);
+  const desiredCount = request.workingRepresentation?.desiredCandidateCount || 3;
+  const needed = Math.max(1, desiredCount + 2 - settledCount - stillProposed.length);
+  const additions = fresh.slice(0, needed).map((c) => ({ ...c, id: newId("pcand") }));
+  const proposedPayload = [...stillProposed, ...additions].map((c, index) => ({ ...c, rank: settledCount + index + 1 }));
+  const result = await db("peeps_candidates_replace", { requestId: id, candidates: proposedPayload });
+  sendJson(req, res, 200, { candidates: result.candidates || [] });
+}
+
+// x402 discovery-style requirement, but for the INTRODUCTION workflow itself (section 9's explicit
+// product behavior: never charge merely to see whether Peeps found anyone). Real Solana verification
+// reuses readDiscoveryPaymentProof exactly like /api/agent/find-experts; the demo provider only exists
+// when no real recipient is configured (see handlePeepsDemoPaymentAuthorize).
+function peepsIntroductionPaymentRequirement(reason = "payment_required") {
+  const demo = !TOASTY_EXPERT_DISCOVERY_RECIPIENT;
+  return {
+    status: 402,
+    error: "Payment Required",
+    reason,
+    provider: demo ? "toasty-peeps-demo" : "toasty-peeps",
+    action: "authorize-introductions",
+    paymentKind: "EXPERT_DISCOVERY",
+    purpose: "peeps introduction authorization",
+    demo,
+    accepts: [{
+      scheme: "exact",
+      network: demo ? "demo" : TOASTY_SOLANA_NETWORK,
+      asset: "USDC",
+      amount: PEEPS_INTRODUCTION_PRICE.toFixed(3),
+      payTo: demo ? "demo-recipient" : TOASTY_EXPERT_DISCOVERY_RECIPIENT
+    }],
+    submitProofTo: demo ? "/api/peeps/demo-payments/authorize" : "/api/agent/payments/proof",
+    continueWith: "/api/peeps/requests/:id/authorize"
+  };
+}
+
+function sendPeepsIntroductionPaymentRequirement(req, res, reason) {
+  const requirement = peepsIntroductionPaymentRequirement(reason);
+  setCors(req, res);
+  res.writeHead(402, {
+    "Content-Type": "application/json",
+    "X402-Payment-Required": "true",
+    "Payment-Required": Buffer.from(JSON.stringify(requirement)).toString("base64url")
+  });
+  res.end(JSON.stringify(requirement));
+}
+
+// CLEARLY a demo/test payment provider — see the module comment. It manufactures a deterministic,
+// obviously-fake signature (always prefixed "demo-") and is refused entirely once real payment
+// infrastructure (SVM_PAY_TO) is configured, so it can never coexist with or be mistaken for a real
+// transaction on a deployment that has real infra turned on.
+async function handlePeepsDemoPaymentAuthorize(req, res, authSession) {
+  if (TOASTY_EXPERT_DISCOVERY_RECIPIENT) {
+    throw httpError(409, "Real payment infrastructure is configured for this deployment; the demo payment provider is disabled.");
+  }
+  const body = await readJson(req);
+  const requestId = sessionText(body.requestId, 80);
+  const signature = `demo-${createHash("sha256").update(`${requestId}:${authSession.id}:${Date.now()}:${Math.random()}`).digest("hex").slice(0, 40)}`;
+  sendJson(req, res, 200, {
+    demo: true,
+    paymentSignature: signature,
+    transactionSignature: signature,
+    payerWallet: `demo-wallet-${authSession.id.slice(0, 8)}`,
+    approvalSource: "DEMO_REQUESTER",
+    amount: PEEPS_INTRODUCTION_PRICE,
+    asset: "USDC"
+  });
+}
+
+function peepsOutreachEmailHtml({ request, candidate, inviteUrl }) {
+  return `<p>Hi ${escapeHtml(candidate.displayName || "there")},</p>
+<p>Someone on Toasty Peeps thinks you'd be a great fit for a conversation: <strong>${escapeHtml(request.outcomeText)}</strong></p>
+<p>Why you: ${escapeHtml(candidate.matchReason || "your background looks like a strong match")}.</p>
+<p>This is a real invitation — you can review the details, ask questions, and decide whether to join. No Toasty account is required.</p>
+<p><a href="${inviteUrl}">${inviteUrl}</a></p>`;
+}
+
+// The human decision point (section 10) through outreach. Payment-gated exactly once per authorize call
+// (not per candidate) — the introduction workflow itself is what's being paid for. Never fabricates a
+// contact channel: a candidate with no verified email (claimed_member/unclaimed_dub already have one;
+// everyone else needs the organizer to explicitly supply one) is skipped, not silently "introduced."
+async function handlePeepsRequestAuthorize(req, res, authSession) {
+  const id = peepsRequestIdFromUrl(req, "/authorize");
+  const request = await requireOwnedPeepsRequest(req, res, authSession, id, "member");
+  if (!request) return;
+  const body = await readJson(req);
+  const selections = Array.isArray(body.candidates) ? body.candidates : [];
+  if (!selections.length) throw httpError(400, "Select at least one candidate to introduce.");
+
+  const proof = readDiscoveryPaymentProof(req, PEEPS_INTRODUCTION_PRICE);
+  if (!proof.ok) {
+    sendPeepsIntroductionPaymentRequirement(req, res, proof.reason);
+    return;
+  }
+
+  const candidatesResult = await db("peeps_candidate_list", { requestId: id });
+  const candidateById = new Map((candidatesResult.candidates || []).map((c) => [c.id, c]));
+
+  let jamId = request.jamId;
+  if (!jamId) {
+    const jamResult = await db("jam_create", {
+      id: newId("jam"),
+      organizationId: request.organizationId,
+      createdByUserId: authSession.id,
+      title: request.whoText.slice(0, 160) || "Peeps introduction",
+      objective: request.outcomeText,
+      targetParticipantCount: selections.length,
+      compensation: {},
+      consentRequirements: ["terms_of_service", "recording"]
+    });
+    jamId = jamResult.jam.id;
+  }
+  await db("peeps_request_update", { id, fields: { jamId, status: "introductions_authorized" } });
+
+  await db("record_payment", {
+    id: newId("pay"),
+    paymentKind: "EXPERT_DISCOVERY",
+    rail: proof.demo ? "demo-x402-simulated" : "x402-solana-usdc",
+    provider: "toasty-peeps",
+    purpose: "peeps introduction authorization",
+    status: "PAYMENT_VERIFIED",
+    network: proof.demo ? "demo" : TOASTY_SOLANA_NETWORK,
+    payerWallet: proof.payerWallet,
+    payeeWallet: TOASTY_EXPERT_DISCOVERY_RECIPIENT || "demo-recipient",
+    amount: PEEPS_INTRODUCTION_PRICE,
+    currency: "USDC",
+    tokenMint: proof.demo ? null : TOASTY_USDC_MINT,
+    transactionSignature: proof.transactionSignature,
+    paymentRequirement: peepsIntroductionPaymentRequirement(),
+    paymentSignature: proof.paymentSignature,
+    policyDecision: "APPROVED",
+    approvalSource: proof.approvalSource,
+    metadata: { requestId: id, jamId, candidateIds: selections.map((s) => s.candidateId), verificationStatus: proof.demo ? "DEMO_SIMULATED" : "VERIFIED" }
+  });
+
+  const introductions = [];
+  const skipped = [];
+  for (const selection of selections) {
+    const candidate = candidateById.get(sessionText(selection.candidateId, 80));
+    if (!candidate || candidate.status !== "proposed") {
+      skipped.push({ candidateId: selection.candidateId, reason: "not_available" });
+      continue;
+    }
+    const outreachEmail = sessionText(selection.outreachEmail, 200).toLowerCase();
+    let email = candidate.contactEmail || (EMAIL_PATTERN.test(outreachEmail) ? outreachEmail : "");
+    let dubId = candidate.dubId;
+    if (candidate.reachability === "claimed_member" && dubId) {
+      const dubResult = await db("dub_get", { id: dubId });
+      if (dubResult.dub?.userId) {
+        const userResult = await db("get_user_by_id", { id: dubResult.dub.userId });
+        if (userResult.user?.email) email = userResult.user.email;
+      }
+    }
+    if (candidate.reachability !== "claimed_member" && !email) {
+      skipped.push({ candidateId: candidate.id, reason: "no_verified_contact_path" });
+      continue;
+    }
+    if (!dubId) {
+      const dubResult = await db("dub_find_or_create", { id: newId("dub"), email, displayName: candidate.displayName });
+      dubId = dubResult.dub.id;
+      await db("peeps_candidate_update", { id: candidate.id, fields: { dubId } });
+    }
+    const participantResult = await db("jam_participant_create", { id: newId("jampt"), jamId, dubId });
+    const participant = participantResult.participant;
+    await db("peeps_candidate_update", { id: candidate.id, fields: { status: "authorized" } });
+    const introResult = await db("peeps_introduction_create", {
+      id: newId("pintro"), requestId: id, candidateId: candidate.id, dubId, jamId,
+      jamParticipantId: participant.id, authorizedByUserId: authSession.id
+    });
+    let introduction = introResult.introduction;
+    await db("jam_event_create", { id: newId("jev"), jamId, jamParticipantId: participant.id, type: "invite.sent", actor: authSession.id, detail: { via: "peeps_introduction", requestId: id } });
+
+    // Outreach (section 11) — reuses the EXISTING Jam invite issue + email flow with tailored copy,
+    // never a parallel messaging system.
+    const { token, tokenHash } = issueInviteToken();
+    await db("jam_participant_invite_issue", { id: newId("jpi"), jamParticipantId: participant.id, tokenHash, expiresAt: inviteExpiry(60) });
+    const inviteUrl = `${APP_BASE_URL}/peeps/jam-invite.html?token=${token}`;
+    if (email) {
+      await sendEmail({
+        to: email,
+        subject: `A Toasty Peeps introduction: ${request.outcomeText.slice(0, 80)}`,
+        html: peepsOutreachEmailHtml({ request, candidate, inviteUrl })
+      }).catch((error) => console.error("[Toasty Email] peeps introduction outreach failed", error));
+      const markResult = await db("peeps_introduction_mark_outreach_sent", { id: introduction.id });
+      introduction = markResult.introduction;
+    }
+    introductions.push(introduction);
+  }
+
+  sendJson(req, res, 200, { jamId, introductions, skipped });
+}
+
+function inferSessionPlannerType(jam) {
+  const text = `${jam.title || ""} ${jam.objective || ""}`.toLowerCase();
+  if (/podcast/.test(text)) return "podcast";
+  if (/panel/.test(text)) return "panel";
+  if (/focus group/.test(text)) return "focus_group";
+  if (/interview/.test(text)) return "interview";
+  if (/webinar/.test(text)) return "webinar";
+  return "research_session";
+}
+
+// Deterministic template, not an LLM call — reliable and testable, and still real "questions exist
+// before the session" per section 15 (the organizer edits from here, never starts from an empty form).
+function generatePeepsQuestionSet(jam, participants) {
+  const names = participants.map((p) => p.displayName || p.email).filter(Boolean);
+  const objective = jam.objective || jam.title || "this conversation";
+  return [
+    `Welcome and introductions — ${names.length ? names.join(", ") : "each guest"} shares who they are and their current focus.`,
+    `Framing: what does "${objective}" actually mean to each guest right now?`,
+    "Where are things heading in the next 12-24 months, and what's the biggest misconception outsiders have?",
+    "A concrete example or story that illustrates the theme.",
+    "What would each guest tell someone just starting to pay attention to this space?",
+    "Closing thoughts and where listeners can follow up."
+  ];
+}
+
+async function populateSessionPlanFromJam({ jam, studioSessionId, durationMinutes, scheduledAt, timezone, ownerUserId }) {
+  const participantsResult = await db("jam_participant_list", { jamId: jam.id });
+  const participants = participantsResult.participants || [];
+  const questions = generatePeepsQuestionSet(jam, participants);
+  const segmentSpan = Math.max(3, Math.floor((durationMinutes || 45) / Math.max(1, questions.length)));
+  const plan = {
+    description: jam.objective || "",
+    sessionType: inferSessionPlannerType(jam),
+    deliveryMode: "live",
+    visibility: "private",
+    scheduledAt: scheduledAt || "",
+    timezone: timezone || "",
+    expectedDurationMinutes: durationMinutes || 45,
+    registrationRequired: false,
+    runOfShow: questions.map((question, index) => ({ id: `ros_peeps_${index}`, label: question, startOffset: index * segmentSpan, notes: "" }))
+  };
+  await db("session_set_plan", { id: studioSessionId, ownerUserId, plan });
+}
+
+// Booking (section 14) = a Jam that has a resolved time. Also the point where the Session Planner gets
+// auto-populated (section 15) from everything already learned — the organizer edits from a filled-in
+// planner, never an empty one.
+async function handleJamBook(req, res, authSession) {
+  const jam = await requireOwnedJam(req, res, authSession, jamIdFromUrl(req, "/book"), "member");
+  if (!jam) return;
+  const body = await readJson(req);
+  const scheduledAt = sessionText(body.scheduledAt, 40);
+  if (scheduledAt && Number.isNaN(Date.parse(scheduledAt))) throw httpError(400, "Invalid scheduledAt.");
+  const timezone = sessionText(body.timezone, 80);
+  const durationMinutes = Math.max(5, Math.min(480, Math.round(Number(body.durationMinutes) || 45)));
+  const cancellationPolicy = {
+    lateCancellationHours: Math.max(0, Math.min(168, Number(body.cancellationPolicy?.lateCancellationHours ?? 24))),
+    noShowHandling: sessionText(body.cancellationPolicy?.noShowHandling, 40) || "forfeit_compensation",
+    replaceable: body.cancellationPolicy?.replaceable !== false
+  };
+  await db("jam_update", { id: jam.id, organizationId: jam.organizationId, fields: { scheduledAt, timezone, cancellationPolicy } });
+
+  let studioSessionId = jam.studioSessionId;
+  if (!studioSessionId) {
+    const runResult = await runJamSessionCore(jam, authSession, {});
+    studioSessionId = runResult.session?.id;
+  }
+  if (studioSessionId) {
+    await populateSessionPlanFromJam({ jam, studioSessionId, durationMinutes, scheduledAt, timezone, ownerUserId: authSession.id });
+  }
+  await db("jam_event_create", { id: newId("jev"), jamId: jam.id, type: "jam.booked", actor: authSession.id, detail: { scheduledAt, timezone, durationMinutes } });
+  const updated = await db("jam_get", { id: jam.id, organizationId: jam.organizationId });
+  sendJson(req, res, 200, { jam: updated.jam });
+}
+
+// Meeting prep (section 16) — organizer sees why each participant was selected and the evidence behind
+// it; a participant view never exposes another participant's evidence or an organizer-only note.
+async function handleJamPrep(req, res, authSession) {
+  const jam = await requireOwnedJam(req, res, authSession, jamIdFromPathname(req, "/prep"), "member");
+  if (!jam) return;
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const role = url.searchParams.get("role") === "participant" ? "participant" : "organizer";
+  const participantId = sessionText(url.searchParams.get("participantId") || "", 80);
+  const [participantsResult, introsResult, sessionResult] = await Promise.all([
+    db("jam_participant_list", { jamId: jam.id }),
+    db("peeps_introduction_list_by_jam", { jamId: jam.id }),
+    jam.studioSessionId ? db("session_get", { id: jam.studioSessionId, ownerUserId: authSession.id }) : Promise.resolve({ session: null })
+  ]);
+  const participants = participantsResult.participants || [];
+  const introByParticipant = new Map((introsResult.introductions || []).map((i) => [i.jamParticipantId, i]));
+  const plan = sessionResult.session?.plan || {};
+  const questions = (plan.runOfShow || []).map((item) => item.label);
+  const jamSummary = { id: jam.id, title: jam.title, objective: jam.objective, scheduledAt: jam.scheduledAt, timezone: jam.timezone };
+
+  if (role === "organizer") {
+    sendJson(req, res, 200, {
+      role,
+      jam: jamSummary,
+      questions,
+      participants: participants.map((p) => {
+        const intro = introByParticipant.get(p.id);
+        return { id: p.id, displayName: p.displayName || p.email, status: p.status, whySelected: intro?.matchReason || "", evidence: intro?.evidence || [], source: intro?.candidateSource || "manual" };
+      })
+    });
+    return;
+  }
+
+  const requested = participants.find((p) => p.id === participantId);
+  if (!requested) throw httpError(404, "Participant not found on this Jam.");
+  sendJson(req, res, 200, {
+    role,
+    jam: jamSummary,
+    format: plan.sessionType || "conversation",
+    durationMinutes: plan.expectedDurationMinutes || null,
+    recording: (jam.consentRequirements || []).includes("recording"),
+    questions,
+    otherParticipants: participants.filter((p) => p.id !== participantId && ["confirmed", "accepted", "attended"].includes(p.status)).map((p) => ({ displayName: p.displayName || "A fellow participant" })),
+    joinInstructions: "Use the link from your invitation email to open the Jam Lobby, then Join Jam when you're ready."
+  });
+}
+
+function buildPeepsNextSteps(jam, participants) {
+  const steps = [];
+  if (jam.status !== "completed") steps.push("Complete the Jam once the session has ended.");
+  const unpaid = participants.filter((p) => ["attended", "completed"].includes(p.status) && p.compensationStatus !== "paid" && p.compensationStatus !== "not_eligible");
+  if (unpaid.length) steps.push("Settle outstanding compensation.");
+  const attended = participants.filter((p) => ["attended", "completed"].includes(p.status));
+  if (attended.length) steps.push("Invite participants to claim their Dub so future Peeps requests can reach them directly.");
+  return steps;
+}
+
+// Post-session package (section 24) — a thin, permission-scoped reshape of the same data
+// /api/jams/:id/results already gathers, never a second data-gathering path. A specific participant's
+// package never exposes another participant's compensation, contact info, or organizer-only notes.
+async function handleJamPackage(req, res, authSession) {
+  const jam = await requireOwnedJam(req, res, authSession, jamIdFromPathname(req, "/package"), "viewer");
+  if (!jam) return;
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const participantId = sessionText(url.searchParams.get("participantId") || "", 80);
+  const [participantsResult, eventsResult, artifactsResult] = await Promise.all([
+    db("jam_participant_list", { jamId: jam.id }),
+    db("jam_event_list", { jamId: jam.id }),
+    db("jam_artifact_list", { jamId: jam.id })
+  ]);
+  const participants = participantsResult.participants || [];
+  const artifacts = artifactsResult.artifacts || [];
+
+  if (!participantId) {
+    sendJson(req, res, 200, {
+      scope: "organizer",
+      jam: { id: jam.id, title: jam.title, objective: jam.objective, status: jam.status },
+      participants,
+      artifacts,
+      events: eventsResult.events || [],
+      nextSteps: buildPeepsNextSteps(jam, participants)
+    });
+    return;
+  }
+
+  const participant = participants.find((p) => p.id === participantId);
+  if (!participant) throw httpError(404, "Participant not found on this Jam.");
+  sendJson(req, res, 200, {
+    scope: "participant",
+    jam: { id: jam.id, title: jam.title, objective: jam.objective },
+    participant: { displayName: participant.displayName, status: participant.status, compensationStatus: participant.compensationStatus },
+    artifacts: participant.consentCapturedAt ? artifacts.filter((a) => a.status === "ready") : [],
+    receipt: { status: participant.compensationStatus, amount: participant.compensationStatus === "paid" ? participant.compensationAmount : null },
+    nextSteps: buildPeepsNextSteps(jam, [participant])
+  });
+}
+
+// Last-minute replacement (section 19) — never silently substitutes anyone. This only proposes a
+// previously-qualified alternate back onto the shortlist as still "proposed"; the organizer explicitly
+// authorizes them through the EXISTING /authorize endpoint, same as any other candidate.
+async function handleJamReplaceParticipant(req, res, authSession) {
+  const jam = await requireOwnedJam(req, res, authSession, jamIdFromUrl(req, "/replace-participant"), "member");
+  if (!jam) return;
+  const body = await readJson(req);
+  const removedParticipantId = sessionText(body.removedParticipantId, 80);
+  const reason = sessionText(body.reason, 300);
+  if (!removedParticipantId) throw httpError(400, "removedParticipantId is required.");
+  const owned = await requireOwnedJamParticipant(req, res, authSession, removedParticipantId, "member");
+  if (!owned) return;
+
+  await db("jam_participant_update", { id: removedParticipantId, fields: { status: "removed", removedAt: new Date().toISOString(), removedReason: reason || "Replaced — last-minute opening" } });
+  await db("jam_participant_invite_revoke", { jamParticipantId: removedParticipantId });
+  await db("jam_event_create", { id: newId("jev"), jamId: jam.id, jamParticipantId: removedParticipantId, type: "participant.removed", actor: authSession.id, detail: { reason, replacement: true } });
+
+  const requestResult = await db("peeps_request_get_by_jam", { jamId: jam.id });
+  const request = requestResult.request;
+  let suggestedReplacement = null;
+  if (request) {
+    const candidatesResult = await db("peeps_candidate_list", { requestId: request.id });
+    suggestedReplacement = (candidatesResult.candidates || []).find((c) => c.status === "proposed" && (c.reachability === "claimed_member" || c.reachability === "unclaimed_dub" || c.contactEmail)) || null;
+  }
+  const updated = await db("jam_get", { id: jam.id, organizationId: jam.organizationId });
+  sendJson(req, res, 200, { jam: updated.jam, suggestedReplacement, requestId: request?.id || null });
+}
+
+// Settlement (section 23) — idempotent via a payment id deterministically keyed to the participant, so
+// calling /settle twice never pays twice (record_payment's own ON CONFLICT(id) DO UPDATE makes the second
+// call a no-op update of the same row). Always the clearly-labeled demo rail: there is no participant
+// payout wallet anywhere in this data model yet, so a real on-chain payout has nowhere legitimate to go —
+// flagged plainly in the final report rather than faked here.
+async function handleJamSettle(req, res, authSession) {
+  const jam = await requireOwnedJam(req, res, authSession, jamIdFromUrl(req, "/settle"), "member");
+  if (!jam) return;
+  const participantsResult = await db("jam_participant_list", { jamId: jam.id });
+  const participants = participantsResult.participants || [];
+  const settlements = [];
+  for (const participant of participants) {
+    if (!["attended", "completed"].includes(participant.status)) continue;
+    if (participant.compensationStatus === "paid") { settlements.push({ participantId: participant.id, status: "already_paid" }); continue; }
+    const amount = Number(participant.compensationAmount) || 0;
+    if (amount <= 0) { settlements.push({ participantId: participant.id, status: "no_compensation_due" }); continue; }
+    const paymentId = `pay_settle_${participant.id}`;
+    await db("record_payment", {
+      id: paymentId,
+      paymentKind: "BOOKING_SETTLEMENT",
+      rail: "demo-x402-simulated",
+      provider: "toasty-peeps",
+      purpose: "jam-participant-settlement",
+      status: "PAYMENT_RELEASED",
+      network: "demo",
+      amount,
+      currency: "USDC",
+      transactionSignature: `demo-settle-${participant.id}`,
+      policyDecision: "APPROVED",
+      approvalSource: "SETTLEMENT_POLICY",
+      metadata: { jamId: jam.id, jamParticipantId: participant.id, verificationStatus: "DEMO_SIMULATED" }
+    });
+    await db("jam_participant_update", { id: participant.id, fields: { compensationStatus: "paid" } });
+    await db("jam_event_create", { id: newId("jev"), jamId: jam.id, jamParticipantId: participant.id, type: "payment.paid", actor: authSession.id, detail: { amount, paymentId } });
+    settlements.push({ participantId: participant.id, status: "settled", paymentId, amount });
+  }
+  sendJson(req, res, 200, { settlements });
+}
+
+// ---- Dub claim (section 27) ----
+
+function dubClaimEmailHtml({ dub, token }) {
+  const claimUrl = `${APP_BASE_URL}/peeps/dub-claim.html?token=${token}`;
+  return `<p>Hi ${escapeHtml(dub.displayName || "there")},</p>
+<p>You were part of a conversation arranged through Toasty Peeps. Claim your Dub to manage your profile, availability, participation preferences and the evidence created through your interactions.</p>
+<p><a href="${claimUrl}">${claimUrl}</a></p>
+<p>This link expires in 90 days.</p>`;
+}
+
+async function handleDubClaimInviteIssue(req, res, authSession) {
+  const dubId = decodeURIComponent(req.url.slice("/api/dubs/".length, -"/claim-invite".length));
+  if (!SAFE_ID.test(dubId)) throw httpError(400, "Invalid dub id.");
+  const body = await readJson(req);
+  const organizationId = await resolveOrganizationForSession(authSession, body.organizationId);
+  if (!organizationId) throw httpError(400, "You must belong to an organization.");
+  const membership = await requireMembership(req, res, organizationId, "member", authSession);
+  if (!membership) return;
+  const dubResult = await db("dub_get", { id: dubId });
+  if (!dubResult.dub) throw httpError(404, "Dub not found.");
+  if (dubResult.dub.userId) throw httpError(400, "This Dub is already claimed.");
+  const historyResult = await db("dub_search_by_organization_history", { organizationId });
+  if (!(historyResult.dubs || []).some((d) => d.id === dubId)) throw httpError(403, "This Dub has no participation history with your organization.");
+  const { token, tokenHash } = issueInviteToken();
+  await db("dub_claim_invite_issue", { id: newId("dci"), dubId, tokenHash, expiresAt: inviteExpiry(90) });
+  if (EMAIL_PATTERN.test(dubResult.dub.email || "")) {
+    await sendEmail({
+      to: dubResult.dub.email,
+      subject: "You were part of a conversation arranged through Toasty Peeps",
+      html: dubClaimEmailHtml({ dub: dubResult.dub, token })
+    }).catch((error) => console.error("[Toasty Email] dub claim invite failed", error));
+  }
+  sendJson(req, res, 201, { token, claimUrl: `/peeps/dub-claim.html?token=${token}` });
+}
+
+async function handleDubClaimGet(req, res) {
+  const token = decodeURIComponent(req.url.slice("/api/dub-claims/".length));
+  const result = await db("dub_claim_invite_get", { tokenHash: hashInviteToken(token) });
+  if (!result.invite) throw httpError(404, "Claim link not found.");
+  if (result.invite.claimedAt) throw httpError(410, "This Dub has already been claimed.");
+  if (new Date(result.invite.expiresAt).getTime() < Date.now()) throw httpError(410, "This claim link has expired.");
+  if (result.dub?.userId) throw httpError(410, "This Dub has already been claimed.");
+  const breadcrumbsResult = await db("dub_breadcrumbs_for_dub", { dubId: result.dub.id });
+  sendJson(req, res, 200, { dub: { id: result.dub.id, displayName: result.dub.displayName, email: result.dub.email }, breadcrumbs: breadcrumbsResult.events || [] });
+}
+
+async function handleDubClaimClaim(req, res, authSession) {
+  const token = decodeURIComponent(req.url.slice("/api/dub-claims/".length, -"/claim".length));
+  const tokenHash = hashInviteToken(token);
+  const result = await db("dub_claim_invite_get", { tokenHash });
+  if (!result.invite) throw httpError(404, "Claim link not found.");
+  if (new Date(result.invite.expiresAt).getTime() < Date.now()) throw httpError(410, "This claim link has expired.");
+  const claimResult = await db("dub_claim", { dubId: result.invite.dubId, tokenHash, userId: authSession.id });
+  if (!claimResult.claimed) throw httpError(409, "This Dub has already been claimed.");
+  sendJson(req, res, 200, { dub: claimResult.dub });
+}
+
+// Sections 26/27 — called once a Jam completes. A claimed participant is told their Breadcrumbs were
+// updated (real email, to their real account address). An unclaimed one is invited to claim their Dub —
+// this is the network flywheel: a real interaction happened, so now there's something real to claim.
+async function notifyPeepsParticipantsOfCompletion(jam) {
+  const participantsResult = await db("jam_participant_list", { jamId: jam.id });
+  const participants = (participantsResult.participants || []).filter((p) => ["attended", "completed"].includes(p.status));
+  for (const participant of participants) {
+    const dubResult = await db("dub_get", { id: participant.dubId });
+    const dub = dubResult.dub;
+    if (!dub) continue;
+    if (dub.userId) {
+      const userResult = await db("get_user_by_id", { id: dub.userId });
+      if (userResult.user?.email) {
+        await sendEmail({
+          to: userResult.user.email,
+          subject: `Your Breadcrumbs were updated - "${jam.title || "a Toasty Peeps Jam"}"`,
+          html: `<p>Hi ${escapeHtml(userResult.user.name || "")},</p><p>Your Breadcrumbs were updated after <strong>${escapeHtml(jam.title || "a Toasty Peeps Jam")}</strong>. Sign in to Toasty Peeps to see what was added and why.</p>`
+        }).catch((error) => console.error("[Toasty Email] claimed dub notification failed", error));
+        await db("jam_event_create", { id: newId("jev"), jamId: jam.id, jamParticipantId: participant.id, type: "dub.notified", actor: "system" });
+      }
+    } else if (EMAIL_PATTERN.test(dub.email || "")) {
+      const { token, tokenHash } = issueInviteToken();
+      await db("dub_claim_invite_issue", { id: newId("dci"), dubId: dub.id, tokenHash, expiresAt: inviteExpiry(90) });
+      await sendEmail({
+        to: dub.email,
+        subject: "You were part of a conversation arranged through Toasty Peeps",
+        html: dubClaimEmailHtml({ dub, token })
+      }).catch((error) => console.error("[Toasty Email] unclaimed dub claim invite failed", error));
+      await db("jam_event_create", { id: newId("jev"), jamId: jam.id, jamParticipantId: participant.id, type: "dub.claim_invited", actor: "system" });
+    }
+  }
 }
 
 async function writeMediaFiles({ form, workDir }) {

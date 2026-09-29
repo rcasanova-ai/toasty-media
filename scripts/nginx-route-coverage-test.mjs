@@ -95,7 +95,25 @@ const PEEPS_JAM_ROUTES = [
   "/api/jam-invites/aBcDeF123456/accept",
   "/api/jam-invites/aBcDeF123456/consent",
   "/api/jam-artifacts/jart_abc123/update",
-  "/api/sessions/ls_abc123/jam"
+  "/api/sessions/ls_abc123/jam",
+  "/api/jams/jam_abc123/book",
+  "/api/jams/jam_abc123/prep",
+  "/api/jams/jam_abc123/package",
+  "/api/jams/jam_abc123/replace-participant",
+  "/api/jams/jam_abc123/settle"
+];
+
+// Peeps agent-to-human transaction lifecycle routes — same representative-URL-per-distinct-path
+// convention as PEEPS_JAM_ROUTES above.
+const PEEPS_AGENT_ROUTES = [
+  "/api/peeps/requests",
+  "/api/peeps/requests/preq_abc123",
+  "/api/peeps/requests/preq_abc123/replace-candidate",
+  "/api/peeps/requests/preq_abc123/authorize",
+  "/api/peeps/demo-payments/authorize",
+  "/api/dubs/dub_abc123/claim-invite",
+  "/api/dub-claims/aBcDeF123456",
+  "/api/dub-claims/aBcDeF123456/claim"
 ];
 
 // Every backend route this list represents, as it's actually registered in render-production-server.mjs
@@ -152,6 +170,17 @@ async function main() {
     }
   }
   assert(uncoveredJam.length === 0, `every Peeps Jam route has a matching nginx location block${uncoveredJam.length ? ` (missing: ${uncoveredJam.join(", ")})` : ""}`);
+
+  const uncoveredAgent = [];
+  for (const route of PEEPS_AGENT_ROUTES) {
+    const matched = compiled.find(({ regExp }) => regExp.test(route));
+    if (matched) {
+      console.log(`  ok — ${route} is covered by location ~ ${matched.source}`);
+    } else {
+      uncoveredAgent.push(route);
+    }
+  }
+  assert(uncoveredAgent.length === 0, `every Peeps agent-to-human route has a matching nginx location block${uncoveredAgent.length ? ` (missing: ${uncoveredAgent.join(", ")})` : ""}`);
 
   // Best-effort: if nginx is actually installed in this environment, run a real syntax check. This
   // sandbox does not have it (documented above), so this branch is exercised in CI/production only.

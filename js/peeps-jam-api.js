@@ -39,6 +39,70 @@ export const updateJamArtifact = (artifactId, fields) =>
 
 export const getStudioSessionJamContext = (sessionId) => studioRequest(`/api/sessions/${encodeURIComponent(sessionId)}/jam`);
 
+export const bookJam = (jamId, fields) => studioRequest(`/api/jams/${encodeURIComponent(jamId)}/book`, { method: "POST", body: JSON.stringify(fields) });
+export const getJamPrep = (jamId, { role = "organizer", participantId = "" } = {}) => {
+  const qs = new URLSearchParams({ role, ...(participantId ? { participantId } : {}) });
+  return studioRequest(`/api/jams/${encodeURIComponent(jamId)}/prep?${qs.toString()}`);
+};
+export const getJamPackage = (jamId, participantId = "") =>
+  studioRequest(`/api/jams/${encodeURIComponent(jamId)}/package${participantId ? `?participantId=${encodeURIComponent(participantId)}` : ""}`);
+export const replaceJamParticipant = (jamId, removedParticipantId, reason = "") =>
+  studioRequest(`/api/jams/${encodeURIComponent(jamId)}/replace-participant`, { method: "POST", body: JSON.stringify({ removedParticipantId, reason }) });
+export const settleJam = (jamId) => studioRequest(`/api/jams/${encodeURIComponent(jamId)}/settle`, { method: "POST", body: "{}" });
+
+// ---- Peeps agent-to-human transaction lifecycle (request -> research -> candidates -> introductions) ----
+
+export const createPeepsRequest = (fields) => studioRequest("/api/peeps/requests", { method: "POST", body: JSON.stringify(fields) });
+export const getPeepsRequest = (id) => studioRequest(`/api/peeps/requests/${encodeURIComponent(id)}`);
+export const listPeepsRequests = (organizationId) => studioRequest(`/api/peeps/requests?organizationId=${encodeURIComponent(organizationId)}`);
+export const replacePeepsCandidate = (requestId, candidateId) =>
+  studioRequest(`/api/peeps/requests/${encodeURIComponent(requestId)}/replace-candidate`, { method: "POST", body: JSON.stringify({ candidateId }) });
+
+async function rawPost(path, body, headers = {}) {
+  const response = await fetch(`${studioApiEndpoint()}${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json", "X-Toasty-CSRF": "1", ...headers },
+    body: JSON.stringify(body)
+  });
+  let payload = {};
+  try { payload = await response.json(); } catch { /* empty/binary */ }
+  return { status: response.status, ok: response.ok, data: payload };
+}
+
+// Authorizing introductions is payment-gated (x402, section 9). This drives the full round trip: try the
+// authorize call; if it comes back 402, pay through whichever provider the response names — currently
+// always the demo provider on a deployment with no real Solana recipient configured (see
+// handlePeepsRequestAuthorize's own comment) — and retry once with the proof attached. A deployment with
+// real payment infrastructure would need a real wallet-signing flow here instead; this throws a clear
+// error rather than pretending to pay in that case.
+export async function authorizePeepsIntroductions(requestId, candidates) {
+  const path = `/api/peeps/requests/${encodeURIComponent(requestId)}/authorize`;
+  const first = await rawPost(path, { candidates });
+  if (first.status !== 402) {
+    if (!first.ok) throw new Error(first.data.error || "Could not authorize introductions.");
+    return first.data;
+  }
+  if (!first.data.demo) {
+    throw new Error("This deployment requires a real x402/Solana payment, which this page does not yet support submitting.");
+  }
+  const demoPay = await studioRequest("/api/peeps/demo-payments/authorize", { method: "POST", body: JSON.stringify({ requestId }) });
+  const second = await rawPost(path, { candidates }, {
+    "X-Payment-Signature": demoPay.paymentSignature,
+    "X-Solana-Transaction-Signature": demoPay.transactionSignature,
+    "X-Payment-Asset": demoPay.asset,
+    "X-Payment-Amount": String(demoPay.amount),
+    "X-Payer-Wallet": demoPay.payerWallet,
+    "X-Approval-Source": demoPay.approvalSource
+  });
+  if (!second.ok) throw new Error(second.data.error || "Could not authorize introductions.");
+  return second.data;
+}
+
+export const issueDubClaimInvite = (dubId, organizationId) =>
+  studioRequest(`/api/dubs/${encodeURIComponent(dubId)}/claim-invite`, { method: "POST", body: JSON.stringify({ organizationId }) });
+export const claimDub = (token) => studioRequest(`/api/dub-claims/${encodeURIComponent(token)}/claim`, { method: "POST", body: "{}" });
+
 // ---- Participant-facing (unauthenticated, invite-token gated) ----
 
 async function inviteRequest(path, options = {}) {
@@ -56,3 +120,5 @@ export const getJamInvite = (token) => inviteRequest(`/api/jam-invites/${encodeU
 export const acceptJamInvite = (token) => inviteRequest(`/api/jam-invites/${encodeURIComponent(token)}/accept`, { method: "POST" });
 export const submitJamConsent = (token, body) =>
   inviteRequest(`/api/jam-invites/${encodeURIComponent(token)}/consent`, { method: "POST", body: JSON.stringify(body) });
+
+export const getDubClaim = (token) => inviteRequest(`/api/dub-claims/${encodeURIComponent(token)}`);

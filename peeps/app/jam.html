@@ -8,6 +8,27 @@
 
 <section class="card jam-policy"><span class="eyebrow">Jam lifecycle</span><div class="jam-steps"><div><b>1 · Protected invite</b><span>Participant-specific access before media credentials are issued.</span></div><div><b>2 · Consent</b><span>Capture only under accepted terms.</span></div><div><b>3 · Attendance evidence</b><span>Track presence and billable overlap.</span></div><div><b>4 · Settle + Breadcrumb</b><span>Retain minimal engagement evidence and settlement status.</span></div></div></section>
 
+<section class="card" id="bookingCard">
+  <span class="eyebrow">Booking</span><h3 id="bookingSummary">Not scheduled yet</h3>
+  <div id="bookingForm">
+    <label>Date &amp; time<input class="field" id="bookScheduledAt" type="datetime-local"></label>
+    <label>Timezone<input class="field" id="bookTimezone" placeholder="Asia/Bangkok"></label>
+    <label>Duration (minutes)<input class="field" id="bookDuration" type="number" min="5" value="45"></label>
+    <div class="actions"><button class="btn" id="bookSubmit">Book &amp; build Session Planner</button></div>
+    <p class="muted" id="bookStatus"></p>
+  </div>
+  <div class="actions" id="postBookActions" hidden>
+    <a class="link" id="prepLink" href="#">View meeting prep →</a>
+    <a class="link" id="plannerLink" href="#" style="margin-left:16px">Open Session Planner →</a>
+  </div>
+</section>
+
+<section class="card" id="settleCard" hidden>
+  <span class="eyebrow">Settlement &amp; package</span><h3>Wrap up this Jam</h3>
+  <div class="actions"><button class="btn secondary" id="settleBtn">Settle compensation</button><a class="link" id="packageLink" href="#" style="margin-left:16px">View post-session package →</a></div>
+  <p class="muted" id="settleStatus"></p>
+</section>
+
 <div class="section-head"><div><h3>Participants</h3></div><button class="btn secondary" id="addParticipantBtn">Add participant</button></div>
 <section class="card" id="addParticipantForm" hidden>
   <label>Email<input class="field" id="participantEmail" placeholder="participant@example.com"></label>
@@ -25,7 +46,8 @@
 <script type="module">
 import {
   getJam, updateJam, runJamSession, completeJam, reopenJam,
-  addJamParticipant, issueJamParticipantInvite, confirmJamParticipant, removeJamParticipant, markJamParticipant
+  addJamParticipant, issueJamParticipantInvite, confirmJamParticipant, removeJamParticipant, markJamParticipant,
+  bookJam, getJamPrep, getJamPackage, settleJam
 } from "../../js/peeps-jam-api.js";
 
 const $ = (id) => document.getElementById(id);
@@ -125,12 +147,86 @@ function renderParticipants() {
   });
 }
 
+function renderBooking() {
+  if (jam.scheduledAt) {
+    $("bookingSummary").textContent = `Scheduled ${jam.scheduledAt}${jam.timezone ? ` (${jam.timezone})` : ""}`;
+    $("bookingForm").hidden = true;
+    $("postBookActions").hidden = false;
+    $("prepLink").href = `#prep`;
+    if (jam.studioSessionId) $("plannerLink").href = `../../studio/plan.html?session=${encodeURIComponent(jam.studioSessionId)}`;
+  } else {
+    $("bookingForm").hidden = false;
+    $("postBookActions").hidden = true;
+  }
+  $("settleCard").hidden = !["running", "completed"].includes(jam.status) || !jam.studioSessionId;
+  if (jam.status === "completed") $("packageLink").href = "#package";
+}
+
+$("bookSubmit").addEventListener("click", async () => {
+  const btn = $("bookSubmit");
+  btn.disabled = true;
+  $("bookStatus").textContent = "Booking…";
+  try {
+    const result = await bookJam(jamId, {
+      scheduledAt: $("bookScheduledAt").value,
+      timezone: $("bookTimezone").value.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone,
+      durationMinutes: Number($("bookDuration").value) || 45
+    });
+    jam = result.jam;
+    $("bookStatus").textContent = "";
+    renderBooking();
+  } catch (error) {
+    $("bookStatus").textContent = error.message || "Could not book this Jam.";
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$("prepLink").addEventListener("click", async (event) => {
+  event.preventDefault();
+  try {
+    const prep = await getJamPrep(jamId, { role: "organizer" });
+    const lines = prep.questions.map((q, i) => `${i + 1}. ${q}`).join("\n");
+    const who = prep.participants.map((p) => `- ${p.displayName} (${p.status}) — ${p.whySelected || "manually added"}`).join("\n");
+    alert(`Questions:\n${lines}\n\nParticipants:\n${who}`);
+  } catch (error) {
+    alert(error.message || "Could not load prep.");
+  }
+});
+
+$("packageLink").addEventListener("click", async (event) => {
+  event.preventDefault();
+  try {
+    const pkg = await getJamPackage(jamId);
+    const steps = (pkg.nextSteps || []).map((s) => `- ${s}`).join("\n");
+    alert(`Post-session package\n\nArtifacts: ${pkg.artifacts.length}\nEvents: ${pkg.events.length}\n\nNext steps:\n${steps || "None — this Jam is fully wrapped up."}`);
+  } catch (error) {
+    alert(error.message || "Could not load the package.");
+  }
+});
+
+$("settleBtn").addEventListener("click", async () => {
+  const btn = $("settleBtn");
+  btn.disabled = true;
+  $("settleStatus").textContent = "Settling…";
+  try {
+    const result = await settleJam(jamId);
+    const settled = result.settlements.filter((s) => s.status === "settled").length;
+    $("settleStatus").textContent = `${settled} participant(s) settled. ${result.settlements.length - settled} had nothing due or were already paid.`;
+  } catch (error) {
+    $("settleStatus").textContent = error.message || "Could not settle this Jam.";
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 async function load() {
   const result = await getJam(jamId);
   jam = result.jam;
   participants = result.participants || [];
   renderHeader();
   renderParticipants();
+  renderBooking();
 }
 
 $("addParticipantBtn").addEventListener("click", () => { $("addParticipantForm").hidden = false; });
