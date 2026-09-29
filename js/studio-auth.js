@@ -75,7 +75,7 @@ async function checkSession() {
   try {
     const session = await request("/auth/session", { method: "GET" });
     if (session.authenticated) {
-      await openStudio(session.user?.branding);
+      await openStudio(session.user?.branding, { isPlatformAdmin: Boolean(session.user?.isPlatformAdmin) });
       return;
     }
     showPublic("");
@@ -118,7 +118,7 @@ async function login() {
         password: els.loginPassword.value
       })
     });
-    if (session.authenticated) await openStudio(session.user?.branding);
+    if (session.authenticated) await openStudio(session.user?.branding, { isPlatformAdmin: Boolean(session.user?.isPlatformAdmin) });
   } catch (error) {
     setMessage(error.message, true);
   } finally {
@@ -148,7 +148,7 @@ async function logout() {
 // NOT the security boundary: handleSessionCreate/handleSessionBrand (render-production-server.mjs) enforce
 // the lock server-side regardless of what this ever sends, so a tampered/bypassed URL still can't create or
 // change a session to another brand — only the frontend's OWN selector visibility depends on this.
-async function openStudio(branding = { mode: "flexible", brandId: null }, { destination = null } = {}) {
+async function openStudio(branding = { mode: "flexible", brandId: null }, { destination = null, isPlatformAdmin = false } = {}) {
   els.studioPublicPage.hidden = true;
   els.studioAppShell.hidden = false;
   document.body.classList.add("is-authenticated");
@@ -163,9 +163,13 @@ async function openStudio(branding = { mode: "flexible", brandId: null }, { dest
     if (branding.mode === "locked" && branding.organizationId) {
       await ensureOrgTheme(`org:${branding.organizationId}`, branding.brandProfile);
     }
-    const authenticatedBrand = branding.mode === "locked"
-      ? normalizeBrandTheme(branding.brandId)
-      : getInitialBrandTheme(window.location.search, { useStorage: true });
+    // Platform operators always enter through the neutral Toasty Media Studio shell.
+    // Customer/client branding belongs to customer accounts and explicit preview links, never the admin's default session.
+    const authenticatedBrand = isPlatformAdmin
+      ? "toasty"
+      : branding.mode === "locked"
+        ? normalizeBrandTheme(branding.brandId)
+        : getInitialBrandTheme(window.location.search, { useStorage: true });
     applyBrandTheme(authenticatedBrand, {
       root: document.body,
       logoImg: document.querySelector(".public-brand img, .studio-access-brand img"),
@@ -174,7 +178,7 @@ async function openStudio(branding = { mode: "flexible", brandId: null }, { dest
     });
     const query = new URLSearchParams(window.location.search);
     query.set("brand", authenticatedBrand);
-    if (branding.mode === "locked") {
+    if (branding.mode === "locked" && !isPlatformAdmin) {
       query.set("brandLocked", "1");
     } else {
       query.delete("brandLocked");
