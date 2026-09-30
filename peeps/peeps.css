@@ -34,3 +34,5 @@ header nav .text-link,header nav button.text-link{background:none;border:0;paddi
 .room-dock .secondary{background:#3a2925;color:#fff6e8;border-color:#ffffff20}.room-dock .selected{background:#5b4039}
 .room-note{text-align:center}.room-body .tag.good{background:#173d31;color:#bde8d8}
 @media(max-width:850px){.grid,.profile,.jam-steps,.room-stage{grid-template-columns:1fr}.jam-callout,.section-head,.room-info{align-items:flex-start;flex-direction:column}.room-video{min-height:260px}.room-clock{text-align:left}}
+
+.usecases{margin:10px 0 18px}.usecases small{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#8b5e1c;font-weight:900}.chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}.chip{background:#f1dfc7;color:#4a2d2a;border:1px solid var(--line);border-radius:999px;padding:11px 18px;font-weight:850}.chip:hover,.chip.on{background:#8b5e1c;color:#fff}.verdict{font-size:13px;padding:6px 10px;border-radius:999px;background:#f1dfc7;color:#4a2d2a;white-space:nowrap}.verdict.v-yes{background:#d9a66f;color:#2b1714}.verdict.v-no{background:#4a2d2a;color:#fff}
