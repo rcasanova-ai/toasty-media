@@ -1,0 +1,69 @@
+import assert from 'node:assert/strict';
+import * as E from '../peeps/demo/engine.js';
+import { CANDIDATES, INTENTS, PRICING } from '../peeps/demo/data.js';
+
+const s = E.initialState();
+assert.equal(E.coverage(s), 62);
+
+// unlock is idempotent and priced at the platform microprice
+E.unlockContext(s, 'sarah'); E.unlockContext(s, 'sarah');
+assert.equal(E.contextSpend(s), PRICING.contextUnlockUsd);
+assert.ok(s.ledger.every((e) => e.mode === 'demo' && e.settlement === 'none'));
+
+// Dub answers from evidence, is honest about unknown/private
+for (const id of ['q_led', 'q_crypto', 'q_comfort', 'q_limits']) {
+  const r = E.askDub(s, id); assert.equal(r.kind, 'answer', id); assert.ok(r.evidence.length);
+}
+const priv = E.askDub(s, 'x_round');
+assert.equal(priv.kind, 'private'); assert.deepEqual(priv.evidence, []);
+assert.ok(!JSON.stringify(priv).match(/\$\d/));
+const unk = E.askDub(s, 'q_terms');
+assert.equal(unk.kind, 'unknown'); assert.equal(unk.canAsk, true);
+assert.match(unk.text, /don’t have sufficient evidence/);
+assert.equal(s.interview.awaitingClarification, 'q_terms');
+
+// clarification becomes persistent, provenance-tagged context
+const claim = E.clarify(s, 'q_terms', 'yes');
+assert.equal(claim.provenance, 'self'); assert.equal(claim.source, 'Sarah');
+assert.equal(E.askDub(s, 'q_terms').kind, 'answer');
+assert.equal(E.coverage(s), 64);
+
+// batch: 8 investigated, $2.00, 3 qualified, 5 excluded; David excluded for crypto
+const b = E.runBatchQualification(s);
+assert.equal(b.investigated, 8); assert.equal(b.contextSpend, 2); assert.equal(b.qualified.length, 3); assert.equal(b.excluded.length, 5);
+assert.deepEqual(b.qualified.map((c) => c.id), ['sarah', 'niran', 'michael']);
+const david = CANDIDATES.find((c) => c.id === 'david');
+assert.ok(david.surface > 90 && /crypto/i.test(david.exclusion.reason));
+
+// Jam requires acceptance; completion settles once
+assert.throws(() => E.createJam(s));
+E.requestIntro(s); E.acceptIntro(s); E.createJam(s); E.createJam(s);
+assert.equal(s.ledger.filter((e) => e.kind === 'jam_commit').length, 1);
+E.completeJam(s); E.completeJam(s);
+assert.equal(s.sarahDough, 25);
+assert.equal(s.ledger.filter((e) => e.kind === 'dough_credit').length, 1);
+assert.equal(E.coverage(s), 68);
+assert.equal(s.dub.breadcrumbs.at(-1).status, 'verified');
+
+// trust scaffolding
+assert.equal(E.evaluateTrust({ valueUsd: 25, duplicatePayout: true }).decision, 'hold');
+assert.equal(E.evaluateTrust({ valueUsd: 25, actualMin: 5 }).decision, 'hold');
+assert.equal(E.evaluateTrust({ valueUsd: 25, actualMin: 5, demoClock: true }).decision, 'release');
+assert.equal(E.evaluateTrust({ valueUsd: 250, trustLevel: 2 }).decision, 'step_up');
+assert.equal(E.evaluateTrust({ valueUsd: 25, repeat24h: 4 }).decision, 'hold');
+
+// held payout never credits Dough
+const h = E.initialState(); E.requestIntro(h); E.acceptIntro(h); E.createJam(h);
+E.completeJam(h, { demoClock: false, actualMin: 3 });
+assert.equal(h.sarahDough, 0); assert.ok(h.ledger.some((e) => e.kind === 'payment_hold'));
+
+// growth loop
+E.claimDub(s); E.claimDub(s);
+assert.equal(s.ledger.filter((e) => e.kind === 'dough_pending_claim').length, 1);
+assert.equal(s.growth.claimedDub.breadcrumbs.length, 1);
+
+// persistence + reset
+const mem = new Map(); const st = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v), removeItem: (k) => mem.delete(k) };
+E.saveState(st, s); assert.equal(E.loadState(st).sarahDough, 25);
+assert.equal(E.resetState(st).sarahDough, 0); assert.equal(E.loadState(st).sarahDough, 0);
+console.log('peeps-demo-test: all assertions passed');
