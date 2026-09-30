@@ -16,3 +16,5 @@ function find(){const brief=$('#brief').value.trim();if(!brief)return;const q=`$
 function openDub(p){$('#dubBody').innerHTML=`<small>THE CALL · $${p.dub.toFixed(3)} USDC</small><h2>${p.name}</h2><p><b>${verdict(p.score)} · ${p.score}% confident</b> · ${p.role}</p>${p.evidence.map(e=>`<div class="answer"><b>Approved / supported</b><p>${e}</p></div>`).join('')}<div class="answer unknown"><b>Private stays private</b><p>Anything outside approved matchable context remains unknown or requires direct participant consent.</p></div><button>Spend Dough & make the Call</button>`;$('#dub').showModal();}
 $('#find').onclick=find;$('#close').onclick=()=>$('#dub').close();
 document.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{$('#brief').value=c.dataset.brief;$('#context').value=c.dataset.context;$('#intent').value=c.dataset.intent;document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('on',x===c));find();});
+
+// Peeps landing: human context, agent-accessible (redeploy after gate fix)
