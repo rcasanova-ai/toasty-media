@@ -58,7 +58,9 @@ async function main(){
   assert(forbidden.status===403,"normal customer cannot access platform admin APIs");
 
   const orgs=await req("/api/organizations/platform-admin/organizations",{cookie:founder.cookie});
-  assert(orgs.status===200 && orgs.data.organizations.length===2,"platform admin can list all organizations");
+  // Default brand skins (skin-*) are seeded for the founder, so do not pin an exact organization count.
+  const ownerIds=new Set(orgs.data.organizations.map(o=>o.ownerUserId));
+  assert(orgs.status===200 && orgs.data.organizations.some(o=>o.slug==="founder") && orgs.data.organizations.some(o=>o.slug==="customer") && ownerIds.has(second.data.user.id),"platform admin can list all organizations");
   const customerOrg=orgs.data.organizations.find(o=>o.ownerUserId===second.data.user.id);
   assert(Boolean(customerOrg),"customer organization is visible to operator");
 
