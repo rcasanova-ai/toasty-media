@@ -58,9 +58,37 @@ async function main(){
   assert(forbidden.status===403,"normal customer cannot access platform admin APIs");
 
   const orgs=await req("/api/organizations/platform-admin/organizations",{cookie:founder.cookie});
-  // Default brand skins (skin-*) are seeded for the founder, so do not pin an exact organization count.
-  const ownerIds=new Set(orgs.data.organizations.map(o=>o.ownerUserId));
-  assert(orgs.status===200 && orgs.data.organizations.some(o=>o.slug==="founder") && orgs.data.organizations.some(o=>o.slug==="customer") && ownerIds.has(second.data.user.id),"platform admin can list all organizations");
+  // Legitimate customer organizations can be added at any time, so never pin a total organization count.
+  // Instead assert each required org individually, by its stable slug.
+  const orgBySlug=slug=>orgs.data.organizations.find(o=>o.slug===slug);
+  assert(orgs.status===200 && Array.isArray(orgs.data.organizations),"platform admin can list all organizations");
+  assert(orgBySlug("founder")?.ownerUserId===founder.data.user.id,"founder's own organization is listed");
+  assert(orgs.data.organizations.some(o=>o.ownerUserId===second.data.user.id),"customer organization is listed");
+
+  // Every default brand skin must be seeded as its own organization. The list is hardcoded on purpose (not read
+  // from the server's KNOWN_BRAND_IDS) so that silently dropping a skin from the server fails this test.
+  const SKINS={toasty:"Toasty Media","8alta":"8ALTA",santati:"Santati",optimai:"OptimAI",tangem:"Tangem",superteam:"Superteam",peeps:"Toasty Peeps",zenify:"Zenify"};
+  const skinIds={};
+  for(const [theme,label] of Object.entries(SKINS)){
+    const slug="skin-"+theme, org=orgBySlug(slug);
+    assert(Boolean(org),`default skin organization ${slug} exists`);
+    assert(org.name===label && org.ownerUserId===founder.data.user.id && org.plan==="demo",`${slug} has the expected name, platform owner and demo plan`);
+    assert(org.memberCount===1 && Boolean(org.activeBrandProfileId),`${slug} has its owner membership and an active brand profile`);
+    const skinDetail=await req(`/api/organizations/platform-admin/organizations/${org.id}/detail`,{cookie:founder.cookie});
+    const brand=skinDetail.data.brandProfiles?.find(b=>b.id===org.activeBrandProfileId);
+    assert(skinDetail.status===200 && brand?.baseThemeId===theme,`${slug} active brand profile is based on the ${theme} theme`);
+    skinIds[slug]=org.id;
+  }
+  assert(Number(scalar("SELECT COUNT(*) FROM organizations WHERE slug LIKE 'skin-%'"))>=Object.keys(SKINS).length,"seeded skin organizations are persisted in the database");
+
+  // Seeding is idempotent: listing again must not duplicate or replace any skin organization.
+  const orgsAgain=await req("/api/organizations/platform-admin/organizations",{cookie:founder.cookie});
+  const stable=Object.entries(skinIds).every(([slug,id])=>orgsAgain.data.organizations.filter(o=>o.slug===slug).length===1 && orgsAgain.data.organizations.find(o=>o.slug===slug).id===id);
+  assert(orgsAgain.status===200 && stable,"re-listing keeps every skin organization unique with the same id");
+
+  // A normal customer must not be able to list organizations (and so cannot trigger or see the seeding).
+  const customerList=await req("/api/organizations/platform-admin/organizations",{cookie:second.cookie});
+  assert(customerList.status===403,"normal customer cannot list platform organizations");
   const customerOrg=orgs.data.organizations.find(o=>o.ownerUserId===second.data.user.id);
   assert(Boolean(customerOrg),"customer organization is visible to operator");
 

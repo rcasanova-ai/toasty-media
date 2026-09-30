@@ -119,7 +119,7 @@ console.log("Peeps auth gate — HTML wiring");
 const publicHtml = readFileSync(PUBLIC_PAGE, "utf8");
 assert(!publicHtml.includes("peeps-app-gated"), "public /peeps/ is not fail-closed hidden");
 assert(!publicHtml.includes("peeps-app-gate.js"), "public /peeps/ does not load the app gate");
-assert(publicHtml.includes("Find your"), "public sales copy remains on /peeps/");
+assert(publicHtml.includes("Human context"), "public sales copy remains on /peeps/");
 assert(publicHtml.includes("peeps-public-auth.js"), "public /peeps/ offers Studio sign-in without gating the page");
 assert(readFileSync(join(ROOT, "peeps/peeps.css"), "utf8").includes("header nav button[hidden]"), "hidden Sign out is not overridden by the global button display");
 assert(publicHtml.includes('href="./app/"'), "Open Peeps still points at the app route (the gate protects it)");
