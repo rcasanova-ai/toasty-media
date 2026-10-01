@@ -90,7 +90,24 @@ The MVP soundboard is modular and intentionally small:
 
 The soundboard is local to the host browser in this phase. Hosted VDO.Ninja iframes do not expose a simple parent-page path for injecting Web Audio output into the live WebRTC mix. For now, cues are useful for host monitoring and can be incorporated into recording/post-production later through FFmpeg or through a future virtual audio device / WebRTC-owned mixer path.
 
-## Recording
+## Chunk-Safe Recording And Personal Recording Mode
+
+Recording no longer has to hold a session in browser memory. Every MediaRecorder timeslice is persisted and uploaded as it is produced, so a crash or refresh at minute 89 loses at most the last couple of seconds.
+
+Pipeline:
+
+- `js/recording-uploader.js` — `ChunkUploader` writes each chunk to a durable queue (IndexedDB, `MemoryChunkStore` in tests) before any network attempt, uploads with retry/backoff and SHA-256 integrity, and deletes a chunk from the queue only after the server acknowledges it. `recoverInterruptedRecording()` finishes a recording whose page died.
+- `scripts/render-production-server.mjs` ("Chunk-safe recording store") — stores chunks on the render host's filesystem next to the SQLite DB (`TOASTY_RECORDINGS_DIR`, default `<dir of TOASTY_AUTH_DB>/recordings`; no new vendor). Layout: `<owner>/<session_id>/<recording_id>/<participant_id>/<track_id>/<seq>.chunk` plus `manifest.json`. The filesystem is the source of truth for which chunks exist.
+- API (all authenticated, CSRF, owner-scoped): `POST /api/recordings` (create; idempotent resume by `recordingId`), `POST /api/recordings/:session/:recording/tracks` (register another track), `POST .../chunks/:participant/:track/:seq` (idempotent, `?sha256=`), `POST .../complete` (202, async finalize), `GET .../:session/:recording` (manifest plus live sequence view), `GET /api/recordings?sessionId=`, `GET .../files/:participant/:track[?kind=source]`.
+- Finalization is asynchronous (single-slot FFmpeg queue): chunks are byte-concatenated to `source.webm`, then transcoded to `final.mp4` (video tracks) or `final.m4a` (audio-only tracks). A recording whose uploader disappeared is completed automatically after `TOASTY_RECORDING_ABANDON_MS` (default 10 minutes) from whatever arrived, and interrupted finalizations resume after a server restart. A gap in the sequence yields `state: "partial"` rather than a silent success.
+
+Manifest (`schemaVersion: 2`): recording state, start/stop timestamps, duration, markers, a `metadata.timeline` of scene/layout/asset/ticker changes, and per track: `type`, `role` (`composed` | `isolated`), `participantId`, `mimeType`, `codecs`, `hasVideo`/`hasAudio`, video geometry, `startedAtMs` and `offsetMs` (sync against recording start), `sequence` (count, lastSeq, contiguousThrough, missingSeqs, bytes), and `final` (status, file, bytes). Track types already defined: `program`, `camera`, `microphone`, `audio-mix`, `screen`, `camera-secondary`, `phone-camera`, `uploaded-video`, `remote-guest`. A new source is a new track on the same calls; no schema change.
+
+Personal Recording Mode (`studio/record.html`, `js/record-page.js`, `js/personal-recording.js`): one getUserMedia feeds three tracks — the composed `program` (first-party canvas via `js/program-compositor.js`: same skins, layout geometry, name plate, asset cards, ticker and End Card as live Program Output, with the mic and optional program audio mixed in), the isolated `camera` (video only) and the isolated `microphone` (audio only), the latter two through `LocalIsolatedRecorder` in streaming mode (`chunkSinks`). Pass `?room=<roomId>` and the compositor follows the same canonical program state a producer or Moxie publishes (`compositorStateFromProgram`).
+
+Boundary: isolated recording of VDO.Ninja guests is not attempted by capturing cross-origin iframe media. Guests will record and upload their own tracks from their own browser against this same API (next milestone).
+
+## Local Recording (Phase 1)
 
 Phase 1 now implements the first reliable recording proof possible without owning the WebRTC stack: browser-local isolated recording for each participant.
 

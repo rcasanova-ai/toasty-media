@@ -60,6 +60,13 @@ jobs:
           set -euo pipefail
           node scripts/ai-usage-analytics-test.mjs
 
+      - name: Validate chunk-safe recording
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y ffmpeg >/dev/null
+          node scripts/recording-chunks-server-test.mjs
+          node scripts/personal-recording-test.mjs
+
       - name: Validate Peeps introduction execution
         run: |
           set -euo pipefail

@@ -9,12 +9,20 @@ const DEFAULT_MIME_TYPES = [
 ];
 
 export class LocalIsolatedRecorder {
-  constructor({ role, roomId, status, mode = "video", saveOnStop = true }) {
+  // chunkSinks = { audio(blob), video(blob) }: when given, every MediaRecorder timeslice is handed to the
+  // sink the moment it exists (resumable upload — see js/recording-uploader.js) and NOTHING is accumulated
+  // in memory or saved locally on stop. Without sinks this is the original local-package behaviour.
+  constructor({ role, roomId, status, mode = "video", saveOnStop = true, chunkSinks = null, timesliceMs = 1000 }) {
     this.role = role;
     this.roomId = roomId;
     this.status = status;
     this.mode = mode;
-    this.saveOnStop = saveOnStop;
+    this.chunkSinks = chunkSinks;
+    this.timesliceMs = timesliceMs;
+    this.saveOnStop = chunkSinks ? false : saveOnStop;
+    this.ownsStream = true;
+    this.audioStartedAt = null;
+    this.videoStartedAt = null;
     this.stream = null;
     this.audioRecorder = null;
     this.videoRecorder = null;
@@ -32,7 +40,10 @@ export class LocalIsolatedRecorder {
     return this.videoRecorder?.mimeType || this.audioRecorder?.mimeType || null;
   }
 
-  async start({ audioDeviceId, videoDeviceId } = {}) {
+  // `stream`: record an already-acquired camera+mic stream (Personal Recording shares ONE getUserMedia
+  // between the isolated recorders and the program compositor — browsers often refuse a second capture of
+  // the same device). The caller then owns the stream's lifetime.
+  async start({ audioDeviceId, videoDeviceId, stream = null } = {}) {
     if (!LocalIsolatedRecorder.isSupported()) {
       throw new Error("This browser does not support getUserMedia and MediaRecorder.");
     }
@@ -41,7 +52,8 @@ export class LocalIsolatedRecorder {
     this.videoChunks = [];
     this.stoppedAt = null;
     const audioOnly = this.mode === "audio";
-    this.stream = await navigator.mediaDevices.getUserMedia({
+    this.ownsStream = !stream;
+    this.stream = stream || await navigator.mediaDevices.getUserMedia({
       audio: audioDeviceConstraint(audioDeviceId),
       video: audioOnly ? false : videoDeviceConstraint(videoDeviceId)
     });
@@ -54,13 +66,15 @@ export class LocalIsolatedRecorder {
     const audioMimeType = chooseMimeType(["audio/webm;codecs=opus", "audio/webm"]);
     const videoMimeType = chooseMimeType(DEFAULT_MIME_TYPES);
     this.audioRecorder = new MediaRecorder(new MediaStream(audioTracks), recorderOptions(audioMimeType));
-    this.audioRecorder.addEventListener("dataavailable", (event) => pushChunk(event, this.audioChunks));
+    this.audioRecorder.addEventListener("dataavailable", (event) => this.chunkSinks?.audio ? sinkChunk(event, this.chunkSinks.audio) : pushChunk(event, this.audioChunks));
     if (!audioOnly) {
       this.videoRecorder = new MediaRecorder(new MediaStream(videoTracks), recorderOptions(videoMimeType));
-      this.videoRecorder.addEventListener("dataavailable", (event) => pushChunk(event, this.videoChunks));
-      this.videoRecorder.start(1000);
+      this.videoRecorder.addEventListener("dataavailable", (event) => this.chunkSinks?.video ? sinkChunk(event, this.chunkSinks.video) : pushChunk(event, this.videoChunks));
+      this.videoRecorder.start(this.timesliceMs);
+      this.videoStartedAt = Date.now();
     }
-    this.audioRecorder.start(1000);
+    this.audioRecorder.start(this.timesliceMs);
+    this.audioStartedAt = Date.now();
     this.startedAt = new Date();
     this.status?.(audioOnly ? "Recording local isolated audio." : "Recording local isolated audio and video.");
   }
@@ -71,7 +85,18 @@ export class LocalIsolatedRecorder {
     }
     await Promise.all([this.audioRecorder, this.videoRecorder].filter(Boolean).map(stopRecorder));
     this.stoppedAt = new Date();
-    this.stream?.getTracks().forEach((track) => track.stop());
+    if (this.ownsStream) this.stream?.getTracks().forEach((track) => track.stop());
+    if (this.chunkSinks) {
+      // Streamed: every chunk already went to its sink. Nothing to assemble or save here.
+      const info = {
+        audio: { mimeType: this.audioRecorder.mimeType || "audio/webm", startedAtMs: this.audioStartedAt },
+        video: this.videoRecorder ? { mimeType: this.videoRecorder.mimeType || "video/webm", startedAtMs: this.videoStartedAt } : null
+      };
+      this.audioRecorder = null;
+      this.videoRecorder = null;
+      this.stream = null;
+      return { session: null, audioBlob: null, videoBlob: null, streamed: true, info };
+    }
     const audioBlob = new Blob(this.audioChunks, { type: this.audioRecorder.mimeType || "audio/webm" });
     const videoBlob = this.videoRecorder
       ? new Blob(this.videoChunks, { type: this.videoRecorder.mimeType || "video/webm" })
@@ -122,7 +147,11 @@ export class LocalIsolatedRecorder {
   }
 }
 
-function chooseMimeType(types) {
+function sinkChunk(event, sink) {
+  if (event.data?.size) sink(event.data);
+}
+
+export function chooseMimeType(types) {
   return types.find((type) => MediaRecorder.isTypeSupported(type)) || "";
 }
 
