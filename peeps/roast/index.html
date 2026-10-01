@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Josip Roast Dub · Toasty Peeps</title>
+  <meta name="description" content="Submit your startup pitch to a simulated Josip Dub built from documented public pitch feedback.">
+  <link rel="icon" href="../../shared/brand/toasty-media/ToastyTransparent.png">
+  <link rel="stylesheet" href="../peeps.css?v=20261002a">
+  <link rel="stylesheet" href="./roast.css?v=20261002a">
+  <script type="module" src="./roast.js?v=20261002a"></script>
+</head>
+<body>
+<header>
+  <a class="brand" href="../"><img src="../../shared/brand/toasty-media/ToastyTransparent.png" alt="Toasty"><span><b>TOASTY</b><em>PEEPS</em></span></a>
+  <nav><a href="../">Peeps</a><a href="../demo/">Demo</a></nav>
+</header>
+<main class="roast-main">
+  <section class="roast-hero">
+    <small>PEEPS · PUBLIC DUB EXPERIMENT</small>
+    <h1>Josip didn't roast you?<br><span>This Dub will.</span></h1>
+    <p>Paste the pitch you would give a Colosseum judge. This simulated Dub applies recurring patterns from Josip Volarevic's documented public startup feedback: clarity, proof, execution, founder credibility, real demand, and obvious rejection risks.</p>
+    <div class="provenance-pill">SIMULATION · NOT JOSIP · NOT ENDORSED BY JOSIP</div>
+  </section>
+
+  <section class="roast-layout">
+    <form id="roastForm" class="card roast-form">
+      <label><span>STARTUP / PROJECT</span><input id="startup" maxlength="120" placeholder="Toasty Peeps"></label>
+      <label><span>YOUR ONE-LINER</span><input id="oneLiner" maxlength="300" placeholder="What do you say when someone asks what you do?"></label>
+      <label><span>YOUR PITCH OR DECK TEXT</span><textarea id="pitch" maxlength="12000" required placeholder="Paste the 3-minute pitch, deck copy, application answer, or submission text here."></textarea></label>
+      <div class="form-foot">
+        <span id="count">0 / 12,000</span>
+        <button type="submit" id="roastButton">Roast my pitch</button>
+      </div>
+      <p class="privacy-note">Toasty does not persist the submitted pitch in this feature. It is sent to the configured AI provider to generate the roast. Rate limited to prevent abuse.</p>
+      <p id="status" class="roast-status" role="status"></p>
+    </form>
+
+    <section id="result" class="card roast-result" hidden>
+      <div class="result-head"><small>JOSIP DUB · SIMULATED ROAST</small><button type="button" id="copyRoast" class="secondary">Copy</button></div>
+      <h2 id="opening"></h2>
+      <div class="roast-block"><small>I DON'T UNDERSTAND</small><p id="understand"></p></div>
+      <div class="roast-block"><small>YOUR STRONGEST PROOF</small><p id="strongestProof"></p></div>
+      <div class="roast-block danger"><small>RED FLAG</small><p id="redFlag"></p></div>
+      <div class="roast-block"><small>CUT</small><p id="cut"></p></div>
+      <div class="roast-block rewrite"><small>REWRITE THE ONE-LINER</small><p id="rewrite"></p></div>
+      <div class="roast-block"><small>THE QUESTION A JUDGE WILL ASK</small><p id="judgeQuestion"></p></div>
+      <div class="roast-block"><small>FIX BEFORE YOU PITCH AGAIN</small><ol id="changes"></ol></div>
+    </section>
+  </section>
+
+  <section class="card evidence-card">
+    <small>WHY THIS DUB TALKS THIS WAY</small>
+    <h2>Evidence, not impersonation.</h2>
+    <p>The prompt is grounded in recurring, attributable feedback patterns. It does not claim to predict Josip's private opinion or speak on his behalf.</p>
+    <div class="evidence-grid">
+      <a href="https://www.linkedin.com/posts/superteam-balkan_pitch-decks-are-harder-than-most-founders-activity-7452015150573797376-kQsO" target="_blank" rel="noopener"><b>Pitch decks that win</b><span>Structure, story, rejection red flags, Colosseum experience.</span></a>
+      <a href="https://www.linkedin.com/posts/superteam-balkan_if-you-cant-explain-your-startup-in-5-words-activity-7457423780076814336-6D7z" target="_blank" rel="noopener"><b>One-line clarity</b><span>Explain the startup fast or lose attention.</span></a>
+      <a href="https://incrypted.com/en/highlights-stream-josip-volarevic/" target="_blank" rel="noopener"><b>Founder + execution</b><span>Execution, real demand, team quality, judge outreach and chain fit.</span></a>
+    </div>
+    <p class="session-source">Also informed by Ricardo Casanova's Oct. 1, 2026 pitch-roast notes covering Josip's feedback to multiple founders.</p>
+  </section>
+</main>
+</body>
+</html>
