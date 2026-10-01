@@ -83,4 +83,9 @@ assert.equal(s.growth.claimedDub.breadcrumbs.length, 1);
 const mem = new Map(); const st = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, v), removeItem: (k) => mem.delete(k) };
 E.saveState(st, s); assert.equal(E.loadState(st).sarahDough, 25);
 assert.equal(E.resetState(st).sarahDough, 0); assert.equal(E.loadState(st).sarahDough, 0);
+// request prompt is locked: no editable control, flow uses the canonical constant only
+import { readFileSync } from 'node:fs';
+const ui = readFileSync(new URL('../peeps/demo/demo.js', import.meta.url), 'utf8');
+assert.ok(!/<textarea[^>]*id="ask"/.test(ui) && !/\$\('#ask'\)/.test(ui), 'request must not be an input or read from the DOM');
+assert.ok(/text: REQUEST_TEXT/.test(ui) && !/S\.request\?\.text/.test(ui), 'flow must use the canonical request');
 console.log('peeps-demo-test: all assertions passed');

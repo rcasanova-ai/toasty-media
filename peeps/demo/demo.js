@@ -62,7 +62,7 @@ const VIEWS = {};
 VIEWS.compose = {
   html: () => `<div class="compose"><div class="eyebrow">Toasty Peeps · Agents change how humans can be discovered</div>
     <h1 class="h1">Tell your agent<br><span style="color:var(--accent2)">who you need.</span></h1>
-    <div class="card glow" style="text-align:left"><div class="lbl">Your outcome, in plain language</div><textarea class="ask" id="ask">${esc(S.request?.text || REQUEST_TEXT)}</textarea>
+    <div class="card glow" style="text-align:left"><div class="lbl">Your outcome, in plain language</div><div class="ask ask-locked" id="ask" role="note" aria-readonly="true">${esc(REQUEST_TEXT)}</div>
     <div style="margin-top:16px;text-align:right"><button class="cta xl" data-act="find">Find my Peeps →</button></div></div></div>`,
 };
 
@@ -95,7 +95,7 @@ const live = (txt, done) => { const el = $('#livechip'); if (el) { el.textConten
 
 function workspaceHtml() {
   const approach = S.phase === 'approach';
-  return `<div class="ws"><aside class="ws-left"><div class="card"><div class="lbl">Goal</div><p style="font-size:15px">${esc(S.request?.text || REQUEST_TEXT)}</p><div class="hr"></div><div class="lbl">Understood as</div><div class="crit-l" id="critl"></div></div>
+  return `<div class="ws"><aside class="ws-left"><div class="card"><div class="lbl">Goal</div><p style="font-size:15px">${esc(REQUEST_TEXT)}</p><div class="hr"></div><div class="lbl">Understood as</div><div class="crit-l" id="critl"></div></div>
     <div class="card"><div class="lbl">Investigation</div><div class="row sp"><span class="spent" id="spent">${usd2(E.contextSpend(S))}</span><span class="tiny">Budget ${usd2(INVESTIGATION_BUDGET_USD)}</span></div><div class="meter"><i id="meterfill" style="width:${(E.contextSpend(S) / INVESTIGATION_BUDGET_USD) * 100}%"></i></div><div class="tiny">Context bought by your agent · x402 / Solana USDC · DEMO</div></div>
     <div class="card" id="introCard" ${approach ? '' : 'hidden'}><div class="lbl">Introductions authorized</div><div class="row sp"><span class="spent" id="introAmt">${usd2(E.jamReserved(S))}</span><span class="tiny">of ${usd(E.introTotal())} reserved</span></div></div></aside>
   <section class="card" style="padding:16px 16px 6px"><div class="wsh"><span>Peeps Agent</span><span class="tiny">for ${esc(REQUESTER.org)}</span><span class="live" id="livechip" style="margin-left:auto">Working</span></div><div class="hr"></div><div class="feed" id="feed"></div></section>
@@ -446,8 +446,7 @@ document.addEventListener('click', async (ev) => {
   const a = el.dataset.act;
   switch (a) {
     case 'find': { // human action #1
-      const text = ($('#ask')?.value || '').trim() || REQUEST_TEXT;
-      S = E.initialState(); S.request = { text }; enter('understand'); return;
+      S = E.initialState(); S.request = { text: REQUEST_TEXT }; enter('understand'); return; // canonical seeded request only
     }
     case 'authorize': return enter('approach'); // human action #2
     case 'joinjam': { // human action #3
@@ -483,5 +482,5 @@ document.addEventListener('keydown', (ev) => {
 });
 
 // A page reload mid-run restarts that autonomous phase deterministically.
-if (['understand', 'discover', 'investigate', 'qualify'].includes(S.phase)) { const text = S.request?.text; S = E.initialState(); S.request = { text }; S.phase = 'understand'; }
+if (['understand', 'discover', 'investigate', 'qualify'].includes(S.phase)) { S = E.initialState(); S.request = { text: REQUEST_TEXT }; S.phase = 'understand'; }
 render();

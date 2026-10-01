@@ -311,3 +311,5 @@ select.mini{width:auto;padding:5px 8px;font-size:12.5px}
 .rail{max-width:1240px}
 
 .drawer.wide{width:min(940px,100%)}
+
+.ask-locked{background:#120a08;border:1px solid var(--line2);border-radius:14px;padding:10px 12px;width:100%;color:var(--text);cursor:default;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;white-space:pre-wrap}
