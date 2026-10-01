@@ -2066,10 +2066,10 @@ async function callAnthropic(userContent, systemPrompt, apiKey = ANTHROPIC_API_K
 
 async function handlePeepsJosipRoast(req, res) {
   if (!COST_SAFETY_SWITCHES.ai) throw httpError(503, "AI is temporarily unavailable.");
-  const body = await readJson(req, 32 * 1024);
+  const body = await readJson(req, 48 * 1024);
   const startup = String(body.startup || "").trim().replace(/\s+/g, " ").slice(0, 120);
   const oneLiner = String(body.oneLiner || "").trim().replace(/\s+/g, " ").slice(0, 300);
-  const pitch = String(body.pitch || "").trim().slice(0, 12000);
+  const pitch = String(body.pitch || "").trim().slice(0, 24000);
   if (pitch.length < 40) throw httpError(400, "Give the Dub a little more pitch to work with.");
 
   const provider = DEEPSEEK_API_KEY ? "deepseek" : (ANTHROPIC_API_KEY ? "anthropic" : null);
