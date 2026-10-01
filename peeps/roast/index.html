@@ -27,12 +27,13 @@
     <form id="roastForm" class="card roast-form">
       <label><span>STARTUP / PROJECT</span><input id="startup" maxlength="120" placeholder="Toasty Peeps"></label>
       <label><span>YOUR ONE-LINER</span><input id="oneLiner" maxlength="300" placeholder="What do you say when someone asks what you do?"></label>
-      <label><span>YOUR PITCH OR DECK TEXT</span><textarea id="pitch" maxlength="12000" required placeholder="Paste the 3-minute pitch, deck copy, application answer, or submission text here."></textarea></label>
+      <label><span>UPLOAD YOUR DECK</span><input id="deckFile" class="deck-file" type="file" accept=".pdf,.pptx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain"><small id="deckStatus" class="deck-status">PDF, PPTX or TXT · extracted in your browser · max 15 MB</small></label>
+      <label><span>BLURB / WHAT YOU WOULD SAY ON STAGE</span><textarea id="pitch" maxlength="12000" placeholder="Paste your 3-minute pitch, application answer, context for the deck, or anything you want the Dub to know."></textarea></label>
       <div class="form-foot">
         <span id="count">0 / 12,000</span>
         <button type="submit" id="roastButton">Roast my pitch</button>
       </div>
-      <p class="privacy-note">Toasty does not persist the submitted pitch in this feature. It is sent to the configured AI provider to generate the roast. Rate limited to prevent abuse.</p>
+      <p class="privacy-note">Your deck file is parsed locally in your browser and is not uploaded to Toasty. Only extracted deck text plus your blurb is sent to the configured AI provider to generate the roast. Nothing is persisted by this feature. Rate limited to prevent abuse.</p>
       <p id="status" class="roast-status" role="status"></p>
     </form>
 

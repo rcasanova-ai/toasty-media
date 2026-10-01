@@ -24,6 +24,11 @@ assert(html.includes("SIMULATION · NOT JOSIP · NOT ENDORSED BY JOSIP"), "publi
 assert(html.includes("Evidence, not impersonation."), "evidence framing is visible");
 assert(html.includes("incrypted.com/en/highlights-stream-josip-volarevic"), "public evidence source is linked");
 assert(js.includes("/api/peeps/josip-roast"), "client calls the roast endpoint");
+assert(html.includes('type="file"') && html.includes(".pdf,.pptx,.txt"), "public page accepts PDF/PPTX/TXT deck upload");
+assert(js.includes("pdfjs-dist@4.10.38"), "PDF text extraction is wired");
+assert(js.includes("jszip@3.10.1"), "PPTX text extraction is wired");
+assert(js.includes("DECK TEXT:") && js.includes("FOUNDER BLURB / SPOKEN PITCH:"), "deck text and founder blurb are combined for the roast");
+assert(server.includes('slice(0, 24000)'), "server accepts a full extracted deck payload");
 assert(js.includes('"x-toasty-csrf": "1"'), "client sends CSRF marker");
 assert(!js.includes("localStorage") && !js.includes("sessionStorage"), "submitted pitch is not persisted in browser storage");
 assert(landing.includes('href="./roast/"'), "Peeps landing links to the roast");
