@@ -149,6 +149,18 @@ const PEEPS_AGENT_ROUTES = [
   "/api/organizations/platform-admin/dough-withdrawals/dwd_abc123/status"
 ];
 
+// Chunk-safe recording routes (js/recording-uploader.js). /api/recordings/finalize is the legacy exact-match
+// block and is intentionally NOT in this list.
+const RECORDING_ROUTES = [
+  "/api/recordings",
+  "/api/recordings?sessionId=ls_abc123",
+  "/api/recordings/ls_abc123/rec-abc-123",
+  "/api/recordings/ls_abc123/rec-abc-123/tracks",
+  "/api/recordings/ls_abc123/rec-abc-123/complete",
+  "/api/recordings/ls_abc123/rec-abc-123/chunks/host/camera/00000042",
+  "/api/recordings/ls_abc123/rec-abc-123/files/host/program"
+];
+
 // Every backend route this list represents, as it's actually registered in render-production-server.mjs
 // (kept here purely so a future editor can diff the two lists by eye — not executed).
 // See: grep -n 'req.url?.startsWith("/api/' scripts/render-production-server.mjs
@@ -214,6 +226,14 @@ async function main() {
     }
   }
   assert(uncoveredAgent.length === 0, `every Peeps agent-to-human route has a matching nginx location block${uncoveredAgent.length ? ` (missing: ${uncoveredAgent.join(", ")})` : ""}`);
+
+  const uncoveredRecording = [];
+  for (const route of RECORDING_ROUTES) {
+    const matched = compiled.find(({ regExp }) => regExp.test(route.split("?")[0]));
+    if (matched) console.log(`  ok — ${route} is covered by location ~ ${matched.source}`);
+    else uncoveredRecording.push(route);
+  }
+  assert(uncoveredRecording.length === 0, `every chunk-safe recording route has a matching nginx location block${uncoveredRecording.length ? ` (missing: ${uncoveredRecording.join(", ")})` : ""}`);
 
   // Best-effort: if nginx is actually installed in this environment, run a real syntax check. This
   // sandbox does not have it (documented above), so this branch is exercised in CI/production only.

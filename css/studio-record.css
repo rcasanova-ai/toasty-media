@@ -1,0 +1,86 @@
+/* Toasty Studio — Personal Recording page. Shares the public Studio tokens (studio-public.css). */
+* { box-sizing: border-box; }
+
+body.record-shell {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--public-ink, #f4ead9);
+  background: var(--public-bg, #0b0908);
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.rec-loading { padding: 48px; text-align: center; color: var(--public-muted, #9c8d7c); }
+[hidden] { display: none !important; }
+
+.rec-topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 14px 28px; border-bottom: 1px solid var(--public-line, rgba(230, 200, 168, 0.12)); background: rgba(0, 0, 0, 0.2);
+}
+.rec-topbar img { height: 30px; }
+.rec-nav { display: flex; gap: 18px; }
+.rec-nav a { color: var(--public-muted, #9c8d7c); text-decoration: none; font-weight: 600; font-size: 14px; padding: 6px 2px; }
+.rec-nav a.is-active, .rec-nav a:hover { color: var(--public-ink, #f4ead9); }
+
+.rec-banner { margin: 14px 28px 0; padding: 12px 16px; border-radius: 8px; background: rgba(255, 122, 41, 0.12); border: 1px solid rgba(255, 122, 41, 0.35); font-size: 14px; }
+.rec-banner-warn { background: rgba(214, 69, 65, 0.14); border-color: rgba(214, 69, 65, 0.5); }
+
+.rec-main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; padding: 24px 28px; align-items: start; }
+
+.rec-canvas-wrap { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; overflow: hidden; border: 1px solid var(--public-line, rgba(230, 200, 168, 0.12)); }
+.rec-canvas { width: 100%; height: 100%; display: block; background: #000; }
+.rec-canvas-empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; text-align: center; color: var(--public-muted, #9c8d7c); background: rgba(8, 6, 5, 0.9); }
+.rec-badge { position: absolute; top: 14px; right: 14px; background: rgba(0, 0, 0, 0.7); color: #fff; padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+.rec-badge::first-letter { color: #ff4d4d; }
+
+.rec-transport { display: flex; align-items: center; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+.rec-status { margin: 0; color: var(--public-muted, #9c8d7c); font-size: 14px; flex: 1 1 220px; }
+
+.rec-btn {
+  min-height: 42px; padding: 0 18px; border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 14px;
+  border: 1px solid var(--public-line, rgba(230, 200, 168, 0.2)); background: rgba(255, 255, 255, 0.06); color: var(--public-ink, #f4ead9);
+}
+.rec-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+.rec-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.rec-btn:focus-visible, .rec-chip:focus-visible { outline: 2px solid var(--public-gold, #ffc670); outline-offset: 2px; }
+.rec-btn-primary { background: var(--public-orange, #ff7a29); color: #1c0f06; border-color: transparent; }
+.rec-btn-record { background: #d64541; border-color: transparent; color: #fff; }
+.rec-btn-stop { background: #f4ead9; color: #1c0f06; border-color: transparent; }
+
+.rec-upload { margin-top: 14px; }
+.rec-upload-bar { height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.rec-upload-bar span { display: block; height: 100%; width: 0; background: var(--public-orange, #ff7a29); transition: width 0.4s ease; }
+.rec-upload p { margin: 8px 0 0; font-size: 13px; color: var(--public-muted, #9c8d7c); }
+
+.rec-result { margin-top: 20px; padding: 18px 20px; border-radius: 12px; border: 1px solid var(--public-line, rgba(230, 200, 168, 0.2)); background: rgba(255, 255, 255, 0.04); }
+.rec-result h2 { margin: 0 0 6px; font-size: 18px; }
+.rec-files { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.rec-files li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border-radius: 8px; background: rgba(0, 0, 0, 0.25); }
+.rec-files small { color: var(--public-muted, #9c8d7c); display: block; }
+
+.rec-controls { display: grid; gap: 12px; }
+.rec-card { border: 1px solid var(--public-line, rgba(230, 200, 168, 0.14)); border-radius: 10px; background: rgba(255, 255, 255, 0.03); padding: 4px 14px 14px; }
+.rec-card summary { cursor: pointer; padding: 12px 0; font-weight: 700; font-size: 14px; letter-spacing: 0.02em; }
+.rec-card label { display: grid; gap: 6px; margin-top: 10px; font-size: 12px; font-weight: 600; color: var(--public-muted, #9c8d7c); }
+.rec-card input[type="text"], .rec-card select, .rec-card textarea {
+  min-height: 38px; border: 1px solid var(--public-line, rgba(230, 200, 168, 0.2)); border-radius: 6px; background: #130f0d; color: var(--public-ink, #f4ead9); padding: 6px 10px; font: inherit; font-size: 14px; width: 100%;
+}
+.rec-card .rec-check { display: flex; align-items: center; gap: 8px; color: var(--public-ink, #f4ead9); font-size: 14px; font-weight: 500; }
+.rec-row { display: flex; gap: 8px; margin-top: 12px; }
+.rec-scenes { display: flex; flex-wrap: wrap; gap: 8px; }
+.rec-chip { border: 1px solid var(--public-line, rgba(230, 200, 168, 0.2)); background: transparent; color: var(--public-ink, #f4ead9); padding: 8px 12px; border-radius: 999px; cursor: pointer; font-weight: 600; font-size: 13px; }
+.rec-chip.is-active { background: var(--public-orange, #ff7a29); color: #1c0f06; border-color: transparent; }
+.rec-note { font-size: 13px; color: var(--public-muted, #9c8d7c); margin: 8px 0 0; }
+
+.rec-library { padding: 0 28px 40px; }
+.rec-library h2 { font-size: 16px; margin: 0 0 12px; }
+.rec-library-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.rec-library-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border: 1px solid var(--public-line, rgba(230, 200, 168, 0.14)); border-radius: 8px; }
+.rec-library-list .rec-links { display: flex; gap: 8px; flex-wrap: wrap; }
+.rec-link { background: none; border: 1px solid var(--public-line, rgba(230, 200, 168, 0.25)); color: var(--public-ink, #f4ead9); padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+
+@media (max-width: 960px) {
+  .rec-main { grid-template-columns: 1fr; padding: 16px; }
+  .rec-topbar { padding: 12px 16px; }
+  .rec-library { padding: 0 16px 32px; }
+  .rec-banner { margin: 12px 16px 0; }
+}

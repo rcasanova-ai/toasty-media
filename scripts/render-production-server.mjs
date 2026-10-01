@@ -2,7 +2,7 @@
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import { createReadStream, existsSync, readFileSync } from "node:fs";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open as openFile, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { execFile, spawn } from "node:child_process";
@@ -720,6 +720,13 @@ const server = createServer(async (req, res) => {
     if (!session) return;
     await handleRecordingFinalize(req, res, session);
     return;
+  }
+  {
+    const recordingRoute = matchRecordingRoute(req);
+    if (recordingRoute) {
+      await handleRecordingRoute(req, res, recordingRoute);
+      return;
+    }
   }
   // Room presence — see handlePresenceAnnounce's own comment. Deliberately unauthenticated like
   // /api/agent/find-experts above: a Guest has no Toasty account (see studio/guest.html's "No account
@@ -1587,6 +1594,676 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`Toasty render helper listening on http://${HOST}:${PORT}`);
 });
+
+// ---- Chunk-safe recording store ----
+//
+// Browser recorders (js/recording-uploader.js) POST every MediaRecorder timeslice here as it is produced,
+// keyed by session_id / recording_id / participant_id / track_id / seq. The filesystem is the source of
+// truth for which chunks exist, so a tab crash or refresh can never lose a chunk that already got a 2xx.
+// Storage is a plain directory next to the SQLite DB (same host, same backup story, no new vendor):
+//
+//   <TOASTY_RECORDINGS_DIR>/<owner>/<session_id>/<recording_id>/
+//       manifest.json                         lifecycle + per-track metadata (atomic tmp+rename writes)
+//       <participant_id>/<track_id>/00000000.chunk ...   raw MediaRecorder timeslices, in order
+//       <participant_id>/<track_id>/source.webm          byte-concatenated chunks (written at finalize)
+//       <participant_id>/<track_id>/final.mp4|m4a        deliverable (written at finalize)
+//
+// A track is anything with a type + mime + participant: today a first-party camera, microphone and the
+// composed program output; later a guest camera, screen share, second/phone camera or uploaded video use
+// the same register-track / chunk / complete calls with no schema change.
+//
+// Finalization is asynchronous: POST .../complete returns 202 immediately and a single-slot ffmpeg queue
+// produces MP4/M4A files, updating manifest.state. Recordings whose uploader vanished (crash, closed tab)
+// are completed by the maintenance sweep from whatever chunks arrived, so they still become MP4s.
+const RECORDINGS_DIR = process.env.TOASTY_RECORDINGS_DIR || join(dirname(AUTH_DB_PATH), "recordings");
+const RECORDING_MAX_CHUNK_BYTES = Number(process.env.TOASTY_RECORDING_MAX_CHUNK_BYTES || 32 * 1024 * 1024);
+const RECORDING_MAX_TRACK_BYTES = Number(process.env.TOASTY_RECORDING_MAX_TRACK_BYTES || 12 * 1024 * 1024 * 1024);
+const RECORDING_MAX_TRACKS = Number(process.env.TOASTY_RECORDING_MAX_TRACKS || 16);
+const RECORDING_MAX_SEQ = 400000;
+const RECORDING_ABANDON_MS = Number(process.env.TOASTY_RECORDING_ABANDON_MS || 10 * 60 * 1000);
+const RECORDING_SWEEP_MS = Number(process.env.TOASTY_RECORDING_SWEEP_MS || 60 * 1000);
+const RECORDING_DURATION_GRACE_MS = 2 * 60 * 1000;
+const RECORDING_MANIFEST_SCHEMA = 2;
+const RECORDING_TRACK_TYPES = new Set([
+  "program", "camera", "microphone", "audio-mix", "screen",
+  "camera-secondary", "phone-camera", "uploaded-video", "remote-guest"
+]);
+const RECORDING_CHUNK_NAME = /^(\d{8})\.chunk$/;
+const recordingLocks = new Map();
+const recordingTrackBytes = new Map();
+const recordingFinalizeQueue = [];
+let recordingFinalizeActive = 0;
+const RECORDING_FINALIZE_CONCURRENCY = Math.max(1, Number(process.env.TOASTY_RECORDING_FINALIZE_CONCURRENCY || 1));
+
+function recordingOwnerDir(authSession) {
+  return join(RECORDINGS_DIR, `u_${createHash("sha256").update(String(authSession.id)).digest("hex").slice(0, 20)}`);
+}
+
+function recordingDir(authSession, sessionId, recordingId) {
+  return join(recordingOwnerDir(authSession), sessionId, recordingId);
+}
+
+function trackDir(dir, track) {
+  return join(dir, track.participantId, track.trackId);
+}
+
+function recordingKeyOf(authSession, sessionId, recordingId) {
+  return `${authSession.id}/${sessionId}/${recordingId}`;
+}
+
+// Serializes manifest read-modify-write per recording (chunks themselves never touch the manifest).
+async function withRecordingLock(key, fn) {
+  const previous = recordingLocks.get(key) || Promise.resolve();
+  const next = previous.catch(() => {}).then(fn);
+  recordingLocks.set(key, next);
+  try { return await next; } finally { if (recordingLocks.get(key) === next) recordingLocks.delete(key); }
+}
+
+async function readRecordingManifest(dir) {
+  try {
+    return JSON.parse(await readFile(join(dir, "manifest.json"), "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function writeRecordingManifest(dir, manifest) {
+  manifest.updatedAt = new Date().toISOString();
+  const target = join(dir, "manifest.json");
+  const temp = `${target}.${randomBytes(4).toString("hex")}.tmp`;
+  await writeFile(temp, JSON.stringify(manifest, null, 2));
+  await rename(temp, target);
+  return manifest;
+}
+
+function recordingId36() {
+  return `rec-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
+}
+
+function cleanRecordingString(value, max = 120) {
+  return String(value ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max);
+}
+
+function finiteMs(value, fallback = null) {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : fallback;
+}
+
+function normalizeRecordingTrack(input, recordingStartedAtMs, existing = null) {
+  if (!input || typeof input !== "object") throw httpError(400, "Invalid track.");
+  const trackId = String(input.trackId || "");
+  const participantId = String(input.participantId || "");
+  if (!SAFE_ID.test(trackId)) throw httpError(400, "Invalid track id.");
+  if (!SAFE_ID.test(participantId)) throw httpError(400, "Invalid participant id.");
+  const type = String(input.type || "");
+  if (!RECORDING_TRACK_TYPES.has(type)) throw httpError(400, `Unsupported track type "${cleanRecordingString(type, 40)}".`);
+  const mimeType = cleanRecordingString(input.mimeType || "video/webm", 120);
+  if (!/^(video|audio)\/[a-z0-9.+-]+(\s*;.*)?$/i.test(mimeType)) throw httpError(400, "Invalid track mime type.");
+  const hasVideo = typeof input.hasVideo === "boolean" ? input.hasVideo : /^video\//i.test(mimeType);
+  const hasAudio = typeof input.hasAudio === "boolean" ? input.hasAudio : (/^audio\//i.test(mimeType) || /opus|vorbis|aac/i.test(mimeType));
+  if (!hasVideo && !hasAudio) throw httpError(400, "A track needs video or audio.");
+  const startedAtMs = finiteMs(input.startedAtMs, existing?.startedAtMs ?? Date.now());
+  return {
+    trackId,
+    participantId,
+    type,
+    role: type === "program" ? "composed" : "isolated",
+    label: cleanRecordingString(input.label || "", 80),
+    mimeType,
+    codecs: {
+      video: hasVideo ? cleanRecordingString(input.codecs?.video || "", 60) : "",
+      audio: hasAudio ? cleanRecordingString(input.codecs?.audio || "", 60) : ""
+    },
+    hasVideo,
+    hasAudio,
+    video: hasVideo ? {
+      width: finiteMs(input.video?.width, null),
+      height: finiteMs(input.video?.height, null),
+      frameRate: finiteMs(input.video?.frameRate, null)
+    } : null,
+    source: {
+      kind: cleanRecordingString(input.source?.kind || "local", 40),
+      label: cleanRecordingString(input.source?.label || "", 120)
+    },
+    startedAtMs,
+    offsetMs: Math.max(0, startedAtMs - recordingStartedAtMs),
+    stoppedAtMs: existing?.stoppedAtMs ?? null,
+    durationMs: existing?.durationMs ?? null,
+    lastSeq: existing?.lastSeq ?? null,
+    state: existing?.state || "recording",
+    sequence: existing?.sequence || null,
+    final: existing?.final || { status: "pending", file: null, mimeType: null, bytes: 0, error: null },
+    source_file: existing?.source_file || null
+  };
+}
+
+async function scanTrackChunks(dir, track) {
+  const folder = trackDir(dir, track);
+  let names = [];
+  try { names = await readdir(folder); } catch (error) { if (error?.code !== "ENOENT") throw error; }
+  const seqs = [];
+  let bytes = 0;
+  for (const name of names) {
+    const match = RECORDING_CHUNK_NAME.exec(name);
+    if (!match) continue;
+    seqs.push(Number(match[1]));
+    try { bytes += (await stat(join(folder, name))).size; } catch { /* raced a retry rename; counted next scan */ }
+  }
+  seqs.sort((a, b) => a - b);
+  return summarizeSequence(seqs, bytes);
+}
+
+// Sequence facts the manifest persists: how many chunks arrived, the highest seq, total bytes, and which
+// seqs are missing below it (a gap means that stretch of the stream can't be rebuilt).
+function summarizeSequence(sortedSeqs, bytes) {
+  const lastSeq = sortedSeqs.length ? sortedSeqs[sortedSeqs.length - 1] : null;
+  const missing = [];
+  let contiguousThrough = -1;
+  let cursor = 0;
+  for (const seq of sortedSeqs) {
+    while (cursor < seq && missing.length < 500) { missing.push(cursor); cursor += 1; }
+    cursor = seq + 1;
+  }
+  const have = new Set(sortedSeqs);
+  while (have.has(contiguousThrough + 1)) contiguousThrough += 1;
+  return { count: sortedSeqs.length, lastSeq, contiguousThrough, missingSeqs: missing, bytes };
+}
+
+function recordingView(manifest, sequences = {}) {
+  return {
+    ...manifest,
+    tracks: manifest.tracks.map((track) => ({ ...track, sequence: sequences[track.trackId] || track.sequence || null }))
+  };
+}
+
+async function liveRecordingView(dir, manifest) {
+  const sequences = {};
+  for (const track of manifest.tracks) sequences[track.trackId] = await scanTrackChunks(dir, track);
+  return recordingView(manifest, sequences);
+}
+
+function publicRecordingSummary(manifest) {
+  return {
+    recordingId: manifest.recordingId,
+    sessionId: manifest.sessionId,
+    mode: manifest.mode,
+    state: manifest.state,
+    startedAt: manifest.startedAt,
+    stoppedAt: manifest.stoppedAt,
+    durationMs: manifest.durationMs,
+    tracks: manifest.tracks.map((track) => ({
+      trackId: track.trackId,
+      participantId: track.participantId,
+      type: track.type,
+      role: track.role,
+      state: track.state,
+      durationMs: track.durationMs,
+      final: track.final
+    }))
+  };
+}
+
+// Routing -------------------------------------------------------------------------------------------
+
+function matchRecordingRoute(req) {
+  let url;
+  try { url = new URL(req.url || "", "http://toasty.local"); } catch { return null; }
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (parts[0] !== "api" || parts[1] !== "recordings") return null;
+  const rest = parts.slice(2);
+  if (rest.length === 0) {
+    if (req.method === "POST") return { name: "create", url };
+    if (req.method === "GET") return { name: "list", url };
+    return null;
+  }
+  if (rest[0] === "finalize") return null; // legacy single-shot finalize route owns this
+  if (rest.length === 2 && req.method === "GET") return { name: "get", url, sessionId: rest[0], recordingId: rest[1] };
+  if (rest.length === 3 && rest[2] === "tracks" && req.method === "POST") return { name: "register-track", url, sessionId: rest[0], recordingId: rest[1] };
+  if (rest.length === 3 && rest[2] === "complete" && req.method === "POST") return { name: "complete", url, sessionId: rest[0], recordingId: rest[1] };
+  if (rest.length === 6 && rest[2] === "chunks" && req.method === "POST") {
+    return { name: "chunk", url, sessionId: rest[0], recordingId: rest[1], participantId: rest[3], trackId: rest[4], seq: rest[5] };
+  }
+  if (rest.length === 5 && rest[2] === "files" && req.method === "GET") {
+    return { name: "download", url, sessionId: rest[0], recordingId: rest[1], participantId: rest[3], trackId: rest[4] };
+  }
+  return null;
+}
+
+async function handleRecordingRoute(req, res, route) {
+  try {
+    const isWrite = req.method !== "GET";
+    if (isWrite && !requireCsrf(req, res)) return;
+    if (route.name === "chunk") {
+      if (!COST_SAFETY_SWITCHES.uploads) return sendJson(req, res, 503, { error: "Uploads are temporarily disabled by the platform safety switch." });
+      if (!limit(req, res, "recording-chunk", 2400, 60 * 1000)) return;
+    } else if (isWrite && !limit(req, res, "recording-control", 240, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    for (const key of ["sessionId", "recordingId", "participantId", "trackId"]) {
+      if (route[key] != null && !SAFE_ID.test(route[key])) throw httpError(400, `Invalid ${key}.`);
+    }
+    switch (route.name) {
+      case "create": return await handleRecordingCreate(req, res, session);
+      case "list": return await handleRecordingList(req, res, session, route);
+      case "get": return await handleRecordingGet(req, res, session, route);
+      case "register-track": return await handleRecordingRegisterTrack(req, res, session, route);
+      case "chunk": return await handleRecordingChunk(req, res, session, route);
+      case "complete": return await handleRecordingComplete(req, res, session, route);
+      case "download": return await handleRecordingDownload(req, res, session, route);
+      default: return sendJson(req, res, 404, { error: "Not found." });
+    }
+  } catch (error) {
+    if (!error.statusCode) console.error("[recordings]", error);
+    sendJson(req, res, error.statusCode || 500, { error: error.publicMessage || "Recording request failed." });
+  }
+}
+
+async function recordingPlanContext(authSession, sessionId) {
+  let organizationId = null;
+  const sessionRecord = await db("session_get", { id: sessionId, ownerUserId: authSession.id }).catch(() => ({}));
+  organizationId = sessionRecord?.session?.organizationId || null;
+  if (!organizationId) organizationId = await resolveOrganizationForSession(authSession, null);
+  const org = organizationId ? await db("get_organization", { id: organizationId }) : { organization: null };
+  const limits = planLimitsFor(org.organization?.plan);
+  return { organizationId, plan: org.organization?.plan || "demo", maxRecordingMinutes: limits.maxRecordingMinutes };
+}
+
+async function loadOwnedRecording(authSession, sessionId, recordingId) {
+  const dir = recordingDir(authSession, sessionId, recordingId);
+  const manifest = await readRecordingManifest(dir);
+  if (!manifest) throw httpError(404, "Recording not found.");
+  return { dir, manifest };
+}
+
+async function handleRecordingCreate(req, res, authSession) {
+  const body = await readJson(req, 128 * 1024);
+  const sessionId = String(body.sessionId || "");
+  if (!SAFE_ID.test(sessionId)) throw httpError(400, "Invalid session id.");
+  const recordingId = body.recordingId ? String(body.recordingId) : recordingId36();
+  if (!SAFE_ID.test(recordingId) || recordingId === "finalize") throw httpError(400, "Invalid recording id.");
+  const inputTracks = Array.isArray(body.tracks) ? body.tracks : [];
+  if (inputTracks.length > RECORDING_MAX_TRACKS) throw httpError(400, "Too many tracks.");
+  const dir = recordingDir(authSession, sessionId, recordingId);
+  const key = recordingKeyOf(authSession, sessionId, recordingId);
+  const result = await withRecordingLock(key, async () => {
+    let manifest = await readRecordingManifest(dir);
+    let resumed = false;
+    if (manifest) {
+      resumed = true;
+    } else {
+      const plan = await recordingPlanContext(authSession, sessionId);
+      const startedAtMs = finiteMs(body.startedAt, Date.now());
+      manifest = {
+        kind: "toasty-recording",
+        schemaVersion: RECORDING_MANIFEST_SCHEMA,
+        recordingId,
+        sessionId,
+        mode: ["personal", "session"].includes(body.mode) ? body.mode : "personal",
+        ownerUserId: authSession.id,
+        organizationId: plan.organizationId,
+        plan: plan.plan,
+        maxRecordingMinutes: plan.maxRecordingMinutes,
+        state: "recording",
+        createdAt: new Date().toISOString(),
+        startedAt: new Date(startedAtMs).toISOString(),
+        startedAtMs,
+        stoppedAt: null,
+        durationMs: null,
+        brandTheme: cleanRecordingString(body.brandTheme || "", 80),
+        layout: cleanRecordingString(body.layout || "", 40),
+        participants: (Array.isArray(body.participants) ? body.participants : []).slice(0, 16).map((p) => ({
+          participantId: SAFE_ID.test(String(p?.participantId || "")) ? String(p.participantId) : null,
+          role: cleanRecordingString(p?.role || "host", 24),
+          displayName: cleanRecordingString(p?.displayName || "", 80)
+        })).filter((p) => p.participantId),
+        tracks: [],
+        markers: [],
+        metadata: sanitizeRecordingMetadata(body.metadata),
+        finalization: { status: "not-started", startedAt: null, finishedAt: null, error: null }
+      };
+      await mkdir(dir, { recursive: true });
+    }
+    if (manifest.state !== "recording") {
+      if (!resumed) throw httpError(409, "Recording is not accepting new tracks.");
+    } else {
+      for (const input of inputTracks) addOrUpdateTrack(manifest, input);
+    }
+    await mkdir(dir, { recursive: true });
+    await writeRecordingManifest(dir, manifest);
+    return { manifest, resumed };
+  });
+  const view = await liveRecordingView(dir, result.manifest);
+  sendJson(req, res, result.resumed ? 200 : 201, { recording: view, resumed: result.resumed, uploadsEndpoint: "/api/recordings" });
+}
+
+function sanitizeRecordingMetadata(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const json = JSON.stringify(value);
+  if (json.length > 16 * 1024) return {};
+  return JSON.parse(json);
+}
+
+function addOrUpdateTrack(manifest, input) {
+  const trackId = String(input?.trackId || "");
+  const index = manifest.tracks.findIndex((track) => track.trackId === trackId);
+  if (index < 0 && manifest.tracks.length >= RECORDING_MAX_TRACKS) throw httpError(400, "Too many tracks.");
+  const normalized = normalizeRecordingTrack(input, manifest.startedAtMs, index >= 0 ? manifest.tracks[index] : null);
+  if (index >= 0) {
+    // A track's identity is immutable once chunks may exist; resume only refreshes descriptive fields.
+    const current = manifest.tracks[index];
+    if (current.participantId !== normalized.participantId || current.type !== normalized.type) {
+      throw httpError(409, "Track already exists with a different participant or type.");
+    }
+    manifest.tracks[index] = { ...normalized, startedAtMs: current.startedAtMs, offsetMs: current.offsetMs };
+  } else {
+    manifest.tracks.push(normalized);
+  }
+  return manifest.tracks.find((track) => track.trackId === trackId);
+}
+
+async function handleRecordingRegisterTrack(req, res, authSession, route) {
+  const body = await readJson(req, 32 * 1024);
+  const { dir } = await loadOwnedRecording(authSession, route.sessionId, route.recordingId);
+  const key = recordingKeyOf(authSession, route.sessionId, route.recordingId);
+  const manifest = await withRecordingLock(key, async () => {
+    const current = await readRecordingManifest(dir);
+    if (!current) throw httpError(404, "Recording not found.");
+    if (current.state !== "recording") throw httpError(409, "Recording is not accepting new tracks.");
+    addOrUpdateTrack(current, body.track || body);
+    return writeRecordingManifest(dir, current);
+  });
+  sendJson(req, res, 200, { recording: await liveRecordingView(dir, manifest) });
+}
+
+async function handleRecordingChunk(req, res, authSession, route) {
+  const seq = Number(route.seq);
+  if (!Number.isInteger(seq) || seq < 0 || seq > RECORDING_MAX_SEQ || String(seq) !== String(route.seq).replace(/^0+(?=\d)/, "")) {
+    throw httpError(400, "Invalid chunk sequence.");
+  }
+  const { dir, manifest } = await loadOwnedRecording(authSession, route.sessionId, route.recordingId);
+  const track = manifest.tracks.find((entry) => entry.trackId === route.trackId && entry.participantId === route.participantId);
+  if (!track) throw httpError(404, "Track is not registered for this recording.");
+  if (manifest.state !== "recording") throw httpError(409, "Recording is no longer accepting chunks.");
+  if (Date.now() - track.startedAtMs > (manifest.maxRecordingMinutes * 60 * 1000) + RECORDING_DURATION_GRACE_MS) {
+    throw httpError(402, `Your plan allows recordings up to ${manifest.maxRecordingMinutes} minutes.`);
+  }
+  const declared = Number(req.headers["content-length"]);
+  if (Number.isFinite(declared) && declared > RECORDING_MAX_CHUNK_BYTES) throw httpError(413, "Chunk is too large.");
+  const body = await readBinaryBody(req, RECORDING_MAX_CHUNK_BYTES);
+  if (!body.length) throw httpError(400, "Chunk is empty.");
+  const expectedSha = String(route.url.searchParams.get("sha256") || "").toLowerCase();
+  if (expectedSha) {
+    if (!/^[0-9a-f]{64}$/.test(expectedSha)) throw httpError(400, "Invalid chunk checksum.");
+    if (createHash("sha256").update(body).digest("hex") !== expectedSha) throw httpError(422, "Chunk checksum mismatch. Retry the upload.");
+  }
+  const folder = trackDir(dir, track);
+  await mkdir(folder, { recursive: true });
+  const name = `${String(seq).padStart(8, "0")}.chunk`;
+  const target = join(folder, name);
+  let existingSize = null;
+  try { existingSize = (await stat(target)).size; } catch (error) { if (error?.code !== "ENOENT") throw error; }
+  if (existingSize != null) {
+    // Retries after a dropped response re-send identical bytes: acknowledge without rewriting.
+    if (existingSize === body.length) return sendJson(req, res, 200, { ok: true, duplicate: true, seq });
+    throw httpError(409, "A different chunk already exists for this sequence number.");
+  }
+  // Running per-track byte total: scanned once per process, then incremented, so a long recording
+  // doesn't re-stat every earlier chunk on every upload.
+  const bytesKey = `${dir}/${track.participantId}/${track.trackId}`;
+  if (!recordingTrackBytes.has(bytesKey)) recordingTrackBytes.set(bytesKey, (await scanTrackChunks(dir, track)).bytes);
+  if (recordingTrackBytes.get(bytesKey) + body.length > RECORDING_MAX_TRACK_BYTES) throw httpError(413, "Track exceeds the maximum recording size.");
+  const temp = join(folder, `.${name}.${randomBytes(4).toString("hex")}.tmp`);
+  await writeFile(temp, body);
+  await rename(temp, target);
+  recordingTrackBytes.set(bytesKey, recordingTrackBytes.get(bytesKey) + body.length);
+  sendJson(req, res, 200, { ok: true, duplicate: false, seq, bytes: body.length });
+}
+
+async function handleRecordingGet(req, res, authSession, route) {
+  const { dir, manifest } = await loadOwnedRecording(authSession, route.sessionId, route.recordingId);
+  sendJson(req, res, 200, { recording: await liveRecordingView(dir, manifest) });
+}
+
+async function handleRecordingList(req, res, authSession, route) {
+  const sessionFilter = route.url.searchParams.get("sessionId");
+  if (sessionFilter && !SAFE_ID.test(sessionFilter)) throw httpError(400, "Invalid session id.");
+  const ownerDir = recordingOwnerDir(authSession);
+  const recordings = [];
+  let sessions = [];
+  try { sessions = sessionFilter ? [sessionFilter] : await readdir(ownerDir); } catch (error) { if (error?.code !== "ENOENT") throw error; }
+  for (const sessionId of sessions) {
+    let ids = [];
+    try { ids = await readdir(join(ownerDir, sessionId)); } catch (error) { if (error?.code === "ENOENT" || error?.code === "ENOTDIR") continue; throw error; }
+    for (const id of ids) {
+      const manifest = await readRecordingManifest(join(ownerDir, sessionId, id)).catch(() => null);
+      if (manifest) recordings.push(publicRecordingSummary(manifest));
+    }
+  }
+  recordings.sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
+  sendJson(req, res, 200, { recordings: recordings.slice(0, 200) });
+}
+
+// Marks the recording stopped (idempotent), then queues finalization. The uploader may call this with
+// per-track stop facts (lastSeq/durationMs); an absent field falls back to what actually arrived.
+async function handleRecordingComplete(req, res, authSession, route) {
+  if (!COST_SAFETY_SWITCHES.recordingFinalize) throw httpError(503, "Recording finalization is temporarily disabled by the platform safety switch.");
+  const body = await readJson(req, 64 * 1024);
+  const { dir } = await loadOwnedRecording(authSession, route.sessionId, route.recordingId);
+  const manifest = await completeRecording(authSession.id, dir, route.sessionId, route.recordingId, { body, reason: "client-complete" });
+  sendJson(req, res, 202, { recording: await liveRecordingView(dir, manifest), finalization: manifest.finalization });
+}
+
+async function completeRecording(ownerId, dir, sessionId, recordingId, { body = {}, reason = "client-complete" } = {}) {
+  const key = `${ownerId}/${sessionId}/${recordingId}`;
+  const { manifest, enqueue } = await withRecordingLock(key, async () => {
+    const current = await readRecordingManifest(dir);
+    if (!current) throw httpError(404, "Recording not found.");
+    if (current.state !== "recording") return { manifest: current, enqueue: false };
+    const stopMs = finiteMs(body.stoppedAt, Date.now());
+    const stopFacts = new Map((Array.isArray(body.tracks) ? body.tracks : []).map((t) => [String(t?.trackId || ""), t]));
+    for (const track of current.tracks) {
+      const facts = stopFacts.get(track.trackId) || {};
+      track.stoppedAtMs = finiteMs(facts.stoppedAtMs, stopMs);
+      track.durationMs = finiteMs(facts.durationMs, Math.max(0, track.stoppedAtMs - track.startedAtMs));
+      track.lastSeq = Number.isInteger(facts.lastSeq) ? facts.lastSeq : null;
+      track.state = "stopped";
+      track.sequence = await scanTrackChunks(dir, track);
+    }
+    current.stoppedAt = new Date(stopMs).toISOString();
+    current.durationMs = Math.max(0, stopMs - current.startedAtMs);
+    current.stopReason = reason;
+    if (Array.isArray(body.markers)) current.markers = body.markers.slice(0, 500).map((m) => ({
+      id: cleanRecordingString(m?.id || "", 60),
+      timestamp: finiteMs(m?.timestamp, null),
+      offsetMs: finiteMs(m?.offsetMs, null),
+      type: cleanRecordingString(m?.type || "manual", 40),
+      label: cleanRecordingString(m?.label || "", 180)
+    }));
+    if (body.metadata) current.metadata = { ...current.metadata, ...sanitizeRecordingMetadata(body.metadata) };
+    current.state = "finalizing";
+    current.finalization = { status: "queued", startedAt: null, finishedAt: null, error: null };
+    await writeRecordingManifest(dir, current);
+    return { manifest: current, enqueue: true };
+  });
+  if (enqueue) enqueueRecordingFinalization({ ownerId, dir, sessionId, recordingId });
+  return manifest;
+}
+
+async function handleRecordingDownload(req, res, authSession, route) {
+  const { dir, manifest } = await loadOwnedRecording(authSession, route.sessionId, route.recordingId);
+  const track = manifest.tracks.find((entry) => entry.trackId === route.trackId && entry.participantId === route.participantId);
+  if (!track) throw httpError(404, "Track not found.");
+  const wantsSource = route.url.searchParams.get("kind") === "source";
+  const file = wantsSource ? track.source_file?.name : track.final?.file;
+  if (!file || !/^[a-z0-9._-]+$/i.test(file)) throw httpError(409, wantsSource ? "Source file is not available yet." : "This track has not finished processing.");
+  const path = join(trackDir(dir, track), file);
+  let info;
+  try { info = await stat(path); } catch { throw httpError(404, "File is not available."); }
+  const mime = wantsSource ? (track.hasVideo ? "video/webm" : "audio/webm") : (track.final.mimeType || "application/octet-stream");
+  setCors(req, res);
+  res.writeHead(200, {
+    "Content-Type": mime,
+    "Content-Length": info.size,
+    "Content-Disposition": `attachment; filename="${safeFileName(`${manifest.recordingId}-${track.trackId}`)}${file.slice(file.lastIndexOf("."))}"`
+  });
+  createReadStream(path).pipe(res);
+}
+
+// Finalization -------------------------------------------------------------------------------------
+
+function enqueueRecordingFinalization(job) {
+  recordingFinalizeQueue.push(job);
+  pumpRecordingFinalizeQueue();
+}
+
+function pumpRecordingFinalizeQueue() {
+  while (recordingFinalizeActive < RECORDING_FINALIZE_CONCURRENCY && recordingFinalizeQueue.length) {
+    const job = recordingFinalizeQueue.shift();
+    recordingFinalizeActive += 1;
+    finalizeRecording(job)
+      .catch((error) => console.error("[recordings] finalization crashed", job.recordingId, error))
+      .finally(() => { recordingFinalizeActive -= 1; pumpRecordingFinalizeQueue(); });
+  }
+}
+
+async function concatTrackChunks(folder, seqs, outputPath) {
+  await writeFile(outputPath, Buffer.alloc(0));
+  const handle = await openFile(outputPath, "a");
+  try {
+    for (const seq of seqs) {
+      await handle.appendFile(await readFile(join(folder, `${String(seq).padStart(8, "0")}.chunk`)));
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
+function recordingTranscodeArgs(track, sourcePath, outputPath) {
+  if (track.hasVideo) {
+    const program = track.type === "program";
+    return ["-y", "-i", sourcePath, "-c:v", "libx264", "-preset", program ? "medium" : "veryfast", "-crf", program ? "18" : "20",
+      ...(track.hasAudio ? ["-c:a", "aac", "-b:a", "192k"] : ["-an"]),
+      "-pix_fmt", "yuv420p", "-movflags", "+faststart", outputPath];
+  }
+  return ["-y", "-i", sourcePath, "-vn", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", outputPath];
+}
+
+async function finalizeRecording({ ownerId, dir, sessionId, recordingId }) {
+  const key = `${ownerId}/${sessionId}/${recordingId}`;
+  const patchManifest = (mutate) => withRecordingLock(key, async () => {
+    const current = await readRecordingManifest(dir);
+    if (!current) return null;
+    mutate(current);
+    return writeRecordingManifest(dir, current);
+  });
+  let manifest = await patchManifest((m) => { m.state = "finalizing"; m.finalization = { ...m.finalization, status: "processing", startedAt: new Date().toISOString(), error: null }; });
+  if (!manifest) return;
+  let anyDeliverable = false;
+  let anyGap = false;
+  let anyFailure = false;
+  let sourceBytes = 0;
+  for (const track of manifest.tracks) {
+    const folder = trackDir(dir, track);
+    let result;
+    try {
+      await patchManifest((m) => { const t = m.tracks.find((x) => x.trackId === track.trackId); if (t) t.final = { ...t.final, status: "processing", error: null }; });
+      const sequence = await scanTrackChunks(dir, track);
+      const usable = Array.from({ length: sequence.contiguousThrough + 1 }, (_, i) => i);
+      const claimedLast = Number.isInteger(track.lastSeq) ? track.lastSeq : sequence.lastSeq;
+      const incomplete = sequence.missingSeqs.length > 0 || (claimedLast != null && sequence.contiguousThrough < claimedLast) || sequence.count === 0;
+      if (!usable.length) throw new Error("No chunks were received for this track.");
+      const ext = track.hasVideo ? "mp4" : "m4a";
+      const sourceName = "source.webm";
+      const finalName = `final.${ext}`;
+      const sourcePath = join(folder, sourceName);
+      const outputPath = join(folder, finalName);
+      await concatTrackChunks(folder, usable, sourcePath);
+      const sourceSize = (await stat(sourcePath)).size;
+      sourceBytes += sourceSize;
+      await run(FFMPEG, recordingTranscodeArgs(track, sourcePath, outputPath), { timeoutMs: RECORDING_FFMPEG_TIMEOUT_MS });
+      const finalSize = (await stat(outputPath)).size;
+      anyDeliverable = true;
+      if (incomplete) anyGap = true;
+      result = {
+        state: incomplete ? "partial" : "finalized",
+        sequence,
+        source_file: { name: sourceName, bytes: sourceSize, chunksUsed: usable.length },
+        final: { status: incomplete ? "partial" : "finalized", file: finalName, mimeType: track.hasVideo ? "video/mp4" : "audio/mp4", bytes: finalSize, error: incomplete ? "Some chunks never arrived; the file ends at the first gap." : null }
+      };
+    } catch (error) {
+      anyFailure = true;
+      console.error("[recordings] track finalization failed", recordingId, track.trackId, error?.message);
+      result = { state: "failed", final: { status: "failed", file: null, mimeType: null, bytes: 0, error: String(error?.message || "Finalization failed.").slice(0, 300) } };
+    }
+    await patchManifest((m) => {
+      const t = m.tracks.find((x) => x.trackId === track.trackId);
+      if (t) Object.assign(t, result);
+    });
+  }
+  const finalState = !anyDeliverable ? "failed" : (anyGap || anyFailure ? "partial" : "finalized");
+  for (const track of manifest.tracks) recordingTrackBytes.delete(`${dir}/${track.participantId}/${track.trackId}`);
+  const done = await patchManifest((m) => {
+    m.state = finalState;
+    m.finalization = {
+      status: finalState === "failed" ? "failed" : "complete",
+      startedAt: m.finalization?.startedAt || null,
+      finishedAt: new Date().toISOString(),
+      error: finalState === "failed" ? "No track could be finalized." : null
+    };
+  });
+  if (done?.organizationId && anyDeliverable) {
+    try {
+      const deltas = { recordingMinutes: Number(done.durationMs || 0) / 60000, uploadsBytes: sourceBytes };
+      await db("increment_usage", { organizationId: done.organizationId, periodStart: currentPeriodStart("day"), deltas });
+      await db("increment_usage", { organizationId: done.organizationId, periodStart: currentPeriodStart("month"), deltas });
+    } catch (error) {
+      console.error("[recordings] usage accounting failed", recordingId, error?.message);
+    }
+  }
+}
+
+// Maintenance: resume interrupted finalizations after a restart, and finish recordings whose browser
+// disappeared (crash/refresh/closed tab) once no chunk has arrived for RECORDING_ABANDON_MS.
+async function sweepRecordings() {
+  let owners = [];
+  try { owners = await readdir(RECORDINGS_DIR); } catch { return; }
+  for (const owner of owners) {
+    let sessions = [];
+    try { sessions = await readdir(join(RECORDINGS_DIR, owner)); } catch { continue; }
+    for (const sessionId of sessions) {
+      let ids = [];
+      try { ids = await readdir(join(RECORDINGS_DIR, owner, sessionId)); } catch { continue; }
+      for (const recordingId of ids) {
+        const dir = join(RECORDINGS_DIR, owner, sessionId, recordingId);
+        const manifest = await readRecordingManifest(dir).catch(() => null);
+        if (!manifest) continue;
+        const ownerId = manifest.ownerUserId;
+        const queued = recordingFinalizeQueue.some((job) => job.dir === dir);
+        if (manifest.state === "finalizing" && manifest.finalization?.status !== "complete" && !queued && recordingFinalizeActive === 0) {
+          enqueueRecordingFinalization({ ownerId, dir, sessionId, recordingId });
+        } else if (manifest.state === "recording") {
+          let newest = Date.parse(manifest.updatedAt || manifest.createdAt) || 0;
+          for (const track of manifest.tracks) {
+            try { newest = Math.max(newest, (await stat(trackDir(dir, track))).mtimeMs); } catch { /* no chunks yet */ }
+          }
+          if (Date.now() - newest > RECORDING_ABANDON_MS) {
+            await completeRecording(ownerId, dir, sessionId, recordingId, { body: { stoppedAt: newest }, reason: "abandoned-recovered" })
+              .catch((error) => console.error("[recordings] abandoned recovery failed", recordingId, error?.message));
+          }
+        }
+      }
+    }
+  }
+}
+
+function startRecordingMaintenance() {
+  void sweepRecordings().catch((error) => console.error("[recordings] startup sweep failed", error));
+  const timer = setInterval(() => { void sweepRecordings().catch((error) => console.error("[recordings] sweep failed", error)); }, RECORDING_SWEEP_MS);
+  timer.unref?.();
+}
+startRecordingMaintenance();
+
 
 // AI Producer proxy — the ONLY place either API key is used. The browser (js/ai-producer.js's
 // BackendAIProducerProvider) sends {instruction, context, persona}; nothing here ever returns a key, a

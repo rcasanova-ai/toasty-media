@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Record — Toasty Studio</title>
+    <meta name="description" content="Record yourself in Toasty Studio: camera and mic, your skin and layout, saved safely as you go.">
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=Manrope:wght@500;700;800&family=Montserrat:wght@700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/studio-public.css">
+    <link rel="stylesheet" href="../css/studio-record.css">
+    <script type="module" src="../js/record-page.js"></script>
+  </head>
+  <body class="record-shell">
+    <div id="recLoading" class="rec-loading">Opening Record…</div>
+
+    <div id="recApp" hidden>
+      <header class="rec-topbar">
+        <a href="./dashboard.html" aria-label="Back to dashboard"><img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Studio"></a>
+        <nav class="rec-nav" aria-label="Primary">
+          <a href="./dashboard.html">Home</a>
+          <a class="is-active" href="./record.html">Record</a>
+          <a href="./director.html">Sessions</a>
+        </nav>
+      </header>
+
+      <div id="recRecovery" class="rec-banner" role="status" hidden></div>
+      <div id="recUnsupported" class="rec-banner rec-banner-warn" role="alert" hidden>
+        This browser can't record the composed program. Use a current Chrome, Edge or Firefox on desktop.
+      </div>
+
+      <main class="rec-main">
+        <section class="rec-stage" aria-label="Program preview">
+          <div class="rec-canvas-wrap">
+            <canvas id="recCanvas" class="rec-canvas" aria-label="Program Output preview"></canvas>
+            <div id="recCanvasEmpty" class="rec-canvas-empty">
+              <p>Turn on your camera to see your Program Output.</p>
+              <button id="recCameraBtn" class="rec-btn rec-btn-primary" type="button">Turn on camera</button>
+            </div>
+            <span id="recLiveBadge" class="rec-badge" hidden>● REC <b id="recTimer">00:00</b></span>
+          </div>
+
+          <div class="rec-transport">
+            <button id="recStartBtn" class="rec-btn rec-btn-record" type="button" disabled>Start recording</button>
+            <button id="recStopBtn" class="rec-btn rec-btn-stop" type="button" hidden>Stop &amp; save</button>
+            <button id="recMarkerBtn" class="rec-btn" type="button" hidden>Add marker</button>
+            <p id="recStatus" class="rec-status" role="status" aria-live="polite">Camera is off.</p>
+          </div>
+
+          <div id="recUpload" class="rec-upload" hidden>
+            <div class="rec-upload-bar"><span id="recUploadFill"></span></div>
+            <p id="recUploadText">Saved to Toasty as you record.</p>
+          </div>
+
+          <section id="recResult" class="rec-result" hidden aria-live="polite">
+            <h2 id="recResultTitle">Preparing your recording…</h2>
+            <p id="recResultNote" class="rec-note"></p>
+            <ul id="recResultFiles" class="rec-files"></ul>
+          </section>
+        </section>
+
+        <aside class="rec-controls" aria-label="Recording setup">
+          <details open class="rec-card">
+            <summary>You</summary>
+            <label>Name on screen<input id="recName" type="text" maxlength="80" autocomplete="name" placeholder="Your name"></label>
+            <label>Title<input id="recTitle" type="text" maxlength="80" placeholder="Founder"></label>
+            <label>Company<input id="recCompany" type="text" maxlength="80" placeholder="Company"></label>
+          </details>
+
+          <details open class="rec-card">
+            <summary>Look</summary>
+            <label>Skin<select id="recBrand"></select></label>
+            <label>Layout<select id="recLayout"></select></label>
+            <label>Quality
+              <select id="recQuality">
+                <option value="720p">720p HD</option>
+                <option value="1080p">1080p Full HD</option>
+              </select>
+            </label>
+            <label class="rec-check"><input id="recLowerThird" type="checkbox" checked> Show name plate</label>
+          </details>
+
+          <details open class="rec-card">
+            <summary>Devices</summary>
+            <label>Camera<select id="recCameraSelect"></select></label>
+            <label>Microphone<select id="recMicSelect"></select></label>
+          </details>
+
+          <details class="rec-card" id="recSceneCard">
+            <summary>Scenes</summary>
+            <div class="rec-scenes" role="group" aria-label="Scene">
+              <button class="rec-chip is-active" data-scene="live" type="button">Live</button>
+              <button class="rec-chip" data-scene="holding" type="button">Starting soon</button>
+              <button class="rec-chip" data-scene="brb" type="button">Be right back</button>
+              <button class="rec-chip" data-scene="ending" type="button">End screen</button>
+            </div>
+            <p id="recMoxieNote" class="rec-note" hidden>Scenes, assets and ticker are following your Studio session (Moxie and your producer).</p>
+          </details>
+
+          <details class="rec-card" id="recAssetCard">
+            <summary>Asset card</summary>
+            <label>Headline<input id="recAssetTitle" type="text" maxlength="180" placeholder="What are you showing?"></label>
+            <label>Source<input id="recAssetSource" type="text" maxlength="80" placeholder="Source"></label>
+            <label>Note<textarea id="recAssetExcerpt" maxlength="280" rows="2"></textarea></label>
+            <div class="rec-row">
+              <button id="recAssetShow" class="rec-btn" type="button">Show</button>
+              <button id="recAssetHide" class="rec-btn" type="button">Hide</button>
+            </div>
+          </details>
+
+          <details class="rec-card" id="recTickerCard">
+            <summary>Ticker</summary>
+            <label>Text<input id="recTickerText" type="text" maxlength="200" placeholder="Scrolling headline"></label>
+            <label class="rec-check"><input id="recTickerOn" type="checkbox"> Show ticker</label>
+          </details>
+
+          <details class="rec-card" id="recEndCard">
+            <summary>Call to action / end screen</summary>
+            <label>Headline<input id="recEndHeadline" type="text" maxlength="120" placeholder="THANKS FOR WATCHING"></label>
+            <label>Message<input id="recEndMessage" type="text" maxlength="200" placeholder="Follow along"></label>
+            <label>Website<input id="recEndWebsite" type="text" maxlength="200" placeholder="toasty.media"></label>
+            <p class="rec-note">Press “End screen” under Scenes to put this in the recording.</p>
+          </details>
+        </aside>
+      </main>
+
+      <section class="rec-library" aria-labelledby="recLibraryTitle">
+        <h2 id="recLibraryTitle">Recent recordings</h2>
+        <ul id="recLibrary" class="rec-library-list"><li class="rec-note">Nothing recorded yet.</li></ul>
+      </section>
+    </div>
+  </body>
+</html>

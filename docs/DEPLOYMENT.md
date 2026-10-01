@@ -167,3 +167,7 @@ proxied by existing nginx blocks. Pages: `peeps/app/outcome.html` (requester) an
   `/api/jams/:id/settle` now uses the same core (it previously credited Dough without debiting anyone).
 - Matching consumes only participant-approved Breadcrumb entries (bonus capped at 12 points); raw transcripts never leave the
   owning organization.
+
+## Chunk-safe recording storage
+
+The render service writes recording chunks, manifests and finalized MP4/M4A files under `TOASTY_RECORDINGS_DIR` (default: a `recordings/` directory beside `TOASTY_AUTH_DB`, i.e. `/var/lib/toasty/recordings`). The service user must be able to create it. Back it up with the SQLite DB and watch disk usage: a 1080p composed track plus two isolated tracks is several GB per hour before retention rules exist. Requires `scripts/nginx-render.conf.example`'s `/api/recordings` location and the `toasty_recording` zone in `toasty-render-rate-limit.conf` (neither deploy workflow touches nginx — sync by hand and run `nginx -t`). FFmpeg is already required by the render service.
