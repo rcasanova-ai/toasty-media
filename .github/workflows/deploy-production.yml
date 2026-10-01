@@ -54,6 +54,14 @@ jobs:
           python3 -m py_compile scripts/toasty-auth-db.py
           node scripts/platform-admin-test.mjs
 
+      - name: Validate Peeps waitlist landing and homepage
+        run: |
+          set -euo pipefail
+          node --check js/peeps-waitlist.js
+          node --check js/peeps-public-auth.js
+          node scripts/peeps-waitlist-landing-test.mjs
+          node scripts/peeps-auth-gate-test.mjs
+
       - name: Validate AI usage analytics
         run: |
           set -euo pipefail
@@ -146,12 +154,14 @@ jobs:
             curl --fail --silent --show-error --location https://toasty.media/peeps/manage/ >/dev/null
             grep -Fq 'Human context' /tmp/peeps.html
             grep -Fq 'peeps-public-auth.js' /tmp/peeps.html
+            grep -Fq 'Join the Waitlist' /tmp/peeps.html
+            grep -Fq 'peeps-waitlist.js' /tmp/peeps.html
             if grep -Fq 'peeps-app-gated' /tmp/peeps.html; then echo 'Public /peeps/ must not load the app auth gate' >&2; exit 1; fi
             grep -Fq 'peeps-app-gate.js' /tmp/peeps-app.html
             grep -Fq 'peeps-app-gated' /tmp/peeps-app.html
             grep -Fq 'peeps-app-gate.js' /tmp/dough.html
             grep -Fq 'Your Peeps balance.' /tmp/dough.html
           fi
-          grep -Fq 'Studio to create.' /tmp/home.html
+          grep -Fq 'Studio. Peeps. Lit.' /tmp/home.html
           grep -Fq 'Who do you want to talk to?' /tmp/guest.html
           echo 'Production verification passed.'

@@ -1225,6 +1225,33 @@ def migrate(conn):
     )
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_dubs_email ON dubs(email)")
 
+    # Peeps private-beta waitlist. Email is stored lowercased and UNIQUE so a repeat signup is an
+    # idempotent no-op (the first submission's details and timestamp are kept). Status lifecycle is
+    # waitlist -> invited -> active; invited_organization_id records which organization the platform
+    # admin sent the existing organization invite for (reuses organization_invites, no parallel system).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_waitlist (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          email TEXT NOT NULL UNIQUE,
+          company TEXT NOT NULL DEFAULT '',
+          use_case TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'waitlist',
+          source TEXT NOT NULL DEFAULT '',
+          referrer TEXT NOT NULL DEFAULT '',
+          utm_json TEXT NOT NULL DEFAULT '{}',
+          consent_at TEXT,
+          invited_at TEXT,
+          invited_organization_id TEXT,
+          activated_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_waitlist_status ON peeps_waitlist(status, created_at)")
+
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS jams (
@@ -2802,6 +2829,32 @@ def public_post_event_artifact(row):
         "campaign": row["campaign"],
         "storageReference": row["storage_reference"],
         "status": row["status"],
+        "createdAt": row["created_at"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def public_waitlist_entry(row):
+    if not row:
+        return None
+    try:
+        utm = json.loads(row["utm_json"] or "{}")
+    except (TypeError, ValueError):
+        utm = {}
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "email": row["email"],
+        "company": row["company"],
+        "useCase": row["use_case"],
+        "status": row["status"],
+        "source": row["source"],
+        "referrer": row["referrer"],
+        "utm": utm,
+        "consentAt": row["consent_at"],
+        "invitedAt": row["invited_at"],
+        "invitedOrganizationId": row["invited_organization_id"],
+        "activatedAt": row["activated_at"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
@@ -4806,6 +4859,82 @@ def main():
         conn.commit()
         user_row = conn.execute("SELECT * FROM users WHERE id = ?", (payload["id"],)).fetchone()
         print(json.dumps({"user": public_user(user_row)}))
+        return
+
+    # ---- Peeps waitlist ----
+
+    if action == "waitlist_join":
+        email = payload["email"]
+        existing = conn.execute("SELECT * FROM peeps_waitlist WHERE email = ?", (email,)).fetchone()
+        if existing:
+            print(json.dumps({"duplicate": True, "entry": public_waitlist_entry(existing)}))
+            return
+        now = utc_now()
+        try:
+            conn.execute(
+                """
+                INSERT INTO peeps_waitlist (id, name, email, company, use_case, status, source, referrer, utm_json, consent_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 'waitlist', ?, ?, ?, ?, ?, ?)
+                """,
+                (payload["id"], payload["name"], email, payload.get("company", ""), payload.get("useCase", ""),
+                 payload.get("source", ""), payload.get("referrer", ""), json.dumps(payload.get("utm") or {}),
+                 now, now, now),
+            )
+        except sqlite3.IntegrityError:
+            # Lost a race with a concurrent identical signup: same friendly outcome as the check above.
+            conn.rollback()
+            existing = conn.execute("SELECT * FROM peeps_waitlist WHERE email = ?", (email,)).fetchone()
+            print(json.dumps({"duplicate": True, "entry": public_waitlist_entry(existing)}))
+            return
+        conn.commit()
+        row = conn.execute("SELECT * FROM peeps_waitlist WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"duplicate": False, "entry": public_waitlist_entry(row)}))
+        return
+
+    if action == "waitlist_list":
+        rows = conn.execute("SELECT * FROM peeps_waitlist ORDER BY created_at DESC").fetchall()
+        print(json.dumps({"entries": [public_waitlist_entry(row) for row in rows]}))
+        return
+
+    if action == "waitlist_get":
+        row = conn.execute("SELECT * FROM peeps_waitlist WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"entry": public_waitlist_entry(row)}))
+        return
+
+    if action == "waitlist_set_status":
+        status = payload["status"]
+        if status not in ("waitlist", "invited", "active"):
+            print(json.dumps({"error": "invalid_transition"}))
+            return
+        now = utc_now()
+        cursor = conn.execute(
+            """
+            UPDATE peeps_waitlist SET status = ?, updated_at = ?,
+              invited_at = CASE WHEN ? = 'invited' THEN ? ELSE invited_at END,
+              invited_organization_id = CASE WHEN ? = 'invited' AND ? IS NOT NULL THEN ? ELSE invited_organization_id END,
+              activated_at = CASE WHEN ? = 'active' THEN ? ELSE activated_at END
+            WHERE id = ?
+            """,
+            (status, now, status, now, status, payload.get("organizationId"), payload.get("organizationId"), status, now, payload["id"]),
+        )
+        conn.commit()
+        if cursor.rowcount != 1:
+            print(json.dumps({"error": "not_found"}))
+            return
+        row = conn.execute("SELECT * FROM peeps_waitlist WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"entry": public_waitlist_entry(row)}))
+        return
+
+    if action == "waitlist_activate_by_email":
+        # Called when a waitlisted person accepts their organization invite. Only moves invited -> active
+        # (never resurrects a row an admin deliberately reset to waitlist).
+        now = utc_now()
+        conn.execute(
+            "UPDATE peeps_waitlist SET status = 'active', activated_at = ?, updated_at = ? WHERE email = ? AND status = 'invited'",
+            (now, now, payload["email"]),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
         return
 
     # ---- Organization invites ----

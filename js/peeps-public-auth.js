@@ -1,7 +1,8 @@
 // Public /peeps/ sales page helpers. This file must NEVER hide or redirect the sales page —
 // unauthenticated visitors are supposed to read it. It only offers Studio sign-in (same
-// /auth/login + /auth/session as js/studio-auth.js) so "Open Peeps" is not a dead end after
-// js/peeps-app-gate.js bounces an anonymous /peeps/app/ visit back here.
+// /auth/login + /auth/session as js/studio-auth.js) and swaps the page between its two paths:
+// signed out → Join the Waitlist / Sign in; signed in → Open Peeps / Guided demo. The app routes
+// themselves stay protected by js/peeps-app-gate.js; nothing here grants access.
 import { studioRequest } from "./studio-api.js";
 
 const els = {};
@@ -15,7 +16,11 @@ document.addEventListener("DOMContentLoaded", () => {
     "peepsAuthEmail",
     "peepsAuthPassword",
     "peepsAuthMessage",
-    "peepsAuthClose"
+    "peepsAuthClose",
+    "peepsOpenApp",
+    "peepsOpenDemo",
+    "peepsJoinNav",
+    "peepsWelcomeName"
   ].forEach((id) => { els[id] = document.getElementById(id); });
 
   if (!els.peepsSignInToggle) return;
@@ -34,15 +39,25 @@ document.addEventListener("DOMContentLoaded", () => {
 async function refreshNav() {
   try {
     const session = await studioRequest("/auth/session", { method: "GET" });
-    setSignedIn(Boolean(session.authenticated));
+    setSignedIn(Boolean(session.authenticated), session.user);
   } catch {
     setSignedIn(false);
   }
 }
 
-function setSignedIn(signedIn) {
+function setSignedIn(signedIn, user = null) {
   if (els.peepsSignInToggle) els.peepsSignInToggle.hidden = signedIn;
   if (els.peepsSignOut) els.peepsSignOut.hidden = !signedIn;
+  if (els.peepsOpenApp) els.peepsOpenApp.hidden = !signedIn;
+  if (els.peepsOpenDemo) els.peepsOpenDemo.hidden = !signedIn;
+  if (els.peepsJoinNav) els.peepsJoinNav.hidden = signedIn;
+  if (els.peepsWelcomeName) {
+    const first = String(user?.name || "").trim().split(/\s+/)[0];
+    els.peepsWelcomeName.textContent = signedIn && first ? `, ${first}` : "";
+  }
+  document.querySelectorAll("[data-auth-show]").forEach((el) => {
+    el.hidden = el.dataset.authShow === (signedIn ? "out" : "in");
+  });
 }
 
 function openAuth() {
@@ -67,7 +82,8 @@ async function login() {
       })
     });
     if (session.authenticated) {
-      window.location.assign("./app/");
+      els.peepsAuth?.close();
+      setSignedIn(true, session.user);
       return;
     }
     setMessage("Sign in did not succeed.", true);
