@@ -349,58 +349,55 @@ VIEWS.results = {
   },
 };
 
-// ------------------------------------------------------------------ 11. growth (auto-plays; only the claim is a click)
-const netSvg = (stage) => {
-  const n = [['You', 90, 130, 1], ['Sarah', 230, 70, 1], ['Niran', 230, 190, 0.5], ['Somchai', 380, 100, stage >= 3 ? 1 : 0.25], ['Pim', 380, 180, 0.25], ['+ invited', 520, 130, stage >= 3 ? 0.6 : 0.2]];
-  const e = [[0, 1], [0, 2], [1, 3], [2, 4], [3, 5]];
-  return `<svg class="net" viewBox="0 0 600 260"><g stroke="var(--line2)" stroke-width="2">${e.map(([a, b]) => `<line x1="${n[a][1]}" y1="${n[a][2]}" x2="${n[b][1]}" y2="${n[b][2]}" ${n[b][3] < 1 ? 'stroke-dasharray="5 5"' : 'stroke="var(--accent)"'}/>`).join('')}</g>${n.map((x) => `<g opacity="${x[3]}"><circle cx="${x[1]}" cy="${x[2]}" r="26" fill="var(--card2)" stroke="${x[3] === 1 ? 'var(--accent)' : 'var(--line2)'}" stroke-width="2"/><text x="${x[1]}" y="${x[2] + 4}" text-anchor="middle" fill="var(--text)" font-size="11" font-weight="800">${x[0]}</text></g>`).join('')}</svg>`;
+// ------------------------------------------------------------------ 11. growth: claim your Dub, then invite your network
+const SUGGESTED = [
+  { id: 'n1', name: 'Pailin R.', initials: 'PR', hue: 15, headline: 'Founder · Bangkok' },
+  { id: 'n2', name: 'Arthit S.', initials: 'AS', hue: 200, headline: 'CTO · Chiang Mai' },
+  { id: 'n3', name: 'Joy L.', initials: 'JL', hue: 330, headline: 'Angel investor · Bangkok' },
+  { id: 'n4', name: 'Krit M.', initials: 'KM', hue: 95, headline: 'Founder · Phuket' },
+  { id: 'n5', name: 'Dao W.', initials: 'DW', hue: 260, headline: 'Operator · Bangkok' },
+];
+const CLAIM_STEPS = ['Confirming it’s you', 'Creating your account', 'Claiming your Breadcrumb', 'Setting your boundaries', `Setting your Jam rate · ${usd(PRICING.externalOfferUsd)} / hour`, 'Your Dub is live'];
+const invited = () => (S.growth.invited = S.growth.invited || []);
+const netSvg = () => {
+  const live = S.growth.stage >= 4; const inv = invited();
+  const base = [['You', 80, 130, 1], ['Sarah', 200, 60, 1], ['Niran', 200, 200, 0.5], [INVITEE.name.split(' ')[0], 340, 130, live ? 1 : 0.25]];
+  const spots = [[480, 40], [520, 100], [520, 160], [480, 220], [420, 250]];
+  const nodes = base.concat(inv.map((id, i) => [SUGGESTED.find((x) => x.id === id).name.split(' ')[0], spots[i][0], spots[i][1], 0.85]));
+  const edges = [[0, 1], [0, 2], [1, 3]].concat(inv.map((_, i) => [3, 4 + i]));
+  return `<svg class="net" viewBox="0 0 600 270"><g stroke="var(--line2)" stroke-width="2">${edges.map(([x, y]) => `<line x1="${nodes[x][1]}" y1="${nodes[x][2]}" x2="${nodes[y][1]}" y2="${nodes[y][2]}" ${nodes[y][3] < 1 ? 'stroke-dasharray="5 5"' : 'stroke="var(--accent)"'}/>`).join('')}</g>${nodes.map((n) => `<g opacity="${n[3]}"><circle cx="${n[1]}" cy="${n[2]}" r="26" fill="var(--card2)" stroke="${n[3] === 1 ? 'var(--accent)' : 'var(--line2)'}" stroke-width="2"/><text x="${n[1]}" y="${n[2] + 4}" text-anchor="middle" fill="var(--text)" font-size="11" font-weight="800">${esc(n[0])}</text></g>`).join('')}</svg>`;
 };
 function growthBody() {
   const g = S.growth.stage;
-  if (g === 0) return `<div class="msgcard stack"><div class="tiny">TOASTY PEEPS · on behalf of a requester · text / email</div><p><b>Someone is looking for expertise like yours and is willing to pay ${usd(PRICING.externalOfferUsd)} for a one-hour conversation.</b></p><p class="mut">Interested? No account needed to take part.</p><div class="row"><span class="live">${esc(INVITEE.name)} is replying…</span></div><p class="tiny">We never share your details. You decide whether to reply.</p></div>`;
-  if (g === 1) return `<div class="msgcard stack"><span class="b verified">Invite accepted</span><h3 style="font-size:22px">Joined with a link. No sign-up.</h3><p class="mut">${esc(INVITEE.name)} opens the Studio link on their phone, consents to recording, and talks.</p><div class="row"><span class="live">Jam in progress…</span></div></div>`;
-  if (g === 2) return `<div class="msgcard stack" style="max-width:520px"><div class="eyebrow">You contributed to this Jam</div><h3 style="font-size:26px">Claim your participation and create your Dub.</h3><ul class="rs"><li>Claim your Breadcrumb</li><li>Receive ${usd(PRICING.externalOfferUsd)} compensation</li><li>Control how agents represent you</li><li>Set your boundaries and Jam rate</li><li>Qualify for future opportunities</li></ul><button class="cta lg" data-act="claim">Claim your Dub →</button></div>`;
+  if (g === 0) return `<div class="msgcard stack"><div class="tiny">TOASTY PEEPS · on behalf of a requester · text / email</div><p><b>Someone is looking for expertise like yours and is willing to pay ${usd(PRICING.externalOfferUsd)} for a one-hour conversation.</b></p><p class="mut">Interested? No account needed to take part.</p><div class="row"><span class="live">${esc(INVITEE.name)} is replying…</span></div></div>`;
+  if (g === 1) return `<div class="msgcard stack"><span class="b verified">Invite accepted</span><h3 style="font-size:22px">Joined with a link. No sign-up.</h3><div class="row"><span class="live">Jam in progress…</span></div></div>`;
+  if (g === 2) return `<div class="msgcard stack" style="max-width:560px"><div class="eyebrow">Thank you for taking part</div><h3 style="font-size:28px;line-height:1.1">You contributed to this Jam.<br>Claim your Dub.</h3><p class="mut">Your conversation is now evidence. Claim it and it works for you.</p><ul class="rs"><li>Claim your Breadcrumb and your ${usd(PRICING.externalOfferUsd)}</li><li>Control how agents represent you</li><li>Set your boundaries and your Jam rate</li><li>Get matched to future paid opportunities</li></ul><button class="cta lg" data-act="claim">Claim my Dub →</button></div>`;
+  if (g === 3) return `<div class="msgcard stack" style="max-width:520px"><div class="eyebrow">Creating your account</div><div class="ps" id="cps" style="margin-top:6px">${CLAIM_STEPS.map((x) => `<div>${esc(x)}</div>`).join('')}</div></div>`;
   const d = S.growth.claimedDub; if (!d) return '';
-  return `<div class="msgcard stack" style="max-width:520px;border-color:rgba(95,211,154,.45)"><div class="row">${av(INVITEE, 'lg')}<div><b style="font-size:20px">${esc(d.owner)}’s Dub</b><div class="mut">${esc(d.headline)}</div></div></div><div class="crumb"><div class="lbl" style="color:var(--green)">First Breadcrumb</div><b>${esc(d.breadcrumbs[0].text)}</b><div class="row wrap" style="margin-top:8px"><span class="b verified">Verified</span><span class="b plain">${esc(d.breadcrumbs[0].date)}</span></div></div><div class="row wrap"><span class="b self plain">${usd(d.pendingDoughUsd)} ready to claim</span><span class="b plain">Level 1 · verify payout to release</span></div></div>`;
+  return `<div class="msgcard stack" style="max-width:520px;border-color:rgba(95,211,154,.45)"><div class="row">${av(INVITEE, 'lg')}<div><b style="font-size:20px">${esc(d.owner)}’s Dub</b><div class="mut">${esc(d.headline)}</div></div></div><div class="crumb"><div class="lbl" style="color:var(--green)">First Breadcrumb</div><b>${esc(d.breadcrumbs[0].text)}</b><div class="row wrap" style="margin-top:8px"><span class="b verified">Verified</span><span class="b plain">${esc(d.breadcrumbs[0].date)}</span></div></div><div class="row wrap"><span class="b self plain">${usd(d.pendingDoughUsd)} ready to claim</span><span class="b plain">${usd(PRICING.externalOfferUsd)} / hour</span></div></div>`;
+}
+function inviteHtml() {
+  const inv = invited();
+  return `<div class="lbl" style="margin-top:14px">Invite people in your network who might be interested</div><div class="stack">${SUGGESTED.map((x) => `<div class="src"><div class="row">${av(x)}<div><b>${esc(x.name)}</b><div class="tiny">${esc(x.headline)}</div></div></div>${inv.includes(x.id) ? '<span class="b verified">Invited</span>' : `<button class="ghost" data-act="invite" data-id="${x.id}">Invite</button>`}</div>`).join('')}</div>`;
+}
+const growthRefresh = () => { $('#gbody').innerHTML = growthBody(); $('#net').innerHTML = netSvg(); const iv = $('#invites'); if (iv) { iv.hidden = S.growth.stage < 4; iv.innerHTML = S.growth.stage >= 4 ? inviteHtml() : ''; } renderChrome(); };
+async function runClaim(t, wait) {
+  for (const el of document.querySelectorAll('#cps div')) { await wait(520); el.classList.add('on'); }
+  E.claimDub(S); S.growth.stage = 4; persist(); await wait(500); growthRefresh(); toast('Your Dub is live · first Breadcrumb claimed');
 }
 VIEWS.growth = {
-  html: () => `<div class="eyebrow">Network growth & cold start</div><h1 class="h2">Peeps works before the network exists.</h1>
-  <div class="grid2"><div class="card stack"><div class="lbl">Cold start · not enough internal matches</div><div class="row wrap"><span class="b verified">1 verified Peeps match</span><span class="b self">2 potential external matches</span></div>
-  ${EXTERNAL_MATCHES.map((m) => `<div class="src"><div class="row">${av(m)}<div><b>${esc(m.name)}</b> <span class="b plain">Not a Peep yet</span><div class="tiny">${esc(m.headline)} · ${esc(m.note)}</div></div></div></div>`).join('')}<p class="mut">“We found someone who may match your request.” Peeps reaches out through permitted public sources on your behalf. <b>Personal information is never sold or handed over.</b> They decide whether to engage.</p></div>
-  <div class="card stack glow"><div class="row sp"><div class="lbl">Non-Peep → Peep · ${esc(INVITEE.name)}</div></div><div class="steps">${[0, 1, 2, 3].map((i) => `<i class="${i <= S.growth.stage ? 'on' : ''}"></i>`).join('')}</div><div id="gbody">${growthBody()}</div></div></div>
-  <div class="card" style="margin-top:16px"><div class="row sp wrap"><div><div class="lbl">Network</div><b>Every completed Jam can create a new Dub.</b></div><button class="ghost" data-act="reset">Reset the demo ↺</button></div><div id="net">${netSvg(S.growth.stage)}</div></div>`,
+  html: () => `<div class="eyebrow">Network growth</div><h1 class="h2">Every Jam can create a new Dub.</h1>
+  <div class="grid2" style="margin-top:12px"><div class="card stack glow"><div class="lbl">${esc(INVITEE.name)} · not a Peep yet</div><div id="gbody">${growthBody()}</div></div>
+  <div class="card"><div class="lbl">Your network</div><div id="net">${netSvg()}</div><div id="invites" ${S.growth.stage >= 4 ? '' : 'hidden'}>${S.growth.stage >= 4 ? inviteHtml() : ''}</div></div></div>
+  <div class="card stack" style="margin-top:16px"><div class="lbl">Cold start · not enough internal matches</div><div class="row wrap"><span class="b verified">1 verified Peeps match</span><span class="b self">2 potential external matches</span></div>
+  <div class="grid2">${EXTERNAL_MATCHES.map((m) => `<div class="src"><div class="row">${av(m)}<div><b>${esc(m.name)}</b> <span class="b plain">Not a Peep yet</span><div class="tiny">${esc(m.headline)} · ${esc(m.note)}</div></div></div></div>`).join('')}</div></div>
+  <div class="row" style="margin-top:16px;justify-content:flex-end"><button class="ghost" data-act="reset">Reset the demo ↺</button></div>`,
   async start(t, wait) {
-    const upd = () => { $('#gbody').innerHTML = growthBody(); $('#net').innerHTML = netSvg(S.growth.stage); document.querySelectorAll('.steps i').forEach((el, i) => el.classList.toggle('on', i <= S.growth.stage)); };
-    if (S.growth.stage === 0) { await wait(2600); S.growth.stage = 1; persist(); upd(); }
-    if (S.growth.stage === 1) { await wait(2400); S.growth.stage = 2; persist(); upd(); }
+    if (S.growth.stage === 0) { await wait(2600); S.growth.stage = 1; persist(); growthRefresh(); }
+    if (S.growth.stage === 1) { await wait(2400); S.growth.stage = 2; persist(); growthRefresh(); }
+    if (S.growth.stage === 3) { await runClaim(t, wait); }
   },
 };
-
-
-const TABS = [['identity', 'Identity'], ['interests', 'Interests'], ['boundaries', 'Boundaries'], ['avail', 'Availability & pricing'], ['evidence', 'Evidence'], ['knowledge', 'Knowledge & access']];
-
-const chipEdit = (label, path, bad) => `<div class="fld"><label>${label}</label><div class="chips">${get(S.dub, path).map((v, i) => `<span class="chip ${bad ? 'bad' : ''}">${esc(v)}<span class="x" data-act="chipdel" data-path="${path}" data-i="${i}">×</span></span>`).join('')}</div><input class="add" placeholder="Add and press Enter" data-chipadd="${path}"></div>`;
-const txt = (label, path) => `<div class="fld"><label>${label}</label><input data-bind="${path}" value="${esc(get(S.dub, path))}"></div>`;
-const toggle = (label, sub, path) => `<div class="tg" data-act="toggle" data-path="${path}"><div><b>${label}</b><div class="tiny">${sub}</div></div><div class="sw ${get(S.dub, path) ? 'on' : ''}"></div></div>`;
-const AGENT_VIEW = { public: 'Sees the claim', dub: 'Reasons over it, evidence cited', paid: 'Pays $0.25 to unlock', permission: 'Must ask Sarah first', private: 'Nothing. Not even the source' };
-
-function dubPane() {
-  const p = S.dub.profile;
-  switch (dubTab) {
-    case 'identity': return `<div class="grid2">${txt('Name', 'profile.name')}${txt('Role', 'profile.role')}</div>${txt('Headline', 'profile.headline')}${txt('Location', 'profile.location')}${chipEdit('Industries', 'profile.industries')}${chipEdit('Expertise', 'profile.expertise')}${chipEdit('Languages', 'profile.languages')}`;
-    case 'interests': return `${chipEdit('Topics I care about', 'interests.topics')}${chipEdit('Opportunities I’m open to', 'interests.opportunities')}${chipEdit('People I’d like to meet', 'interests.people')}`;
-    case 'boundaries': return `<p class="mut" style="margin-bottom:14px">Your Dub enforces these before anyone reaches you. Matches that cross a boundary are excluded without contacting you.</p>${chipEdit('Topics I do not want', 'boundaries.topics', 1)}${chipEdit('Requests I do not accept', 'boundaries.requests', 1)}${chipEdit('Industries / categories excluded', 'boundaries.industries', 1)}`;
-    case 'avail': return `${toggle('Introductions', 'Agents can request an intro, always with your approval', 'availability.introductions')}${toggle('Research conversations', 'Compensated interviews and research Jams', 'availability.research')}${toggle('Advisory', 'Ongoing or one-off advisory calls', 'availability.advisory')}${toggle('Interviews', 'Founder and expert interviews', 'availability.interviews')}${toggle('Focus groups', 'Group sessions', 'availability.focusGroups')}
-      <div class="hr"></div><div class="grid3"><div class="card"><div class="lbl">30-minute Jam</div><div class="spend">$<input style="width:90px;display:inline;font:inherit;font-weight:900;padding:2px 8px" type="number" min="0" data-bind="pricing.jam30" value="${S.dub.pricing.jam30}"></div></div><div class="card"><div class="lbl">60-minute Jam</div><div class="spend">$<input style="width:90px;display:inline;font:inherit;font-weight:900;padding:2px 8px" type="number" min="0" data-bind="pricing.jam60" value="${S.dub.pricing.jam60}"></div></div><div class="card"><div class="lbl">Profile / context unlock</div><div class="spend">${usd2(PRICING.contextUnlockUsd)}</div></div></div>
-      <div class="fld" style="margin-top:16px"><label>Introduction rule</label><input data-bind="pricing.introRule" value="${esc(S.dub.pricing.introRule)}"></div>`;
-    case 'evidence': return `<p class="mut" style="margin-bottom:14px">Your Dub only claims what it can back up. Each source is marked <b>connected</b>, <b>uploaded</b> or <b>verified</b>. Everything in this demo is seeded.</p><div class="stack">${S.dub.sources.map((x) => `<div class="src"><div><b>${esc(x.label)}</b><div class="tiny">${esc(x.detail)}</div></div><div class="row">${x.demo ? '<span class="b demoflag plain">Demo data</span>' : ''}<span class="b ${x.state}">${x.state === 'not_connected' ? 'Not connected' : esc(x.state)}</span></div></div>`).join('')}</div>
-      <h3 style="margin:22px 0 10px;font-size:18px">Breadcrumbs</h3><div class="stack">${S.dub.breadcrumbs.map((b) => `<div class="src"><div><b>${esc(b.text)}</b><div class="tiny">${esc(b.date)} · ${esc(b.evidence.join(' + '))}</div></div>${prov(b.status)}</div>`).join('')}</div>`;
-    case 'knowledge': return `<p class="mut" style="margin-bottom:12px">What your Dub knows, where it came from, and who can see it. Your Dub never invents an answer. No evidence means <b>Unknown</b>, and it can ask you.</p>
-      <table><thead><tr><th>Claim</th><th>Provenance</th><th>Access policy</th><th>What an agent gets</th></tr></thead><tbody>${S.dub.knowledge.map((k) => `<tr><td>${k.access === 'private' ? '<span class="redact"></span>' : esc(k.text)}${k.learned ? ' <span class="b verified plain">New</span>' : ''}</td><td>${prov(k.provenance)}</td><td><select class="mini" data-act="access" data-id="${k.id}">${Object.entries(ACCESS).map(([v, a]) => `<option value="${v}" ${k.access === v ? 'selected' : ''}>${a.label}</option>`).join('')}</select></td><td class="tiny">${AGENT_VIEW[k.access]}</td></tr>`).join('')}</tbody></table>
-      <div class="chips" style="margin-top:16px">${Object.keys(PROVENANCE).map(prov).join('')}</div>`;
-  }
-}
-
 
 // ------------------------------------------------------------------ drawers
 const SOURCES = [
@@ -460,7 +457,8 @@ document.addEventListener('click', async (ev) => {
     }
     case 'endjam': return enter('wrapup');
     case 'togrowth': return enter('growth');
-    case 'claim': { E.claimDub(S); S.growth.stage = 3; persist(); $('#gbody').innerHTML = growthBody(); $('#net').innerHTML = netSvg(3); document.querySelectorAll('.steps i').forEach((x) => x.classList.add('on')); toast('Dub created · first Breadcrumb claimed'); return; }
+    case 'claim': { S.growth.stage = 3; persist(); growthRefresh(); const t = token; guarded(() => runClaim(t, mkWait(t))); return; }
+    case 'invite': { const inv = invited(); if (!inv.includes(el.dataset.id)) inv.push(el.dataset.id); persist(); growthRefresh(); return; }
     case 'reset': S = E.resetState(localStorage); $('#drawer').hidden = true; $('#overlay').hidden = true; joining = false; render(); window.scrollTo({ top: 0 }); return;
     case 'speed': speed = el.dataset.v; try { localStorage.setItem(SPEED_KEY, speed); } catch { /* noop */ } renderChrome(); return;
     case 'drawer': return drawer(el.dataset.pane);
