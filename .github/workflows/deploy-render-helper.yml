@@ -67,6 +67,7 @@ jobs:
           node scripts/peeps-introduction-execution-server-test.mjs
           node scripts/peeps-post-session-server-test.mjs
           node scripts/dough-money-loop-server-test.mjs
+          node scripts/peeps-waitlist-server-test.mjs
 
       - name: Configure SSH
         env:

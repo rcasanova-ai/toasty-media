@@ -1,6 +1,6 @@
 import { studioRequest } from "./studio-api.js";
 
-const state={session:null,status:null,organizations:[],organizationId:null,detail:null,panel:"overview"};
+const state={session:null,status:null,organizations:[],organizationId:null,detail:null,panel:"overview",waitlist:[]};
 const $=(id)=>document.getElementById(id);
 const esc=(v)=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c]));
 const pretty=(v)=>JSON.stringify(v??{},null,2);
@@ -28,7 +28,7 @@ async function init(){
     state.status=pair[0];state.organizations=pair[1].organizations||[];
     const requested=new URLSearchParams(location.search).get("org");
     state.organizationId=state.organizations.some(o=>o.id===requested)?requested:(state.organizations[0]?.id||null);
-    renderSwitcher();bindStatic();renderOrganizationDirectory();
+    renderSwitcher();bindStatic();renderOrganizationDirectory();loadWaitlist();
     if(!state.organizationId)throw new Error("No organizations exist yet.");
     await loadDetail();
     $("platformLoading").hidden=true;$("platformApp").hidden=false;
@@ -60,6 +60,48 @@ function bindStatic(){
   $("paSaveDefaults").onclick=saveDefaults;$("paSaveBilling").onclick=saveBilling;$("paNewBrand").onclick=()=>renderBrandEditor(null,true);
   $("paInviteMember").onclick=inviteMember;$("paCreateMember").onclick=createMember;$("paSaveAiKey").onclick=saveAiKey;
   $("paOrgSearch")?.addEventListener("input",renderOrganizationDirectory);
+  $("paWaitlistFilter")?.addEventListener("change",renderWaitlist);
+}
+
+const WAITLIST_PATH="/api/organizations/platform-admin/peeps-waitlist";
+async function loadWaitlist(){
+  try{state.waitlist=(await studioRequest(WAITLIST_PATH)).entries||[];renderWaitlist();}
+  catch(e){const c=$("paWaitlistCount");if(c)c.textContent="Could not load the waitlist: "+e.message;}
+}
+function renderWaitlist(){
+  const body=$("paWaitlist");if(!body)return;
+  const select=$("paWaitlistOrg"),keep=select.value||state.organizations.find(o=>o.slug==="skin-peeps")?.id||state.organizationId;
+  select.innerHTML=state.organizations.map(o=>'<option value="'+esc(o.id)+'" '+(o.id===keep?'selected':'')+'>'+esc(o.name)+'</option>').join("");
+  const filter=$("paWaitlistFilter").value;
+  const entries=state.waitlist.filter(e=>!filter||e.status===filter);
+  const counts=state.waitlist.reduce((m,e)=>(m[e.status]=(m[e.status]||0)+1,m),{});
+  $("paWaitlistCount").textContent=state.waitlist.length+" total · "+(counts.waitlist||0)+" waitlist · "+(counts.invited||0)+" invited · "+(counts.active||0)+" active";
+  body.innerHTML=entries.map(e=>
+    '<tr><td><strong>'+esc(e.name)+'</strong><br><small>'+esc(e.email)+'</small></td>'+
+    '<td>'+esc(e.company||"—")+'</td>'+
+    '<td>'+esc(e.useCase||"—")+(e.source?'<br><small>via '+esc(e.source)+'</small>':'')+'</td>'+
+    '<td>'+esc(shortDate(e.createdAt))+'</td>'+
+    '<td><select data-waitlist-status="'+esc(e.id)+'">'+["waitlist","invited","active"].map(v=>'<option value="'+v+'" '+(v===e.status?'selected':'')+'>'+human(v)+'</option>').join("")+'</select></td>'+
+    '<td class="platform-row-actions"><button class="btn" data-waitlist-invite="'+esc(e.id)+'" type="button">'+(e.status==="waitlist"?"Invite to Peeps":"Re-send invite")+'</button></td></tr>'
+  ).join("")||'<tr><td colspan="6"><p class="hint">No waitlist entries'+(filter?" with that status":" yet")+'.</p></td></tr>';
+  body.querySelectorAll("[data-waitlist-status]").forEach(el=>el.onchange=()=>setWaitlistStatus(el.dataset.waitlistStatus,el.value));
+  body.querySelectorAll("[data-waitlist-invite]").forEach(el=>el.onclick=()=>inviteWaitlisted(el.dataset.waitlistInvite));
+}
+function replaceWaitlistEntry(entry){state.waitlist=state.waitlist.map(e=>e.id===entry.id?entry:e);renderWaitlist();}
+async function setWaitlistStatus(id,status){
+  try{setMessage("Updating status…");replaceWaitlistEntry((await post(WAITLIST_PATH+"/status",{id,status})).entry);setMessage("Status updated.");}
+  catch(e){setMessage(e.message,true);renderWaitlist();}
+}
+async function inviteWaitlisted(id){
+  const e=state.waitlist.find(x=>x.id===id),organizationId=$("paWaitlistOrg").value,org=state.organizations.find(o=>o.id===organizationId);
+  if(!e||!organizationId)return;
+  if(!confirm("Email "+e.email+" an invitation into "+(org?.name||"this organization")+"?"))return;
+  try{
+    setMessage("Sending invite…");
+    const r=await post(WAITLIST_PATH+"/invite",{id,organizationId,role:$("paWaitlistRole").value});
+    replaceWaitlistEntry(r.entry);
+    setMessage(r.alreadyMember?e.email+" is already a member there — marked Active.":"Invite sent to "+e.email+".");
+  }catch(err){setMessage(err.message,true);}
 }
 
 function selectPanel(panel){

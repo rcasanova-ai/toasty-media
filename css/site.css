@@ -1894,3 +1894,31 @@ h2 {
     margin-bottom: 1rem;
   }
 }
+
+/* Toasty Lit strip mirrors the Peeps strip: art on the right, dark band, so the two products read as a pair. */
+.media-strip-reverse {
+  background: var(--espresso);
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+}
+
+.media-strip-reverse figure {
+  order: 2;
+}
+
+.media-strip-reverse h2 {
+  color: var(--cream-soft);
+}
+
+.media-strip-reverse p:not(.eyebrow) {
+  color: #dfcdbb;
+}
+
+@media (max-width: 900px) {
+  .media-strip-reverse {
+    grid-template-columns: 1fr;
+  }
+
+  .media-strip-reverse figure {
+    order: 0;
+  }
+}

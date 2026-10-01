@@ -16,3 +16,5 @@
 
 .platform-customer-directory .panel-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.platform-customer-directory input[type="search"]{max-width:320px}.platform-org-directory{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-top:14px}.platform-org-card{display:flex;flex-direction:column;align-items:flex-start;gap:8px;text-align:left;padding:14px;border:1px solid rgba(255,255,255,.09);border-radius:12px;background:rgba(255,255,255,.025);color:inherit;cursor:pointer}.platform-org-card:hover,.platform-org-card.is-selected{border-color:var(--brand-primary,#ff7a29);background:rgba(255,122,41,.08)}.platform-org-card span:first-child{display:flex;flex-direction:column;gap:3px}.platform-org-card small{opacity:.65}.platform-org-card-meta{font-size:.78rem;opacity:.75}
 @media(max-width:700px){.platform-customer-directory .panel-heading{align-items:stretch;flex-direction:column}.platform-customer-directory input[type="search"]{max-width:none}}
+
+.platform-panel select[data-waitlist-status]{min-width:8.5rem}

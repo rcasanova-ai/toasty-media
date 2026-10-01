@@ -322,6 +322,21 @@ const server = createServer(async (req, res) => {
   }
 
   // ---- Platform administrator ----
+  if (req.method === "GET" && req.url === "/api/organizations/platform-admin/peeps-waitlist") {
+    const session = await requirePlatformAdmin(req, res);
+    if (!session) return;
+    const result = await db("waitlist_list");
+    sendJson(req, res, 200, { entries: result.entries || [] });
+    return;
+  }
+  if (req.method === "POST" && (req.url === "/api/organizations/platform-admin/peeps-waitlist/status" || req.url === "/api/organizations/platform-admin/peeps-waitlist/invite")) {
+    if (!requireCsrf(req, res) || !limit(req, res, "platform-admin-write", 120, 15 * 60 * 1000)) return;
+    const session = await requirePlatformAdmin(req, res);
+    if (!session) return;
+    if (req.url.endsWith("/invite")) await handlePeepsWaitlistInvite(req, res, session);
+    else await handlePeepsWaitlistStatus(req, res);
+    return;
+  }
   if (req.method === "GET" && req.url === "/api/organizations/platform-admin/status") {
     const session = await requirePlatformAdmin(req, res);
     if (!session) return;
@@ -1301,6 +1316,12 @@ const server = createServer(async (req, res) => {
   }
 
   // ---- Dough application ledger ----
+  // ---- Peeps private-beta waitlist (public, unauthenticated, CSRF + per-IP rate limited) ----
+  if (req.method === "POST" && req.url === "/api/peeps/waitlist") {
+    if (!requireCsrf(req, res) || !limit(req, res, "peeps-waitlist", 8, 15 * 60 * 1000)) return;
+    await handlePeepsWaitlistJoin(req, res);
+    return;
+  }
   if (req.method === "GET" && req.url === "/api/peeps/dough") {
     if (!limit(req, res, "dough-get", 60, 60 * 1000)) return;
     const session = await requireSession(req, res); if (!session) return;
@@ -3126,10 +3147,9 @@ async function handlePlatformMemberPasswordReset(req, res, authSession, organiza
   sendJson(req, res, 200, { ok: true });
 }
 
-async function handlePlatformMemberInvite(req, res, authSession, organizationId) {
-  const body = await readJson(req);
-  const email = normalizeEmail(body?.email);
-  const role = ["viewer", "member", "admin"].includes(body?.role) ? body.role : "member";
+async function createOrganizationInvite(authSession, organizationId, emailInput, roleInput) {
+  const email = normalizeEmail(emailInput);
+  const role = ["viewer", "member", "admin"].includes(roleInput) ? roleInput : "member";
   if (!email || !EMAIL_PATTERN.test(email)) throw httpError(400, "Enter a valid email address.");
   const org = await db("get_organization", { id: organizationId });
   if (!org.organization) throw httpError(404, "Organization not found.");
@@ -3151,7 +3171,81 @@ async function handlePlatformMemberInvite(req, res, authSession, organizationId)
     role,
     rawToken
   }).catch((error) => console.error("[Platform Admin] invite email failed", error));
+  return { email, role, organization: org.organization };
+}
+
+async function handlePlatformMemberInvite(req, res, authSession, organizationId) {
+  const body = await readJson(req);
+  await createOrganizationInvite(authSession, organizationId, body?.email, body?.role);
   sendJson(req, res, 201, { ok: true });
+}
+
+// ---- Peeps waitlist ----
+const WAITLIST_UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"];
+const WAITLIST_STATUSES = new Set(["waitlist", "invited", "active"]);
+
+async function handlePeepsWaitlistJoin(req, res) {
+  const body = await readJson(req, 16 * 1024);
+  // Honeypot: real visitors never see or fill this field. Pretend success so bots learn nothing.
+  if (String(body?.website || "").trim()) return sendJson(req, res, 201, { ok: true, status: "joined" });
+  const name = sessionText(body?.name, 120);
+  const email = normalizeEmail(body?.email);
+  if (!name) throw httpError(400, "Please tell us your name.");
+  if (!email || email.length > 254 || !EMAIL_PATTERN.test(email)) throw httpError(400, "Enter a valid email address.");
+  if (body?.consent !== true) throw httpError(400, "Please agree to be contacted about Peeps access.");
+  const utmInput = body?.utm && typeof body.utm === "object" ? body.utm : {};
+  const utm = {};
+  for (const key of WAITLIST_UTM_KEYS) {
+    const value = sessionText(utmInput[key], 200);
+    if (value) utm[key] = value;
+  }
+  const result = await db("waitlist_join", {
+    id: randomUUID(),
+    name,
+    email,
+    company: sessionText(body?.company, 160),
+    useCase: sessionText(body?.useCase, 1000),
+    source: sessionText(body?.source, 100),
+    referrer: sessionText(body?.referrer, 500),
+    utm
+  });
+  // Same response shape for new and existing emails except `status`: a repeat signup is friendly, not an
+  // error, and never reveals anything about the existing row (no name, no workflow status).
+  sendJson(req, res, result.duplicate ? 200 : 201, { ok: true, status: result.duplicate ? "already_on_list" : "joined" });
+}
+
+async function handlePeepsWaitlistStatus(req, res) {
+  const body = await readJson(req);
+  const id = sessionText(body?.id, 80);
+  const status = String(body?.status || "");
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid waitlist entry id.");
+  if (!WAITLIST_STATUSES.has(status)) throw httpError(400, "Status must be waitlist, invited or active.");
+  const result = await db("waitlist_set_status", { id, status });
+  if (result.error === "not_found") throw httpError(404, "Waitlist entry not found.");
+  sendJson(req, res, 200, { entry: result.entry });
+}
+
+// Reuses the existing organization-invite pipeline (same token table, email and accept flow as
+// Members & access) — this only picks the waitlisted person's email and records the status change.
+async function handlePeepsWaitlistInvite(req, res, authSession) {
+  const body = await readJson(req);
+  const id = sessionText(body?.id, 80);
+  const organizationId = sessionText(body?.organizationId, 80);
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid waitlist entry id.");
+  if (!SAFE_ID.test(organizationId)) throw httpError(400, "Choose an organization to invite them into.");
+  const found = await db("waitlist_get", { id });
+  if (!found.entry) throw httpError(404, "Waitlist entry not found.");
+  const existing = await db("get_user_by_email", { email: found.entry.email });
+  if (existing.user) {
+    const membership = await db("get_membership", { organizationId, userId: existing.user.id });
+    if (membership.membership) {
+      const updated = await db("waitlist_set_status", { id, status: "active", organizationId });
+      return sendJson(req, res, 200, { entry: updated.entry, alreadyMember: true });
+    }
+  }
+  await createOrganizationInvite(authSession, organizationId, found.entry.email, body?.role);
+  const updated = await db("waitlist_set_status", { id, status: "invited", organizationId });
+  sendJson(req, res, 201, { entry: updated.entry });
 }
 
 async function handlePlatformInviteRevoke(req, res, organizationId) {
@@ -3375,6 +3469,7 @@ async function handleInviteAccept(req, res, session) {
   if (result.error === "invalid_token") return sendJson(req, res, 400, { error: "This invite is invalid or was already used." });
   if (result.error === "expired_token") return sendJson(req, res, 400, { error: "This invite has expired." });
   if (result.error === "already_member") return sendJson(req, res, 409, { error: "You're already a member of that organization." });
+  await db("waitlist_activate_by_email", { email: normalizeEmail(session.email) }).catch((error) => console.error("[Peeps waitlist] activate failed", error));
   sendJson(req, res, 200, { organizationId: result.organizationId, role: result.role });
 }
 

@@ -38,3 +38,24 @@ header nav .text-link,header nav button.text-link{background:none;border:0;paddi
 .usecases{margin:10px 0 18px}.usecases small{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#8b5e1c;font-weight:900}.chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}.chip{background:#f1dfc7;color:#4a2d2a;border:1px solid var(--line);border-radius:999px;padding:11px 18px;font-weight:850}.chip:hover,.chip.on{background:#8b5e1c;color:#fff}.verdict{font-size:13px;padding:6px 10px;border-radius:999px;background:#f1dfc7;color:#4a2d2a;white-space:nowrap}.verdict.v-yes{background:#d9a66f;color:#2b1714}.verdict.v-no{background:#4a2d2a;color:#fff}
 
 /* Peeps landing: human context, agent-accessible (redeploy after gate fix) */
+
+[data-auth-show][hidden]{display:none !important}
+header nav .nav-cta{background:#2b1714;color:#fff6e8;border-radius:999px;padding:10px 16px;font-size:13px;font-weight:850;line-height:1}header nav .nav-cta[hidden]{display:none !important}header nav .nav-cta:hover{background:#8b5e1c}
+.hero .beta-note{margin:14px 0 0;font-size:14px;color:#7a6256}
+.peeps-modal{border:0;border-radius:16px;padding:0;background:transparent;max-width:460px;width:calc(100vw - 32px);max-height:calc(100vh - 32px);overflow:auto}
+.peeps-modal::backdrop{background:rgba(43,23,20,.45)}
+.peeps-modal .card{position:relative}
+.peeps-modal h2{margin:8px 0 6px;font-size:28px}
+.peeps-modal form{display:grid;gap:12px;margin-top:18px}
+.peeps-modal label{display:grid;gap:6px;font-size:12px;font-weight:800;color:#7a6256}
+.peeps-modal label em{font-style:normal;font-weight:600;color:#a08a7a;margin-left:4px}
+.peeps-modal input[type=text],.peeps-modal input[type=email],.peeps-modal textarea{border:1px solid var(--line);border-radius:9px;background:#fff;padding:12px 13px;font:inherit;color:#231412;width:100%}
+.peeps-modal textarea{resize:vertical;min-height:84px}
+.peeps-modal .wl-consent{display:flex;gap:10px;align-items:flex-start;font-weight:500;font-size:12px;line-height:1.5;color:#7a6256}
+.peeps-modal .wl-consent input{margin-top:3px;flex:none}
+.peeps-modal .wl-hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.peeps-modal .auth-message{min-height:1.2em;margin:10px 0 0;font-size:13px;font-weight:700}
+.peeps-modal .auth-message[data-state="error"]{color:var(--red)}
+.peeps-modal .modal-close{position:absolute;top:12px;right:12px;width:36px;height:36px;padding:0;border:0;border-radius:999px;background:#f1dfc7;color:#2b1714;font-size:20px;cursor:pointer}
+#peepsWaitlistDone p{font-size:16px;line-height:1.5}#peepsWaitlistDone button{margin-top:10px}
+#peepsAuth .auth-footnote .text-link{background:none;border:0;padding:0;font:inherit;font-weight:850;color:#4a2d2a;text-decoration:underline;cursor:pointer}
