@@ -1,14 +1,12 @@
 // Pure, DOM-free engine for the Peeps golden-path demo. Runs in the browser and in Node tests.
 // Every money movement here is a DEMO ledger entry: settlement is always 'none' (no chain, no bank).
-import { SARAH_DUB, INTENTS, CANDIDATES, PRICING, JAM, TRANSCRIPT, REQUESTER, INVITEE, TRUST_TIERS } from './data.js';
+import { SARAH_DUB, INTENTS, CANDIDATES, PRICING, JAM, TRANSCRIPT, REQUESTER, INVITEE, TRUST_TIERS, INVESTIGATION_BUDGET_USD } from './data.js';
 
 export const STORAGE_KEY = 'toasty.peeps.demo.v1'; // isolated namespace: never touches production data
-export const STEPS = ['start', 'dub', 'outcome', 'discovery', 'interview', 'matches', 'permission', 'jam', 'studio', 'postjam', 'growth'];
-
-export const LIFECYCLE = [
-  'Outcome', 'Discovery', 'Context unlock', 'Dub ↔ Dub', 'Qualification', 'Permission',
-  'Jam', 'Studio', 'Payment', 'Breadcrumb', 'Richer Dub', 'Network growth',
-];
+export const LIFECYCLE = ['Understand', 'Discover', 'Investigate', 'Qualify', 'Approach', 'Jam', 'Settle', 'Breadcrumb', 'Richer Dub', 'Network growth'];
+// phase: compose → understand → discover → investigate → qualify → shortlist (human pause) → approach → ready (human)
+//        → studio → wrapup → results → growth
+export const PHASES = ['compose', 'understand', 'discover', 'investigate', 'qualify', 'shortlist', 'approach', 'ready', 'studio', 'wrapup', 'results', 'growth'];
 
 export const COVERAGE = { base: 62, perLearnedClaim: 2, perBreadcrumb: 4 };
 const DEMO_RAIL = 'x402 / Solana USDC rail · DEMO transaction · no on-chain settlement';
@@ -17,8 +15,10 @@ const clone = (o) => JSON.parse(JSON.stringify(o));
 
 export function initialState() {
   return {
-    v: 1,
-    step: 'start',
+    v: 2,
+    phase: 'compose',
+    budget: INVESTIGATION_BUDGET_USD,
+    jams: {},
     dub: clone(SARAH_DUB),
     request: { parsed: false },
     discovery: { scanned: false },
@@ -40,7 +40,7 @@ export function loadState(storage) {
     const raw = storage.getItem(STORAGE_KEY);
     if (!raw) return initialState();
     const s = JSON.parse(raw);
-    return s && s.v === 1 ? s : initialState();
+    return s && s.v === 2 ? s : initialState();
   } catch { return initialState(); }
 }
 export function saveState(storage, s) { try { storage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch { /* demo still works */ } }
@@ -219,18 +219,36 @@ export function claimDub(s) {
   return dub;
 }
 
+// ---- introductions: the human authorizes once, the agent approaches the whole shortlist ------
+export function qualifiedCandidates() { return CANDIDATES.filter((c) => !c.exclusion).sort((a, b) => b.contextual - a.contextual); }
+export function introTotal() { return qualifiedCandidates().reduce((a, c) => a + c.rate, 0); }
+export function reserveJam(s, id) {
+  if (s.jams[id]) return s.jams[id];
+  const c = candidate(id);
+  if (c.exclusion) throw new Error('Excluded candidates are never approached');
+  s.jams[id] = { id, status: 'reserved', rate: c.rate };
+  if (id === 'sarah') { requestIntro(s); acceptIntro(s); createJam(s); } // Sarah's Jam is the one that runs in Studio
+  else addLedger(s, { kind: 'jam_commit', label: `Jam reserved · ${c.name}`, amountUsd: c.rate, from: REQUESTER.org, to: 'Jam escrow (held)', candidateId: id });
+  return s.jams[id];
+}
+export function authorizeIntroductions(s) {
+  qualifiedCandidates().forEach((c) => reserveJam(s, c.id));
+  return introTotal();
+}
+export const jamReserved = (s) => round2(s.ledger.filter((e) => e.kind === 'jam_commit').reduce((a, e) => a + e.amountUsd, 0));
+
 // ---- lifecycle rail ------------------------------------------------------------------------
 export function railIndex(s) {
-  switch (s.step) {
-    case 'outcome': return 0;
-    case 'discovery': return Object.keys(s.unlocked).length ? 2 : 1;
-    case 'interview': return 3;
-    case 'matches': return 4;
-    case 'permission': return 5;
-    case 'jam': return 6;
-    case 'studio': return 7;
-    case 'postjam': return 8 + Math.min(2, s.post.stage);
-    case 'growth': return 11;
+  switch (s.phase) {
+    case 'understand': return 0;
+    case 'discover': return 1;
+    case 'investigate': return 2;
+    case 'qualify': case 'shortlist': return 3;
+    case 'approach': return 4;
+    case 'ready': case 'studio': return 5;
+    case 'wrapup': return 6;
+    case 'results': return 6 + Math.min(2, s.post.stage); // 0 settle, 1 breadcrumb, 2 richer Dub
+    case 'growth': return 9;
     default: return -1;
   }
 }

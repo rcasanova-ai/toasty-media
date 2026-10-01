@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import * as E from '../peeps/demo/engine.js';
-import { CANDIDATES, INTENTS, PRICING } from '../peeps/demo/data.js';
+import { CANDIDATES, INTENTS, PRICING, DAVID_DUB, DAVID_INTENTS, INVESTIGATION_ORDER, INVESTIGATION_BUDGET_USD, REQUEST_TEXT } from '../peeps/demo/data.js';
 
 const s = E.initialState();
 assert.equal(E.coverage(s), 62);
@@ -34,6 +34,23 @@ assert.equal(b.investigated, 8); assert.equal(b.contextSpend, 2); assert.equal(b
 assert.deepEqual(b.qualified.map((c) => c.id), ['sarah', 'niran', 'michael']);
 const david = CANDIDATES.find((c) => c.id === 'david');
 assert.ok(david.surface > 90 && /crypto/i.test(david.exclusion.reason));
+
+// David: strong keyword match, excluded on context, answered from evidence
+const dq = E.answerFromDub(DAVID_DUB, DAVID_INTENTS[1]);
+assert.equal(dq.kind, 'answer'); assert.match(dq.text, /71%/); assert.ok(dq.evidence.length);
+assert.equal(E.answerFromDub(DAVID_DUB, { topic: 'something_else' }).kind, 'unknown');
+
+// agent run: whole pool investigated in the planned order inside the budget; request text is the seeded outcome
+assert.equal(INVESTIGATION_ORDER.length, CANDIDATES.length);
+assert.ok(new Set(INVESTIGATION_ORDER).size === 8 && INVESTIGATION_ORDER.every((id) => E.candidate(id)));
+assert.ok(E.contextSpend(s) <= INVESTIGATION_BUDGET_USD && /interview the best three/.test(REQUEST_TEXT));
+
+// introductions: one authorization approaches all three qualified, $75 reserved, excluded never approached
+assert.equal(E.introTotal(), 75);
+assert.throws(() => E.reserveJam(E.initialState(), 'david'));
+const ai = E.initialState(); E.authorizeIntroductions(ai); E.authorizeIntroductions(ai);
+assert.equal(E.jamReserved(ai), 75); assert.deepEqual(Object.keys(ai.jams).sort(), ['michael', 'niran', 'sarah']);
+assert.equal(ai.jam.created, true);
 
 // Jam requires acceptance; completion settles once
 assert.throws(() => E.createJam(s));

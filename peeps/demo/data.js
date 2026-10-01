@@ -10,7 +10,9 @@ export const PRICING = {
 };
 
 export const REQUEST_TEXT =
-  "I'm looking for founders currently living in Thailand who raised a seed round within the last 18 months. No crypto. I want to understand their fundraising experience and potentially interview them.";
+  'Find founders in Thailand who raised a seed round in the last 18 months. No crypto. I want to interview the best three about their fundraising experience.';
+
+export const INVESTIGATION_BUDGET_USD = 5;
 
 export const PARSED_CRITERIA = [
   { key: 'Location', value: 'Thailand', icon: 'pin' },
@@ -19,7 +21,7 @@ export const PARSED_CRITERIA = [
   { key: 'Recency', value: '≤ 18 months', icon: 'clock' },
   { key: 'Exclude', value: 'Crypto', icon: 'ban', negative: true },
   { key: 'Purpose', value: 'Fundraising research', icon: 'search' },
-  { key: 'Interaction', value: 'Interview', icon: 'mic' },
+  { key: 'Desired outcome', value: '3 interviews', icon: 'mic' },
 ];
 
 export const REQUESTER = {
@@ -125,21 +127,21 @@ export const SARAH_DUB = {
     {
       id: 'k_sector', topic: 'sector',
       text: 'Company is enterprise SaaS (finance-ops automation)',
-      answer: 'No. Current evidence indicates the company is enterprise SaaS, with no crypto or digital-asset exposure.',
+      answer: 'No. Her recent professional activity is primarily enterprise SaaS, with no crypto or digital-asset exposure.',
       provenance: 'corroborated', access: 'dub',
       evidence: [{ label: 'Company website', kind: 'connected' }, { label: 'Company announcement', kind: 'uploaded' }, { label: 'Founder profile', kind: 'connected' }],
     },
     {
       id: 'k_open_research', topic: 'research_policy',
       text: 'Open to compensated research and advisory conversations',
-      answer: 'Yes. Sarah permits compensated research and advisory conversations, including with founders she does not know.',
+      answer: 'Yes. Sarah permits compensated research and advisory Jams, including with founders she does not know. Her 60-minute Jam rate is $25.',
       provenance: 'self', access: 'public',
       evidence: [{ label: 'Sarah’s availability settings', kind: 'self' }],
     },
     {
       id: 'k_off_limits', topic: 'off_limits',
       text: 'Will not disclose investor-specific confidential information or private cap-table details',
-      answer: 'Sarah does not permit disclosure of investor-specific confidential information or private cap-table details.',
+      answer: 'Investor-specific confidential information and private cap-table details are restricted.',
       provenance: 'self', access: 'public',
       evidence: [{ label: 'Sarah’s boundaries', kind: 'self' }],
     },
@@ -165,16 +167,16 @@ export const SARAH_DUB = {
 // intent to claim.topic. A missing claim is an honest "unknown".
 export const INTENTS = [
   { id: 'q_led', topic: 'led_raise', script: true, ask: 'Did Sarah personally lead her company’s seed raise?' },
-  { id: 'q_crypto', topic: 'sector', script: true, ask: 'Was the company primarily crypto-related?' },
-  { id: 'q_comfort', topic: 'research_policy', script: true, ask: 'Is she comfortable discussing fundraising strategy with founders she doesn’t know?', attachRate: true },
-  { id: 'q_limits', topic: 'off_limits', script: true, ask: 'What won’t she discuss?' },
+  { id: 'q_crypto', topic: 'sector', script: true, ask: 'Is Sarah’s work primarily related to cryptocurrency?' },
+  { id: 'q_comfort', topic: 'research_policy', script: true, ask: 'Is Sarah open to compensated fundraising research?', attachRate: true },
+  { id: 'q_limits', topic: 'off_limits', script: true, ask: 'What topics will Sarah not disclose?' },
   {
     id: 'q_terms', topic: 'lead_terms', script: true, unknownDemo: true,
-    ask: 'Did Sarah personally negotiate the lead investor’s final terms?',
+    ask: 'Did Sarah personally negotiate the final terms with the lead investor?',
     clarify: {
       prompt: 'Did you personally negotiate the lead investor’s final terms?',
       learnedText: 'Personally negotiated the lead investor’s final terms',
-      answerYes: 'Sarah confirms that she personally participated in the negotiation.',
+      answerYes: 'Sarah confirms she participated directly in the final negotiation.',
       answerNo: 'Sarah confirms that she did not personally negotiate the final terms.',
       answerContext: 'Sarah confirms her involvement and adds context: she negotiated the structure directly; counsel handled the drafting.',
     },
@@ -227,7 +229,7 @@ export const CANDIDATES = [
     id: 'kittipong', name: 'Kittipong Srisuk', initials: 'KS', hue: 120, headline: 'Head of Growth · Bangkok', sector: 'Fintech SaaS',
     raise: 'Company raised seed · Dec 2025', openTo: 'Open to research', crypto: 'No crypto exposure', confidence: 'Medium',
     surface: 78, contextual: 0, rate: 20, rateUnit: 'hour', seeded: true,
-    exclusion: { reason: 'Not a founder', detail: 'Joined after the round closed; did not run the raise.' },
+    exclusion: { reason: 'Insufficient evidence', detail: 'Not a founder and nothing establishes he ran the raise; his Dub holds no evidence of fundraising involvement.' },
   },
   {
     id: 'mei', name: 'Mei Lin Park', initials: 'ML', hue: 250, headline: 'Founder · Phuket', sector: 'Travel SaaS',
@@ -278,3 +280,39 @@ export const TRUST_TIERS = [
   { level: 2, name: 'Established', upTo: 100, needs: 'Level 1 + verified payout destination + 1 verified Breadcrumb' },
   { level: 3, name: 'Trusted', upTo: Infinity, needs: 'Level 2 + identity check + participation history' },
 ];
+
+// ---- David's Dub: excellent on keywords, excluded on context ---------------------------------
+export const DAVID_DUB = {
+  id: 'dub_david_reyes',
+  profile: { name: 'David Reyes' },
+  clarifications: { allowed: false },
+  knowledge: [
+    {
+      id: 'd_seed', topic: 'seed_recent', text: 'Closed a seed round in January 2026',
+      answer: 'Yes. David’s company announced a seed round in January 2026, and he led the raise.',
+      provenance: 'corroborated', access: 'dub',
+      evidence: [{ label: 'Company announcement', kind: 'uploaded' }, { label: 'LinkedIn', kind: 'connected' }],
+    },
+    {
+      id: 'd_crypto', topic: 'crypto_share', text: '71% of recent professional activity relates to crypto',
+      answer: '71% of David’s professional activity during the last 12 months relates to crypto.',
+      provenance: 'corroborated', access: 'dub',
+      evidence: [{ label: 'Company product pages (token & stablecoin rails)', kind: 'connected' }, { label: 'GitHub activity', kind: 'connected' }, { label: 'Conference talks', kind: 'connected' }],
+    },
+  ],
+};
+export const DAVID_INTENTS = [
+  { id: 'd_q_seed', topic: 'seed_recent', ask: 'Did David lead a seed round within the last 18 months?' },
+  { id: 'd_q_crypto', topic: 'crypto_share', ask: 'How much of David’s recent professional activity involves cryptocurrency?' },
+];
+
+// Order the agent investigates the pool. David and Sarah get full conversations; the rest stream.
+export const INVESTIGATION_ORDER = ['david', 'sarah', 'niran', 'michael', 'tom', 'anong', 'mei', 'kittipong'];
+export const FAST_STREAM_NOTES = {
+  niran: 'Seed Nov 2025 · logistics SaaS · open to research',
+  michael: 'Seed Jun 2025 · healthtech SaaS · open to research',
+  tom: 'Relocated to Singapore Aug 2026',
+  anong: 'Seed closed Mar 2024 (31 months ago)',
+  mei: 'Dub declines research and interviews',
+  kittipong: 'Nothing establishes he ran the raise',
+};
