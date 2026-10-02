@@ -1,5 +1,5 @@
 name: Deploy exact Cholo Whistle
-# trigger exact clip upload
+# robust mirror fetch
 
 on:
   push:
@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Configure SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.TOASTY_SSH_PRIVATE_KEY }}
@@ -27,13 +28,67 @@ jobs:
           chmod 600 ~/.ssh/toasty_github_deploy
           ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Fetch exact Cholo Whistle
+      - name: Fetch exact Cholo Whistle from public mirrors
+        shell: bash
         run: |
           set -euo pipefail
-          curl -fL --retry 3 --retry-delay 2 \
-            "https://www.myinstants.com/media/sounds/cholo-whistle.mp3" \
-            -o /tmp/cholo-whistle-exact.mp3
-          test -s /tmp/cholo-whistle-exact.mp3
+          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
+          OUT=/tmp/cholo-whistle-exact.mp3
+          rm -f "$OUT"
+
+          try_page () {
+            page="$1"
+            base="$2"
+            html=/tmp/cholo-page.html
+            echo "Trying page: $page"
+            curl -A "$UA" -L --retry 2 --retry-delay 1 --fail "$page" -o "$html" || return 1
+
+            python3 - "$html" "$base" >/tmp/cholo-candidates.txt <<'PY'
+import html,re,sys,urllib.parse
+p=sys.argv[1]; base=sys.argv[2]
+s=open(p,encoding='utf-8',errors='ignore').read()
+patterns=[
+    r'https?://[^"\'<> ]+?\.mp3(?:\?[^"\'<> ]*)?',
+    r'(?:src|href)=["\']([^"\']+?\.mp3(?:\?[^"\']*)?)["\']',
+    r'["\']([^"\']+?\.mp3(?:\?[^"\']*)?)["\']'
+]
+seen=set()
+for pat in patterns:
+    for m in re.finditer(pat,s,re.I):
+        u=m.group(1) if m.lastindex else m.group(0)
+        u=html.unescape(u).replace('\\/','/')
+        u=urllib.parse.urljoin(base,u)
+        if u not in seen:
+            seen.add(u); print(u)
+PY
+
+            while IFS= read -r media; do
+              [[ -n "$media" ]] || continue
+              echo "Trying media: $media"
+              if curl -A "$UA" -e "$page" -L --retry 2 --retry-delay 1 --fail "$media" -o "$OUT"; then
+                if [[ -s "$OUT" ]] && file "$OUT" | grep -qiE 'audio|mpeg|mp3'; then
+                  return 0
+                fi
+              fi
+              rm -f "$OUT"
+            done </tmp/cholo-candidates.txt
+            return 1
+          }
+
+          try_page             "https://soundinstants.com/sound/cholo-whistle-for-the-chicas"             "https://soundinstants.com/" || true
+
+          if [[ ! -s "$OUT" ]]; then
+            try_page               "https://www.101soundboards.com/sounds/24085015-cholo-whistle-for-the-chicas"               "https://www.101soundboards.com/" || true
+          fi
+
+          if [[ ! -s "$OUT" ]]; then
+            curl -A "$UA" -c /tmp/cholo.cookies -L --fail               "https://www.myinstants.com/en/instant/cholo-whistle-57749/"               -o /tmp/myinstants.html || true
+            curl -A "$UA" -b /tmp/cholo.cookies               -e "https://www.myinstants.com/en/instant/cholo-whistle-57749/"               -L --fail               "https://www.myinstants.com/media/sounds/cholo-whistle.mp3"               -o "$OUT" || true
+          fi
+
+          test -s "$OUT"
+          file "$OUT"
+          sha256sum "$OUT"
 
       - name: Upload exact clip to production
         env:
@@ -56,3 +111,4 @@ jobs:
             -o /tmp/live-cholo.mp3
           test -s /tmp/live-cholo.mp3
           cmp /tmp/cholo-whistle-exact.mp3 /tmp/live-cholo.mp3
+          sha256sum /tmp/cholo-whistle-exact.mp3 /tmp/live-cholo.mp3
