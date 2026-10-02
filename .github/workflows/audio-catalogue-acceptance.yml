@@ -1,0 +1,46 @@
+name: Audio catalogue acceptance
+
+on:
+  push:
+    paths:
+      - assets/catalogue/catalogue.json
+      - .github/workflows/audio-catalogue-acceptance.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install decoder
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+      - name: Validate production soundboard audio
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > /tmp/audio.tsv
+import json
+d=json.load(open("assets/catalogue/catalogue.json"))
+for x in d.get("items",[]):
+    src=x.get("src")
+    if src:
+        print(f"{x.get('id','')}\t{x.get('displayName','')}\t{src}")
+PY
+          mkdir -p /tmp/audio
+          : > /tmp/hashes
+          while IFS=$'\t' read -r id name src; do
+            file="/tmp/audio/\${id}"
+            echo "TEST \${id} | \${name} | \${src}"
+            curl --fail --silent --show-error --location --retry 2 "https://toasty.media\${src}" -o "$file"
+            test -s "$file"
+            ffprobe -v error -select_streams a:0 -show_entries stream=codec_name,sample_rate,channels -show_entries format=duration -of default=nw=1 "$file"
+            ffmpeg -v error -i "$file" -f null -
+            sha256sum "$file" | tee -a /tmp/hashes
+          done < /tmp/audio.tsv
+          echo "=== DUPLICATE BYTE HASHES ==="
+          cut -d' ' -f1 /tmp/hashes | sort | uniq -d | tee /tmp/dupes
+          test ! -s /tmp/dupes
