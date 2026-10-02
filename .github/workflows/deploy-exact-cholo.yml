@@ -1,4 +1,4 @@
-name: Inspect Cholo Whistle mirror
+name: Deploy exact Cholo Whistle
 
 on:
   push:
@@ -9,19 +9,54 @@ permissions:
   contents: read
 
 jobs:
-  inspect:
+  deploy:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect soundboard metadata
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.TOASTY_SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.TOASTY_SSH_HOST }}
+          SSH_PORT: ${{ secrets.TOASTY_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/toasty_github_deploy
+          chmod 600 ~/.ssh/toasty_github_deploy
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Fetch exact Cholo Whistle
         shell: bash
         run: |
           set -euo pipefail
-          UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
-          curl -A "$UA" -L --fail \
-            "https://soundboardbuttons.com/sound-tracks/whatsapp-soundboard/" \
-            -o /tmp/page.html
-          echo "=== cholo lines ==="
-          grep -i -n -C 8 'cholo' /tmp/page.html || true
-          echo "=== audio/mp3/data lines ==="
-          grep -i -n -E 'mp3|audio|data-src|data-sound|download' /tmp/page.html | head -n 300 || true
+          curl -A 'Mozilla/5.0' -L --fail --retry 3 --retry-delay 1 \
+            "https://soundboardbuttons.com/media/uploads/sounds/whatsapp-video-2020-08-17-at-7_BSGTi8L.mp3" \
+            -o /tmp/cholo-whistle-exact.mp3
+          test -s /tmp/cholo-whistle-exact.mp3
+          file /tmp/cholo-whistle-exact.mp3
+          sha256sum /tmp/cholo-whistle-exact.mp3
+
+      - name: Upload exact clip to production
+        env:
+          SSH_HOST: ${{ secrets.TOASTY_SSH_HOST }}
+          SSH_USER: ${{ secrets.TOASTY_SSH_USER }}
+          SSH_PORT: ${{ secrets.TOASTY_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/toasty_github_deploy -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "mkdir -p /home/fmxgijyvpq/toasty.media/assets/catalogue/audio"
+          scp -i ~/.ssh/toasty_github_deploy -P "$SSH_PORT" \
+            /tmp/cholo-whistle-exact.mp3 \
+            "$SSH_USER@$SSH_HOST:/home/fmxgijyvpq/toasty.media/assets/catalogue/audio/cholo-whistle-exact.mp3"
+
+      - name: Verify live exact clip
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            "https://toasty.media/assets/catalogue/audio/cholo-whistle-exact.mp3" \
+            -o /tmp/live-cholo.mp3
+          test -s /tmp/live-cholo.mp3
+          cmp /tmp/cholo-whistle-exact.mp3 /tmp/live-cholo.mp3
+          sha256sum /tmp/cholo-whistle-exact.mp3 /tmp/live-cholo.mp3
