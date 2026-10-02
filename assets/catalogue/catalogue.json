@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "addedDate": "2026-09-19",
   "standard": {
     "format": "ogg",
@@ -357,116 +357,29 @@
       "notes": "Kenney Foley Sounds woosh7.ogg. Attribution to Kenney / kenney.nl is appreciated but not required."
     },
     {
-      "id": "impact-01",
-      "displayName": "Impact",
-      "category": "sound-effect",
-      "programAssetType": "sound",
-      "filename": "impact-01.ogg",
-      "src": "/assets/catalogue/audio/impact-01.ogg",
-      "duration": 0.65,
-      "icon": "💥",
-      "aliases": [
-        "hit",
-        "punch",
-        "thud"
-      ],
-      "source": "Kenney Impact Sounds",
-      "sourceUrl": "https://kenney.nl/assets/impact-sounds",
-      "creator": "Kenney Vleugels",
-      "license": "CC0 1.0",
-      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
-      "attributionRequired": false,
-      "addedDate": "2026-09-19",
-      "notes": "Kenney impactPunch_heavy_000.ogg from the CC0 Impact Sounds pack."
-    },
-    {
-      "id": "success-chime-01",
-      "displayName": "Success Chime",
-      "category": "sound-effect",
-      "programAssetType": "sound",
-      "filename": "success-chime-01.ogg",
-      "src": "/assets/catalogue/audio/success-chime-01.ogg",
-      "duration": 0.56,
-      "icon": "✅",
-      "aliases": [
-        "success",
-        "correct",
-        "chime"
-      ],
-      "source": "Kenney Interface Sounds",
-      "sourceUrl": "https://kenney.nl/assets/interface-sounds",
-      "creator": "Kenney Vleugels",
-      "license": "CC0 1.0",
-      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
-      "attributionRequired": false,
-      "addedDate": "2026-09-19",
-      "notes": "Kenney confirmation_002.wav from the CC0 Interface Sounds pack."
-    },
-    {
-      "id": "suspense-01",
-      "displayName": "Suspense",
+      "id": "intro-sting-01",
+      "displayName": "Dub Siren",
       "category": "stinger",
       "programAssetType": "stinger",
-      "filename": "suspense-01.ogg",
-      "src": "/assets/catalogue/audio/suspense-01.ogg",
-      "duration": 2.2,
-      "icon": "😬",
+      "filename": "dub-siren-01.wav",
+      "src": "/assets/catalogue/audio/dub-siren-01.wav",
+      "duration": 8,
+      "icon": "🇯🇲",
       "aliases": [
-        "tension",
-        "dramatic"
+        "dub siren",
+        "jamaican",
+        "sound system",
+        "reggae siren",
+        "intro"
       ],
       "source": "Freesound",
-      "sourceUrl": "https://freesound.org/people/SoundsExciting/sounds/213101/",
-      "creator": "SoundsExciting",
+      "sourceUrl": "https://freesound.org/people/zoltan87/sounds/187768/",
+      "creator": "zoltan87",
       "license": "CC0 1.0",
       "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
       "attributionRequired": false,
       "addedDate": "2026-09-19",
-      "notes": "First sting from '5 Super Dramatic Stings', trimmed to 2.2s. Bundled from Freesound HQ MP3 encode of the CC0 work."
-    },
-    {
-      "id": "intro-sting-01",
-      "displayName": "Intro Sting",
-      "category": "stinger",
-      "programAssetType": "stinger",
-      "filename": "intro-sting-01.ogg",
-      "src": "/assets/catalogue/audio/intro-sting-01.ogg",
-      "duration": 1.38,
-      "icon": "🎬",
-      "aliases": [
-        "intro",
-        "open sting"
-      ],
-      "source": "Kenney Jingle Sounds",
-      "sourceUrl": "https://kenney.nl/assets/jingle-sounds",
-      "creator": "Kenney Vleugels",
-      "license": "CC0 1.0",
-      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
-      "attributionRequired": false,
-      "addedDate": "2026-09-19",
-      "notes": "Kenney jingles_STEEL01.ogg."
-    },
-    {
-      "id": "outro-sting-01",
-      "displayName": "Outro Sting",
-      "category": "stinger",
-      "programAssetType": "stinger",
-      "filename": "outro-sting-01.ogg",
-      "src": "/assets/catalogue/audio/outro-sting-01.ogg",
-      "duration": 1.74,
-      "icon": "🎭",
-      "aliases": [
-        "outro",
-        "close sting"
-      ],
-      "source": "Kenney Jingle Sounds",
-      "sourceUrl": "https://kenney.nl/assets/jingle-sounds",
-      "creator": "Kenney Vleugels",
-      "license": "CC0 1.0",
-      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
-      "attributionRequired": false,
-      "addedDate": "2026-09-19",
-      "notes": "Kenney jingles_SAX07.ogg."
+      "notes": "Real CC0 dub siren for Jamaican sound-system style intro. Replaces the previous generic island/jingle sting."
     },
     {
       "id": "transition-sting-01",
@@ -513,30 +426,6 @@
       "attribution": "NewsSting by Kevin MacLeod (incompetech.com) — CC BY 3.0",
       "addedDate": "2026-09-19",
       "notes": "Original Incompetech MP3, trimmed to 5.6s for a production news sting. ISRC USUAN1100361. Also published on Wikimedia Commons."
-    },
-    {
-      "id": "fah-01",
-      "displayName": "FAHHHHHH",
-      "category": "sound-effect",
-      "programAssetType": "sound",
-      "filename": "fah-01-real.wav",
-      "src": "/assets/catalogue/audio/fah-01-real.wav",
-      "duration": 1.25,
-      "icon": "😱",
-      "aliases": [
-        "fah",
-        "fahhhhh",
-        "scream sting"
-      ],
-      "missing": false,
-      "source": "Toasty Studio original",
-      "sourceUrl": "",
-      "creator": "Toasty Media Studio",
-      "license": "Original asset",
-      "licenseUrl": "",
-      "attributionRequired": false,
-      "addedDate": "2026-10-02",
-      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
     },
     {
       "id": "rider-01",
