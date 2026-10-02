@@ -150,7 +150,7 @@ export class Soundboard {
     this.container.replaceChildren(...items.map((item) => {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "sound-tile";
+      button.className = "sound-tile";\n      const uploadSlot = Boolean(item.soundboardSlot && item.missing);
       button.dataset.cue = item.id;
       button.dataset.category = item.category;
       button.title = item.displayName;
@@ -158,7 +158,7 @@ export class Soundboard {
       const play = document.createElement("span");
       play.className = "sound-play";
       play.setAttribute("aria-hidden", "true");
-      play.textContent = playingId === item.id ? "■" : (item.icon || "▶");
+      play.textContent = uploadSlot ? "＋" : (playingId === item.id ? "■" : (item.icon || "▶"));
       const wave = document.createElement("span");
       wave.className = "sound-wave";
       wave.setAttribute("aria-hidden", "true");
@@ -173,11 +173,35 @@ export class Soundboard {
       label.textContent = item.displayName;
       const duration = document.createElement("span");
       duration.className = "sound-duration";
-      duration.textContent = `${Number(item.duration || 0).toFixed(1)}s`;
+      duration.textContent = uploadSlot ? "Add audio" : `${Number(item.duration || 0).toFixed(1)}s`;
       meta.append(label, duration);
       button.append(play, wave, meta);
       button.style.setProperty("--dur", `${Number(item.duration || 0.5)}s`);
       button.addEventListener("click", () => {
+        if (uploadSlot) {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.accept = "audio/*";
+          input.addEventListener("change", () => {
+            const file = input.files?.[0];
+            if (!file) return;
+            if (item._localObjectUrl) URL.revokeObjectURL(item._localObjectUrl);
+            item._localObjectUrl = URL.createObjectURL(file);
+            item.src = item._localObjectUrl;
+            item.filename = file.name;
+            item.missing = false;
+            const probe = document.createElement("audio");
+            probe.preload = "metadata";
+            probe.src = item.src;
+            probe.addEventListener("loadedmetadata", () => {
+              if (Number.isFinite(probe.duration)) item.duration = probe.duration;
+              this.render();
+            }, { once: true });
+            this.render();
+          }, { once: true });
+          input.click();
+          return;
+        }
         if (playingId === item.id) this.stop();
         else this.play(item);
       });
