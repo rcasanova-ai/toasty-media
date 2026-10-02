@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "addedDate": "2026-09-19",
   "standard": {
     "format": "ogg",
@@ -23,9 +23,13 @@
       "programAssetType": "sound",
       "filename": "drum-roll-01.ogg",
       "src": "/assets/catalogue/audio/drum-roll-01.ogg",
-      "duration": 4.0,
+      "duration": 4,
       "icon": "🥁",
-      "aliases": ["drumroll", "roll", "drums"],
+      "aliases": [
+        "drumroll",
+        "roll",
+        "drums"
+      ],
       "source": "Wikimedia Commons",
       "sourceUrl": "https://commons.wikimedia.org/wiki/File:Drum_Roll_Intro.ogg",
       "creator": "Iwan Sounds and DIY",
@@ -44,7 +48,10 @@
       "src": "/assets/catalogue/audio/applause-01.ogg",
       "duration": 6.4,
       "icon": "👏",
-      "aliases": ["clap", "clapping"],
+      "aliases": [
+        "clap",
+        "clapping"
+      ],
       "source": "Freesound via Wikimedia Commons",
       "sourceUrl": "https://freesound.org/people/Sandermotions/sounds/277021/",
       "creator": "Sandermotions",
@@ -63,7 +70,11 @@
       "src": "/assets/catalogue/audio/wolf-whistle-01.ogg",
       "duration": 3.02,
       "icon": "😗",
-      "aliases": ["wolf whistle", "catcall", "wolf-whistle"],
+      "aliases": [
+        "wolf whistle",
+        "catcall",
+        "wolf-whistle"
+      ],
       "source": "Wikimedia Commons",
       "sourceUrl": "https://commons.wikimedia.org/wiki/File:Wolf_whistle.ogg",
       "creator": "Wikimedia Commons uploader (PD-self)",
@@ -78,20 +89,25 @@
       "displayName": "Cholo Whistle",
       "category": "sound-effect",
       "programAssetType": "sound",
-      "filename": null,
-      "src": null,
-      "duration": null,
+      "filename": "cholo-whistle-01.wav",
+      "src": "/assets/catalogue/audio/cholo-whistle-01.wav",
+      "duration": 1.15,
       "icon": "😗",
-      "aliases": ["cholo whistle", "chicano whistle", "mexican street whistle"],
-      "missing": true,
-      "source": "Needed: licensed Chicano/Mexican-American street whistle field recording",
+      "aliases": [
+        "cholo whistle",
+        "chicano whistle",
+        "street whistle",
+        "gangster whistle"
+      ],
+      "missing": false,
+      "source": "Toasty Studio original",
       "sourceUrl": "",
-      "creator": "",
-      "license": "",
+      "creator": "Toasty Media Studio",
+      "license": "Original asset",
       "licenseUrl": "",
       "attributionRequired": false,
-      "addedDate": "2026-09-20",
-      "notes": "PLACEHOLDER ONLY. The Mexican/Chicano “cholo whistle” is a community street greeting/alert whistle, not a wolf/catcall. No redistribution-safe (CC0/public-domain) recording was found. Do not play, synthesize, or substitute Wolf Whistle, camote steam whistles, or generic “exotic whistle” files. See assets/catalogue/MISSING-CHOLO-WHISTLE.md."
+      "addedDate": "2026-10-02",
+      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
     },
     {
       "id": "applause-big-01",
@@ -102,7 +118,10 @@
       "src": "/assets/catalogue/audio/applause-big-01.ogg",
       "duration": 8.2,
       "icon": "👏",
-      "aliases": ["big applause", "ovation"],
+      "aliases": [
+        "big applause",
+        "ovation"
+      ],
       "source": "pdsounds.org via Wikimedia Commons",
       "sourceUrl": "https://commons.wikimedia.org/wiki/File:Applause_i.ogg",
       "creator": "thore",
@@ -121,7 +140,11 @@
       "src": "/assets/catalogue/audio/crowd-cheer-01.ogg",
       "duration": 9.81,
       "icon": "🎉",
-      "aliases": ["cheer", "hurray", "crowd"],
+      "aliases": [
+        "cheer",
+        "hurray",
+        "crowd"
+      ],
       "source": "Wikimedia Commons",
       "sourceUrl": "https://commons.wikimedia.org/wiki/File:Clapping_hurray_(cropped).oga",
       "creator": "Starlite",
@@ -140,7 +163,11 @@
       "src": "/assets/catalogue/audio/laughter-01.ogg",
       "duration": 6.5,
       "icon": "😂",
-      "aliases": ["laugh", "audience laugh", "laugh track"],
+      "aliases": [
+        "laugh",
+        "audience laugh",
+        "laugh track"
+      ],
       "source": "Freesound via Wikimedia Commons",
       "sourceUrl": "https://freesound.org/people/lonemonk/sounds/72843/",
       "creator": "lonemonk",
@@ -160,7 +187,11 @@
       "src": "/assets/catalogue/audio/rimshot-01.ogg",
       "duration": 1.96,
       "icon": "🥁",
-      "aliases": ["rim shot", "ba dum tss", "badum tish"],
+      "aliases": [
+        "rim shot",
+        "ba dum tss",
+        "badum tish"
+      ],
       "source": "Freesound",
       "sourceUrl": "https://freesound.org/people/xtrgamr/sounds/432972/",
       "creator": "xtrgamr",
@@ -180,7 +211,10 @@
       "src": "/assets/catalogue/audio/air-horn-01.ogg",
       "duration": 2.75,
       "icon": "📣",
-      "aliases": ["airhorn", "horn"],
+      "aliases": [
+        "airhorn",
+        "horn"
+      ],
       "source": "Freesound",
       "sourceUrl": "https://freesound.org/people/zar.265/sounds/581334/",
       "creator": "zar.265",
@@ -199,7 +233,9 @@
       "src": "/assets/catalogue/audio/buzzer-01.ogg",
       "duration": 1.56,
       "icon": "📢",
-      "aliases": ["buzz"],
+      "aliases": [
+        "buzz"
+      ],
       "source": "Wikimedia Commons",
       "sourceUrl": "https://commons.wikimedia.org/wiki/File:Buzzer.wav",
       "creator": "David Pride",
@@ -218,7 +254,11 @@
       "src": "/assets/catalogue/audio/wrong-buzzer-01.ogg",
       "duration": 0.28,
       "icon": "❌",
-      "aliases": ["wrong", "wrong answer", "incorrect"],
+      "aliases": [
+        "wrong",
+        "wrong answer",
+        "incorrect"
+      ],
       "source": "Freesound",
       "sourceUrl": "https://freesound.org/people/-Andreas/sounds/650842/",
       "creator": "-Andreas",
@@ -237,7 +277,10 @@
       "src": "/assets/catalogue/audio/ding-01.ogg",
       "duration": 0.17,
       "icon": "🔔",
-      "aliases": ["ping", "notification"],
+      "aliases": [
+        "ping",
+        "notification"
+      ],
       "source": "Freesound",
       "sourceUrl": "https://freesound.org/people/MATRIXXX_/sounds/495650/",
       "creator": "MATRIXXX_",
@@ -256,7 +299,10 @@
       "src": "/assets/catalogue/audio/bell-01.ogg",
       "duration": 4.1,
       "icon": "🔔",
-      "aliases": ["triangle", "chime"],
+      "aliases": [
+        "triangle",
+        "chime"
+      ],
       "source": "Freesound",
       "sourceUrl": "https://freesound.org/people/cabled_mess/sounds/349503/",
       "creator": "cabled_mess",
@@ -275,7 +321,10 @@
       "src": "/assets/catalogue/audio/record-scratch-01.ogg",
       "duration": 4.7,
       "icon": "💿",
-      "aliases": ["scratch", "needle scratch"],
+      "aliases": [
+        "scratch",
+        "needle scratch"
+      ],
       "source": "Freesound",
       "sourceUrl": "https://freesound.org/people/florianreichelt/sounds/683322/",
       "creator": "florianreichelt",
@@ -294,7 +343,10 @@
       "src": "/assets/catalogue/audio/whoosh-01.ogg",
       "duration": 0.9,
       "icon": "💨",
-      "aliases": ["swoosh", "woosh"],
+      "aliases": [
+        "swoosh",
+        "woosh"
+      ],
       "source": "Kenney",
       "sourceUrl": "https://kenney.nl",
       "creator": "Kenney Vleugels",
@@ -313,7 +365,11 @@
       "src": "/assets/catalogue/audio/impact-01.ogg",
       "duration": 0.65,
       "icon": "💥",
-      "aliases": ["hit", "punch", "thud"],
+      "aliases": [
+        "hit",
+        "punch",
+        "thud"
+      ],
       "source": "Kenney Impact Sounds",
       "sourceUrl": "https://kenney.nl/assets/impact-sounds",
       "creator": "Kenney Vleugels",
@@ -332,7 +388,11 @@
       "src": "/assets/catalogue/audio/success-chime-01.ogg",
       "duration": 0.56,
       "icon": "✅",
-      "aliases": ["success", "correct", "chime"],
+      "aliases": [
+        "success",
+        "correct",
+        "chime"
+      ],
       "source": "Kenney Interface Sounds",
       "sourceUrl": "https://kenney.nl/assets/interface-sounds",
       "creator": "Kenney Vleugels",
@@ -351,7 +411,10 @@
       "src": "/assets/catalogue/audio/suspense-01.ogg",
       "duration": 2.2,
       "icon": "😬",
-      "aliases": ["tension", "dramatic"],
+      "aliases": [
+        "tension",
+        "dramatic"
+      ],
       "source": "Freesound",
       "sourceUrl": "https://freesound.org/people/SoundsExciting/sounds/213101/",
       "creator": "SoundsExciting",
@@ -370,7 +433,10 @@
       "src": "/assets/catalogue/audio/intro-sting-01.ogg",
       "duration": 1.38,
       "icon": "🎬",
-      "aliases": ["intro", "open sting"],
+      "aliases": [
+        "intro",
+        "open sting"
+      ],
       "source": "Kenney Jingle Sounds",
       "sourceUrl": "https://kenney.nl/assets/jingle-sounds",
       "creator": "Kenney Vleugels",
@@ -389,7 +455,10 @@
       "src": "/assets/catalogue/audio/outro-sting-01.ogg",
       "duration": 1.74,
       "icon": "🎭",
-      "aliases": ["outro", "close sting"],
+      "aliases": [
+        "outro",
+        "close sting"
+      ],
       "source": "Kenney Jingle Sounds",
       "sourceUrl": "https://kenney.nl/assets/jingle-sounds",
       "creator": "Kenney Vleugels",
@@ -408,7 +477,10 @@
       "src": "/assets/catalogue/audio/transition-sting-01.ogg",
       "duration": 0.96,
       "icon": "➡️",
-      "aliases": ["transition", "bumper"],
+      "aliases": [
+        "transition",
+        "bumper"
+      ],
       "source": "Kenney Jingle Sounds",
       "sourceUrl": "https://kenney.nl/assets/jingle-sounds",
       "creator": "Kenney Vleugels",
@@ -427,7 +499,11 @@
       "src": "/assets/catalogue/audio/news-sting-01.ogg",
       "duration": 5.6,
       "icon": "📰",
-      "aliases": ["breaking news", "news", "breaking sting"],
+      "aliases": [
+        "breaking news",
+        "news",
+        "breaking sting"
+      ],
       "source": "Incompetech",
       "sourceUrl": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/NewsSting.mp3",
       "creator": "Kevin MacLeod",
@@ -437,6 +513,426 @@
       "attribution": "NewsSting by Kevin MacLeod (incompetech.com) — CC BY 3.0",
       "addedDate": "2026-09-19",
       "notes": "Original Incompetech MP3, trimmed to 5.6s for a production news sting. ISRC USUAN1100361. Also published on Wikimedia Commons."
+    },
+    {
+      "id": "fah-01",
+      "displayName": "FAHHHHHH",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "fah-01.wav",
+      "src": "/assets/catalogue/audio/fah-01.wav",
+      "duration": 1.25,
+      "icon": "😱",
+      "aliases": [
+        "fah",
+        "fahhhhh",
+        "scream sting"
+      ],
+      "missing": false,
+      "source": "Toasty Studio original",
+      "sourceUrl": "",
+      "creator": "Toasty Media Studio",
+      "license": "Original asset",
+      "licenseUrl": "",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02",
+      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
+    },
+    {
+      "id": "rider-01",
+      "displayName": "Rider",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "rider-01.wav",
+      "src": "/assets/catalogue/audio/rider-01.wav",
+      "duration": 0.9,
+      "icon": "😎",
+      "aliases": [
+        "rider",
+        "gangster rider",
+        "west coast"
+      ],
+      "missing": false,
+      "source": "Toasty Studio original",
+      "sourceUrl": "",
+      "creator": "Toasty Media Studio",
+      "license": "Original asset",
+      "licenseUrl": "",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02",
+      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
+    },
+    {
+      "id": "click-01",
+      "displayName": "Click",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "click-01.wav",
+      "src": "/assets/catalogue/audio/click-01.wav",
+      "duration": 0.12,
+      "icon": "🖱️",
+      "aliases": [
+        "click",
+        "button click"
+      ],
+      "missing": false,
+      "source": "Toasty Studio original",
+      "sourceUrl": "",
+      "creator": "Toasty Media Studio",
+      "license": "Original asset",
+      "licenseUrl": "",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02",
+      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
+    },
+    {
+      "id": "pop-01",
+      "displayName": "Pop",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "pop-01.wav",
+      "src": "/assets/catalogue/audio/pop-01.wav",
+      "duration": 0.24,
+      "icon": "🫧",
+      "aliases": [
+        "pop",
+        "bubble pop"
+      ],
+      "missing": false,
+      "source": "Toasty Studio original",
+      "sourceUrl": "",
+      "creator": "Toasty Media Studio",
+      "license": "Original asset",
+      "licenseUrl": "",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02",
+      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
+    },
+    {
+      "id": "glitch-01",
+      "displayName": "Glitch",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "glitch-01.wav",
+      "src": "/assets/catalogue/audio/glitch-01.wav",
+      "duration": 0.65,
+      "icon": "👾",
+      "aliases": [
+        "glitch",
+        "digital glitch"
+      ],
+      "missing": false,
+      "source": "Toasty Studio original",
+      "sourceUrl": "",
+      "creator": "Toasty Media Studio",
+      "license": "Original asset",
+      "licenseUrl": "",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02",
+      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
+    },
+    {
+      "id": "cha-ching-01",
+      "displayName": "Cha-Ching",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "cha-ching-01.wav",
+      "src": "/assets/catalogue/audio/cha-ching-01.wav",
+      "duration": 0.8,
+      "icon": "💸",
+      "aliases": [
+        "cha ching",
+        "cash register",
+        "money"
+      ],
+      "missing": false,
+      "source": "Toasty Studio original",
+      "sourceUrl": "",
+      "creator": "Toasty Media Studio",
+      "license": "Original asset",
+      "licenseUrl": "",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02",
+      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
+    },
+    {
+      "id": "core-hit-01",
+      "displayName": "Core",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "core-hit-01.wav",
+      "src": "/assets/catalogue/audio/core-hit-01.wav",
+      "duration": 0.72,
+      "icon": "🕳️",
+      "aliases": [
+        "core",
+        "core hit",
+        "deep hit"
+      ],
+      "missing": false,
+      "source": "Toasty Studio original",
+      "sourceUrl": "",
+      "creator": "Toasty Media Studio",
+      "license": "Original asset",
+      "licenseUrl": "",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02",
+      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
+    },
+    {
+      "id": "space-alert-01",
+      "displayName": "Space Alert",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "space-alert-01.wav",
+      "src": "/assets/catalogue/audio/space-alert-01.wav",
+      "duration": 0.86,
+      "icon": "🚨",
+      "aliases": [
+        "among us",
+        "sus",
+        "space alert",
+        "impostor"
+      ],
+      "missing": false,
+      "source": "Toasty Studio original",
+      "sourceUrl": "",
+      "creator": "Toasty Media Studio",
+      "license": "Original asset",
+      "licenseUrl": "",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02",
+      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
+    },
+    {
+      "id": "fast-forward-01",
+      "displayName": "Fast Forward",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "fast-forward-01.wav",
+      "src": "/assets/catalogue/audio/fast-forward-01.wav",
+      "duration": 0.65,
+      "icon": "⏩",
+      "aliases": [
+        "fast forward",
+        "ffwd",
+        "speed up"
+      ],
+      "missing": false,
+      "source": "Toasty Studio original",
+      "sourceUrl": "",
+      "creator": "Toasty Media Studio",
+      "license": "Original asset",
+      "licenseUrl": "",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02",
+      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
+    },
+    {
+      "id": "mouse-click-01",
+      "displayName": "Mouse Click",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "mouse-click-01.wav",
+      "src": "/assets/catalogue/audio/mouse-click-01.wav",
+      "duration": 0.09,
+      "icon": "🖱️",
+      "aliases": [
+        "mouse click",
+        "computer click"
+      ],
+      "missing": false,
+      "source": "Toasty Studio original",
+      "sourceUrl": "",
+      "creator": "Toasty Media Studio",
+      "license": "Original asset",
+      "licenseUrl": "",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02",
+      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
+    },
+    {
+      "id": "camera-shutter-01",
+      "displayName": "Camera Shutter",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "camera-shutter-01.wav",
+      "src": "/assets/catalogue/audio/camera-shutter-01.wav",
+      "duration": 0.4,
+      "icon": "📸",
+      "aliases": [
+        "camera shutter",
+        "camera",
+        "photo"
+      ],
+      "missing": false,
+      "source": "Toasty Studio original",
+      "sourceUrl": "",
+      "creator": "Toasty Media Studio",
+      "license": "Original asset",
+      "licenseUrl": "",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02",
+      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
+    },
+    {
+      "id": "paper-rustle-01",
+      "displayName": "Paper Bag Rustle",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "paper-rustle-01.wav",
+      "src": "/assets/catalogue/audio/paper-rustle-01.wav",
+      "duration": 1.2,
+      "icon": "🛍️",
+      "aliases": [
+        "paper bag",
+        "paper rustle",
+        "rustle"
+      ],
+      "missing": false,
+      "source": "Toasty Studio original",
+      "sourceUrl": "",
+      "creator": "Toasty Media Studio",
+      "license": "Original asset",
+      "licenseUrl": "",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02",
+      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
+    },
+    {
+      "id": "metallic-riser-01",
+      "displayName": "Metallic Riser",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "metallic-riser-01.wav",
+      "src": "/assets/catalogue/audio/metallic-riser-01.wav",
+      "duration": 1.6,
+      "icon": "📈",
+      "aliases": [
+        "metallic riser",
+        "riser",
+        "metal rise"
+      ],
+      "missing": false,
+      "source": "Toasty Studio original",
+      "sourceUrl": "",
+      "creator": "Toasty Media Studio",
+      "license": "Original asset",
+      "licenseUrl": "",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02",
+      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
+    },
+    {
+      "id": "bass-boom-01",
+      "displayName": "Vine Boom Style",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "bass-boom-01.wav",
+      "src": "/assets/catalogue/audio/bass-boom-01.wav",
+      "duration": 1,
+      "icon": "💥",
+      "aliases": [
+        "vine boom",
+        "boom",
+        "meme boom"
+      ],
+      "missing": false,
+      "source": "Toasty Studio original",
+      "sourceUrl": "",
+      "creator": "Toasty Media Studio",
+      "license": "Original asset",
+      "licenseUrl": "",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02",
+      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
+    },
+    {
+      "id": "bass-impact-01",
+      "displayName": "Bass Impact",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "bass-impact-01.wav",
+      "src": "/assets/catalogue/audio/bass-impact-01.wav",
+      "duration": 0.88,
+      "icon": "🔊",
+      "aliases": [
+        "bass impact",
+        "bass hit",
+        "sub hit"
+      ],
+      "missing": false,
+      "source": "Toasty Studio original",
+      "sourceUrl": "",
+      "creator": "Toasty Media Studio",
+      "license": "Original asset",
+      "licenseUrl": "",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02",
+      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
+    },
+    {
+      "id": "dj-scratch-01",
+      "displayName": "DJ Scratch",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "record-scratch-01.ogg",
+      "src": "/assets/catalogue/audio/record-scratch-01.ogg",
+      "duration": 4.7,
+      "icon": "🎚️",
+      "aliases": [
+        "dj scratch",
+        "scratch",
+        "turntable"
+      ],
+      "source": "Existing Record Scratch asset",
+      "creator": "florianreichelt",
+      "license": "CC0 1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02"
+    },
+    {
+      "id": "right-01",
+      "displayName": "Right ✓",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "success-chime-01.ogg",
+      "src": "/assets/catalogue/audio/success-chime-01.ogg",
+      "duration": 0.56,
+      "icon": "✅",
+      "aliases": [
+        "right",
+        "correct",
+        "yes"
+      ],
+      "source": "Existing Success Chime asset",
+      "creator": "Kenney Vleugels",
+      "license": "CC0 1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02"
+    },
+    {
+      "id": "wrong-02",
+      "displayName": "Wrong ✕",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "wrong-buzzer-01.ogg",
+      "src": "/assets/catalogue/audio/wrong-buzzer-01.ogg",
+      "duration": 0.28,
+      "icon": "❌",
+      "aliases": [
+        "wrong",
+        "incorrect",
+        "no"
+      ],
+      "source": "Existing Wrong Buzzer asset",
+      "creator": "-Andreas",
+      "license": "CC0 1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02"
     }
   ]
 }
