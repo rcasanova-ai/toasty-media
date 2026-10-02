@@ -43,10 +43,12 @@ async function interlude(title, sub, ms = 1700) {
 }
 
 function renderChrome() {
-  $('#persona').textContent = PERSONA[S.phase] || '';
+  const persona = $('#persona');
+  if (persona) persona.textContent = PERSONA[S.phase] || '';
   const ri = E.railIndex(S);
   $('#rail').innerHTML = E.LIFECYCLE.map((l, i) => `<div class="rn ${i < ri ? 'done' : i === ri ? 'now' : ''}">${esc(l)}</div>`).join('');
-  $('#spPitch').classList.toggle('on', speed === 'pitch'); $('#spNormal').classList.toggle('on', speed === 'normal');
+  $('#spPitch')?.classList.toggle('on', speed === 'pitch');
+  $('#spNormal')?.classList.toggle('on', speed === 'normal');
 }
 
 function render() {
