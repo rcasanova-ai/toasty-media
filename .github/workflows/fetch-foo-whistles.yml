@@ -1,0 +1,36 @@
+name: Fetch Foo Whistle variants
+
+on:
+  push:
+    paths:
+      - .github/workflows/fetch-foo-whistles.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch real whistle recordings
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p assets/catalogue/audio
+          curl -fL --retry 3 "https://raw.githubusercontent.com/edemaine/comingle/master/public/sounds/raised.flac" -o /tmp/heads-up.flac
+          curl -fL --retry 3 "https://raw.githubusercontent.com/steelbeowulf/Guild/master/Assets/SFX/320140__owlstorm__attention-whistle.wav" -o assets/catalogue/audio/foo-whistle-recognition.wav
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          ffmpeg -hide_banner -loglevel error -y -i /tmp/heads-up.flac -ar 48000 -ac 2 assets/catalogue/audio/foo-whistle-heads-up.wav
+      - name: Commit whistle variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/catalogue/audio/foo-whistle-*.wav
+          git diff --cached --quiet && exit 0
+          git commit -m "Add meaning-specific Foo Whistle recordings"
+          git push

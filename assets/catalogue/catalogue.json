@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "addedDate": "2026-09-19",
   "standard": {
     "format": "ogg",
@@ -85,8 +85,8 @@
       "notes": "Real two-tone fingerless wolf/catcall whistle. Public-domain Commons File:Wolf whistle.ogg, loudnormed to the catalogue standard. Previously mislabeled as Cholo Whistle. Not the Mexican/Chicano street whistle."
     },
     {
-      "id": "cholo-whistle-01",
-      "displayName": "Foo Whistle",
+      "id": "foo-whistle-wassup",
+      "displayName": "Foo Whistle — Wassup",
       "category": "sound-effect",
       "programAssetType": "sound",
       "filename": "cholo-whistle-exact.mp3",
@@ -96,9 +96,9 @@
       "aliases": [
         "foo whistle",
         "cholo whistle",
-        "chicano whistle",
-        "street whistle",
-        "gangster whistle"
+        "wassup",
+        "greeting",
+        "homie"
       ],
       "missing": false,
       "source": "Myinstants",
@@ -108,7 +108,57 @@
       "licenseUrl": "",
       "attributionRequired": false,
       "addedDate": "2026-10-02",
-      "notes": "Exact foo/cholo whistle clip requested by operator; deployed as MP3 without synthesis or conversion."
+      "notes": "Chicano/Mexican-American style greeting/recognition whistle. Exact Cholo Whistle For The Chicas clip."
+    },
+    {
+      "id": "foo-whistle-heads-up",
+      "displayName": "Foo Whistle — Heads Up",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "foo-whistle-heads-up.wav",
+      "src": "/assets/catalogue/audio/foo-whistle-heads-up.wav",
+      "duration": null,
+      "icon": "😗",
+      "aliases": [
+        "foo whistle",
+        "heads up",
+        "warning whistle",
+        "double whistle"
+      ],
+      "missing": false,
+      "source": "Freesound",
+      "sourceUrl": "https://freesound.org/people/Skiggz/sounds/256552/",
+      "creator": "Skiggz",
+      "license": "CC0 1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02",
+      "notes": "Short sharp attention/warning whistle; separate from greeting and wolf whistle."
+    },
+    {
+      "id": "foo-whistle-recognition",
+      "displayName": "Foo Whistle — Recognition",
+      "category": "sound-effect",
+      "programAssetType": "sound",
+      "filename": "foo-whistle-recognition.wav",
+      "src": "/assets/catalogue/audio/foo-whistle-recognition.wav",
+      "duration": null,
+      "icon": "😗",
+      "aliases": [
+        "foo whistle",
+        "recognition",
+        "affection",
+        "melodic whistle"
+      ],
+      "missing": false,
+      "source": "Freesound",
+      "sourceUrl": "https://freesound.org/people/owlstorm/sounds/320140/",
+      "creator": "owlstorm",
+      "license": "CC0 1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "attributionRequired": false,
+      "addedDate": "2026-10-02",
+      "notes": "Longer melodic recognition/affection whistle; separate from greeting and warning."
     },
     {
       "id": "applause-big-01",
