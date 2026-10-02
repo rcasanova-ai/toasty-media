@@ -334,6 +334,12 @@ const server = createServer(async (req, res) => {
     await handlePlatformOrganizations(req, res, session);
     return;
   }
+  if (req.method === "GET" && req.url === "/api/organizations/platform-admin/brand-catalog") {
+    const session = await requirePlatformAdmin(req, res);
+    if (!session) return;
+    await handlePlatformBrandCatalog(req, res, session);
+    return;
+  }
   {
     const platformOrgMatch = req.url?.match(/^\/api\/organizations\/platform-admin\/organizations\/([^/]+)\/(plan|reset-usage)$/);
     if (req.method === "POST" && platformOrgMatch) {
@@ -3025,6 +3031,26 @@ async function handlePlatformStatus(req, res, session) {
     safetySwitches: COST_SAFETY_SWITCHES,
     founderAiFallback: Boolean(DEEPSEEK_API_KEY)
   });
+}
+
+async function handlePlatformBrandCatalog(req, res, authSession) {
+  const result = await db("platform_list_organizations", {});
+  const organizations = result.organizations || [];
+  const brands = [];
+  for (const organization of organizations) {
+    if (!organization?.id || !organization.activeBrandProfileId) continue;
+    if (String(organization.slug || "").startsWith("skin-")) continue;
+    const profiles = await db("list_brand_profiles", { organizationId: organization.id });
+    const profile = (profiles.brandProfiles || []).find((item) => item.id === organization.activeBrandProfileId);
+    if (!profile) continue;
+    brands.push({
+      id: ORG_BRAND_ID_PREFIX + organization.id,
+      organizationId: organization.id,
+      organizationName: organization.name,
+      profile
+    });
+  }
+  sendJson(req, res, 200, { brands });
 }
 
 async function handlePlatformOrganizations(req, res, authSession) {
