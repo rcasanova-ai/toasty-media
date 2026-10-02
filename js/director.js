@@ -137,7 +137,7 @@ async function init() {
   }
   session.applyDurableSession(durableSession);
   void session.loadProfileEndCard();
-  initStudio();
+  await initStudio();
   // Re-resolve+re-apply AFTER the durable session record is in hand: a direct session link/refresh
   // (director.html?session=xxx with no ?brand= at all) only gets the real brand from record.brandId here,
   // not from the URL applySelectedBrand() already ran with above — see applyDurableSession's own comment.
@@ -167,7 +167,7 @@ function renderFatalInitError(error) {
   overlay.querySelector("#studioFatalErrorRetry")?.addEventListener("click", () => window.location.reload(), { once: true });
 }
 
-function initStudio() {
+async function initStudio() {
   session.start({
     host: elements.hostFrame,
     hostTransport: elements.hostTransportFrame,
