@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "addedDate": "2026-09-19",
   "standard": {
     "format": "ogg",
@@ -86,7 +86,7 @@
     },
     {
       "id": "cholo-whistle-01",
-      "displayName": "Cholo Whistle",
+      "displayName": "Foo Whistle",
       "category": "sound-effect",
       "programAssetType": "sound",
       "filename": "cholo-whistle-exact.mp3",
@@ -94,6 +94,7 @@
       "duration": null,
       "icon": "😗",
       "aliases": [
+        "foo whistle",
         "cholo whistle",
         "chicano whistle",
         "street whistle",
@@ -107,7 +108,7 @@
       "licenseUrl": "",
       "attributionRequired": false,
       "addedDate": "2026-10-02",
-      "notes": "Exact Cholo Whistle clip requested by operator; deployed as MP3 without synthesis or conversion."
+      "notes": "Exact foo/cholo whistle clip requested by operator; deployed as MP3 without synthesis or conversion."
     },
     {
       "id": "applause-big-01",
