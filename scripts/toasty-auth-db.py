@@ -21,7 +21,7 @@ MAX_GUESTS_PER_ROOM = 3
 KICK_BLOCK_SECONDS = 300
 # Must stay in sync with js/brand-themes.js's BRAND_THEMES keys. Invalid IDs must never be stored:
 # frontend normalizeBrandTheme falls back to Toasty, which would silently undress a locked customer.
-KNOWN_BRAND_IDS = frozenset({"toasty", "8alta", "santati", "optimai", "tangem", "superteam", "peeps", "zenify"})
+KNOWN_BRAND_IDS = frozenset({"toasty", "8alta", "santati", "optimai", "tangem", "superteam", "peeps", "zenify", "stablecorp"})
 
 # An organization-owned dynamic brand (a real customer's own BrandProfile — logo/colors layered on a base
 # theme, see brand_profiles table) is addressed as "org:<organizationId>" wherever a brand id is otherwise

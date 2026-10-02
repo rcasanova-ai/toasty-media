@@ -67,7 +67,7 @@ async function main(){
 
   // Every default brand skin must be seeded as its own organization. The list is hardcoded on purpose (not read
   // from the server's KNOWN_BRAND_IDS) so that silently dropping a skin from the server fails this test.
-  const SKINS={toasty:"Toasty Media","8alta":"8ALTA",santati:"Santati",optimai:"OptimAI",tangem:"Tangem",superteam:"Superteam",peeps:"Toasty Peeps",zenify:"Zenify"};
+  const SKINS={toasty:"Toasty Media","8alta":"8ALTA",santati:"Santati",optimai:"OptimAI",tangem:"Tangem",superteam:"Superteam",peeps:"Toasty Peeps",zenify:"Zenify",stablecorp:"StableCorp"};
   const skinIds={};
   for(const [theme,label] of Object.entries(SKINS)){
     const slug="skin-"+theme, org=orgBySlug(slug);

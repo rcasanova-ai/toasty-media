@@ -13,7 +13,8 @@ const SELECTOR_IDS = [
   "santati",
   "tangem",
   "superteam",
-  "peeps"
+  "peeps",
+  "stablecorp"
 ];
 const FROZEN_SKINS = Object.freeze({
   toasty: Object.freeze({
@@ -217,6 +218,7 @@ assert(SELECTOR_IDS.every((id) => optionIds.includes(id)), `selector exposes all
 assert(!optionIds.includes("alice"), "selector does not include Alice");
 assert(optionLabels.includes("Superteam Thailand"), "selector label includes Superteam Thailand");
 assert(optionLabels.includes("Toasty Peeps"), "selector label includes Toasty Peeps");
+assert(optionLabels.includes("StableCorp"), "selector label includes StableCorp");
 assert(select.value === "toasty", "selector selects the active theme");
 
 populateBrandThemeSelect(select, "superteam");
@@ -269,6 +271,7 @@ assert(getInitialBrandTheme("", { useStorage: true }) === "peeps", "selected ski
 assert(getInitialBrandTheme("?brand=superteam-thailand") === "superteam", "URL alias superteam-thailand resolves");
 assert(getInitialBrandTheme("?brand=alice-in-cryptoland") === "toasty", "retired Alice URL falls back to Toasty");
 assert(getInitialBrandTheme("?brand=toasty-peeps") === "peeps", "URL alias toasty-peeps resolves");
+assert(getInitialBrandTheme("?brand=stablecorp") === "stablecorp", "StableCorp URL id resolves");
 assert(normalizeBrandTheme("alice") === "toasty", "retired Alice id falls back to Toasty");
 assert(normalizeBrandTheme("unknown-brand") === "toasty", "unknown ids fall back to Toasty rather than throwing");
 
