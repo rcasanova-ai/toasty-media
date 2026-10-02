@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "addedDate": "2026-09-19",
   "standard": {
     "format": "ogg",
@@ -86,12 +86,12 @@
     },
     {
       "id": "foo-whistle-wassup",
-      "displayName": "Foo Whistle — Wassup",
+      "displayName": "FOO WHISTLE",
       "category": "sound-effect",
       "programAssetType": "sound",
-      "filename": "cholo-whistle-exact.mp3",
-      "src": "/assets/catalogue/audio/cholo-whistle-exact.mp3",
-      "duration": null,
+      "filename": "cholo-whistle-01.wav",
+      "src": "/assets/catalogue/audio/cholo-whistle-01.wav",
+      "duration": 1.5,
       "icon": "😗",
       "aliases": [
         "foo whistle",
