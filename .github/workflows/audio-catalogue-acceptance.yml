@@ -15,27 +15,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install decoder
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg
       - name: Validate production soundboard audio
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY' > /tmp/audio.tsv
-import json
-d=json.load(open("assets/catalogue/catalogue.json"))
-for x in d.get("items",[]):
-    src=x.get("src")
-    if src:
-        print(f"{x.get('id','')}\t{x.get('displayName','')}\t{src}")
-PY
           mkdir -p /tmp/audio
+          jq -r '.items[] | select(.src != null) | [.id,.displayName,.src] | @tsv' assets/catalogue/catalogue.json > /tmp/audio.tsv
           : > /tmp/hashes
-          while IFS=$'\t' read -r id name src; do
-            file="/tmp/audio/\${id}"
-            echo "TEST \${id} | \${name} | \${src}"
-            curl --fail --silent --show-error --location --retry 2 "https://toasty.media\${src}" -o "$file"
+          while IFS=$'\t' read -r id label src; do
+            file="/tmp/audio/$id"
+            echo "TEST $id | $label | $src"
+            curl --fail --silent --show-error --location --retry 2 "https://toasty.media$src" -o "$file"
             test -s "$file"
             ffprobe -v error -select_streams a:0 -show_entries stream=codec_name,sample_rate,channels -show_entries format=duration -of default=nw=1 "$file"
             ffmpeg -v error -i "$file" -f null -
