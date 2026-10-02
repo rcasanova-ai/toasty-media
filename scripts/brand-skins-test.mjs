@@ -126,9 +126,11 @@ const {
   BRAND_THEME_VAR_KEYS,
   DEFAULT_BRAND_THEME,
   applyBrandTheme,
+  composeDynamicTheme,
   getInitialBrandTheme,
   normalizeBrandTheme,
   populateBrandThemeSelect,
+  registerDynamicTheme,
   saveBrandTheme
 } = await import("../js/brand-themes.js");
 const { getBrandProfile, getBrandProfiles } = await import("../js/brand-profile.js");
@@ -274,6 +276,26 @@ assert(getInitialBrandTheme("?brand=superteam-thailand") === "superteam", "URL a
 assert(getInitialBrandTheme("?brand=alice-in-cryptoland") === "toasty", "retired Alice URL falls back to Toasty");
 assert(getInitialBrandTheme("?brand=toasty-peeps") === "peeps", "URL alias toasty-peeps resolves");
 assert(getInitialBrandTheme("?brand=stablecorp") === "stablecorp", "StableCorp URL id resolves");
+const stableTheme = BRAND_THEMES.stablecorp;
+assert(stableTheme.artwork?.backgroundSilhouette?.includes("stablecorp/silhouette-infrastructure.svg"), "StableCorp has its own infrastructure silhouette");
+assert(stableTheme.artwork?.brandPattern?.includes("stablecorp/grid-pattern.svg"), "StableCorp has its own structural grid pattern");
+assert(stableTheme.artwork?.surfaceGradient?.includes("90, 87, 255"), "StableCorp canvas has branded depth rather than a flat fill");
+
+const dynamicProfile = {
+  name: "Future Client",
+  baseThemeId: "toasty",
+  overrides: {
+    label: "Future Client",
+    logoSrc: "https://example.com/logo.svg",
+    vars: { "--brand-primary": "#123456" }
+  }
+};
+const dynamicTheme = composeDynamicTheme("org:future-client", dynamicProfile);
+registerDynamicTheme(dynamicTheme);
+populateBrandThemeSelect(select, "org:future-client");
+assert(select.children.some((option) => option.value === "org:future-client"), "new customer BrandProfiles automatically enter the master selector once registered");
+assert(dynamicTheme.artwork.surfaceGradient.includes("var(--brand-primary)"), "new customer BrandProfiles automatically receive dimensional canvas defaults");
+assert(dynamicTheme.artwork.backgroundWatermark === "https://example.com/logo.svg", "new customer BrandProfiles automatically receive a restrained brand watermark");
 assert(normalizeBrandTheme("alice") === "toasty", "retired Alice id falls back to Toasty");
 assert(normalizeBrandTheme("unknown-brand") === "toasty", "unknown ids fall back to Toasty rather than throwing");
 
@@ -339,6 +361,8 @@ assert(existsSync(join(ROOT, "shared/brand/clients/superteam-thailand/silhouette
 assert(existsSync(join(ROOT, "shared/brand/toasty-peeps/logo.png")), "Toasty Peeps transparent lockup is present");
 assert(existsSync(join(ROOT, "shared/brand/toasty-peeps/source/logo-source.png")), "Toasty Peeps supplied source artwork is preserved");
 assert(existsSync(join(ROOT, "shared/brand/toasty-peeps/watermark-mascot.png")), "Toasty Peeps mascot watermark is present");
+assert(existsSync(join(ROOT, "shared/brand/clients/stablecorp/silhouette-infrastructure.svg")), "StableCorp infrastructure silhouette is present");
+assert(existsSync(join(ROOT, "shared/brand/clients/stablecorp/grid-pattern.svg")), "StableCorp structural grid artwork is present");
 assert(!existsSync(join(ROOT, "shared/brand/clients/alice-cryptoland/logo.png")), "Alice in Cryptoland assets are removed");
 
 assert(getBrandProfile("peeps").primaryColor === "#ff7a29", "Peeps keeps Toasty orange");
