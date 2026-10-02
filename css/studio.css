@@ -5792,3 +5792,80 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
   margin: 0 0 1.25rem;
   word-break: break-word;
 }
+
+
+/* Desktop Director: use the full canvas as a production cockpit.
+   Left = run of show, center = participant/program stage, right = live controls.
+   Soundboard is a compact pad bank, never a page-length catalogue. */
+@media (min-width: 1181px) {
+  .live-console[data-lv-view="host"] .lv-body {
+    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(320px, 390px);
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-areas:
+      "ros program producerchat"
+      "ros program tele"
+      "ros program audience"
+      "ros program soundboard";
+    align-items: start;
+  }
+
+  .live-console[data-lv-view="host"] .lv-program { grid-area: program; }
+  .live-console[data-lv-view="host"] .lv-run-of-show { grid-area: ros; }
+  .live-console[data-lv-view="host"] .lv-ai-producer { grid-area: producerchat; }
+  .live-console[data-lv-view="host"] .lv-teleprompter { grid-area: tele; }
+  .live-console[data-lv-view="host"] .lv-audience { grid-area: audience; }
+  .live-console[data-lv-view="host"] .lv-audio { grid-area: soundboard; }
+
+  .live-console[data-lv-view="host"] .lv-run-of-show {
+    max-height: calc(100vh - 9rem);
+    overflow: auto;
+  }
+
+  .live-console[data-lv-view="host"] .lv-teleprompter,
+  .live-console[data-lv-view="host"] .lv-ai-producer,
+  .live-console[data-lv-view="host"] .lv-audience {
+    min-height: 0;
+  }
+
+  .live-console[data-lv-view="host"] .lv-teleprompter textarea {
+    min-height: 9rem;
+    max-height: 14rem;
+  }
+
+  .live-console[data-lv-view="host"] .lv-ai-producer,
+  .live-console[data-lv-view="host"] .lv-audience {
+    max-height: 11rem;
+    overflow: auto;
+  }
+
+  .live-console[data-lv-view="host"] .lv-audio {
+    min-height: 0;
+    max-height: 24rem;
+    overflow: hidden;
+  }
+
+  .live-console[data-lv-view="host"] .lv-audio .control-note {
+    display: none;
+  }
+
+  .live-console[data-lv-view="host"] .soundboard-search {
+    margin-bottom: 0.35rem;
+    max-width: none;
+    width: 100%;
+  }
+
+  .live-console[data-lv-view="host"] .soundboard-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.35rem;
+    max-height: 15rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 0.2rem;
+  }
+
+  .live-console[data-lv-view="host"] .sound-tile {
+    gap: 0.25rem;
+    min-height: 54px;
+    padding: 0.45rem 0.5rem;
+  }
+}
