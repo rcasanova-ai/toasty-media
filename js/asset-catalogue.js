@@ -7,8 +7,6 @@
 // A catalogue item becomes a ProgramAsset via programAssetFromCatalogueItem(). Playback is NOT this
 // module's job — ProgramController PLAY_AUDIO / STOP_AUDIO plus ProgramAudioBus is the audio path.
 
-import { generatedAudio } from "./generated-audio.js";
-
 import {
   ProgramAssetType,
   ProgramAssetStatus,
@@ -100,14 +98,6 @@ export class AssetCatalogue {
     this.version = document?.version || 0;
     this.standard = document?.standard || null;
     this.items = Array.isArray(document?.items) ? document.items.slice() : [];
-    this.items.forEach((item) => {
-      if (!item?.generator) return;
-      const generated = generatedAudio(item.generator);
-      if (!generated) return;
-      item.src = generated.src;
-      item.duration = generated.duration;
-      item.missing = false;
-    });
     this.loaded = true;
     return this;
   }
@@ -123,8 +113,8 @@ export class AssetCatalogue {
 
   soundboardItems() {
     return this.items.filter((item) => {
-      if (item.missing && !item.soundboardSlot) return false;
-      if (!catalogueItemMediaSrc(item) && !item.soundboardSlot) return false;
+      if (item.missing) return false;
+      if (!catalogueItemMediaSrc(item)) return false;
       return item.category === AssetCategory.SOUND_EFFECT || item.category === AssetCategory.STINGER || item.category === AssetCategory.MUSIC;
     });
   }
