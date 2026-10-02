@@ -5869,3 +5869,98 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
     padding: 0.45rem 0.5rem;
   }
 }
+
+
+/* Desktop Director v2: stage first, controls coherent. */
+@media (min-width: 1181px) {
+  .live-console[data-lv-view="host"] .lv-body {
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 410px) !important;
+    grid-template-rows: auto auto;
+    grid-template-areas:
+      "program rail"
+      "ros rail" !important;
+    align-items: start;
+    gap: 0.75rem;
+  }
+
+  .live-console[data-lv-view="host"] .lv-program {
+    grid-area: program !important;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .live-console[data-lv-view="host"] .lv-run-of-show {
+    grid-area: ros !important;
+    max-height: 15rem !important;
+    overflow: auto;
+    width: 100%;
+  }
+
+  .live-console[data-lv-view="host"] .lv-ai-producer,
+  .live-console[data-lv-view="host"] .lv-graphics[data-host-rail="true"],
+  .live-console[data-lv-view="host"] .lv-teleprompter,
+  .live-console[data-lv-view="host"] .lv-audience,
+  .live-console[data-lv-view="host"] .lv-audio {
+    grid-column: 2 !important;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .live-console[data-lv-view="host"] .lv-ai-producer { grid-row: 1; }
+  .live-console[data-lv-view="host"] .lv-graphics[data-host-rail="true"] { grid-row: 2; }
+  .live-console[data-lv-view="host"] .lv-teleprompter { grid-row: 3; }
+  .live-console[data-lv-view="host"] .lv-audience { grid-row: 4; }
+  .live-console[data-lv-view="host"] .lv-audio { grid-row: 5; }
+
+  .live-console[data-lv-view="host"] .lv-body {
+    grid-auto-rows: auto;
+  }
+
+  .live-console[data-lv-view="host"] .lv-graphics[data-host-rail="true"] {
+    display: grid !important;
+    gap: 0.55rem;
+    padding: 0.75rem;
+  }
+
+  .live-console[data-lv-view="host"] .lv-graphics[data-host-rail="true"] .lv-po-readiness,
+  .live-console[data-lv-view="host"] .lv-graphics[data-host-rail="true"] #lvOpenProgramOutput,
+  .live-console[data-lv-view="host"] .lv-graphics[data-host-rail="true"] #lvPoSceneGroup,
+  .live-console[data-lv-view="host"] .lv-graphics[data-host-rail="true"] #lvPoSceneRejected,
+  .live-console[data-lv-view="host"] .lv-graphics[data-host-rail="true"] label:has(#lvPoTickerSpeed) {
+    display: none;
+  }
+
+  .live-console[data-lv-view="host"] .lv-graphics[data-host-rail="true"] .lv-panel-head::after {
+    content: "Topic · Title · Ticker";
+    opacity: .55;
+    font-size: .72rem;
+    margin-left: auto;
+  }
+
+  .live-console[data-lv-view="host"] .lv-teleprompter textarea {
+    min-height: 7rem !important;
+    max-height: 11rem !important;
+  }
+
+  .live-console[data-lv-view="host"] .lv-ai-producer {
+    max-height: 8rem !important;
+  }
+
+  .live-console[data-lv-view="host"] .lv-audience {
+    max-height: 6rem !important;
+  }
+
+  .live-console[data-lv-view="host"] .lv-audio {
+    max-height: 20rem !important;
+  }
+
+  .live-console[data-lv-view="host"] .soundboard-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    max-height: 11rem !important;
+  }
+
+  .live-console[data-lv-view="host"] .sound-tile {
+    min-height: 48px !important;
+    padding: .35rem .4rem !important;
+  }
+}
