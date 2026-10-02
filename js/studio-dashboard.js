@@ -107,6 +107,7 @@ function render(){
   const recent=[...active,...open,...ended].slice(0,6);
   el("recentSessions").innerHTML=recent.map(session=>sessionRow(session,isLive(session))).join("");
   el("sessionsEmpty").hidden=recent.length>0;
+  wireSessionActions();
 
   const studioHref=studioUrl();
   ["sessionsNav","studioNav","openStudioBtn","allSessionsLink","quickSessionBtn","panelSessionBtn","focusSessionBtn"].forEach(id=>{el(id).href=studioHref;});
@@ -116,7 +117,28 @@ function sessionRow(session,live){
   const title=escapeHtml(session.title||"Untitled session");
   const status=escapeHtml(live?"Live now":humanStatus(session.status||"Open"));
   const href=studioUrl(session.id);
-  return `<article class="session-row"><div><strong>${title}</strong><small>${status}</small></div><div class="session-actions"><a class="${live?"primary":""}" href="${href}">${live?"Resume":"Open Studio"}</a></div></article>`;
+  const endAction=live?`<button type="button" class="danger" data-end-session="${escapeHtml(session.id)}">End Session</button>`:"";
+  return `<article class="session-row"><div><strong>${title}</strong><small>${status}</small></div><div class="session-actions"><a class="${live?"primary":""}" href="${href}">${live?"Resume":"Open Studio"}</a>${endAction}</div></article>`;
+}
+
+function wireSessionActions(){
+  document.querySelectorAll("[data-end-session]").forEach(button=>{
+    button.addEventListener("click",async()=>{
+      const sessionId=button.dataset.endSession;
+      if(!sessionId||button.disabled)return;
+      const original=button.textContent;
+      button.disabled=true;
+      button.textContent="Ending…";
+      try{
+        await studioRequest(`/api/sessions/${encodeURIComponent(sessionId)}/end`,{method:"POST",body:"{}"});
+        await loadOrganization(state.organization.id);
+      }catch(error){
+        button.disabled=false;
+        button.textContent=original;
+        window.alert(error?.message||"Could not end session.");
+      }
+    });
+  });
 }
 
 function studioUrl(sessionId){
