@@ -86,12 +86,12 @@
     },
     {
       "id": "foo-whistle-wassup",
-      "displayName": "FOO WHISTLE",
+      "displayName": "Foo Whistle — Wassup",
       "category": "sound-effect",
       "programAssetType": "sound",
-      "filename": "cholo-whistle-01.wav",
-      "src": "/assets/catalogue/audio/cholo-whistle-01.wav",
-      "duration": 1.5,
+      "filename": "cholo-whistle-exact.mp3",
+      "src": "/assets/catalogue/audio/cholo-whistle-exact.mp3",
+      "duration": null,
       "icon": "😗",
       "aliases": [
         "foo whistle",
@@ -108,7 +108,7 @@
       "licenseUrl": "",
       "attributionRequired": false,
       "addedDate": "2026-10-02",
-      "notes": "Chicano/Mexican-American style greeting/recognition whistle. Exact Cholo Whistle For The Chicas clip."
+      "notes": "Exact Cholo Whistle For The Chicas clip; greeting/recognition pad."
     },
     {
       "id": "foo-whistle-heads-up",
