@@ -817,3 +817,92 @@ body.studio-settings-open .studio-mode-switcher {
 .director-shell .studio-grid {
   grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) !important;
 }
+
+
+/* ---------- Desktop host control-room reconciliation ----------
+   Keep production controls in one right rail. Do not let the soundboard
+   turn the page into a vertically scrolling catalogue. */
+@media (min-width: 1181px) {
+  .studio-chassis.live-console[data-lv-view="host"] .studio-chassis-body {
+    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(320px, 390px) !important;
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-areas:
+      "ros program producerchat"
+      "ros program tele"
+      "ros program audience"
+      "ros program soundboard";
+    align-items: start;
+  }
+
+  .studio-chassis.live-console[data-lv-view="host"] .lv-program { grid-area: program; }
+  .studio-chassis.live-console[data-lv-view="host"] .lv-run-of-show { grid-area: ros; }
+  .studio-chassis.live-console[data-lv-view="host"] .lv-ai-producer { grid-area: producerchat; }
+  .studio-chassis.live-console[data-lv-view="host"] .lv-teleprompter { grid-area: tele; }
+  .studio-chassis.live-console[data-lv-view="host"] .lv-audience { grid-area: audience; }
+  .studio-chassis.live-console[data-lv-view="host"] .lv-audio { grid-area: soundboard; }
+
+  .studio-chassis.live-console[data-lv-view="host"] .lv-program {
+    position: sticky;
+    top: 0;
+  }
+
+  .studio-chassis.live-console[data-lv-view="host"] .lv-run-of-show {
+    max-height: calc(100vh - 9rem);
+    overflow: auto;
+  }
+
+  .studio-chassis.live-console[data-lv-view="host"] .lv-teleprompter {
+    min-height: 0;
+  }
+
+  .studio-chassis.live-console[data-lv-view="host"] .lv-teleprompter textarea {
+    min-height: 9rem;
+    max-height: 14rem;
+  }
+
+  .studio-chassis.live-console[data-lv-view="host"] .lv-ai-producer,
+  .studio-chassis.live-console[data-lv-view="host"] .lv-audience {
+    min-height: 0;
+    max-height: 11rem;
+    overflow: auto;
+  }
+
+  .studio-chassis.live-console[data-lv-view="host"] .lv-audio {
+    min-height: 0;
+    max-height: 24rem;
+    overflow: hidden;
+  }
+
+  .studio-chassis.live-console[data-lv-view="host"] .lv-audio .control-note {
+    display: none;
+  }
+
+  .studio-chassis.live-console[data-lv-view="host"] .soundboard-head {
+    gap: 0.35rem;
+  }
+
+  .studio-chassis.live-console[data-lv-view="host"] .soundboard-tabs {
+    margin-top: 0.15rem;
+  }
+
+  .studio-chassis.live-console[data-lv-view="host"] .soundboard-search {
+    margin-bottom: 0.35rem;
+    max-width: none;
+    width: 100%;
+  }
+
+  .studio-chassis.live-console[data-lv-view="host"] .soundboard-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.35rem;
+    max-height: 15rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 0.2rem;
+  }
+
+  .studio-chassis.live-console[data-lv-view="host"] .sound-tile {
+    gap: 0.25rem;
+    min-height: 54px;
+    padding: 0.45rem 0.5rem;
+  }
+}
