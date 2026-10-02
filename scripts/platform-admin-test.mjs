@@ -81,6 +81,9 @@ async function main(){
   }
   assert(Number(scalar("SELECT COUNT(*) FROM organizations WHERE slug LIKE 'skin-%'"))>=Object.keys(SKINS).length,"seeded skin organizations are persisted in the database");
 
+  const brandCatalog=await req("/api/organizations/platform-admin/brand-catalog",{cookie:founder.cookie});
+  assert(brandCatalog.status===200 && Array.isArray(brandCatalog.data.brands),"platform admin can load the dynamic customer brand catalog");
+
   // Seeding is idempotent: listing again must not duplicate or replace any skin organization.
   const orgsAgain=await req("/api/organizations/platform-admin/organizations",{cookie:founder.cookie});
   const stable=Object.entries(skinIds).every(([slug,id])=>orgsAgain.data.organizations.filter(o=>o.slug===slug).length===1 && orgsAgain.data.organizations.find(o=>o.slug===slug).id===id);
