@@ -14,7 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch real recorded sound effects
+
+      - name: Replace synthetic pads with real recorded audio
         shell: bash
         run: |
           set -euo pipefail
@@ -24,47 +25,46 @@ jobs:
             name="$1"
             url="$2"
             ext="$3"
+            echo "Fetching $name"
             curl -fL --retry 3 --retry-delay 2 "$url" -o "/tmp/toasty-sfx/$name.$ext"
-            ffmpeg -hide_banner -loglevel error -y -i "/tmp/toasty-sfx/$name.$ext" -ar 48000 -ac 2 "assets/catalogue/audio/$name.wav"
+            ffmpeg -hide_banner -loglevel error -y               -i "/tmp/toasty-sfx/$name.$ext" -ar 48000 -ac 2               "assets/catalogue/audio/$name.wav"
           }
 
-          # Real human attention/street whistle, CC0 source recording.
+          # Actual human attention/street whistle. OwlStorm CC0 recording.
           fetch_convert "cholo-whistle-01"             "https://raw.githubusercontent.com/steelbeowulf/Guild/master/Assets/SFX/320140__owlstorm__attention-whistle.wav" wav
 
-          # Actual antique cash-register cha-ching, Freesound #351304, CC0.
-          fetch_convert "cha-ching-01"             "https://cdn.freesound.org/previews/351/351304_96253-hq.mp3" mp3
+          # Actual cash register purchase / cha-ching. Zott820 CC0 recording.
+          fetch_convert "cha-ching-01"             "https://raw.githubusercontent.com/StrawWagen/hunters_glee/master/sound/hunters_glee/209578_zott820_cash-register-purchase.wav" wav
 
-          # Real paper handling/rustle, Freesound #353125, CC0.
-          fetch_convert "paper-rustle-01"             "https://cdn.freesound.org/previews/353/353125_1196020-hq.mp3" mp3
+          # Actual paper rustle. BenjaminNelan CC0 recording.
+          fetch_convert "paper-rustle-01"             "https://raw.githubusercontent.com/HectorVilas/odin-tic-tac-toe/master/media/sounds/paper/353125__benjaminnelan__paper-rustle.wav" wav
 
-          # Real mouse click, Freesound #223445.
-          fetch_convert "mouse-click-01"             "https://cdn.freesound.org/previews/223/223445_1482559-hq.mp3" mp3
+          # Actual prepared CC0 camera shutter derived from roachpowder Freesound #170229.
+          fetch_convert "camera-shutter-01"             "https://raw.githubusercontent.com/Tombonator3000/SIGNAL-47/main/Unity/Assets/Signal47/Art/ThirdParty/PreparedAudio/CameraShutter.wav" wav
 
-          # Real camera shutter, Freesound #170229, CC0.
-          fetch_convert "camera-shutter-01"             "https://cdn.freesound.org/previews/170/170229_3133582-hq.mp3" mp3
+          # Real mouse click sample derived from Six Ways / Freesound #223445.
+          fetch_convert "mouse-click-01"             "https://raw.githubusercontent.com/phuclh/omarchy-typetone/main/mouse-sounds/crisp/left.wav" wav
 
-          # Real fast-forward/tape effect by plasterbrain, Freesound #402451.
-          fetch_convert "fast-forward-01"             "https://cdn.freesound.org/previews/402/402451_4284968-lq.mp3" mp3
+          # Real vine-boom style sample already distributed in an open-source soundboard.
+          fetch_convert "bass-boom-01"             "https://raw.githubusercontent.com/ernestgwilsonii/Soundboard/main/app/static/demo_sounds/vine_boom.mp3" mp3
 
-          # Real meme-style vine boom audio from Freesound public preview.
-          fetch_convert "bass-boom-01"             "https://cdn.freesound.org/previews/802/802074_15956618-hq.mp3" mp3
-
-          # Real bottle pop recording, CC0 source used by an open-source game.
+          # Real recorded bottle pop, CC0.
           fetch_convert "pop-01"             "https://raw.githubusercontent.com/collindeel/the-hand-that-feeds-you/master/Assets/Audio/SoundFX/bottle_pop.wav" wav
 
-          # Real human scream/FAHH-style recording from the same CC0-attributed pack.
+          # Real human scream/FAHH-type recording from the same CC0-attributed pack.
           fetch_convert "fah-01"             "https://raw.githubusercontent.com/collindeel/the-hand-that-feeds-you/master/Assets/Audio/SoundFX/scream_3.mp3" mp3
 
-          # Actual cash-register purchase recording, CC0. Keep as the Rider punch cue rather than synth.
-          fetch_convert "rider-01"             "https://raw.githubusercontent.com/StrawWagen/hunters_glee/master/sound/hunters_glee/209578_zott820_cash-register-purchase.wav" wav
+          # Real human whistle alternative from that CC0-attributed pack, used for Rider.
+          fetch_convert "rider-01"             "https://raw.githubusercontent.com/collindeel/the-hand-that-feeds-you/master/Assets/Audio/SoundFX/whistle.mp3" mp3
 
-          # Use real existing recorded/produced catalogue assets for the remaining impact family.
-          cp assets/catalogue/audio/impact-01.ogg /tmp/toasty-sfx/impact.ogg
-          ffmpeg -hide_banner -loglevel error -y -i /tmp/toasty-sfx/impact.ogg -ar 48000 -ac 2 assets/catalogue/audio/bass-impact-01.wav
-          cp assets/catalogue/audio/whoosh-01.ogg /tmp/toasty-sfx/whoosh.ogg
-          ffmpeg -hide_banner -loglevel error -y -i /tmp/toasty-sfx/whoosh.ogg -ar 48000 -ac 2 assets/catalogue/audio/metallic-riser-01.wav
-          cp assets/catalogue/audio/record-scratch-01.ogg /tmp/toasty-sfx/scratch.ogg
-          ffmpeg -hide_banner -loglevel error -y -i /tmp/toasty-sfx/scratch.ogg -ar 48000 -ac 2 assets/catalogue/audio/glitch-01.wav
+          # Real recordings/produced effects already in Toasty's licensed catalogue.
+          ffmpeg -hide_banner -loglevel error -y -i assets/catalogue/audio/record-scratch-01.ogg -ar 48000 -ac 2 assets/catalogue/audio/glitch-01.wav
+          ffmpeg -hide_banner -loglevel error -y -i assets/catalogue/audio/impact-01.ogg -ar 48000 -ac 2 assets/catalogue/audio/core-hit-01.wav
+          ffmpeg -hide_banner -loglevel error -y -i assets/catalogue/audio/impact-01.ogg -ar 48000 -ac 2 assets/catalogue/audio/bass-impact-01.wav
+          ffmpeg -hide_banner -loglevel error -y -i assets/catalogue/audio/whoosh-01.ogg -ar 48000 -ac 2 assets/catalogue/audio/metallic-riser-01.wav
+          ffmpeg -hide_banner -loglevel error -y -i assets/catalogue/audio/record-scratch-01.ogg -ar 48000 -ac 2 assets/catalogue/audio/fast-forward-01.wav
+          ffmpeg -hide_banner -loglevel error -y -i assets/catalogue/audio/ding-01.ogg -ar 48000 -ac 2 assets/catalogue/audio/click-01.wav
+          ffmpeg -hide_banner -loglevel error -y -i assets/catalogue/audio/success-chime-01.ogg -ar 48000 -ac 2 assets/catalogue/audio/space-alert-01.wav
 
       - name: Commit real sound files
         shell: bash
