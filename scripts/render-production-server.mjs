@@ -17,7 +17,7 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 // Inlined from js/brand-themes.js BRAND_THEME_IDS. This process is deployed to the render host as a
 // self-contained file (see js/producer-persona.js) — a relative import of ../js/brand-themes.js would
 // crash Node on that host if the static js/ tree is not sitting next to this script.
-const KNOWN_BRAND_IDS = new Set(["toasty", "8alta", "santati", "optimai", "tangem", "superteam", "peeps", "zenify"]);
+const KNOWN_BRAND_IDS = new Set(["toasty", "8alta", "santati", "optimai", "tangem", "superteam", "peeps", "zenify", "stablecorp"]);
 // An organization-owned dynamic brand (a real customer's own BrandProfile) is addressed as
 // "org:<organizationId>" wherever a brand id is otherwise a fixed KNOWN_BRAND_IDS string — same field,
 // same enforcement (branding_forbids_session/session brand lock in toasty-auth-db.py mirrors this exact
@@ -3028,7 +3028,7 @@ async function handlePlatformStatus(req, res, session) {
 }
 
 async function handlePlatformOrganizations(req, res, authSession) {
-  const skinLabels = { toasty: "Toasty Media", "8alta": "8ALTA", santati: "Santati", optimai: "OptimAI", tangem: "Tangem", superteam: "Superteam", peeps: "Toasty Peeps", zenify: "Zenify" };
+  const skinLabels = { toasty: "Toasty Media", "8alta": "8ALTA", santati: "Santati", optimai: "OptimAI", tangem: "Tangem", superteam: "Superteam", peeps: "Toasty Peeps", zenify: "Zenify", stablecorp: "StableCorp" };
   await db("platform_ensure_skin_organizations", {
     ownerUserId: authSession.id,
     skins: [...KNOWN_BRAND_IDS].map((themeId) => ({
