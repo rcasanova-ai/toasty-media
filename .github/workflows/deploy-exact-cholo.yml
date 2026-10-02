@@ -1,4 +1,4 @@
-name: Deploy exact Cholo Whistle
+name: Inspect Cholo Whistle mirror
 
 on:
   push:
@@ -9,93 +9,19 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
+  inspect:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure SSH
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.TOASTY_SSH_PRIVATE_KEY }}
-          SSH_HOST: ${{ secrets.TOASTY_SSH_HOST }}
-          SSH_PORT: ${{ secrets.TOASTY_SSH_PORT }}
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/toasty_github_deploy
-          chmod 600 ~/.ssh/toasty_github_deploy
-          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
-
-      - name: Fetch exact Cholo Whistle
+      - name: Inspect soundboard metadata
         shell: bash
         run: |
           set -euo pipefail
           UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36'
-          OUT=/tmp/cholo-whistle-exact.mp3
-          rm -f "$OUT"
-
-          fetch_from_page () {
-            PAGE="$1"
-            HTML=/tmp/cholo-page.html
-            curl -A "$UA" -L --retry 2 --retry-delay 1 --fail "$PAGE" -o "$HTML" || return 1
-            MEDIA="$(grep -Eo 'https?://[^"[:space:]]+\.mp3[^"[:space:]]*' "$HTML" | head -n1 || true)"
-            if [[ -z "$MEDIA" ]]; then
-              MEDIA="$(grep -Eo '(src|href)="[^"]+\.mp3[^"]*"' "$HTML" | head -n1 | sed -E 's/^(src|href)="//;s/"$//' || true)"
-            fi
-            [[ -n "$MEDIA" ]] || return 1
-            if [[ "$MEDIA" == /* ]]; then
-              HOST="$(printf '%s' "$PAGE" | sed -E 's#(https?://[^/]+).*#\1#')"
-              MEDIA="$HOST$MEDIA"
-            fi
-            curl -A "$UA" -e "$PAGE" -L --retry 2 --retry-delay 1 --fail "$MEDIA" -o "$OUT" || return 1
-            test -s "$OUT"
-          }
-
-          fetch_from_page "https://soundboardbuttons.com/sound-tracks/whatsapp-soundboard/cholo-whistle-for-the-chicas/" || true
-          if [[ ! -s "$OUT" ]]; then
-            fetch_from_page "https://soundboardbuttons.com/sound-tracks/whatsapp-soundboard/" || true
-          fi
-          if [[ ! -s "$OUT" ]]; then
-            fetch_from_page "https://soundinstants.com/sound/cholo-whistle-for-the-chicas" || true
-          fi
-          if [[ ! -s "$OUT" ]]; then
-            fetch_from_page "https://www.101soundboards.com/sounds/24085015-cholo-whistle-for-the-chicas" || true
-          fi
-          if [[ ! -s "$OUT" ]]; then
-            curl -A "$UA" -c /tmp/cholo.cookies -L --fail \
-              "https://www.myinstants.com/en/instant/cholo-whistle-57749/" \
-              -o /tmp/myinstants.html || true
-            curl -A "$UA" -b /tmp/cholo.cookies \
-              -e "https://www.myinstants.com/en/instant/cholo-whistle-57749/" \
-              -L --fail \
-              "https://www.myinstants.com/media/sounds/cholo-whistle.mp3" \
-              -o "$OUT" || true
-          fi
-
-          test -s "$OUT"
-          file "$OUT"
-          sha256sum "$OUT"
-
-      - name: Upload exact clip to production
-        env:
-          SSH_HOST: ${{ secrets.TOASTY_SSH_HOST }}
-          SSH_USER: ${{ secrets.TOASTY_SSH_USER }}
-          SSH_PORT: ${{ secrets.TOASTY_SSH_PORT }}
-        run: |
-          set -euo pipefail
-          ssh -i ~/.ssh/toasty_github_deploy -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "mkdir -p /home/fmxgijyvpq/toasty.media/assets/catalogue/audio"
-          scp -i ~/.ssh/toasty_github_deploy -P "$SSH_PORT" \
-            /tmp/cholo-whistle-exact.mp3 \
-            "$SSH_USER@$SSH_HOST:/home/fmxgijyvpq/toasty.media/assets/catalogue/audio/cholo-whistle-exact.mp3"
-
-      - name: Verify live exact clip
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error --location \
-            "https://toasty.media/assets/catalogue/audio/cholo-whistle-exact.mp3" \
-            -o /tmp/live-cholo.mp3
-          test -s /tmp/live-cholo.mp3
-          cmp /tmp/cholo-whistle-exact.mp3 /tmp/live-cholo.mp3
-          sha256sum /tmp/cholo-whistle-exact.mp3 /tmp/live-cholo.mp3
+          curl -A "$UA" -L --fail \
+            "https://soundboardbuttons.com/sound-tracks/whatsapp-soundboard/" \
+            -o /tmp/page.html
+          echo "=== cholo lines ==="
+          grep -i -n -C 8 'cholo' /tmp/page.html || true
+          echo "=== audio/mp3/data lines ==="
+          grep -i -n -E 'mp3|audio|data-src|data-sound|download' /tmp/page.html | head -n 300 || true
