@@ -52,7 +52,13 @@ jobs:
             test -s "$OUT"
           }
 
-          fetch_from_page "https://soundinstants.com/sound/cholo-whistle-for-the-chicas" || true
+          fetch_from_page "https://soundboardbuttons.com/sound-tracks/whatsapp-soundboard/cholo-whistle-for-the-chicas/" || true
+          if [[ ! -s "$OUT" ]]; then
+            fetch_from_page "https://soundboardbuttons.com/sound-tracks/whatsapp-soundboard/" || true
+          fi
+          if [[ ! -s "$OUT" ]]; then
+            fetch_from_page "https://soundinstants.com/sound/cholo-whistle-for-the-chicas" || true
+          fi
           if [[ ! -s "$OUT" ]]; then
             fetch_from_page "https://www.101soundboards.com/sounds/24085015-cholo-whistle-for-the-chicas" || true
           fi
