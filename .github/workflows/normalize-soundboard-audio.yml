@@ -38,3 +38,5 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -m "Normalize soundboard WAV assets to OGG"
           git push
+
+# trigger normalization
