@@ -178,6 +178,30 @@ export class Soundboard {
       button.append(play, wave, meta);
       button.style.setProperty("--dur", `${Number(item.duration || 0.5)}s`);
       button.addEventListener("click", () => {
+        if (uploadSlot) {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.accept = "audio/*";
+          input.addEventListener("change", () => {
+            const file = input.files?.[0];
+            if (!file) return;
+            if (item._localObjectUrl) URL.revokeObjectURL(item._localObjectUrl);
+            item._localObjectUrl = URL.createObjectURL(file);
+            item.src = item._localObjectUrl;
+            item.filename = file.name;
+            item.missing = false;
+            const probe = document.createElement("audio");
+            probe.preload = "metadata";
+            probe.src = item.src;
+            probe.addEventListener("loadedmetadata", () => {
+              if (Number.isFinite(probe.duration)) item.duration = probe.duration;
+              this.render();
+            }, { once: true });
+            this.render();
+          }, { once: true });
+          input.click();
+          return;
+        }
         if (playingId === item.id) this.stop();
         else this.play(item);
       });
