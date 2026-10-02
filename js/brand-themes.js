@@ -287,6 +287,27 @@ export const BRAND_THEMES = Object.freeze({
       preparedTitle: "Your StableCorp production is prepared.",
       conciergePrefix: "StableCorp Studio suggests:"
     }),
+    artwork: Object.freeze({
+      backgroundArtwork: "",
+      backgroundWatermark: "https://mystablecorp.xyz/stablecorp-primary.svg",
+      backgroundSilhouette: "../shared/brand/clients/stablecorp/silhouette-infrastructure.svg",
+      brandPattern: "../shared/brand/clients/stablecorp/grid-pattern.svg",
+      surfaceGradient: "radial-gradient(980px 520px at 82% 4%, rgba(90, 87, 255, 0.18), transparent 58%), linear-gradient(165deg, rgba(10, 10, 18, 0.96) 0%, rgba(18, 18, 28, 0.92) 48%, rgba(10, 10, 18, 1) 100%)",
+      accentGradient: "linear-gradient(135deg, #7f7dff, #2E2AFF 62%, #211fb3)",
+      decorativeOpacity: 0.055,
+      watermarkOpacity: 0.045,
+      silhouetteOpacity: 0.15,
+      watermarkFilter: "grayscale(1) brightness(1.7)",
+      identityStripe: "linear-gradient(90deg, transparent, rgba(90, 87, 255, 0.72), transparent)",
+      identityStripeWidth: "2px",
+      grainOpacity: 0.026,
+      cardRadius: "14px",
+      logoTreatment: "stable-lockup",
+      lowerThirdTreatment: "solid-accent-bar",
+      titleCardTreatment: "stable-depth",
+      introTreatment: "infrastructure-rise",
+      outroTreatment: "stable-close"
+    }),
     vars: Object.freeze({
       "--brand-primary":"#2E2AFF","--brand-secondary":"#ffffff","--brand-accent":"#5a57ff","--brand-background":"#0a0a12","--brand-surface":"#12121c","--brand-surface-alt":"#191926","--brand-text":"#f3f3f1","--brand-text-muted":"#8f8fa3","--brand-border":"rgba(243, 243, 241, 0.10)","--brand-button":"#2E2AFF","--brand-button-text":"#ffffff","--brand-focus":"#5a57ff","--brand-gradient":"linear-gradient(135deg, #5a57ff, #2E2AFF)","--brand-heading-font":"Inter, system-ui, sans-serif","--brand-body-font":"Inter, system-ui, -apple-system, sans-serif",
       "--studio-canvas":"#0a0a12","--studio-canvas-2":"#0d0d16","--studio-surface":"#12121c","--studio-surface-2":"#191926","--studio-surface-raised":"#20202f","--studio-line":"rgba(243, 243, 241, 0.10)","--studio-line-strong":"rgba(46, 42, 255, 0.32)","--studio-line-warm":"rgba(90, 87, 255, 0.42)","--studio-cream":"#f3f3f1","--studio-cream-dim":"#c8c8d6","--studio-muted":"#8f8fa3","--studio-orange":"#2E2AFF","--studio-orange-bright":"#5a57ff","--studio-amber":"#7f7dff","--studio-burnt":"#211fb3","--studio-brown":"#191926","--studio-green":"#34c77b","--studio-client-glow":"rgba(46, 42, 255, 0.22)","--studio-button-text":"#ffffff","--studio-button-shadow":"rgba(46, 42, 255, 0.28)","--studio-button-shadow-hover":"rgba(46, 42, 255, 0.40)","--studio-atmosphere-stroke":"rgba(46, 42, 255, 0.08)","--studio-atmosphere-stroke-2":"rgba(243, 243, 241, 0.045)","--studio-mark-opacity":"0.05"
@@ -372,18 +393,43 @@ export function isDynamicBrandId(themeId) {
 // overrides. vars/copy/artwork are deep-merged (base theme's own fields as fallback, overrides layered on
 // top) — everything else is a shallow override. showPoweredBy is ALWAYS forced true: an organization's
 // own brand can customize everything else, but never remove the Toasty attribution.
+function artworkDefaults(theme) {
+  const logo = theme?.logoSrc || theme?.compactMark || theme?.faviconSrc || "";
+  return {
+    backgroundArtwork: "",
+    backgroundWatermark: logo,
+    backgroundSilhouette: "",
+    brandPattern: "",
+    surfaceGradient: "radial-gradient(980px 520px at 82% 4%, color-mix(in srgb, var(--brand-primary) 18%, transparent), transparent 58%), linear-gradient(165deg, var(--studio-canvas) 0%, var(--studio-surface) 48%, var(--studio-canvas-2) 100%)",
+    accentGradient: "var(--brand-gradient)",
+    decorativeOpacity: 0.035,
+    watermarkOpacity: logo ? 0.035 : 0,
+    silhouetteOpacity: 0,
+    watermarkFilter: "grayscale(1)",
+    identityStripe: "linear-gradient(90deg, transparent, color-mix(in srgb, var(--brand-primary) 60%, transparent), transparent)",
+    identityStripeWidth: "1px",
+    grainOpacity: 0.02,
+    cardRadius: "14px",
+    logoTreatment: "brand-lockup",
+    lowerThirdTreatment: "solid-accent-bar",
+    titleCardTreatment: "brand-depth",
+    introTreatment: "brand-open",
+    outroTreatment: "brand-close"
+  };
+}
+
 export function composeDynamicTheme(id, brandProfile) {
   const baseId = BRAND_THEMES[brandProfile?.baseThemeId] ? brandProfile.baseThemeId : DEFAULT_BRAND_THEME;
   const base = BRAND_THEMES[baseId];
   const overrides = brandProfile?.overrides && typeof brandProfile.overrides === "object" ? brandProfile.overrides : {};
+  const merged = { ...base, ...overrides };
   return {
-    ...base,
-    ...overrides,
+    ...merged,
     id,
     label: overrides.label || brandProfile?.name || base.label,
     vars: { ...base.vars, ...(overrides.vars || {}) },
     copy: { ...base.copy, ...(overrides.copy || {}) },
-    artwork: { ...(base.artwork || {}), ...(overrides.artwork || {}) },
+    artwork: { ...artworkDefaults(merged), ...(base.artwork || {}), ...(overrides.artwork || {}) },
     showPoweredBy: true
   };
 }
@@ -435,7 +481,8 @@ export function saveBrandTheme(themeId) { try { window.localStorage.setItem(THEM
 export function populateBrandThemeSelect(select, activeThemeId = DEFAULT_BRAND_THEME) {
   if (!select) return;
   const activeId = normalizeBrandTheme(activeThemeId);
-  const themes = Object.values(BRAND_THEMES);
+  const themes = [...Object.values(BRAND_THEMES), ...DYNAMIC_THEMES.values()]
+    .filter((theme, index, all) => all.findIndex((candidate) => candidate.id === theme.id) === index);
   select.replaceChildren(...themes.map((theme)=>{
     const option=document.createElement("option");
     option.value=theme.id;

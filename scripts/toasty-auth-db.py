@@ -1917,14 +1917,21 @@ def bootstrap_stablecorp_brand_lock(conn):
             "UPDATE organizations SET active_brand_profile_id = ?, updated_at = ? WHERE id = ?",
             (new_id, now, STABLECORP_ORGANIZATION_ID),
         )
-    elif not _json_or(profile_row["overrides_json"], {}):
-        # A profile row exists but has never been customized (Settings' create-profile form only ever
-        # wrote {name, baseThemeId} -- see js/studio-settings.js) -- backfill it with StableCorp's real
-        # identity once. An operator's later edit in Settings is never touched again after this.
-        conn.execute(
-            "UPDATE brand_profiles SET overrides_json = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(STABLECORP_BRAND_OVERRIDES), now, profile_row["id"]),
-        )
+    else:
+        # StableCorp is a first-class Studio theme now. Older production rows were created against
+        # the generic Toasty base before that theme existed, which meant the customer's locked account
+        # could never receive StableCorp's canvas/artwork treatments. Upgrade that legacy base id once,
+        # while preserving any operator-edited overrides.
+        if profile_row["base_theme_id"] != "stablecorp":
+            conn.execute(
+                "UPDATE brand_profiles SET base_theme_id = 'stablecorp', updated_at = ? WHERE id = ?",
+                (now, profile_row["id"]),
+            )
+        if not _json_or(profile_row["overrides_json"], {}):
+            conn.execute(
+                "UPDATE brand_profiles SET overrides_json = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(STABLECORP_BRAND_OVERRIDES), now, profile_row["id"]),
+            )
 
 
 def ensure_columns(conn, table, columns):

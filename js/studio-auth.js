@@ -178,6 +178,8 @@ async function openStudio(branding = { mode: "flexible", brandId: null }, { dest
     });
     const query = new URLSearchParams(window.location.search);
     query.set("brand", authenticatedBrand);
+    if (isPlatformAdmin) query.set("platformAdmin", "1");
+    else query.delete("platformAdmin");
     if (branding.mode === "locked" && !isPlatformAdmin) {
       query.set("brandLocked", "1");
     } else {

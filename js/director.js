@@ -1,7 +1,7 @@
 // No ?v= cache-busting suffix on these imports on purpose: the root .htaccess forces
 // Cache-Control: no-cache on every first-party .js/.css, so a deploy is always visible on next
 // load without anyone remembering to bump a version string per file. See .htaccess.
-import { normalizeBrandTheme } from "./brand-themes.js";
+import { composeDynamicTheme, normalizeBrandTheme, populateBrandThemeSelect, registerDynamicTheme } from "./brand-themes.js";
 import { AIProductionController } from "./ai-production.js";
 import { ToastyBroadcastController } from "./broadcast-client.js";
 import { LiveSession } from "./live-session.js";
@@ -17,7 +17,9 @@ import { resolveSession, showSessionArtifacts } from "./session-manager.js";
 // update below), never the security boundary: handleSessionCreate/handleSessionBrand
 // (render-production-server.mjs) enforce the lock server-side regardless of whether this flag is even
 // present, so a tampered URL still can't actually create or change a session to another brand.
-const isBrandLocked = new URLSearchParams(window.location.search).get("brandLocked") === "1";
+const studioQuery = new URLSearchParams(window.location.search);
+const isBrandLocked = studioQuery.get("brandLocked") === "1";
+const isPlatformAdmin = studioQuery.get("platformAdmin") === "1";
 
 // hidden attribute + inline style — see isBrandLocked's own call sites for why the attribute alone isn't
 // enough here (an existing class-level `display` rule beats it).
@@ -120,6 +122,7 @@ init().catch((error) => {
 // resolved session's real roomId BEFORE session.start() ever runs, so mountDirectorFrame/presence/etc. all
 // target the right room from the very first frame mount, not a throwaway one that gets swapped out later.
 async function init() {
+  if (isPlatformAdmin) await loadPlatformBrandCatalog();
   await applySelectedBrand();
   const resolved = await resolveSession({ brandId: session.brandTheme });
   const durableSession = resolved?.session || resolved;
@@ -579,6 +582,25 @@ function updateInviteFields() {
   const urls = session.inviteUrls();
   elements.guestInvite.value = urls.guest;
   elements.listenerInvite.value = urls.listener;
+}
+
+async function loadPlatformBrandCatalog() {
+  try {
+    const response = await fetch("/api/organizations/platform-admin/brand-catalog", { credentials: "same-origin" });
+    if (!response.ok) return;
+    const data = await response.json();
+    for (const entry of data.brands || []) {
+      if (!entry?.id || !entry?.profile) continue;
+      const theme = composeDynamicTheme(entry.id, entry.profile);
+      theme.label = entry.organizationName ? `${theme.label} · ${entry.organizationName}` : theme.label;
+      registerDynamicTheme(theme);
+    }
+    populateBrandThemeSelect(elements.brandThemeSelect, session.brandTheme);
+    const aiBrandProfile = document.querySelector("#aiBrandProfile");
+    if (aiBrandProfile) populateBrandThemeSelect(aiBrandProfile, session.brandTheme);
+  } catch (error) {
+    console.warn("[Toasty Studio] Platform brand catalog unavailable", error);
+  }
 }
 
 async function applySelectedBrand() {
