@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "addedDate": "2026-09-19",
   "standard": {
     "format": "ogg",
@@ -244,29 +244,6 @@
       "attributionRequired": false,
       "addedDate": "2026-09-19",
       "notes": "Recorded buzzer from the Cotswold Jam Raspberry Pi buzzwire tutorial."
-    },
-    {
-      "id": "wrong-buzzer-01",
-      "displayName": "Wrong Buzzer",
-      "category": "sound-effect",
-      "programAssetType": "sound",
-      "filename": "wrong-buzzer-01.ogg",
-      "src": "/assets/catalogue/audio/wrong-buzzer-01.ogg",
-      "duration": 0.28,
-      "icon": "❌",
-      "aliases": [
-        "wrong",
-        "wrong answer",
-        "incorrect"
-      ],
-      "source": "Freesound",
-      "sourceUrl": "https://freesound.org/people/-Andreas/sounds/650842/",
-      "creator": "-Andreas",
-      "license": "CC0 1.0",
-      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
-      "attributionRequired": false,
-      "addedDate": "2026-09-19",
-      "notes": "Wrong-answer buzzer recording. Bundled from Freesound HQ MP3 encode of the CC0 work."
     },
     {
       "id": "ding-01",
