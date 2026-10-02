@@ -54,6 +54,10 @@ jobs:
           # Real vine-boom style sample already distributed in an open-source soundboard.
           fetch_convert "bass-boom-01"             "https://raw.githubusercontent.com/ernestgwilsonii/Soundboard/main/app/static/demo_sounds/vine_boom.mp3" mp3
 
+          # Real Jamaican/dub sound-system siren, zoltan87 Freesound #187768, CC0.
+          fetch_convert "dub-siren-01" \
+            "https://cdn.freesound.org/previews/187/187768_2506071-hq.mp3" mp3 || true
+
           # Real recorded bottle pop, CC0.
           fetch_convert "pop-01"             "https://raw.githubusercontent.com/collindeel/the-hand-that-feeds-you/main/Assets/Audio/SoundFX/bottle_pop.wav" wav
 
