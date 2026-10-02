@@ -265,6 +265,33 @@ export const BRAND_THEMES = Object.freeze({
       "--studio-canvas":"#050814","--studio-canvas-2":"#070b1c","--studio-surface":"#0b1328","--studio-surface-2":"#101a34","--studio-surface-raised":"#162040","--studio-line":"rgba(243, 246, 251, 0.10)","--studio-line-strong":"rgba(142, 180, 255, 0.28)","--studio-line-warm":"rgba(165, 25, 49, 0.55)","--studio-cream":"#f3f6fb","--studio-cream-dim":"#c5cde0","--studio-muted":"#8b97b0","--studio-orange":"#8eb4ff","--studio-orange-bright":"#f4f7fc","--studio-amber":"#14f195","--studio-burnt":"#a51931","--studio-brown":"#101a34","--studio-green":"#14f195","--studio-client-glow":"rgba(196, 30, 90, 0.10)","--studio-button-text":"#070b1c","--studio-button-shadow":"rgba(244, 247, 252, 0.16)","--studio-button-shadow-hover":"rgba(244, 247, 252, 0.28)","--studio-atmosphere-stroke":"rgba(196, 30, 90, 0.09)","--studio-atmosphere-stroke-2":"rgba(243, 246, 251, 0.05)","--studio-mark-opacity":"0.06"
     })
   }),
+  stablecorp: Object.freeze({
+    id: "stablecorp", label: "StableCorp", showPoweredBy: true,
+    logoSrc: "https://mystablecorp.xyz/stablecorp-primary.svg", logoAlt: "StableCorp",
+    faviconSrc: "https://mystablecorp.xyz/stablecorp-primary.svg", homeUrl: "https://mystablecorp.xyz",
+    textLogo: "StableCorp Studio", atmosphereBrand: "STABLECORP", atmosphereProduct: "STUDIO",
+    copy: Object.freeze({
+      studioName: "StableCorp Studio",
+      publicHeroTitle: "Stable companies. Clearly produced.",
+      publicHeroSupport: "Turn founder briefings, product conversations, and raw recordings into precise StableCorp media with a consistent production system.",
+      publicHeroTagline: "Build the company. Keep the signal clear.",
+      quickLabel: "Fast Production",
+      quickTitle: "Bring the source. Ship a StableCorp production.",
+      quickBody: "Upload raw media and produce StableCorp intros, lower thirds, captions, and export-ready formats.",
+      liveBody: "Invite guests, direct the session, record, and keep every production detail inside one StableCorp workspace.",
+      aiBody: "Start from a briefing, link, notes, or raw material and move through a controlled production workflow.",
+      memoryBody: "Keep StableCorp colors, logo use, voice, lower thirds, and calls to action consistent across every production.",
+      guestLede: "Set your name and devices before entering the StableCorp Studio.",
+      productionTitle: "Stable companies. Clearly produced.",
+      productionSubtitle: "Bring the source material. StableCorp Studio handles a precise, brand-consistent production.",
+      preparedTitle: "Your StableCorp production is prepared.",
+      conciergePrefix: "StableCorp Studio suggests:"
+    }),
+    vars: Object.freeze({
+      "--brand-primary":"#2E2AFF","--brand-secondary":"#ffffff","--brand-accent":"#5a57ff","--brand-background":"#0a0a12","--brand-surface":"#12121c","--brand-surface-alt":"#191926","--brand-text":"#f3f3f1","--brand-text-muted":"#8f8fa3","--brand-border":"rgba(243, 243, 241, 0.10)","--brand-button":"#2E2AFF","--brand-button-text":"#ffffff","--brand-focus":"#5a57ff","--brand-gradient":"linear-gradient(135deg, #5a57ff, #2E2AFF)","--brand-heading-font":"Inter, system-ui, sans-serif","--brand-body-font":"Inter, system-ui, -apple-system, sans-serif",
+      "--studio-canvas":"#0a0a12","--studio-canvas-2":"#0d0d16","--studio-surface":"#12121c","--studio-surface-2":"#191926","--studio-surface-raised":"#20202f","--studio-line":"rgba(243, 243, 241, 0.10)","--studio-line-strong":"rgba(46, 42, 255, 0.32)","--studio-line-warm":"rgba(90, 87, 255, 0.42)","--studio-cream":"#f3f3f1","--studio-cream-dim":"#c8c8d6","--studio-muted":"#8f8fa3","--studio-orange":"#2E2AFF","--studio-orange-bright":"#5a57ff","--studio-amber":"#7f7dff","--studio-burnt":"#211fb3","--studio-brown":"#191926","--studio-green":"#34c77b","--studio-client-glow":"rgba(46, 42, 255, 0.22)","--studio-button-text":"#ffffff","--studio-button-shadow":"rgba(46, 42, 255, 0.28)","--studio-button-shadow-hover":"rgba(46, 42, 255, 0.40)","--studio-atmosphere-stroke":"rgba(46, 42, 255, 0.08)","--studio-atmosphere-stroke-2":"rgba(243, 243, 241, 0.045)","--studio-mark-opacity":"0.05"
+    })
+  }),
   peeps: Object.freeze({
     id: "peeps", label: "Toasty Peeps", showPoweredBy: false,
     logoSrc: "../shared/brand/toasty-peeps/logo.png", logoAlt: "Toasty Peeps",
