@@ -93,6 +93,8 @@ const CATALOGUE_MEDIA_EXT = /\.(ogg|oga|wav|mp3|webm|png|jpe?g|webp|gif)$/i;
 export function allowlistedCatalogueSrc(src) {
   if (!src) return null;
   const value = String(src).trim();
+  if (/^blob:/i.test(value)) return value;
+  if (/^data:audio\/wav;base64,[A-Za-z0-9+/=]+$/i.test(value)) return value;
   if (!value || value.includes("..") || value.includes("\\") || /[\0\s]/.test(value)) return null;
   if (/^[a-z]+:/i.test(value)) return null;
   const normalized = value.replace(/^\.\//, "").replace(/^\/+/, "");
