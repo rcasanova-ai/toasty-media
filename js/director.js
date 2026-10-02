@@ -268,6 +268,7 @@ function bindViewSwitch() {
 
 function setView(view) {
   elements.liveConsole.dataset.lvView = view;
+    reconcileDesktopHostControls();
   elements.viewButtons.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.lvViewBtn === view)));
   // Queried live (not cached at init time) so panels mounted later by other controllers — e.g. the
   // Producer-only broadcast card injected into .rail-right — are still gated correctly.
@@ -623,3 +624,25 @@ function mountTimeOfDay() {
   elements.sessionTime.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   if (elements.buildId) elements.buildId.textContent = BUILD_ID;
 }
+
+const sessionId = params.get("session") || params.get("id") || "";
+
+function reconcileDesktopHostControls() {
+  const root = document.querySelector(".live-console");
+  const graphics = document.querySelector("#lvGraphicsPanel");
+  const producer = document.querySelector(".lv-ai-producer");
+  if (!root || !graphics || !producer) return;
+  const desktopHost = window.matchMedia("(min-width: 1181px)").matches && root.dataset.lvView === "host";
+  if (desktopHost) {
+    graphics.hidden = false;
+    graphics.dataset.hostRail = "true";
+    producer.insertAdjacentElement("afterend", graphics);
+  } else if (graphics.dataset.hostRail === "true") {
+    graphics.hidden = root.dataset.lvView !== "producer";
+    graphics.dataset.hostRail = "false";
+  }
+}
+
+
+window.addEventListener("resize", reconcileDesktopHostControls);
+queueMicrotask(reconcileDesktopHostControls);
