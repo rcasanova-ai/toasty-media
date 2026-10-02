@@ -11,6 +11,8 @@ const SELECTOR_IDS = [
   "toasty",
   "8alta",
   "santati",
+  "zenify",
+  "optimai",
   "tangem",
   "superteam",
   "peeps",

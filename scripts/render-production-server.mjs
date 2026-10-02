@@ -3472,6 +3472,12 @@ async function handleInviteAccept(req, res, session) {
   if (result.error === "invalid_token") return sendJson(req, res, 400, { error: "This invite is invalid or was already used." });
   if (result.error === "expired_token") return sendJson(req, res, 400, { error: "This invite has expired." });
   if (result.error === "already_member") return sendJson(req, res, 409, { error: "You're already a member of that organization." });
+  // Customer accounts are organization-branded regardless of how the admin/member got in.
+  // Direct Platform Admin creation already applies this lock; invite acceptance must do the same
+  // or invited admins fall back to Toasty and can see the global brand selector.
+  if (!isPlatformAdmin(session)) {
+    await db("user_set_branding", { id: session.id, mode: "locked", brandId: ORG_BRAND_ID_PREFIX + result.organizationId });
+  }
   sendJson(req, res, 200, { organizationId: result.organizationId, role: result.role });
 }
 
