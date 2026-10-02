@@ -184,7 +184,7 @@ async function initStudio() {
     session.emit("catalogue-error", error);
   });
   const hostPrejoin = new HostPrejoin({ session });
-  hostPrejoin.init();
+  await hostPrejoin.init();
   // The one place LEAVING is ever emitted is LiveSession.leaveStudio() — see js/host-state.js — so this
   // can't double-fire against startPreview()'s own routine PREJOIN_LOADING transitions (device changes,
   // first load) and trigger a second, redundant getUserMedia call.
