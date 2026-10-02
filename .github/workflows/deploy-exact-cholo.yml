@@ -1,0 +1,57 @@
+name: Deploy exact Cholo Whistle
+
+on:
+  push:
+    paths:
+      - .github/workflows/deploy-exact-cholo.yml
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.TOASTY_SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.TOASTY_SSH_HOST }}
+          SSH_PORT: ${{ secrets.TOASTY_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/toasty_github_deploy
+          chmod 600 ~/.ssh/toasty_github_deploy
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Fetch exact Cholo Whistle
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --retry-delay 2 \
+            "https://www.myinstants.com/media/sounds/cholo-whistle.mp3" \
+            -o /tmp/cholo-whistle-exact.mp3
+          test -s /tmp/cholo-whistle-exact.mp3
+
+      - name: Upload exact clip to production
+        env:
+          SSH_HOST: ${{ secrets.TOASTY_SSH_HOST }}
+          SSH_USER: ${{ secrets.TOASTY_SSH_USER }}
+          SSH_PORT: ${{ secrets.TOASTY_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/toasty_github_deploy -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "mkdir -p /home/fmxgijyvpq/toasty.media/assets/catalogue/audio"
+          scp -i ~/.ssh/toasty_github_deploy -P "$SSH_PORT" \
+            /tmp/cholo-whistle-exact.mp3 \
+            "$SSH_USER@$SSH_HOST:/home/fmxgijyvpq/toasty.media/assets/catalogue/audio/cholo-whistle-exact.mp3"
+
+      - name: Verify live exact clip
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            "https://toasty.media/assets/catalogue/audio/cholo-whistle-exact.mp3" \
+            -o /tmp/live-cholo.mp3
+          test -s /tmp/live-cholo.mp3
+          cmp /tmp/cholo-whistle-exact.mp3 /tmp/live-cholo.mp3

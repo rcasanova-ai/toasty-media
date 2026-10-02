@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "addedDate": "2026-09-19",
   "standard": {
     "format": "ogg",
@@ -89,9 +89,9 @@
       "displayName": "Cholo Whistle",
       "category": "sound-effect",
       "programAssetType": "sound",
-      "filename": "cholo-whistle-01-real.wav",
-      "src": "/assets/catalogue/audio/cholo-whistle-01-real.wav",
-      "duration": 1.15,
+      "filename": "cholo-whistle-exact.mp3",
+      "src": "/assets/catalogue/audio/cholo-whistle-exact.mp3",
+      "duration": null,
       "icon": "😗",
       "aliases": [
         "cholo whistle",
@@ -100,14 +100,14 @@
         "gangster whistle"
       ],
       "missing": false,
-      "source": "Toasty Studio original",
-      "sourceUrl": "",
-      "creator": "Toasty Media Studio",
-      "license": "Original asset",
+      "source": "Myinstants",
+      "sourceUrl": "https://www.myinstants.com/en/instant/cholo-whistle-47529/",
+      "creator": "",
+      "license": "External source",
       "licenseUrl": "",
       "attributionRequired": false,
       "addedDate": "2026-10-02",
-      "notes": "Original Toasty Studio static sound effect. No runtime synthesis."
+      "notes": "Exact Cholo Whistle clip requested by operator; deployed as MP3 without synthesis or conversion."
     },
     {
       "id": "applause-big-01",
