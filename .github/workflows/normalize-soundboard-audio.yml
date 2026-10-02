@@ -1,0 +1,40 @@
+name: Normalize soundboard audio
+on:
+  push:
+    paths:
+      - .github/workflows/normalize-soundboard-audio.yml
+permissions:
+  contents: write
+jobs:
+  normalize:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y ffmpeg
+      - name: Convert all catalogue WAV assets to OGG
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for src in assets/catalogue/audio/*.wav; do
+            dst="${src%.wav}.ogg"
+            ffmpeg -hide_banner -loglevel error -y -i "$src" -c:a libvorbis -q:a 5 "$dst"
+            ffmpeg -v error -i "$dst" -f null -
+          done
+      - name: Enforce zero WAV catalogue references
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! jq -r '.items[].src // empty' assets/catalogue/catalogue.json | grep -Ei '\.wav($|\?)'
+      - name: Commit normalized audio
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/catalogue/audio/*.ogg
+          git diff --cached --quiet && exit 0
+          git commit -m "Normalize soundboard WAV assets to OGG"
+          git push
