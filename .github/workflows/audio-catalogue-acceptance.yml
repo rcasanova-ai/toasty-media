@@ -20,7 +20,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/audio
+          ! jq -r '.items[].src // empty' assets/catalogue/catalogue.json | grep -Ei '\\.wav($|\\?)'\n          mkdir -p /tmp/audio
           jq -r '.items[] | select(.src != null) | [.id,.displayName,.src] | @tsv' assets/catalogue/catalogue.json > /tmp/audio.tsv
           : > /tmp/hashes
           while IFS=$'\t' read -r id label src; do
