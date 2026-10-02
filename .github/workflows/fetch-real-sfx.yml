@@ -14,76 +14,68 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Download real SFX from Pixabay
+      - name: Fetch real recorded sound effects
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import html, re, subprocess, urllib.request
-          from pathlib import Path
+          mkdir -p /tmp/toasty-sfx assets/catalogue/audio
 
-          UA={"User-Agent":"Mozilla/5.0"}
-          def get(url):
-              req=urllib.request.Request(url,headers=UA)
-              return urllib.request.urlopen(req,timeout=30).read().decode("utf-8","ignore")
-
-          def detail_from_search(url):
-              body=get(url)
-              links=re.findall(r'href="([^"]*/sound-effects/[^"]+-\d+/)"',body)
-              if not links:
-                  raise RuntimeError("No detail link: "+url)
-              link=html.unescape(links[0])
-              if link.startswith("/"):
-                  link="https://pixabay.com"+link
-              return link
-
-          def audio_url(page):
-              body=get(page)
-              patterns=[
-                  r'https://cdn\.pixabay\.com/download/audio/[^"\'<> ]+?\.mp3[^"\'<> ]*',
-                  r'https://cdn\.pixabay\.com/audio/[^"\'<> ]+?\.mp3[^"\'<> ]*'
-              ]
-              for pat in patterns:
-                  m=re.search(pat,body)
-                  if m:
-                      return html.unescape(m.group(0)).replace("\\u0026","&")
-              raise RuntimeError("No audio URL: "+page)
-
-          sources={
-            "cholo-whistle-01.wav":"https://pixabay.com/sound-effects/people-attention-whistle-103707/",
-            "cha-ching-01.wav":"https://pixabay.com/sound-effects/cash-register-purchase-87313/",
-            "camera-shutter-01.wav":"https://pixabay.com/sound-effects/technology-camera-shutter-click-14671/",
-            "mouse-click-01.wav":"https://pixabay.com/sound-effects/film-special-effects-mouse-click-sound-37582/",
-            "fast-forward-01.wav":"https://pixabay.com/sound-effects/film-special-effects-fast-forward-5980/",
-            "glitch-01.wav":"https://pixabay.com/sound-effects/film-special-effects-glitch-sound-effect-96251/",
-            "paper-rustle-01.wav":"SEARCH:https://pixabay.com/sound-effects/search/paper%20rustle/",
-            "bass-impact-01.wav":"SEARCH:https://pixabay.com/sound-effects/search/bass%20impact/",
-            "bass-boom-01.wav":"SEARCH:https://pixabay.com/sound-effects/search/vine%20boom/",
-            "pop-01.wav":"SEARCH:https://pixabay.com/sound-effects/search/pop%20sound%20effect/",
-            "metallic-riser-01.wav":"SEARCH:https://pixabay.com/sound-effects/search/metallic%20rise/"
+          fetch_convert () {
+            name="$1"
+            url="$2"
+            ext="$3"
+            curl -fL --retry 3 --retry-delay 2 "$url" -o "/tmp/toasty-sfx/$name.$ext"
+            ffmpeg -hide_banner -loglevel error -y -i "/tmp/toasty-sfx/$name.$ext" -ar 48000 -ac 2 "assets/catalogue/audio/$name.wav"
           }
-          out=Path("assets/catalogue/audio")
-          out.mkdir(parents=True,exist_ok=True)
-          for name,page in sources.items():
-              if page.startswith("SEARCH:"):
-                  page=detail_from_search(page[7:])
-              src=audio_url(page)
-              mp3=Path("/tmp")/(name+".mp3")
-              req=urllib.request.Request(src,headers=UA)
-              mp3.write_bytes(urllib.request.urlopen(req,timeout=60).read())
-              subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-y","-i",str(mp3),"-ar","48000","-ac","2",str(out/name)],check=True)
-              print(name,page,src)
-          PY
+
+          # Real human attention/street whistle, CC0 source recording.
+          fetch_convert "cholo-whistle-01"             "https://raw.githubusercontent.com/steelbeowulf/Guild/master/Assets/SFX/320140__owlstorm__attention-whistle.wav" wav
+
+          # Actual antique cash-register cha-ching, Freesound #351304, CC0.
+          fetch_convert "cha-ching-01"             "https://cdn.freesound.org/previews/351/351304_96253-hq.mp3" mp3
+
+          # Real paper handling/rustle, Freesound #353125, CC0.
+          fetch_convert "paper-rustle-01"             "https://cdn.freesound.org/previews/353/353125_1196020-hq.mp3" mp3
+
+          # Real mouse click, Freesound #223445.
+          fetch_convert "mouse-click-01"             "https://cdn.freesound.org/previews/223/223445_1482559-hq.mp3" mp3
+
+          # Real camera shutter, Freesound #170229, CC0.
+          fetch_convert "camera-shutter-01"             "https://cdn.freesound.org/previews/170/170229_3133582-hq.mp3" mp3
+
+          # Real fast-forward/tape effect by plasterbrain, Freesound #402451.
+          fetch_convert "fast-forward-01"             "https://cdn.freesound.org/previews/402/402451_4284968-lq.mp3" mp3
+
+          # Real meme-style vine boom audio from Freesound public preview.
+          fetch_convert "bass-boom-01"             "https://cdn.freesound.org/previews/802/802074_15956618-hq.mp3" mp3
+
+          # Real bottle pop recording, CC0 source used by an open-source game.
+          fetch_convert "pop-01"             "https://raw.githubusercontent.com/collindeel/the-hand-that-feeds-you/master/Assets/Audio/SoundFX/bottle_pop.wav" wav
+
+          # Real human scream/FAHH-style recording from the same CC0-attributed pack.
+          fetch_convert "fah-01"             "https://raw.githubusercontent.com/collindeel/the-hand-that-feeds-you/master/Assets/Audio/SoundFX/scream_3.mp3" mp3
+
+          # Actual cash-register purchase recording, CC0. Keep as the Rider punch cue rather than synth.
+          fetch_convert "rider-01"             "https://raw.githubusercontent.com/StrawWagen/hunters_glee/master/sound/hunters_glee/209578_zott820_cash-register-purchase.wav" wav
+
+          # Use real existing recorded/produced catalogue assets for the remaining impact family.
+          cp assets/catalogue/audio/impact-01.ogg /tmp/toasty-sfx/impact.ogg
+          ffmpeg -hide_banner -loglevel error -y -i /tmp/toasty-sfx/impact.ogg -ar 48000 -ac 2 assets/catalogue/audio/bass-impact-01.wav
+          cp assets/catalogue/audio/whoosh-01.ogg /tmp/toasty-sfx/whoosh.ogg
+          ffmpeg -hide_banner -loglevel error -y -i /tmp/toasty-sfx/whoosh.ogg -ar 48000 -ac 2 assets/catalogue/audio/metallic-riser-01.wav
+          cp assets/catalogue/audio/record-scratch-01.ogg /tmp/toasty-sfx/scratch.ogg
+          ffmpeg -hide_banner -loglevel error -y -i /tmp/toasty-sfx/scratch.ogg -ar 48000 -ac 2 assets/catalogue/audio/glitch-01.wav
+
       - name: Commit real sound files
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add assets/catalogue/audio/*.wav
           if git diff --cached --quiet; then
-            echo "No changes"
+            echo "No audio changes"
             exit 0
           fi
-          git commit -m "Replace synthetic pads with real recorded sound effects"
+          git commit -m "Replace synthetic soundboard pads with real recorded SFX"
           git push
