@@ -37,7 +37,8 @@ jobs:
           }
 
           # Actual human attention/street whistle. OwlStorm CC0 recording.
-          fetch_convert "cholo-whistle-01"             "https://raw.githubusercontent.com/steelbeowulf/Guild/master/Assets/SFX/320140__owlstorm__attention-whistle.wav" wav
+          fetch_convert "cholo-whistle-01" \
+            "https://www.myinstants.com/media/sounds/cholo-whistle.mp3" mp3
 
           # Actual cash register purchase / cha-ching. Zott820 CC0 recording.
           fetch_convert "cha-ching-01"             "https://raw.githubusercontent.com/StrawWagen/hunters_glee/main/sound/hunters_glee/209578_zott820_cash-register-purchase.wav" wav
