@@ -34,3 +34,5 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -m "Add meaning-specific Foo Whistle recordings"
           git push
+
+# trigger variant fetch
