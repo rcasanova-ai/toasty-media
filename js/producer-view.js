@@ -737,12 +737,14 @@ export class ProducerView {
     this.elements.recordToggle.disabled = saving || (!allowed && !active);
     if (active || saving) return;
     if (this.elements.recordNote.dataset.error === "true") return;
-    const blocked = this.session.recordingBlockReason?.();
-    if (blocked) {
-      this.elements.recordNote.textContent = blocked;
+    if (!allowed) {
+      const blocked = this.session.recordingBlockReason?.();
+      if (blocked) this.elements.recordNote.textContent = blocked;
       return;
     }
-    this.elements.recordNote.textContent = "Program Output is ready. Click RECORD PROGRAM, select the Program Output tab, and turn Share tab audio ON.";
+    this.elements.recordNote.textContent = this.session.programOutput?.readyToRecord
+      ? "Click RECORD PROGRAM, select the Program Output tab, and turn Share tab audio ON."
+      : "Record is ready. Clicking it opens Program Output and then the browser capture picker.";
   }
 
   // ROOT CAUSE of "recording only starts when Share tab audio enabled" landing as a confusing,
@@ -755,14 +757,9 @@ export class ProducerView {
   // failed attempt obviously retryable rather than a silent/confusing dead end.
   async toggleRecording() {
     if (!this.session.recording.active) {
-      const proceed = window.confirm(
-        `${PROGRAM_OUTPUT_PICKER_INSTRUCTION}\n\nClick OK, then in the browser's share dialog pick "Toasty Studio — Program Output" and turn Share tab audio ON before confirming.`
-      );
-      if (!proceed) {
-        this.elements.recordNote.textContent = "Recording canceled. Click RECORD PROGRAM when you're ready to select Program Output with Share tab audio ON.";
-        this.elements.recordNote.dataset.error = "false";
-        return;
-      }
+      this.elements.recordNote.textContent = PROGRAM_OUTPUT_PICKER_INSTRUCTION;
+      this.elements.recordNote.dataset.error = "false";
+      if (!this.session.programOutput?.readyToRecord) this.session.ensureProgramOutputWindow?.();
     }
     try {
       this.elements.recordToggle.disabled = true;

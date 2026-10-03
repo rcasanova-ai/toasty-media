@@ -1933,7 +1933,9 @@ export class LiveSession {
   // steal the Host camera and would not contain guest speech, layouts, or soundboard.
 
   canRecord() {
-    return this.policy.canRecord() && MasterProgramRecorder.isSupported() && Boolean(this.programOutput?.readyToRecord);
+    // Record should be available whenever policy and browser support allow it.
+    // Program Output readiness is runtime status, not a reason to grey out the producer control.
+    return this.policy.canRecord() && MasterProgramRecorder.isSupported();
   }
 
   recordingBlockReason() {
@@ -1954,9 +1956,10 @@ export class LiveSession {
     if (!MasterProgramRecorder.isSupported()) {
       throw new Error("This browser cannot capture Program Output (getDisplayMedia + MediaRecorder).");
     }
-    const blocked = this.recordingBlockReason();
-    if (blocked) throw new Error(blocked);
     if (this.recording.active) return this.recording;
+    // Open/refresh Program Output from the same producer gesture if it is not already ready.
+    // The browser's native capture picker remains the final source-selection boundary.
+    if (!this.programOutput?.readyToRecord) this.ensureProgramOutputWindow();
     this.emit("recording-status", PROGRAM_OUTPUT_PICKER_INSTRUCTION);
     const recordingId = nextRecordingId();
     this._masterRecorder = new MasterRecorder({
