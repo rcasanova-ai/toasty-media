@@ -38,3 +38,79 @@ header nav .text-link,header nav button.text-link{background:none;border:0;paddi
 .usecases{margin:10px 0 18px}.usecases small{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#8b5e1c;font-weight:900}.chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}.chip{background:#f1dfc7;color:#4a2d2a;border:1px solid var(--line);border-radius:999px;padding:11px 18px;font-weight:850}.chip:hover,.chip.on{background:#8b5e1c;color:#fff}.verdict{font-size:13px;padding:6px 10px;border-radius:999px;background:#f1dfc7;color:#4a2d2a;white-space:nowrap}.verdict.v-yes{background:#d9a66f;color:#2b1714}.verdict.v-no{background:#4a2d2a;color:#fff}
 
 /* Peeps landing: human context, agent-accessible (redeploy after gate fix) */
+
+
+/* Mobile hardening 2026-10-03 */
+@media (max-width:850px){
+  html,body{max-width:100%;overflow-x:hidden}
+  header{
+    min-height:68px;height:auto;padding:10px 14px;gap:10px
+  }
+  header .brand{min-width:0;gap:7px}
+  header .brand img{width:40px;height:40px}
+  header .brand b{font-size:14px}
+  header .brand em{font-size:13px}
+  header nav{gap:12px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+  header nav a,header nav .text-link,header nav button.text-link{font-size:12px;white-space:nowrap}
+  main:not(.workspace){width:100%;padding:0 16px 48px}
+  .hero{display:block;padding:42px 0 28px}
+  .hero small{font-size:10px;letter-spacing:.11em}
+  .hero h1{
+    font-size:clamp(42px,14vw,64px);
+    line-height:.92;
+    letter-spacing:-.055em;
+    margin:12px 0 20px;
+    overflow-wrap:anywhere
+  }
+  .hero p{font-size:16px;line-height:1.55}
+  .hero-actions{align-items:stretch;flex-direction:column;gap:12px;margin-top:24px}
+  .hero-actions .button,.hero-actions .text-link{width:100%;text-align:center;justify-content:center}
+  .hero-actions .text-link{padding:10px 0}
+  .usecases{margin:0 0 24px}
+  .chips{
+    display:flex;flex-wrap:nowrap;overflow-x:auto;
+    margin:10px -16px 0;padding:0 16px 4px;
+    scroll-snap-type:x proximity;
+    -webkit-overflow-scrolling:touch
+  }
+  .chip{flex:0 0 auto;scroll-snap-align:start;padding:10px 14px}
+  .search{gap:14px;margin-bottom:36px}
+  .search textarea,.search input,.search select{font-size:16px;min-width:0}
+  .search textarea{height:96px}
+  .search>button{width:100%;min-height:48px}
+  .stats{gap:10px;margin:22px 0}
+  .stats div{padding:16px}
+  .brand-kit{gap:12px;margin:40px 0}
+  .concept{min-height:auto;padding:24px 20px}
+  .privacy,.manifesto{padding:24px 20px}
+  .privacy h2,.manifesto h2{font-size:clamp(28px,9vw,38px);overflow-wrap:anywhere}
+  .manifesto{text-align:left}
+  .manifesto .button{width:100%}
+  .rail-row{display:grid;grid-template-columns:1fr}
+  .rail-row span{border-radius:12px;line-height:1.45}
+  dialog#dub,#peepsAuth{max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px)}
+  #peepsAuth .card{padding:22px 18px}
+  .workspace{padding:22px 16px 56px;min-width:0}
+  .topbar{gap:12px;align-items:flex-start}
+  .finder{padding:30px 0}
+  .finder h2{font-size:clamp(38px,12vw,58px)}
+  .ask input{font-size:16px;min-width:0;width:100%}
+  .ask button{width:100%;min-height:46px}
+  .card{padding:18px;min-width:0}
+  .table{overflow-x:auto}
+  .table .row{min-width:0;padding:14px}
+  .row{min-width:0}
+  .row>*{min-width:0;overflow-wrap:anywhere}
+  .side nav{gap:4px;padding-bottom:4px;-webkit-overflow-scrolling:touch}
+  .side nav a{flex:0 0 auto;white-space:nowrap}
+  .jam-callout .btn{width:100%}
+  .room-shell{padding:16px}
+  .room-top{align-items:flex-start;gap:12px}
+}
+@media (max-width:420px){
+  header nav{gap:8px}
+  header .brand span{display:none}
+  .hero h1{font-size:clamp(40px,15vw,54px)}
+  .hero p{font-size:15px}
+  .privacy,.manifesto,.concept{padding:20px 17px}
+}
