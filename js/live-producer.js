@@ -22,6 +22,7 @@ import { resolveReferences, recallTranscript } from "./hottie-context.js";
 import { createMoxieVoicePlan, serializeMoxieVoice, isMoxieSelfEcho, conciseSpokenText } from "./hottie-voice.js";
 import { createMomentMarker } from "./program-recording.js";
 import { clusterAudienceQuestions } from "./audience-message.js";
+import { createMoxieAnticipationEngine } from "./moxie-anticipation.js";
 
 export const ProducerEventType = Object.freeze({
   HOST_DIRECTIVE: "host_directive",
@@ -68,6 +69,8 @@ export class LiveProducerController {
     this._lastHeardCommand = "";
     this._spokenAt = 0;
     this._speakTimer = null;
+    this.anticipation = createMoxieAnticipationEngine(session);
+    Promise.resolve().then(() => this.anticipation.seedAndFire());
   }
 
   onEvent(callback) {
@@ -85,6 +88,8 @@ export class LiveProducerController {
     this._researchJobs.clear();
     this.actions.clear();
     this.momentMarkers = [];
+    this.anticipation?.reset?.();
+    Promise.resolve().then(() => this.anticipation?.seedAndFire?.());
     this.cancelSpeech();
     this.setStatus(MoxieStatus.LISTENING, { label: "LISTENING" }, "Moxie is listening.");
   }
@@ -101,6 +106,7 @@ export class LiveProducerController {
   _observeUnsafe(line) {
     if (!line?.text) return;
     if (!this.session.policy.canAiProcess()) return;
+    this.anticipation?.observe?.(line);
     if (isMoxieSelfEcho(line, {
       speaking: this._speaking,
       lastSpoken: this._lastSpoken,
