@@ -3349,6 +3349,7 @@ def main():
         for row in rows:
             item = org_public(row)
             item["memberCount"] = row["member_count"]
+            item["ownerUserId"] = row["owner_user_id"]
             organizations.append(item)
         print(json.dumps({"organizations": organizations}))
         return
