@@ -201,7 +201,8 @@ export class MoxieAnticipationEngine {
           assetId: asset.id,
           asset,
           anticipated: true,
-          reason: job.reason
+          reason: job.reason,
+          requiresApproval: true
         },
         sources: [candidate.sourceUrl].filter(Boolean),
         anticipation: {
