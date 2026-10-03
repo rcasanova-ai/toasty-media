@@ -1598,6 +1598,61 @@ const server = createServer(async (req, res) => {
   }
 });
 
+// One-time bootstrap for the requested Mateo Creator login. The repository contains only a
+// scrypt verifier, never the plaintext temporary password. Existing accounts are never overwritten.
+async function ensureMateoCreatorLogin() {
+  const email = "mateo@toasty.media";
+  const existing = await db("get_user_by_email", { email });
+  let user = existing.user;
+
+  const orgs = await db("platform_list_organizations", {});
+  let toastyOrg = (orgs.organizations || []).find((org) => org.slug === "skin-toasty");
+  if (!toastyOrg) {
+    const owner = (orgs.organizations || [])[0]?.ownerUserId;
+    if (!owner) throw new Error("Cannot provision Mateo: no founder organization exists.");
+    await db("platform_ensure_skin_organizations", {
+      ownerUserId: owner,
+      skins: [{
+        themeId: "toasty",
+        name: "Toasty Media",
+        slug: "skin-toasty",
+        organizationId: randomUUID(),
+        membershipId: randomUUID(),
+        brandProfileId: randomUUID(),
+        brandName: "Toasty Media Default"
+      }]
+    });
+    const refreshed = await db("platform_list_organizations", {});
+    toastyOrg = (refreshed.organizations || []).find((org) => org.slug === "skin-toasty");
+  }
+  if (!toastyOrg) throw new Error("Cannot provision Mateo: Toasty organization is unavailable.");
+
+  if (!user) {
+    const result = await db("create_user", {
+      id: randomUUID(),
+      name: "Mateo",
+      email,
+      passwordHash: "scrypt$a4005016644bf3ddb426ce37a4be80b0$1456a9052a4646d3667585f6070980caa194badf601ecfed294fe487501e12a23d42aa5aad044537750f8a0b401643d1dd7e2646b8ad97c5d7968493a5f1f9d9"
+    });
+    user = result.user;
+  }
+  if (!user) throw new Error("Cannot provision Mateo: user creation failed.");
+
+  const membership = await db("get_membership", { organizationId: toastyOrg.id, userId: user.id });
+  if (!membership.membership) {
+    await db("create_membership", {
+      id: randomUUID(),
+      organizationId: toastyOrg.id,
+      userId: user.id,
+      role: "member"
+    });
+  }
+  await db("user_set_branding", { id: user.id, mode: "locked", brandId: ORG_BRAND_ID_PREFIX + toastyOrg.id });
+  console.log("[Toasty bootstrap] Mateo Creator login ready.");
+}
+
+await ensureMateoCreatorLogin();
+
 server.listen(PORT, HOST, () => {
   console.log(`Toasty render helper listening on http://${HOST}:${PORT}`);
 });
