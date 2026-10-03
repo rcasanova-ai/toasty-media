@@ -42,6 +42,11 @@ async function main(){
   assert(founder.status===201,"founder registers");
   const founderSession=await req("/auth/session",{cookie:founder.cookie});
   assert(founderSession.data.user?.isPlatformAdmin===true,"earliest organization owner bootstraps as platform admin");
+  const creatorToken=await req("/api/creator/tokens",{method:"POST",cookie:founder.cookie});
+  assert(creatorToken.status===201 && /^tca_[A-Za-z0-9_-]+$/.test(creatorToken.data.token||""),"Creator API key can be generated");
+  const creatorListResponse=await fetch(BASE+"/api/creator/projects",{headers:{authorization:"Bearer "+creatorToken.data.token}});
+  const creatorList=await creatorListResponse.json();
+  assert(creatorListResponse.status===200 && Array.isArray(creatorList.projects),"generated Creator API key authenticates");
   assert(founderSession.data.user?.platformRole==="platform_admin","platform role is exposed to the authenticated UI");
   assert(scalar("SELECT COUNT(*) FROM users WHERE platform_role='platform_admin'")==="1","exactly one platform admin is bootstrapped");
 
