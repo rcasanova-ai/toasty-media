@@ -82,6 +82,7 @@ export class Soundboard {
       this.error = "";
       this.renderTabs();
       this.render();
+      this.preload();
     });
     this.session?.on?.("catalogue-error", () => {
       this.error = "Asset Catalogue failed to load.";
@@ -90,6 +91,8 @@ export class Soundboard {
     this.syncFromSession();
     this.renderTabs();
     this.render();
+    this.preload();
+    this.installAudioUnlock();
   }
 
   syncFromSession() {
@@ -124,13 +127,32 @@ export class Soundboard {
   }
 
   currentAudio() {
-    return this.session?.program?.audio || null;
+    return this.session?.programAudio?.current || null;
+  }
+
+  installAudioUnlock() {
+    const bus = this.session?.programAudio;
+    if (!bus || this._audioUnlockInstalled) return;
+    this._audioUnlockInstalled = true;
+    const unlock = () => {
+      bus.resume?.();
+      document.removeEventListener("pointerdown", unlock, true);
+      document.removeEventListener("keydown", unlock, true);
+    };
+    document.addEventListener("pointerdown", unlock, true);
+    document.addEventListener("keydown", unlock, true);
+  }
+
+  preload() {
+    const bus = this.session?.programAudio;
+    if (!bus?.preload) return;
+    bus.preload(this.items).catch(() => {});
   }
 
   render() {
     if (!this.container) return;
     const current = this.currentAudio();
-    const playingId = current?.action === "PLAY_AUDIO" ? current.assetId : null;
+    const playingId = current?.assetId || null;
     if (this.stopButton) this.stopButton.disabled = !playingId;
     const items = this.visibleItems();
     if (this.error) {
@@ -178,7 +200,8 @@ export class Soundboard {
       button.append(play, wave, meta);
       button.style.setProperty("--dur", `${Number(item.duration || 0.5)}s`);
       button.addEventListener("click", () => {
-        if (playingId === item.id) this.stop();
+        const livePlayingId = this.session?.programAudio?.current?.assetId || null;
+        if (livePlayingId === item.id) this.stop();
         else this.play(item);
       });
       return button;
