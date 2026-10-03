@@ -1662,7 +1662,7 @@ async function ensureMateoCreatorLogin() {
   console.log("[Toasty bootstrap] Mateo Creator login ready.");
 }
 
-await ensureMateoCreatorLogin();
+if (process.env.TOASTY_DISABLE_MATEO_BOOTSTRAP !== "1") await ensureMateoCreatorLogin();
 
 server.listen(PORT, HOST, () => {
   console.log(`Toasty render helper listening on http://${HOST}:${PORT}`);
