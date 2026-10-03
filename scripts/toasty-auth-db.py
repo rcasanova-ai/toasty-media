@@ -667,22 +667,22 @@ def migrate(conn):
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_memberships_org_user ON memberships(organization_id, user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id)")
 
-    existing_platform_admin = conn.execute(
-        "SELECT id FROM users WHERE platform_role = 'platform_admin' LIMIT 1"
+    # The earliest organization owner is the installation founder. Keep that account authoritative
+    # even if a stale/test account already carries platform_admin. The old bootstrap only ran when ZERO
+    # platform admins existed, which could permanently lock the real founder out after test/customer data
+    # acquired the role. This is idempotent and only ever promotes the deterministic founder account.
+    founder = conn.execute(
+        "SELECT owner_user_id AS id FROM organizations ORDER BY created_at ASC LIMIT 1"
     ).fetchone()
-    if not existing_platform_admin:
+    if not founder:
         founder = conn.execute(
-            "SELECT owner_user_id AS id FROM organizations ORDER BY created_at ASC LIMIT 1"
+            "SELECT id FROM users WHERE status = 'active' ORDER BY created_at ASC LIMIT 1"
         ).fetchone()
-        if not founder:
-            founder = conn.execute(
-                "SELECT id FROM users WHERE status = 'active' ORDER BY created_at ASC LIMIT 1"
-            ).fetchone()
-        if founder:
-            conn.execute(
-                "UPDATE users SET platform_role = 'platform_admin', updated_at = ? WHERE id = ?",
-                (utc_now(), founder["id"]),
-            )
+    if founder:
+        conn.execute(
+            "UPDATE users SET platform_role = 'platform_admin', updated_at = ? WHERE id = ? AND platform_role != 'platform_admin'",
+            (utc_now(), founder["id"]),
+        )
 
     conn.execute(
         """
