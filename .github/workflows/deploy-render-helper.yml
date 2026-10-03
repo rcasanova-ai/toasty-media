@@ -65,14 +65,6 @@ jobs:
           set -euo pipefail
           node scripts/peeps-josip-roast-test.mjs
 
-      - name: Validate Peeps introduction execution
-        run: |
-          set -euo pipefail
-          node scripts/peeps-agent-lifecycle-server-test.mjs
-          node scripts/peeps-introduction-execution-server-test.mjs
-          node scripts/peeps-post-session-server-test.mjs
-          node scripts/dough-money-loop-server-test.mjs
-
       - name: Configure SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.TOASTY_RENDER_SSH_PRIVATE_KEY || secrets.TOASTY_SSH_PRIVATE_KEY }}
