@@ -321,6 +321,47 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // ---- Creator Agent API (local Ollama -> Toasty) ----
+  if (req.method === "POST" && req.url === "/api/creator/tokens") {
+    if (!requireCsrf(req, res)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const rawToken = "tca_" + randomBytes(32).toString("base64url");
+    await db("creator_token_create", {
+      id: randomUUID(), userId: session.id,
+      tokenHash: createHash("sha256").update(rawToken).digest("hex"),
+      label: "Ollama"
+    });
+    sendJson(req, res, 201, { token: rawToken, label: "Ollama" });
+    return;
+  }
+  if (req.url === "/api/creator/projects" && (req.method === "GET" || req.method === "POST")) {
+    const agent = await requireCreatorAgent(req, res);
+    if (!agent) return;
+    if (req.method === "GET") {
+      const result = await db("creator_projects_list", { userId: agent.id });
+      sendJson(req, res, 200, { projects: result.projects || [] });
+      return;
+    }
+    const body = await readJson(req, 256 * 1024);
+    const title = cleanName(body?.title);
+    const projectType = ["gaming", "reaction", "voiceover", "tutorial"].includes(body?.type) ? body.type : "gaming";
+    if (!title) throw httpError(400, "title is required.");
+    const id = cleanOptionalId(body?.id) || randomUUID();
+    const payload = {
+      title,
+      type: projectType,
+      script: Array.isArray(body?.script) ? body.script.slice(0, 200) : [],
+      scenes: Array.isArray(body?.scenes) ? body.scenes.slice(0, 200) : [],
+      voiceover: Array.isArray(body?.voiceover) ? body.voiceover.slice(0, 200) : [],
+      thumbnailPrompt: sessionText(body?.thumbnailPrompt, 4000),
+      youtube: body?.youtube && typeof body.youtube === "object" ? body.youtube : {}
+    };
+    const result = await db("creator_project_upsert", { id, userId: agent.id, title, projectType, payload, status: "draft" });
+    sendJson(req, res, 201, { project: result.project });
+    return;
+  }
+
   // ---- Platform administrator ----
   if (req.method === "GET" && req.url === "/api/organizations/platform-admin/status") {
     const session = await requirePlatformAdmin(req, res);
@@ -4373,6 +4414,22 @@ function publicSessionUser(user) {
     platformRole: user.platformRole || "user",
     isPlatformAdmin: isPlatformAdmin(user)
   } : null;
+}
+
+async function requireCreatorAgent(req, res) {
+  const auth = String(req.headers.authorization || "");
+  const match = auth.match(/^Bearer\s+(tca_[A-Za-z0-9_-]+)$/);
+  if (!match) {
+    sendJson(req, res, 401, { error: "Creator API bearer token required." });
+    return null;
+  }
+  const tokenHash = createHash("sha256").update(match[1]).digest("hex");
+  const result = await db("creator_token_auth", { tokenHash });
+  if (!result.user) {
+    sendJson(req, res, 401, { error: "Invalid or revoked Creator API token." });
+    return null;
+  }
+  return result.user;
 }
 
 async function requirePlatformAdmin(req, res) {

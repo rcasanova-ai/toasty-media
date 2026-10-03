@@ -16,3 +16,6 @@ $("#voiceoverPreview").onplay=()=>setStatus("Voiceover playback running.");
 const bc=new ToastyBroadcastController({getProgramUrl:()=>location.href,requireLegacyAuthGate:false,onStateChange:s=>{$("#liveBtn").classList.toggle("on",s==="live")}}).init();
 const panel=$("#broadcastPanel");$("#broadcastMount").appendChild(panel);$("#liveBtn").onclick=()=>{panel.hidden=!panel.hidden};$("#openProgramOutput").hidden=true;
 function setStatus(s){$("#status").textContent=s}
+
+async function createCreatorAgentKey(){const s=$("#agentKeyStatus");try{const r=await fetch(studioApiEndpoint()+"/api/creator/tokens",{method:"POST",credentials:"include",headers:{"X-Toasty-CSRF":"1"}});const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not create API key.");s.textContent="API key (shown once): "+d.token;}catch(e){s.textContent=e.message;}}
+$("#agentKeyBtn").onclick=createCreatorAgentKey;
