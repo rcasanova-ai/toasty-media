@@ -165,6 +165,12 @@ export class ProgramAudioBus {
     return this.ctx;
   }
 
+  async preload(items = []) {
+    const sources = [...new Set(items.map((item) => allowlistedCatalogueSrc(item?.src)).filter(Boolean))];
+    await Promise.allSettled(sources.map((src) => this.load(src)));
+    return { ok: true, loaded: sources.filter((src) => this.buffers.has(src)).length, total: sources.length };
+  }
+
   async applyCommand(command) {
     const serialized = serializeProgramAudio(command);
     if (!serialized) return { ok: false, reason: "invalid-command" };
