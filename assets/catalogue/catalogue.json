@@ -1,5 +1,5 @@
 {
-  "version": 11,
+  "version": 12,
   "addedDate": "2026-09-19",
   "standard": {
     "format": "ogg",
@@ -132,29 +132,6 @@
       "attributionRequired": false,
       "addedDate": "2026-09-19",
       "notes": "Original 17s public-domain recording trimmed to 8.2s for production cue length."
-    },
-    {
-      "id": "crowd-cheer-01",
-      "displayName": "Crowd Cheer",
-      "category": "sound-effect",
-      "programAssetType": "sound",
-      "filename": "crowd-cheer-01.ogg",
-      "src": "/assets/catalogue/audio/crowd-cheer-01.ogg",
-      "duration": 9.81,
-      "icon": "🎉",
-      "aliases": [
-        "cheer",
-        "hurray",
-        "crowd"
-      ],
-      "source": "Wikimedia Commons",
-      "sourceUrl": "https://commons.wikimedia.org/wiki/File:Clapping_hurray_(cropped).oga",
-      "creator": "Starlite",
-      "license": "Public domain",
-      "licenseUrl": "https://commons.wikimedia.org/wiki/File:Clapping_hurray_(cropped).oga",
-      "attributionRequired": false,
-      "addedDate": "2026-09-19",
-      "notes": "Happy clapping / hurray crop of the public-domain Clapping hurray recording."
     },
     {
       "id": "laughter-01",
@@ -334,31 +311,6 @@
       "attributionRequired": false,
       "addedDate": "2026-09-19",
       "notes": "Kenney Foley Sounds woosh7.ogg. Attribution to Kenney / kenney.nl is appreciated but not required."
-    },
-    {
-      "id": "intro-sting-01",
-      "displayName": "Dub Siren",
-      "category": "stinger",
-      "programAssetType": "stinger",
-      "filename": "dub-siren-01.ogg",
-      "src": "/assets/catalogue/audio/dub-siren-01.ogg",
-      "duration": 8,
-      "icon": "🇯🇲",
-      "aliases": [
-        "dub siren",
-        "jamaican",
-        "sound system",
-        "reggae siren",
-        "intro"
-      ],
-      "source": "Freesound",
-      "sourceUrl": "https://freesound.org/people/zoltan87/sounds/187768/",
-      "creator": "zoltan87",
-      "license": "CC0 1.0",
-      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
-      "attributionRequired": false,
-      "addedDate": "2026-09-19",
-      "notes": "Real CC0 dub siren for Jamaican sound-system style intro. Replaces the previous generic island/jingle sting."
     },
     {
       "id": "transition-sting-01",
