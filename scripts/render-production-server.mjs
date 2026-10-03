@@ -1646,28 +1646,6 @@ async function ensureMateoCreatorLogin() {
   const existing = await db("get_user_by_email", { email });
   let user = existing.user;
 
-  const orgs = await db("platform_list_organizations", {});
-  let toastyOrg = (orgs.organizations || []).find((org) => org.slug === "skin-toasty");
-  if (!toastyOrg) {
-    const owner = (orgs.organizations || [])[0]?.ownerUserId;
-    if (!owner) { console.log("[Toasty bootstrap] Mateo deferred: no founder organization exists yet."); return; }
-    await db("platform_ensure_skin_organizations", {
-      ownerUserId: owner,
-      skins: [{
-        themeId: "toasty",
-        name: "Toasty Media",
-        slug: "skin-toasty",
-        organizationId: randomUUID(),
-        membershipId: randomUUID(),
-        brandProfileId: randomUUID(),
-        brandName: "Toasty Media Default"
-      }]
-    });
-    const refreshed = await db("platform_list_organizations", {});
-    toastyOrg = (refreshed.organizations || []).find((org) => org.slug === "skin-toasty");
-  }
-  if (!toastyOrg) throw new Error("Cannot provision Mateo: Toasty organization is unavailable.");
-
   if (!user) {
     const result = await db("create_user", {
       id: randomUUID(),
@@ -1679,16 +1657,8 @@ async function ensureMateoCreatorLogin() {
   }
   if (!user) throw new Error("Cannot provision Mateo: user creation failed.");
 
-  const membership = await db("get_membership", { organizationId: toastyOrg.id, userId: user.id });
-  if (!membership.membership) {
-    await db("create_membership", {
-      id: randomUUID(),
-      organizationId: toastyOrg.id,
-      userId: user.id,
-      role: "member"
-    });
-  }
-  await db("user_set_branding", { id: user.id, mode: "locked", brandId: ORG_BRAND_ID_PREFIX + toastyOrg.id });
+  await ensureDefaultOrganizationForUser(user);
+  await db("user_set_branding", { id: user.id, mode: "flexible", brandId: "toasty" });
   console.log("[Toasty bootstrap] Mateo Creator login ready.");
 }
 
