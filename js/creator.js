@@ -15,7 +15,23 @@ $("#recordBtn").onclick=async()=>{if(rec&&rec.state!=="inactive"){rec.stop();ret
 $("#markBtn").onclick=()=>{const sec=((Date.now()-started)/1000).toFixed(1);marks.push(sec);$("#clips").textContent=marks.map((m,i)=>"Clip "+(i+1)+" · "+m+"s").join("\n");};
 $("#voiceoverPreview").onplay=()=>setStatus("Voiceover playback running.");
 const bc=new ToastyBroadcastController({getProgramUrl:()=>location.href,requireLegacyAuthGate:false,onStateChange:s=>{$("#liveBtn").classList.toggle("on",s==="live")}}).init();
-const panel=$("#broadcastPanel");$("#broadcastMount").appendChild(panel);$("#liveBtn").onclick=()=>{panel.hidden=!panel.hidden};$("#openProgramOutput").hidden=true;
+const panel=$("#broadcastPanel");
+$("#broadcastMount").appendChild(panel);
+panel.setAttribute("role","dialog");
+panel.setAttribute("aria-modal","true");
+const closeBroadcast=document.createElement("button");
+closeBroadcast.type="button";
+closeBroadcast.className="creator-broadcast-close";
+closeBroadcast.setAttribute("aria-label","Close broadcast settings");
+closeBroadcast.textContent="× Close";
+panel.prepend(closeBroadcast);
+function closeBroadcastPanel(){panel.hidden=true;$("#liveBtn").focus();}
+function openBroadcastPanel(){panel.hidden=false;closeBroadcast.focus();}
+closeBroadcast.onclick=closeBroadcastPanel;
+$("#liveBtn").onclick=()=>panel.hidden?openBroadcastPanel():closeBroadcastPanel();
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!panel.hidden)closeBroadcastPanel();});
+$("#broadcastMount").addEventListener("click",e=>{if(e.target===$("#broadcastMount")&&!panel.hidden)closeBroadcastPanel();});
+$("#openProgramOutput").hidden=true;
 function setStatus(s){$("#status").textContent=s}
 
 async function createCreatorAgentKey(){const s=$("#agentKeyStatus");try{const r=await fetch(studioApiEndpoint()+"/api/creator/tokens",{method:"POST",credentials:"include",headers:{"X-Toasty-CSRF":"1"}});const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not create API key.");s.textContent="API key (shown once): "+d.token;}catch(e){s.textContent=e.message;}}
