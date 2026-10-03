@@ -1,5 +1,5 @@
 {
-  "version": 10,
+  "version": 11,
   "addedDate": "2026-09-19",
   "standard": {
     "format": "ogg",
@@ -86,7 +86,7 @@
     },
     {
       "id": "foo-whistle-wassup",
-      "displayName": "Foo Whistle — Wassup",
+      "displayName": "Cholo Whistle Wassup",
       "category": "sound-effect",
       "programAssetType": "sound",
       "filename": "cholo-whistle-exact.mp3",
@@ -94,6 +94,7 @@
       "duration": null,
       "icon": "😗",
       "aliases": [
+        "cholo whistle wassup",
         "foo whistle",
         "cholo whistle",
         "wassup",
@@ -109,56 +110,6 @@
       "attributionRequired": false,
       "addedDate": "2026-10-02",
       "notes": "Exact Cholo Whistle For The Chicas clip; greeting/recognition pad."
-    },
-    {
-      "id": "foo-whistle-heads-up",
-      "displayName": "Foo Whistle — Heads Up",
-      "category": "sound-effect",
-      "programAssetType": "sound",
-      "filename": "foo-whistle-heads-up.ogg",
-      "src": "/assets/catalogue/audio/foo-whistle-heads-up.ogg",
-      "duration": null,
-      "icon": "😗",
-      "aliases": [
-        "foo whistle",
-        "heads up",
-        "warning whistle",
-        "double whistle"
-      ],
-      "missing": false,
-      "source": "Freesound",
-      "sourceUrl": "https://freesound.org/people/Skiggz/sounds/256552/",
-      "creator": "Skiggz",
-      "license": "CC0 1.0",
-      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
-      "attributionRequired": false,
-      "addedDate": "2026-10-02",
-      "notes": "Short sharp attention/warning whistle; separate from greeting and wolf whistle."
-    },
-    {
-      "id": "foo-whistle-recognition",
-      "displayName": "Foo Whistle — Recognition",
-      "category": "sound-effect",
-      "programAssetType": "sound",
-      "filename": "foo-whistle-recognition.ogg",
-      "src": "/assets/catalogue/audio/foo-whistle-recognition.ogg",
-      "duration": null,
-      "icon": "😗",
-      "aliases": [
-        "foo whistle",
-        "recognition",
-        "affection",
-        "melodic whistle"
-      ],
-      "missing": false,
-      "source": "Freesound",
-      "sourceUrl": "https://freesound.org/people/owlstorm/sounds/320140/",
-      "creator": "owlstorm",
-      "license": "CC0 1.0",
-      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
-      "attributionRequired": false,
-      "addedDate": "2026-10-02",
-      "notes": "Longer melodic recognition/affection whistle; separate from greeting and warning."
     },
     {
       "id": "applause-big-01",
