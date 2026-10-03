@@ -1,5 +1,6 @@
 import { ToastyBroadcastController } from "./broadcast-client.js";
 import { studioApiEndpoint } from "./studio-api.js";
+import { createDisposableRoomId, getGuestInviteUrl } from "./video-engine.js";
 const $=s=>document.querySelector(s); let screen=null,cam=null,mic=null,rec=null,chunks=[],started=0,marks=[];
 async function auth(){try{const r=await fetch(studioApiEndpoint()+"/auth/session",{credentials:"include"});const j=await r.json();if(!j.authenticated) location.href="./sessions.html";}catch{location.href="./sessions.html"}}
 auth();
@@ -19,3 +20,18 @@ function setStatus(s){$("#status").textContent=s}
 
 async function createCreatorAgentKey(){const s=$("#agentKeyStatus");try{const r=await fetch(studioApiEndpoint()+"/api/creator/tokens",{method:"POST",credentials:"include",headers:{"X-Toasty-CSRF":"1"}});const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not create API key.");s.textContent="API key (shown once): "+d.token;}catch(e){s.textContent=e.message;}}
 $("#agentKeyBtn").onclick=createCreatorAgentKey;
+
+const creatorRoomId=createDisposableRoomId();
+$("#inviteFriendBtn").onclick=async()=>{
+  const url=getGuestInviteUrl(creatorRoomId,"toasty");
+  const s=$("#inviteFriendStatus");
+  try{
+    await navigator.clipboard.writeText(url);
+    s.textContent="Invite link copied. Your friend can join without an account.";
+  }catch{
+    s.innerHTML="";
+    const a=document.createElement("a");
+    a.href=url;a.target="_blank";a.rel="noopener";a.textContent="Open friend invite";
+    s.append("Copy this invite: ",a);
+  }
+};
