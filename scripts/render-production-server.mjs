@@ -1650,7 +1650,7 @@ async function ensureMateoCreatorLogin() {
   let toastyOrg = (orgs.organizations || []).find((org) => org.slug === "skin-toasty");
   if (!toastyOrg) {
     const owner = (orgs.organizations || [])[0]?.ownerUserId;
-    if (!owner) throw new Error("Cannot provision Mateo: no founder organization exists.");
+    if (!owner) { console.log("[Toasty bootstrap] Mateo deferred: no founder organization exists yet."); return; }
     await db("platform_ensure_skin_organizations", {
       ownerUserId: owner,
       skins: [{
