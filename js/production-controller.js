@@ -158,7 +158,9 @@ export class ProgramController {
     this.session._publishControlNow?.() ?? this.session.publishProgramState?.();
     // Producer monitor is a parallel play of the same command. Program Audio is Program Output.
     if (this.session.programAudio) {
-      this.session.programAudio.applyCommand(command).then((played) => {
+      // Local producer playback must start at the beginning after any first-load/decode delay.
+      // The published command keeps its original timestamp so remote Program Output can sync correctly.
+      this.session.programAudio.applyCommand({ ...command, startedAt: null }).then((played) => {
         if (!played?.ok) this.session.emit?.("program-audio-error", played);
       }).catch((error) => {
         this.session.emit?.("program-audio-error", { ok: false, reason: "decode-failed", error: String(error?.message || error) });
