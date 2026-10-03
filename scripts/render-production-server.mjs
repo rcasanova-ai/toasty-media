@@ -760,6 +760,14 @@ const server = createServer(async (req, res) => {
     await handleTranscribe(req, res);
     return;
   }
+  if (req.method === "POST" && req.url === "/api/creator/recordings/transcribe") {
+    if (!requireCsrf(req, res) || !limit(req, res, "creator-recording-transcribe", 10, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleCreatorRecordingTranscribe(req, res);
+    return;
+  }
+
   if (req.method === "POST" && req.url === "/api/recordings/finalize") {
     if (!COST_SAFETY_SWITCHES.recordingFinalize) return sendJson(req, res, 503, { error: "Recording finalization is temporarily disabled by the platform safety switch." });
     if (!requireCsrf(req, res) || !limit(req, res, "recording-finalize", 20, 15 * 60 * 1000)) return;
@@ -1936,6 +1944,37 @@ async function handleTranscribe(req, res) {
     sendJson(req, res, 200, { transcript });
   } finally {
     await rm(workDir, { recursive: true, force: true });
+  }
+}
+
+async function handleCreatorRecordingTranscribe(req, res) {
+  let workDir;
+  try {
+    workDir = await mkdtemp(join(tmpdir(), "toasty-creator-transcribe-"));
+    const request = new Request(`http://${HOST}:${PORT}/api/creator/recordings/transcribe`, {
+      method: "POST",
+      headers: req.headers,
+      body: Readable.toWeb(req),
+      duplex: "half"
+    });
+    const form = await request.formData();
+    const source = form.get("source");
+    if (!source?.name || typeof source.arrayBuffer !== "function" || source.size < 1) throw httpError(400, "Recording is missing.");
+    if (source.size > MAX_FILE_BYTES) throw httpError(413, "Recording is too large.");
+    const inputPath = join(workDir, "creator-source.webm");
+    const wavPath = join(workDir, "creator-audio.wav");
+    const textBase = join(workDir, "creator-transcript");
+    await writeFile(inputPath, Buffer.from(await source.arrayBuffer()));
+    await execFileAsync("ffmpeg", ["-y","-i",inputPath,"-vn","-ac","1","-ar","16000","-c:a","pcm_s16le",wavPath], { timeout: RECORDING_FFMPEG_TIMEOUT_MS });
+    await execFileAsync(WHISPER_CLI_PATH, ["-m",WHISPER_MODEL_PATH,"-f",wavPath,"-t","2","-otxt","-of",textBase,"-nt"], { timeout: RECORDING_FFMPEG_TIMEOUT_MS });
+    const transcript = (await readFile(textBase + ".txt", "utf8")).trim();
+    if (!transcript) throw httpError(422, "No speech was detected.");
+    sendJson(req, res, 200, { transcript });
+  } catch (error) {
+    console.error(error);
+    sendJson(req, res, error.statusCode || 500, { error: creatorError(error) });
+  } finally {
+    if (workDir) await rm(workDir, { recursive: true, force: true });
   }
 }
 
