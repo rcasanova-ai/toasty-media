@@ -667,6 +667,38 @@ def migrate(conn):
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_memberships_org_user ON memberships(organization_id, user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships(user_id)")
 
+    # Creator Agent API: hashed bearer tokens and per-user project inbox. Tokens are scoped to creator
+    # operations only and cannot access organization/platform administration.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS creator_api_tokens (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          token_hash TEXT NOT NULL UNIQUE,
+          label TEXT NOT NULL DEFAULT 'Ollama',
+          created_at TEXT NOT NULL,
+          revoked_at TEXT
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_creator_api_tokens_user ON creator_api_tokens(user_id)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS creator_projects (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          title TEXT NOT NULL,
+          project_type TEXT NOT NULL DEFAULT 'gaming',
+          payload_json TEXT NOT NULL DEFAULT '{}',
+          status TEXT NOT NULL DEFAULT 'draft',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_creator_projects_user ON creator_projects(user_id, updated_at)")
+
+
     # The earliest organization owner is the installation founder. Keep that account authoritative
     # even if a stale/test account already carries platform_admin. The old bootstrap only ran when ZERO
     # platform admins existed, which could permanently lock the real founder out after test/customer data
@@ -3175,6 +3207,51 @@ def main():
 
     if action == "migrate":
         print(json.dumps({"ok": True}))
+        return
+
+    if action == "creator_token_create":
+        now = utc_now()
+        conn.execute(
+            "INSERT INTO creator_api_tokens (id, user_id, token_hash, label, created_at) VALUES (?, ?, ?, ?, ?)",
+            (payload["id"], payload["userId"], payload["tokenHash"], payload.get("label") or "Ollama", now),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True, "id": payload["id"]}))
+        return
+
+    if action == "creator_token_auth":
+        row = conn.execute(
+            """SELECT t.id AS token_id, u.* FROM creator_api_tokens t
+               JOIN users u ON u.id = t.user_id
+               WHERE t.token_hash = ? AND t.revoked_at IS NULL AND u.status = 'active' LIMIT 1""",
+            (payload["tokenHash"],),
+        ).fetchone()
+        print(json.dumps({"user": public_user(row, conn) if row else None, "tokenId": row["token_id"] if row else None}))
+        return
+
+    if action == "creator_project_upsert":
+        now = utc_now()
+        project_id = payload["id"]
+        existing = conn.execute("SELECT id FROM creator_projects WHERE id = ? AND user_id = ?", (project_id, payload["userId"])).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE creator_projects SET title=?, project_type=?, payload_json=?, status=?, updated_at=? WHERE id=? AND user_id=?",
+                (payload["title"], payload["projectType"], json.dumps(payload["payload"]), payload.get("status") or "draft", now, project_id, payload["userId"]),
+            )
+        else:
+            conn.execute(
+                """INSERT INTO creator_projects (id,user_id,title,project_type,payload_json,status,created_at,updated_at)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (project_id, payload["userId"], payload["title"], payload["projectType"], json.dumps(payload["payload"]), payload.get("status") or "draft", now, now),
+            )
+        conn.commit()
+        row = conn.execute("SELECT * FROM creator_projects WHERE id=? AND user_id=?", (project_id, payload["userId"])).fetchone()
+        print(json.dumps({"project": {"id": row["id"], "title": row["title"], "type": row["project_type"], "status": row["status"], "payload": json.loads(row["payload_json"]), "updatedAt": row["updated_at"]}}))
+        return
+
+    if action == "creator_projects_list":
+        rows = conn.execute("SELECT * FROM creator_projects WHERE user_id=? ORDER BY updated_at DESC LIMIT 100", (payload["userId"],)).fetchall()
+        print(json.dumps({"projects": [{"id": r["id"], "title": r["title"], "type": r["project_type"], "status": r["status"], "payload": json.loads(r["payload_json"]), "updatedAt": r["updated_at"]} for r in rows]}))
         return
 
     if action == "create_user":
