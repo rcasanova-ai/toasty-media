@@ -629,11 +629,13 @@ export class LiveProducerController {
   }
 
   discardProposal(feedEntryId) {
+    const entry = this.session.aiProducerFeed.entries.find((item) => item.id === feedEntryId);
     const job = [...this._researchJobs.values()].find((item) => item.feedEntryId === feedEntryId);
-    if (job?.assetId) this.session.assets?.update(job.assetId, { status: ProgramAssetStatus.DISCARDED });
+    const assetId = job?.assetId || entry?.proposal?.asset?.id || entry?.proposal?.assetId || null;
+    if (assetId) this.session.assets?.update(assetId, { status: ProgramAssetStatus.DISCARDED });
     this.session.productionLog?.record(ProductionActionType.DISCARD, {
       feedEntryId,
-      assetId: job?.assetId || null
+      assetId
     });
     this.session.aiProducerFeed.dismiss(feedEntryId);
     if (job) this._researchJobs.delete(job.directive.id);
@@ -642,7 +644,16 @@ export class LiveProducerController {
   }
 
   takeProposalLive(feedEntryId) {
-    const job = [...this._researchJobs.values()].find((item) => item.feedEntryId === feedEntryId);
+    const entry = this.session.aiProducerFeed.entries.find((item) => item.id === feedEntryId);
+    let job = [...this._researchJobs.values()].find((item) => item.feedEntryId === feedEntryId);
+    if (!job) {
+      const anticipatedAssetId = entry?.proposal?.asset?.id || entry?.proposal?.assetId || null;
+      if (anticipatedAssetId) job = {
+        assetId: anticipatedAssetId,
+        suggestedLayout: entry?.proposal?.suggestedLayout || null,
+        directive: { rawText: entry?.instruction || "Anticipated asset", actionId: null }
+      };
+    }
     if (!job?.assetId) return { ok: false, reason: "missing-proposal" };
     const result = this.session.programController?.execute({
       type: ProductionActionType.TAKE_ASSET,
