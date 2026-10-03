@@ -211,7 +211,11 @@ jobs:
           echo "local  node   sha256=$LOCAL_NODE_HASH"
           test "$REMOTE_HELPER_HASH" = "$LOCAL_HELPER_HASH"
           test "$REMOTE_NODE_HASH" = "$LOCAL_NODE_HASH"
-          curl --fail --silent --show-error https://render.toasty.media/health
+          if ! curl --retry 5 --retry-delay 2 --retry-all-errors --fail --silent --show-error https://render.toasty.media/health; then
+            echo "===== toasty-render journal ====="
+            ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 'journalctl -u toasty-render.service -n 120 --no-pager || true; systemctl status toasty-render.service --no-pager || true'
+            exit 1
+          fi
           echo
           curl --fail --silent --show-error 'https://render.toasty.media/api/presence/room?roomId=tmu8te8yv1s7n0f'
           echo
