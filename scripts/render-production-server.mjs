@@ -330,7 +330,7 @@ const server = createServer(async (req, res) => {
     if (typeof body?.streamUrl !== "string" || !/^rtmps?:\/\//i.test(body.streamUrl)) throw httpError(400, "A valid RTMP or RTMPS stream URL is required.");
     if (typeof body?.streamKey !== "string" || body.streamKey.trim().length < 2) throw httpError(400, "A stream key is required.");
     const id=randomUUID();
-    creatorBroadcastJobs.set(id,{id,userId:session.id,state:"ready",createdAt:Date.now(),destination:String(body.destination||"custom"),streamUrl:body.streamUrl.trim(),streamKey:body.streamKey.trim(),width:Math.min(1920,Math.max(640,Number(body.width)||1920)),height:Math.min(1080,Math.max(360,Number(body.height)||1080)),fps:Math.min(60,Math.max(24,Number(body.fps)||30)),bitrateKbps:Math.min(12000,Math.max(1000,Number(body.bitrateKbps)||6000)),process:null,stderr:""});
+    const destinations=Array.isArray(body?.destinations)&&body.destinations.length?body.destinations:[{destination:body.destination,streamUrl:body.streamUrl,streamKey:body.streamKey}];\n    const cleanDestinations=destinations.map((d)=>{if(typeof d?.streamUrl!=="string"||!/^rtmps?:\\/\\//i.test(d.streamUrl))throw httpError(400,"Every destination needs a valid RTMP or RTMPS URL.");if(typeof d?.streamKey!=="string"||d.streamKey.trim().length<2)throw httpError(400,"Every destination needs a stream key.");return {destination:String(d.destination||"custom"),streamUrl:d.streamUrl.trim(),streamKey:d.streamKey.trim()};});\n    creatorBroadcastJobs.set(id,{id,userId:session.id,state:"ready",createdAt:Date.now(),destinations:cleanDestinations,width:Math.min(1920,Math.max(640,Number(body.width)||1920)),height:Math.min(1080,Math.max(360,Number(body.height)||1080)),fps:Math.min(60,Math.max(24,Number(body.fps)||30)),bitrateKbps:Math.min(12000,Math.max(1000,Number(body.bitrateKbps)||6000)),process:null,stderr:""});
     sendJson(req,res,201,{id,state:"ready",ingestPath:`/api/organizations/creator-broadcast/${id}/ingest`}); return;
   }
   const creatorBroadcastIngest=req.url?.match(/^\/api\/organizations\/creator-broadcast\/([a-f0-9-]+)\/ingest$/i);
@@ -10808,14 +10808,17 @@ function safeDriveFolderName(value) {
 }
 
 function startCreatorBroadcastFfmpeg(job,req,res){
-  const target=`${job.streamUrl.replace(/\/+$/,"")}/${job.streamKey.replace(/^\/+/,"")}`,gop=Math.max(job.fps*2,48);
-  const args=["-hide_banner","-loglevel","warning","-fflags","+genpts","-f","webm","-i","pipe:0","-vf",`scale=${job.width}:${job.height}:force_original_aspect_ratio=decrease,pad=${job.width}:${job.height}:(ow-iw)/2:(oh-ih)/2`,"-r",String(job.fps),"-c:v","libx264","-preset","veryfast","-tune","zerolatency","-pix_fmt","yuv420p","-b:v",`${job.bitrateKbps}k`,"-maxrate",`${job.bitrateKbps}k`,"-bufsize",`${job.bitrateKbps*2}k`,"-g",String(gop),"-keyint_min",String(gop),"-c:a","aac","-b:a","160k","-ar","48000","-f","flv",target];
+  const destinations=job.destinations||[];
+  const gop=Math.max(job.fps*2,48);
+  const split=destinations.length>1?["-filter_complex",`[0:v]split=${destinations.length}${destinations.map((_,i)=>`[v${i}]`).join("")}`]:[];
+  const outputs=destinations.flatMap((d,i)=>{const target=`${d.streamUrl.replace(/\\/+$/,"")}/${d.streamKey.replace(/^\\/+/,"")}`;return [...(destinations.length>1?["-map",`[v${i}]`,"-map","0:a?"]:["-map","0:v","-map","0:a?"]),"-vf",`scale=${job.width}:${job.height}:force_original_aspect_ratio=decrease,pad=${job.width}:${job.height}:(ow-iw)/2:(oh-ih)/2`,"-r",String(job.fps),"-c:v","libx264","-preset","veryfast","-tune","zerolatency","-pix_fmt","yuv420p","-b:v",`${job.bitrateKbps}k`,"-maxrate",`${job.bitrateKbps}k`,"-bufsize",`${job.bitrateKbps*2}k`,"-g",String(gop),"-keyint_min",String(gop),"-c:a","aac","-b:a","128k","-ar","48000","-f","flv",target];});
+  const args=["-hide_banner","-loglevel","warning","-fflags","+genpts","-f","webm","-i","pipe:0",...split,...outputs];
   const ffmpeg=spawn(FFMPEG,args,{stdio:["pipe","ignore","pipe"]}); job.process=ffmpeg;job.state="live";job.startedAt=Date.now();job.stderr="";
   ffmpeg.stderr.on("data",x=>{job.stderr=(job.stderr+x.toString()).slice(-8000);});
   ffmpeg.on("exit",(code,signal)=>{job.process=null;job.state=code===0||signal==="SIGTERM"?"stopped":"failed";job.exitCode=code;job.signal=signal;});
   req.on("aborted",()=>stopCreatorBroadcast(job));req.on("error",()=>stopCreatorBroadcast(job));req.pipe(ffmpeg.stdin);
   res.writeHead(200,{"Content-Type":"application/json","Cache-Control":"no-store","Connection":"keep-alive"});
-  ffmpeg.on("exit",()=>{if(!res.writableEnded)res.end(JSON.stringify({id:job.id,state:job.state,exitCode:job.exitCode??null,error:job.state==="failed"?job.stderr.split("\n").slice(-8).join("\n"):null}));});
+  ffmpeg.on("exit",()=>{if(!res.writableEnded)res.end(JSON.stringify({id:job.id,state:job.state,exitCode:job.exitCode??null,error:job.state==="failed"?"Broadcast destination failed.":null}));});
 }
 function stopCreatorBroadcast(job){if(job.process&&!job.process.killed){job.process.stdin?.end();job.process.kill("SIGTERM");}job.state="stopped";}
 
