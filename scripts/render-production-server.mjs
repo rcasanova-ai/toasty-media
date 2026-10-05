@@ -327,11 +327,9 @@ const server = createServer(async (req, res) => {
     if (!requireCsrf(req, res)) return;
     const session = await requireSession(req, res); if (!session) return;
     const body = await readJson(req, 64 * 1024);
-    if (typeof body?.streamUrl !== "string" || !/^rtmps?:\/\//i.test(body.streamUrl)) throw httpError(400, "A valid RTMP or RTMPS stream URL is required.");
-    if (typeof body?.streamKey !== "string" || body.streamKey.trim().length < 2) throw httpError(400, "A stream key is required.");
     const id=randomUUID();
     const destinations=Array.isArray(body?.destinations)&&body.destinations.length?body.destinations:[{destination:body.destination,streamUrl:body.streamUrl,streamKey:body.streamKey}];
-    const cleanDestinations=destinations.map((d)=>{if(typeof d?.streamUrl!=="string"||!/^rtmps?:\\/\\//i.test(d.streamUrl))throw httpError(400,"Every destination needs a valid RTMP or RTMPS URL.");if(typeof d?.streamKey!=="string"||d.streamKey.trim().length<2)throw httpError(400,"Every destination needs a stream key.");return {destination:String(d.destination||"custom"),streamUrl:d.streamUrl.trim(),streamKey:d.streamKey.trim()};});
+    const cleanDestinations=destinations.map((d)=>{if(typeof d?.streamUrl!=="string"||!/^rtmps?:\/\//i.test(d.streamUrl))throw httpError(400,"Every destination needs a valid RTMP or RTMPS URL.");if(typeof d?.streamKey!=="string"||d.streamKey.trim().length<2)throw httpError(400,"Every destination needs a stream key.");return {destination:String(d.destination||"custom"),streamUrl:d.streamUrl.trim(),streamKey:d.streamKey.trim()};});
     creatorBroadcastJobs.set(id,{id,userId:session.id,state:"ready",createdAt:Date.now(),destinations:cleanDestinations,width:Math.min(1920,Math.max(640,Number(body.width)||1920)),height:Math.min(1080,Math.max(360,Number(body.height)||1080)),fps:Math.min(60,Math.max(24,Number(body.fps)||30)),bitrateKbps:Math.min(12000,Math.max(1000,Number(body.bitrateKbps)||6000)),process:null,stderr:""});
     sendJson(req,res,201,{id,state:"ready",ingestPath:`/api/organizations/creator-broadcast/${id}/ingest`}); return;
   }
