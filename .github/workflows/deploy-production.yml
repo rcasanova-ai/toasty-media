@@ -179,10 +179,15 @@ jobs:
           grep -Fq 'Toasty Media' /tmp/home.html
           # Studio Backstage / Record / Live shell + Go Live assets are actually served.
           # director.html itself 302s unauthenticated visitors to the sign-in shell, so verify the module that drives it.
-          curl --fail --silent --show-error --location https://toasty.media/js/director.js | grep -Fq 'lvTopShareScreen'
-          curl --fail --silent --show-error --location https://toasty.media/js/director.js | grep -Fq 'lvTopGoLive'
-          curl --fail --silent --show-error --location https://toasty.media/js/program-orchestrator.js | grep -Fq 'ProgramOrchestrator'
-          curl --fail --silent --show-error --location https://toasty.media/js/go-live-panel.js | grep -Fq 'GoLivePanel'
-          curl --fail --silent --show-error --location https://toasty.media/css/golive.css | grep -Fq 'golive-dialog'
+          # (Download to a file first: `curl | grep -q` under pipefail dies with curl error 23 when grep exits early.)
+          curl --fail --silent --show-error --location https://toasty.media/js/director.js -o /tmp/director.js
+          grep -Fq 'lvTopShareScreen' /tmp/director.js
+          grep -Fq 'lvTopGoLive' /tmp/director.js
+          curl --fail --silent --show-error --location https://toasty.media/js/program-orchestrator.js -o /tmp/program-orchestrator.js
+          grep -Fq 'ProgramOrchestrator' /tmp/program-orchestrator.js
+          curl --fail --silent --show-error --location https://toasty.media/js/go-live-panel.js -o /tmp/go-live-panel.js
+          grep -Fq 'GoLivePanel' /tmp/go-live-panel.js
+          curl --fail --silent --show-error --location https://toasty.media/css/golive.css -o /tmp/golive.css
+          grep -Fq 'golive-dialog' /tmp/golive.css
           grep -Fq 'Who do you want to talk to?' /tmp/guest.html
           echo 'Production verification passed.'
