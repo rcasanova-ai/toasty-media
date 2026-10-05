@@ -146,3 +146,12 @@ try {
   if (server) server.kill("SIGTERM");
   await rm(tmp, { recursive: true, force: true });
 }
+
+// Browser regression: a failed MP4 finalization must leave the WebM preview intact.
+{
+  const sessionSource = readFileSync(new URL("../js/live-session.js", import.meta.url), "utf8");
+  const producerView = readFileSync(new URL("../js/producer-view.js", import.meta.url), "utf8");
+  assert(!sessionSource.includes('sourceObjectUrl: "",objectUrl: ""'), "recording stop does not erase its own preview URL");
+  assert(producerView.includes('last?.objectUrl || last?.sourceObjectUrl'), "player falls back to surviving WebM source");
+  assert(producerView.includes('this.elements.transcriptDownload.hidden = false'), "transcript control remains visible independent of MP4 finalization");
+}
