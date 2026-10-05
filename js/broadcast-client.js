@@ -1,10 +1,11 @@
 const DEFAULT_ENDPOINT = window.TOASTY_BROADCAST_ENDPOINT || "https://render.toasty.media";
 
 export class ToastyBroadcastController {
-  constructor({ getProgramUrl, requireLegacyAuthGate = true, onStateChange, onError } = {}) {
+  constructor({ getProgramUrl, requireLegacyAuthGate = true, onStateChange, onError, onLiveStart } = {}) {
     this.getProgramUrl = getProgramUrl;
     this.requireLegacyAuthGate = requireLegacyAuthGate;
     this.onStateChange = onStateChange;
+    this.onLiveStart = onLiveStart;
     this.onError = onError;
     this.endpoint = localStorage.getItem("toasty.broadcast.endpoint") || DEFAULT_ENDPOINT;
     this.broadcastId = null;
@@ -179,13 +180,17 @@ export class ToastyBroadcastController {
       this.captureStream = capture;
       videoTrack.addEventListener("ended", () => this.stop());
       const [width, height] = this.elements.broadcastResolution.value.split("x").map(Number);
-      const saved = JSON.parse(localStorage.getItem("toasty.broadcast.destinations") || "[]");\n      const destinations = [{ destination: this.elements.broadcastDestination.value, streamUrl, streamKey }, ...saved.filter((d)=>d?.enabled && d.streamUrl && d.streamKey)];\n      const unique = destinations.filter((d,i,a)=>a.findIndex(x=>x.streamUrl===d.streamUrl && x.streamKey===d.streamKey)===i);\n      const start = await this.request("/api/organizations/creator-broadcast/start", { method: "POST", body: JSON.stringify({ destinations: unique, width, height, fps: 30, bitrateKbps: Number(this.elements.broadcastBitrate.value) }) });
+      const saved = JSON.parse(localStorage.getItem("toasty.broadcast.destinations") || "[]");
+      const destinations = [{ destination: this.elements.broadcastDestination.value, streamUrl, streamKey }, ...saved.filter((d)=>d?.enabled && d.streamUrl && d.streamKey)];
+      const unique = destinations.filter((d,i,a)=>a.findIndex(x=>x.streamUrl===d.streamUrl && x.streamKey===d.streamKey)===i);
+      const start = await this.request("/api/organizations/creator-broadcast/start", { method: "POST", body: JSON.stringify({ destinations: unique, width, height, fps: 30, bitrateKbps: Number(this.elements.broadcastBitrate.value) }) });
       this.broadcastId = start.id;
       this.elements.broadcastStreamKey.value = "";
       await this.beginIngest(start.ingestPath);
       this.startedAt = Date.now();
       this.timer = window.setInterval(() => this.updateDuration(), 1000);
       this.updateUi("live");
+      await this.onLiveStart?.();
     } catch (error) {
       // stop() already calls updateUi("offline") — no need to repeat it here. Calling onError() last
       // (after that offline transition, not before it) is what lets the ERROR chip actually stay
