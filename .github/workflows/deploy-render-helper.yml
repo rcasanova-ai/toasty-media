@@ -12,6 +12,8 @@ on:
       - "scripts/toasty-auth-db.py"
       - "scripts/render-production-server.mjs"
       - "scripts/creator-broadcast-test.mjs"
+      - "scripts/studio-broadcast-server-test.mjs"
+      - "scripts/studio-mode-model-test.mjs"
       - ".github/workflows/deploy-render-helper.yml"
 
 concurrency:
@@ -34,6 +36,24 @@ jobs:
           node --check scripts/render-production-server.mjs
           node scripts/creator-broadcast-test.mjs
           node scripts/cost-safety-architecture-test.mjs
+
+      - name: Validate Studio Backstage / Record / Live model
+        run: |
+          set -euo pipefail
+          node scripts/studio-mode-model-test.mjs
+          node scripts/master-program-recording-test.mjs
+
+      - name: Install ffmpeg for broadcast and MP4 tests
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
+      - name: Validate Studio broadcast backend (real ffmpeg, real RTMP sink, sustained past proxy window)
+        run: |
+          set -euo pipefail
+          node scripts/studio-broadcast-server-test.mjs
+          node scripts/recording-finalization-mp4-test.mjs
 
       - name: Validate live Studio stability
         run: |

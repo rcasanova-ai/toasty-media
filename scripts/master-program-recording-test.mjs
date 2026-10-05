@@ -468,12 +468,12 @@ console.log("\nProducer controls are Producer-only; Program Output has no REC ch
   assert(director.includes("lvProgramOutputStatus"), "Program Output readiness panel exists");
   assert(director.includes("lvRecordMarker"), "manual marker control exists");
   assert(producer.includes("STOP RECORDING"), "STOP RECORDING control");
-  assert(producer.includes("RECORD PROGRAM"), "RECORD PROGRAM control");
+  assert(producer.includes('"RECORD"'), "RECORD control");
   assert(producer.includes("last.masterBlob"), "Download Recording requires finalized MP4 blob");
-  assert(producer.includes('isMp4 ? "mp4" : "webm"'), "Download Recording names the file .mp4 once finalized, .webm otherwise");
+  assert(producer.includes('`${last.recordingId}.mp4`') && !/downloadFile\(last\.blob/.test(producer), "Download MP4 only ever downloads the finalized MP4, never the WebM");
   assert(director.includes("Share tab audio ON"), "recording UX explicitly tells producer to enable tab audio");
   assert(producer.includes("RECORDING ·"), "RECORDING timer status");
-  assert(producer.includes("SAVING RECORDING"), "SAVING RECORDING status");
+  assert(producer.includes("Saving recording..."), "Saving recording status");
   assert(producer.includes("Recording saved"), "Recording saved status");
   assert(producer.includes("renderProgramOutputStatus"), "Producer renders Program Output readiness");
   assert(!producer.includes("IndexedDB"), "Producer UX does not mention IndexedDB");
@@ -485,13 +485,15 @@ console.log("\nProducer controls are Producer-only; Program Output has no REC ch
 console.log("\nLiveSession Producer record is master tab capture, not isolated getUserMedia");
 {
   const liveSession = read("js/live-session.js");
-  const startFn = liveSession.slice(liveSession.indexOf("async startRecording"), liveSession.indexOf("async stopRecording"));
-  assert(startFn.includes("MasterProgramRecorder"), "startRecording constructs the master recorder");
-  assert(!startFn.includes("LocalIsolatedRecorder"), "startRecording does not start isolated Host getUserMedia");
-  assert(!startFn.includes("ensureProgramOutputWindow") && !startFn.includes("window.open"), "startRecording does not spawn Program Output");
+  const startFn = liveSession.slice(liveSession.indexOf("async _beginMasterRecording"), liveSession.indexOf("async _finishMasterRecording"));
+  const captureFn = liveSession.slice(liveSession.indexOf("async _captureProgramOutput"), liveSession.indexOf("  _syncProgramSceneToMode(snapshot) {"));
+  assert(startFn.includes("MasterRecorder"), "recording start constructs the master recorder");
+  assert(!startFn.includes("LocalIsolatedRecorder"), "recording start does not start isolated Host getUserMedia");
+  assert(startFn.includes("captureStream: stream") && !startFn.includes("getDisplayMedia"), "the recorder CONSUMES the shared Program stream — it never captures Program itself");
+  assert(captureFn.includes("ensureProgramOutputWindow"), "the single Program capture opens Program Output from the producer gesture");
   assert(liveSession.includes("ensureProgramOutputWindow"), "explicit Program Output opener remains available");
-  assert(startFn.includes("recordingBlockReason"), "start refuses until Program Output is ready");
-  assert(liveSession.includes("PROGRAM_OUTPUT_PICKER_INSTRUCTION"), "picker instruction is shown before getDisplayMedia");
+  assert(liveSession.includes("recordingBlockReason"), "block-reason helper remains available");
+  assert(captureFn.includes("PROGRAM_OUTPUT_PICKER_INSTRUCTION"), "picker instruction is shown before getDisplayMedia");
   assert(liveSession.includes("readyToRecord") && liveSession.includes("canRecord()"), "Record is gated on Program Output readiness");
   assert(!liveSession.includes("IndexedDB persist"), "persist failure does not mention IndexedDB");
   assert(liveSession.includes("assembleMasterPackage"), "stop attaches the session package");

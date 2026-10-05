@@ -4,3 +4,12 @@
 #broadcastMount .broadcast-panel{position:relative;max-width:980px;width:min(980px,100%);max-height:calc(100vh - 48px);overflow:auto}
 .creator-broadcast-close{position:sticky;top:0;float:right;z-index:4;margin:10px 10px 0 0;border:1px solid #45404f;background:#17141d;color:#fff;border-radius:10px;padding:9px 12px;font:inherit;font-weight:700;cursor:pointer}
 .creator-broadcast-close:hover{background:#26202f}
+
+.modebar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px;min-height:28px}
+.mode-chip{font-size:12px;font-weight:800;letter-spacing:.08em;padding:6px 12px;border-radius:999px;border:1px solid #373140;color:#c8c1d3}
+.mode-chip[data-mode="record"]{border-color:#d34b5e;color:#ff7a8c}
+.mode-chip[data-mode="live"]{background:#e32945;border-color:#e32945;color:#fff}
+.mode-dests span,.mode-rec{font-size:11px;font-weight:800;letter-spacing:.05em;padding:5px 10px;border-radius:999px;border:1px solid #373140;color:#c8c1d3;margin-right:6px}
+.mode-dests span[data-state="live"],.mode-rec{border-color:#d34b5e;color:#ff7a8c}
+.mode-dests span[data-state="error"]{border-color:#e0933a;color:#ffbe73}
+.transport button{min-height:44px}

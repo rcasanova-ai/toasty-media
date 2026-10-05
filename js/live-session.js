@@ -27,8 +27,14 @@ import {
   markerTypeFromProduction,
   rememberLastMasterRecording,
   recalledMasterRecordingId,
-  PROGRAM_OUTPUT_PICKER_INSTRUCTION
+  PROGRAM_OUTPUT_PICKER_INSTRUCTION,
+  programOutputDisplayConstraints,
+  inspectMasterCapture,
+  captureFailureMessage
 } from "./program-recording.js";
+import { ProgramFeed } from "./program-feed.js";
+import { ProgramOrchestrator } from "./program-orchestrator.js";
+import { StudioBroadcastClient } from "./broadcast-client.js";
 import { finalizeMasterRecordingMp4 } from "./render-client.js";
 import { ProgramSync } from "./program-sync.js";
 import { normalizeTickerSpeed } from "./program-ticker.js";
@@ -183,6 +189,24 @@ export class LiveSession {
     this.recording = idleRecordingState();
     this.programOutput = idleProgramOutputState();
     this.connection = { status: "idle", label: "Ready" };
+
+    // ONE Program capture feeding every consumer (see js/program-feed.js). `studio` owns the user-facing
+    // Backstage / Record / Live model (js/program-orchestrator.js); recording and broadcast are just two
+    // consumers of the same feed, so Going Live never opens a second capture picker.
+    this.programFeed = new ProgramFeed({ acquire: () => this._captureProgramOutput() });
+    this.broadcast = new StudioBroadcastClient();
+    this.studio = new ProgramOrchestrator({
+      feed: this.programFeed,
+      recorder: {
+        start: ({ stream, origin }) => this._beginMasterRecording({ stream, origin }),
+        stop: () => this._finishMasterRecording()
+      },
+      broadcaster: this.broadcast
+    });
+    this.studio.on((snapshot) => {
+      this._syncProgramSceneToMode(snapshot);
+      this.emit("studio", snapshot);
+    });
 
     this.program = {
       scene: "holding",
@@ -1951,30 +1975,67 @@ export class LiveSession {
     return window.open(this.inviteUrls().listener, "toasty-program-output");
   }
 
-  async startRecording() {
+  // Public entry points are the orchestrator's (single source of truth for who started a recording and why).
+  startRecording() { return this.studio.startRecording(); }
+  stopRecording() { return this.studio.stopRecording(); }
+
+  // The ONLY place Program Output is captured with the browser's picker. Called by ProgramFeed when the
+  // first consumer (Record or Go Live) needs Program and nothing holds it yet.
+  async _captureProgramOutput() {
     if (!this.policy.canRecord()) throw new Error("Recording is disabled by this session's capture policy.");
     if (!MasterProgramRecorder.isSupported()) {
       throw new Error("This browser cannot capture Program Output (getDisplayMedia + MediaRecorder).");
     }
-    if (this.recording.active) return this.recording;
     // Open/refresh Program Output from the same producer gesture if it is not already ready.
     // The browser's native capture picker remains the final source-selection boundary.
     if (!this.programOutput?.readyToRecord) this.ensureProgramOutputWindow();
     this.emit("recording-status", PROGRAM_OUTPUT_PICKER_INSTRUCTION);
+    const capture = await navigator.mediaDevices.getDisplayMedia(programOutputDisplayConstraints());
+    const inspection = inspectMasterCapture(capture);
+    if (!inspection.ok) {
+      capture.getTracks().forEach((track) => track.stop());
+      const error = new Error(captureFailureMessage(inspection.reason));
+      error.reason = inspection.reason;
+      throw error;
+    }
+    if (inspection.looksLikeProgramOutput === false) {
+      this.emit("recording-status", "That share does not look like Program Output. Stop and select “Toasty Studio — Program Output”.");
+    }
+    return capture;
+  }
+
+  // While any destination is receiving Program the Program scene is LIVE; it falls back to Starting Soon
+  // when the last one stops. Driven by the orchestrator's mode — never by camera/guest/connection state.
+  _syncProgramSceneToMode(snapshot) {
+    const live = snapshot.mode === "live";
+    if (live === Boolean(this._sceneLiveFromMode)) return;
+    this._sceneLiveFromMode = live;
+    // Leaving Live while a (manual) recording keeps running must not yank the picture to the
+    // Starting Soon slate mid-recording.
+    if (!live && snapshot.recording.active) return;
+    this.setLive(live);
+  }
+
+  async _beginMasterRecording({ stream, origin = "manual" } = {}) {
+    if (!this.policy.canRecord()) throw new Error("Recording is disabled by this session's capture policy.");
+    if (this.recording.active) return this.recording;
     const recordingId = nextRecordingId();
     this._masterRecorder = new MasterRecorder({
       status: (message) => this.emit("recording-status", message)
     });
     try {
+      // `stream` is the shared Program capture — the recorder consumes it, it does not capture again.
       const started = await this._masterRecorder.start({
         recordingId,
+        captureStream: stream,
         video: { kind: "unavailable", stream: null, reason: "cross-origin-vdo-iframes" },
         audio: { stream: this.audioMixer.masterStream(), mixer: this.audioMixer }
       });
-      this.timeline.record(ProductionEventType.RECORDING_STARTED, { recordingId, mode: started.mode });
+      this.timeline.record(ProductionEventType.RECORDING_STARTED, { recordingId, mode: started.mode, origin });
       this._setRecording(activeRecordingState({
         recordingId: started.recordingId,
         startedAt: started.startedAt,
+        origin,
         last: this.recording.last
       }));
       this._recordingTimerId = window.setInterval(() => this.emit("recording", this.recording), 1000);
@@ -1986,7 +2047,7 @@ export class LiveSession {
     }
   }
 
-  async stopRecording() {
+  async _finishMasterRecording() {
     const recorder = this._masterRecorder;
     this._masterRecorder = null;
     this._stopRecordingTimer();
@@ -2156,6 +2217,18 @@ export class LiveSession {
     }
   }
 
+  // "Retry MP4": re-runs backend finalization from the retained source WebM. Never invents a download —
+  // the Producer UI only offers an MP4 once finalizationStatus is "finalized".
+  async retryRecordingFinalization() {
+    const last = this.recording.last;
+    if (this.recording.active || !last?.sourceBlob || !last.manifest) return null;
+    if (last.finalizationStatus === "pending-finalization" || last.finalizationStatus === "finalized") return last;
+    this._setRecording(idleRecordingState({ ...last, finalizationStatus: "pending-finalization", finalizationError: null }));
+    this.emit("recording-status", "Preparing MP4…");
+    await this._finalizeRecordingInBackground({ sourceManifest: last.manifest, sourceBlob: last.sourceBlob });
+    return this.recording.last;
+  }
+
   noteProductionMarker(type, label, source = "producer") {
     const marker = this.markers.add({
       type: markerTypeFromProduction(type),
@@ -2259,8 +2332,7 @@ export class LiveSession {
     // bucket (see SESSION_STATUS_POLL_MS's comment) and made a later, genuinely human-triggered refresh
     // fail with "Failed to fetch".
     this._stopGuestListPolling();
-    if (this.recording.active) this.stopRecording().catch(() => {});
-    else this._stopRecordingTimer();
+    this._wrapUpProgram();
     this.stopTranscription();
     this._teardownProgramPreview();
     this._stopHostCleanMicMeters();
@@ -2275,6 +2347,16 @@ export class LiveSession {
     this.setHostState(HostState.PREJOIN_LOADING);
   }
 
+  // Leaving or ending the show: nothing may keep broadcasting or recording afterward. End Live first (it
+  // finalizes a live-auto recording), then stop any manual recording that is still running.
+  _wrapUpProgram() {
+    if (!this.recording.active) this._stopRecordingTimer();
+    this.studio.endLive()
+      .catch(() => {})
+      .then(() => (this.recording.active ? this.studio.stopRecording() : null))
+      .catch(() => {});
+  }
+
   // PRODUCER "End Show": ends the production for everyone. Flips Program Output to the Ending scene
   // (guaranteed — that's just our own ProgramSync state) and best-effort hangs up every known guest
   // (not guaranteed — see VideoEngine.disconnectAll/sendToGuest). Callers must confirm destructively
@@ -2284,8 +2366,7 @@ export class LiveSession {
     this.setScene("ending");
     this.setLive(false);
     this.engine.disconnectAll(guestIds);
-    if (this.recording.active) this.stopRecording().catch(() => {});
-    else this._stopRecordingTimer();
+    this._wrapUpProgram();
     this.stopTranscription();
     // VDO's own iframe teardown (disconnectAll above) never touches this — it's a plain getUserMedia
     // stream Toasty owns directly for the native tile, so nothing else will turn the camera light off.

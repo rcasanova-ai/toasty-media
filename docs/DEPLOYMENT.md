@@ -167,3 +167,19 @@ proxied by existing nginx blocks. Pages: `peeps/app/outcome.html` (requester) an
   `/api/jams/:id/settle` now uses the same core (it previously credited Dough without debiting anyone).
 - Matching consumes only participant-approved Breadcrumb entries (bonus capped at 12 points); raw transcripts never leave the
   owning organization.
+
+## Studio Broadcast (Go Live) Backend
+
+Going Live streams Program from the browser to `render.toasty.media` as many SHORT chunk POSTs (~1/s) to
+`/api/organizations/creator-broadcast/:id/chunk`, where ONE ffmpeg encode fans out to one isolated
+`-c copy` relay per destination (X, YouTube, ...). A single long-lived request is deliberately NOT used: nginx
+buffers request bodies and applies `proxy_read_timeout`, which ends such a stream after ~30s.
+
+- Destination RTMP(S) URL + stream key are stored encrypted per organization (`broadcast_destinations`) and are
+  never returned to the browser.
+- nginx: the dedicated `creator-broadcast` location in `scripts/nginx-render.conf.example` must sit ABOVE the
+  generic `/api/organizations` block. Apply it to the live host with the **Sync Studio broadcast nginx route to
+  render host** workflow (manual, idempotent, backs up, `nginx -t`, auto-rollback).
+- Node + auth-db helper ship via **Deploy render helper and Node server** (the host needs `ffmpeg`).
+- Tests: `scripts/studio-mode-model-test.mjs` (Backstage/Record/Live model) and
+  `scripts/studio-broadcast-server-test.mjs` (real ffmpeg + local RTMP sink, streams past 30s).

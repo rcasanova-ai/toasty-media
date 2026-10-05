@@ -807,6 +807,29 @@ def migrate(conn):
     )
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_credentials_org_provider ON ai_provider_credentials(organization_id, provider)")
 
+    # External broadcast destinations (X, YouTube, TikTok, Instagram, custom RTMP). The RTMP(S) URL and
+    # stream key are stored together as ONE ciphertext (encrypted_secret, AES-256-GCM via the Node
+    # process's encryptSecret) — this script never decrypts it and no public row ever carries it. The
+    # browser only ever sees destination/label/url_host/key_last4/status; the stream key is never sent
+    # back after the save. Scoped to organization_id; one saved connection per destination per org.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS broadcast_destinations (
+          id TEXT PRIMARY KEY,
+          organization_id TEXT NOT NULL REFERENCES organizations(id),
+          destination TEXT NOT NULL,
+          label TEXT NOT NULL DEFAULT '',
+          url_host TEXT NOT NULL DEFAULT '',
+          key_last4 TEXT NOT NULL DEFAULT '',
+          encrypted_secret TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'connected',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_broadcast_destinations_org_dest ON broadcast_destinations(organization_id, destination)")
+
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS usage_counters (
@@ -2132,6 +2155,24 @@ def ai_credential_public(row, include_secret=False):
     }
     if include_secret:
         out["encryptedCredential"] = row["encrypted_credential"]
+    return out
+
+
+def broadcast_destination_public(row, include_secret=False):
+    if not row:
+        return None
+    out = {
+        "id": row["id"],
+        "organizationId": row["organization_id"],
+        "destination": row["destination"],
+        "label": row["label"],
+        "urlHost": row["url_host"],
+        "keyLast4": row["key_last4"],
+        "status": row["status"],
+        "updatedAt": row["updated_at"],
+    }
+    if include_secret:
+        out["encryptedSecret"] = row["encrypted_secret"]
     return out
 
 
@@ -4707,6 +4748,39 @@ def main():
             "UPDATE ai_provider_credentials SET status = ?, updated_at = ? WHERE organization_id = ? AND provider = ?",
             (payload["status"], now, payload["organizationId"], payload["provider"]),
         )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "upsert_broadcast_destination":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO broadcast_destinations (id, organization_id, destination, label, url_host, key_last4, encrypted_secret, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'connected', ?, ?)
+            ON CONFLICT (organization_id, destination) DO UPDATE SET
+              label = excluded.label, url_host = excluded.url_host, key_last4 = excluded.key_last4,
+              encrypted_secret = excluded.encrypted_secret, status = 'connected', updated_at = excluded.updated_at
+            """,
+            (payload["id"], payload["organizationId"], payload["destination"], payload.get("label", ""), payload.get("urlHost", ""), payload.get("keyLast4", ""), payload["encryptedSecret"], now, now),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM broadcast_destinations WHERE organization_id = ? AND destination = ?", (payload["organizationId"], payload["destination"])).fetchone()
+        print(json.dumps({"destination": broadcast_destination_public(row)}))
+        return
+
+    if action == "list_broadcast_destinations":
+        rows = conn.execute("SELECT * FROM broadcast_destinations WHERE organization_id = ? ORDER BY created_at ASC", (payload["organizationId"],)).fetchall()
+        print(json.dumps({"destinations": [broadcast_destination_public(row) for row in rows]}))
+        return
+
+    if action == "get_broadcast_destination_secret":
+        row = conn.execute("SELECT * FROM broadcast_destinations WHERE organization_id = ? AND destination = ? AND status = 'connected'", (payload["organizationId"], payload["destination"])).fetchone()
+        print(json.dumps({"destination": broadcast_destination_public(row, include_secret=True)}))
+        return
+
+    if action == "delete_broadcast_destination":
+        conn.execute("DELETE FROM broadcast_destinations WHERE organization_id = ? AND destination = ?", (payload["organizationId"], payload["destination"]))
         conn.commit()
         print(json.dumps({"ok": True}))
         return
