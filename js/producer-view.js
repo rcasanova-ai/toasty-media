@@ -638,7 +638,7 @@ export class ProducerView {
     const saving = recording.status === "saving";
     const processing = !active && !saving && recording.last?.finalizationStatus === "pending-finalization";
     this.elements.recordToggle.setAttribute("aria-pressed", String(active && !saving));
-    this.elements.recordToggle.textContent = saving ? "SAVING RECORDING..." : active ? "STOP RECORDING" : "RECORD PROGRAM";
+    this.elements.recordToggle.textContent = saving ? "SAVING..." : active ? "STOP RECORDING" : "RECORD";
     this.elements.recordTimer.hidden = !active && !saving;
     if (this.elements.recordStatus) {
       if (saving) this.elements.recordStatus.textContent = "Saving recording...";
@@ -721,6 +721,7 @@ export class ProducerView {
   const isMp4 = Boolean(last.masterBlob);
   const extension = isMp4 ? "mp4" : "webm";
 
+  if (!isMp4) return;
   downloadFile(last.blob, `${last.recordingId}.${extension}`);
 }
 
