@@ -91,6 +91,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const scryptAsync = promisify(scrypt);
 const execFileAsync = promisify(execFile);
 const rateBuckets = new Map();
+const creatorBroadcastJobs = new Map();
 const TOASTY_EXPERT_DISCOVERY_PRICE = 0.001;
 const TOASTY_EXPERT_DISCOVERY_RECIPIENT = process.env.SVM_PAY_TO || process.env.TOASTY_EXPERTS_X402_RECIPIENT || "";
 const TOASTY_SOLANA_NETWORK = process.env.TOASTY_SOLANA_NETWORK || "solana-devnet";
@@ -319,6 +320,30 @@ const server = createServer(async (req, res) => {
     if (!requireCsrf(req, res) || !limit(req, res, "change-password", 10, 15 * 60 * 1000)) return;
     await handleChangePassword(req, res);
     return;
+  }
+
+  // ---- Creator RTMP broadcast: authenticated by the existing Studio session ----
+  if (req.method === "POST" && req.url === "/api/organizations/creator-broadcast/start") {
+    if (!requireCsrf(req, res)) return;
+    const session = await requireSession(req, res); if (!session) return;
+    const body = await readJson(req, 64 * 1024);
+    if (typeof body?.streamUrl !== "string" || !/^rtmps?:\/\//i.test(body.streamUrl)) throw httpError(400, "A valid RTMP or RTMPS stream URL is required.");
+    if (typeof body?.streamKey !== "string" || body.streamKey.trim().length < 2) throw httpError(400, "A stream key is required.");
+    const id=randomUUID();
+    creatorBroadcastJobs.set(id,{id,userId:session.id,state:"ready",createdAt:Date.now(),destination:String(body.destination||"custom"),streamUrl:body.streamUrl.trim(),streamKey:body.streamKey.trim(),width:Math.min(1920,Math.max(640,Number(body.width)||1920)),height:Math.min(1080,Math.max(360,Number(body.height)||1080)),fps:Math.min(60,Math.max(24,Number(body.fps)||30)),bitrateKbps:Math.min(12000,Math.max(1000,Number(body.bitrateKbps)||6000)),process:null,stderr:""});
+    sendJson(req,res,201,{id,state:"ready",ingestPath:`/api/organizations/creator-broadcast/${id}/ingest`}); return;
+  }
+  const creatorBroadcastIngest=req.url?.match(/^\/api\/organizations\/creator-broadcast\/([a-f0-9-]+)\/ingest$/i);
+  if(req.method==="POST"&&creatorBroadcastIngest){
+    if(!requireCsrf(req,res))return; const session=await requireSession(req,res); if(!session)return;
+    const job=creatorBroadcastJobs.get(creatorBroadcastIngest[1]); if(!job||job.userId!==session.id){sendJson(req,res,404,{error:"Broadcast not found."});return;}
+    if(job.process){sendJson(req,res,409,{error:"Broadcast is already ingesting."});return;} startCreatorBroadcastFfmpeg(job,req,res); return;
+  }
+  const creatorBroadcastStop=req.url?.match(/^\/api\/organizations\/creator-broadcast\/([a-f0-9-]+)\/stop$/i);
+  if(req.method==="POST"&&creatorBroadcastStop){
+    if(!requireCsrf(req,res))return; const session=await requireSession(req,res); if(!session)return;
+    const job=creatorBroadcastJobs.get(creatorBroadcastStop[1]); if(!job||job.userId!==session.id){sendJson(req,res,404,{error:"Broadcast not found."});return;}
+    stopCreatorBroadcast(job); creatorBroadcastJobs.delete(job.id); sendJson(req,res,200,{id:job.id,state:"stopped"}); return;
   }
 
   // ---- Creator Agent API (local Ollama -> Toasty) ----
@@ -10781,6 +10806,18 @@ function cleanOptionalId(value) {
 function safeDriveFolderName(value) {
   return String(value || "General").trim().replace(/[\\/:*?"<>|\r\n]+/g, "-").replace(/\s+/g, " ").slice(0, 80) || "General";
 }
+
+function startCreatorBroadcastFfmpeg(job,req,res){
+  const target=`${job.streamUrl.replace(/\/+$/,"")}/${job.streamKey.replace(/^\/+/,"")}`,gop=Math.max(job.fps*2,48);
+  const args=["-hide_banner","-loglevel","warning","-fflags","+genpts","-f","webm","-i","pipe:0","-vf",`scale=${job.width}:${job.height}:force_original_aspect_ratio=decrease,pad=${job.width}:${job.height}:(ow-iw)/2:(oh-ih)/2`,"-r",String(job.fps),"-c:v","libx264","-preset","veryfast","-tune","zerolatency","-pix_fmt","yuv420p","-b:v",`${job.bitrateKbps}k`,"-maxrate",`${job.bitrateKbps}k`,"-bufsize",`${job.bitrateKbps*2}k`,"-g",String(gop),"-keyint_min",String(gop),"-c:a","aac","-b:a","160k","-ar","48000","-f","flv",target];
+  const ffmpeg=spawn(FFMPEG,args,{stdio:["pipe","ignore","pipe"]}); job.process=ffmpeg;job.state="live";job.startedAt=Date.now();job.stderr="";
+  ffmpeg.stderr.on("data",x=>{job.stderr=(job.stderr+x.toString()).slice(-8000);});
+  ffmpeg.on("exit",(code,signal)=>{job.process=null;job.state=code===0||signal==="SIGTERM"?"stopped":"failed";job.exitCode=code;job.signal=signal;});
+  req.on("aborted",()=>stopCreatorBroadcast(job));req.on("error",()=>stopCreatorBroadcast(job));req.pipe(ffmpeg.stdin);
+  res.writeHead(200,{"Content-Type":"application/json","Cache-Control":"no-store","Connection":"keep-alive"});
+  ffmpeg.on("exit",()=>{if(!res.writableEnded)res.end(JSON.stringify({id:job.id,state:job.state,exitCode:job.exitCode??null,error:job.state==="failed"?job.stderr.split("\n").slice(-8).join("\n"):null}));});
+}
+function stopCreatorBroadcast(job){if(job.process&&!job.process.killed){job.process.stdin?.end();job.process.kill("SIGTERM");}job.state="stopped";}
 
 function httpError(statusCode, publicMessage) {
   const error = new Error(publicMessage);
