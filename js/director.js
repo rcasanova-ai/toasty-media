@@ -3,7 +3,7 @@
 // load without anyone remembering to bump a version string per file. See .htaccess.
 import { composeDynamicTheme, normalizeBrandTheme, populateBrandThemeSelect, registerDynamicTheme } from "./brand-themes.js";
 import { AIProductionController } from "./ai-production.js";
-import { ToastyBroadcastController } from "./broadcast-client.js";
+import { GoLivePanel } from "./go-live-panel.js";
 import { LiveSession } from "./live-session.js";
 import { HostView } from "./host-view.js";
 import { ProducerView } from "./producer-view.js";
@@ -30,6 +30,7 @@ function hideElement(el) {
 }
 
 const session = new LiveSession();
+let goLivePanel = null;
 // Dev diagnostics only — never rendered in Host/Producer UI. In devtools: session.aiProducerService.diagnostics()
 // for the speech-complete -> result-rendered latency breakdown of recent AI Producer requests.
 window.__toastyLiveSession = session;
@@ -43,8 +44,6 @@ const elements = {
   guestFrame: document.querySelector("#lvGuestFrame"),
   programPreviewStage: document.querySelector("#lvProgramPreviewStage"),
   directorControlFrame: document.querySelector("#directorControlFrame"),
-  recChip: document.querySelector("#lvRecChip"),
-  recChipTime: document.querySelector("#lvRecChipTime"),
   policyChip: document.querySelector("#lvPolicyChip"),
   topBrand: document.querySelector("#lvTopBrand"),
   topSessionName: document.querySelector("#lvTopSessionName"),
@@ -55,6 +54,9 @@ const elements = {
   topHost: document.querySelector("#lvTopHost"),
   topProducer: document.querySelector("#lvTopProducer"),
   topRecord: document.querySelector("#lvTopRecord"),
+  topShareScreen: document.querySelector("#lvTopShareScreen"),
+  bottomGoLive: document.querySelector("#lvBottomGoLive"),
+  bottomMode: document.querySelector("#lvBottomMode"),
   topGoLive: document.querySelector("#lvTopGoLive"),
   topProgramOutput: document.querySelector("#lvTopProgramOutput"),
   topSettings: document.querySelector("#lvTopSettings"),
@@ -208,15 +210,8 @@ async function initStudio() {
     }
   }).init();
 
-  // Mounted before bindViewSwitch()'s initial setView("host") call, so its Producer-only broadcast
-  // panel (data-lv-only="producer") exists in the DOM the first time [data-lv-only] elements are queried.
-  new ToastyBroadcastController({
-    getProgramUrl: () => elements.listenerInvite.value,
-    requireLegacyAuthGate: false,
-    onStateChange: (broadcastState) => session.setLive(broadcastState === "live"),
-    onLiveStart: async () => { if (!session.recording?.active) await session.startRecording(); },
-    onError: () => renderBroadcastError()
-  }).init();
+  // GO LIVE destination chooser. Destination credentials live server-side only (see js/broadcast-client.js).
+  goLivePanel = new GoLivePanel({ client: session.broadcast, studio: session.studio });
 
   bindViewSwitch();
   bindRailControls();
@@ -226,19 +221,19 @@ async function initStudio() {
   bindProducerChrome();
   bindProducerWorkspaces();
 
-  session.on("recording", renderRecChip);
   session.on("policy", renderPolicyChip);
   session.on("connection", () => { renderBroadcastChip(); renderProducerChrome(); });
   session.on("program", () => { renderBroadcastChip(); renderProducerChrome(); });
   session.on("program-output", renderProducerChrome);
-  session.on("recording", renderProducerChrome);
+  session.on("recording", renderStudioChrome);
+  session.on("studio", () => { renderStudioChrome(); renderBroadcastChip(); });
   session.on("host-profile", renderProducerChrome);
   session.on("host-state", renderProducerChrome);
   session.on("brand", () => { applySelectedBrand(); updateInviteFields(); renderProducerChrome(); });
   session.on("room", () => { updateInviteFields(); renderProducerChrome(); });
 
-  renderRecChip(session.recording);
   renderPolicyChip(session.policy);
+  renderStudioChrome();
   renderBroadcastChip();
   renderProducerChrome();
   updateInviteFields();
@@ -294,8 +289,26 @@ function bindProducerWorkspaces() {
 }
 
 function bindProducerChrome() {
-  elements.topRecord?.addEventListener("click", () => { setView("producer"); document.querySelector("#lvRecordToggle")?.click(); });
-  elements.topGoLive?.addEventListener("click", () => { setView("producer"); document.querySelector("#broadcastPanel")?.scrollIntoView({ behavior: "smooth", block: "center" }); document.querySelector("#broadcastStreamUrl")?.focus(); });
+  // Record / Go Live / Share Screen: the three primary controls. Record mirrors the persistent bottom-bar
+  // Record button (which owns the capture flow and its error messaging) without changing the current view.
+  elements.topRecord?.addEventListener("click", () => document.querySelector("#lvRecordToggle")?.click());
+  const onGoLiveClick = async () => {
+    if (session.studio.mode === "live") {
+      if (window.confirm("End the live broadcast? Toasty will stop sending Program to your destinations and finish the automatic recording.")) {
+        await session.studio.endLive();
+      }
+      return;
+    }
+    await goLivePanel?.open();
+  };
+  elements.topGoLive?.addEventListener("click", onGoLiveClick);
+  elements.bottomGoLive?.addEventListener("click", onGoLiveClick);
+  elements.topShareScreen?.addEventListener("click", async () => {
+    try { await session.toggleScreenShare(); } catch (error) {
+      console.error("[Toasty Studio] Screen share failed", error);
+      window.alert(String(error?.message || "Screen share could not start."));
+    }
+  });
   elements.topProgramOutput?.addEventListener("click", () => document.querySelector("#lvOpenProgramOutput")?.click());
   elements.topSettings?.addEventListener("click", () => {
     window.open("./dashboard.html", "_blank", "noopener");
@@ -399,6 +412,13 @@ function bindRailControls() {
   // regardless of which view (Host/Producer) is currently shown, so a second alert here would just be a
   // duplicate popup for the same failure.
   session.on("screenshare", (s) => {
+    if (elements.topShareScreen) {
+      const state = s?.state || "inactive";
+      const connecting = state === "binding" || state === "expected";
+      elements.topShareScreen.setAttribute("aria-pressed", String(Boolean(s?.active)));
+      elements.topShareScreen.disabled = connecting;
+      elements.topShareScreen.textContent = connecting ? "Connecting…" : (s?.active ? "Stop Sharing" : "Share Screen");
+    }
     if (elements.toggleScreenQuick) {
       const state = s?.state || "inactive";
       const connecting = state === "binding" || state === "expected";
@@ -460,21 +480,70 @@ function syncJamFieldsFromPolicy() {
   elements.lvJamRecordAllowed.checked = Boolean(state.jamRecordAllowed);
 }
 
-function renderRecChip(recording) {
-  elements.recChip.hidden = !recording.active;
-  if (recording.active && recording.startedAt) {
-    const elapsed = Math.floor((Date.now() - recording.startedAt) / 1000);
-    const hours = String(Math.floor(elapsed / 3600)).padStart(2, "0");
-    const minutes = String(Math.floor((elapsed % 3600) / 60)).padStart(2, "0");
-    const seconds = String(elapsed % 60).padStart(2, "0");
-    elements.recChipTime.textContent = `${hours}:${minutes}:${seconds}`;
-  }
-}
-
 function renderPolicyChip(policy) {
   const summary = policy.summary();
   elements.policyChip.hidden = !summary;
   if (summary) elements.policyChip.textContent = `${summary.icon} ${summary.label} · ${summary.detail}`;
+}
+
+// BACKSTAGE / RECORDING / LIVE — derived ONLY from the Record/Live orchestrator (session.studio). Camera,
+// mic, guests, screen share, Program Output and VDO.Ninja connectivity never reach this function, so none
+// of them can make Studio say LIVE.
+const DESTINATION_LABELS = { x: "X", youtube: "YouTube", tiktok: "TikTok", instagram: "Instagram", custom: "Custom RTMP" };
+function renderStudioChrome() {
+  const snapshot = session.studio.snapshot();
+  const { mode, recording, destinations } = snapshot;
+  const elapsed = recording.active && recording.startedAt ? formatElapsed(Date.now() - recording.startedAt) : "";
+  if (elements.topLiveState) {
+    elements.topLiveState.dataset.state = mode;
+    elements.topLiveState.textContent = mode === "live" ? "● LIVE" : mode === "record" ? `● RECORDING ${elapsed}`.trim() : "BACKSTAGE";
+  }
+  if (elements.topDestinations) {
+    const visible = destinations.filter((d) => d.state !== "stopped" && d.state !== "idle");
+    elements.topDestinations.hidden = !visible.length;
+    elements.topDestinations.replaceChildren(...visible.map((d) => {
+      const chip = document.createElement("span");
+      chip.className = "lv-dest-chip";
+      chip.dataset.state = d.state;
+      const label = DESTINATION_LABELS[d.destination] || d.label || d.destination;
+      chip.textContent = d.state === "live" ? `${label} ● LIVE` : d.state === "error" ? `${label} ERROR` : `${label} connecting…`;
+      if (d.error) chip.title = d.error;
+      return chip;
+    }));
+  }
+  if (elements.topRecordingState) {
+    // While LIVE the recording runs automatically and must be visibly on: "● LIVE" + "X ● LIVE" + "● REC".
+    const showRec = recording.active && mode === "live";
+    elements.topRecordingState.hidden = !showRec;
+    elements.topRecordingState.dataset.state = showRec ? "recording" : "off";
+    elements.topRecordingState.textContent = recording.origin === "live-auto" ? `● REC ${elapsed} · automatic` : `● REC ${elapsed}`;
+  }
+  if (elements.topRecord) {
+    const saving = session.recording?.status === "saving";
+    elements.topRecord.setAttribute("aria-pressed", String(recording.active));
+    elements.topRecord.textContent = saving ? "Saving…" : recording.active ? "Stop Recording" : "Record";
+    elements.topRecord.disabled = saving || (!session.canRecord() && !recording.active);
+  }
+  const busy = snapshot.busy;
+  const goLiveLabel = mode === "live" ? "End Live" : busy === "going-live" ? "Connecting…" : "Go Live";
+  for (const button of [elements.topGoLive, elements.bottomGoLive]) {
+    if (!button) continue;
+    button.setAttribute("aria-pressed", String(mode === "live"));
+    button.textContent = button === elements.bottomGoLive ? goLiveLabel.toUpperCase() : goLiveLabel;
+    button.disabled = busy === "going-live" || busy === "ending-live";
+  }
+  if (elements.bottomMode) {
+    elements.bottomMode.dataset.state = mode;
+    elements.bottomMode.textContent = mode === "live" ? `● LIVE${recording.active ? " · ● REC" : ""}` : mode === "record" ? `● RECORDING ${elapsed}`.trim() : "BACKSTAGE";
+  }
+}
+
+function formatElapsed(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = String(Math.floor(total / 3600)).padStart(2, "0");
+  const m = String(Math.floor((total % 3600) / 60)).padStart(2, "0");
+  const sec = String(total % 60).padStart(2, "0");
+  return h === "00" ? `${m}:${sec}` : `${h}:${m}:${sec}`;
 }
 
 function renderProducerChrome() {
@@ -484,21 +553,6 @@ function renderProducerChrome() {
   }
   if (elements.topSessionName) {
     elements.topSessionName.textContent = session.durableSession?.title || "Live Studio";
-  }
-  if (elements.topLiveState) {
-    const live = Boolean(session.connection?.live);
-    elements.topLiveState.dataset.state = live ? "live" : "backstage";
-    elements.topLiveState.textContent = live ? "LIVE" : "BACKSTAGE";
-  }
-  if (elements.topDestinations) {
-    const live = Boolean(session.connection?.live);
-    elements.topDestinations.hidden = !live;
-    elements.topDestinations.textContent = live ? "ON AIR" : "OFFLINE";
-  }
-  if (elements.topRecordingState) {
-    const recording = Boolean(session.recording?.active);
-    elements.topRecordingState.dataset.state = recording ? "recording" : "off";
-    elements.topRecordingState.textContent = recording ? "● REC" : "REC OFF";
   }
   if (elements.topHealth) {
     const output = session.programOutput || {};
@@ -521,19 +575,14 @@ function renderProducerChrome() {
   }
 }
 
-// Real broadcast state, not a VDO.Ninja room-connection ping: session.connection tracks whether the
-// Studio room itself is up (distinguishes OFFLINE from READY); session.program.live is the actual RTMP
-// broadcast flag set by ToastyBroadcastController via session.setLive() (distinguishes READY from ON
-// AIR). ERROR is set directly by the broadcast controller's onError callback and persists until the
-// next real connection/program change overwrites it — see broadcast-client.js's start()/testService().
+// Legacy ON AIR sign. LIVE only while the orchestrator says an external destination is actually receiving
+// Program — not because a Program scene is named "Live", and not because VDO.Ninja is connected.
 function renderBroadcastChip() {
-  const state = session.program.live ? "live" : session.connection.status === "connected" ? "ready" : "offline";
-  const label = state === "live" ? "On air" : state === "ready" ? "Ready" : session.connection.label;
+  const { mode, destinations } = session.studio.snapshot();
+  const errored = destinations.some((d) => d.state === "error");
+  const state = mode === "live" ? "live" : errored ? "error" : session.connection.status === "connected" ? "ready" : "offline";
+  const label = state === "live" ? "On air" : state === "error" ? "Broadcast error" : state === "ready" ? "Ready" : session.connection.label;
   setBroadcastChip(state, label);
-}
-
-function renderBroadcastError() {
-  setBroadcastChip("error", "Broadcast error");
 }
 
 function setBroadcastChip(state, label) {
@@ -641,8 +690,6 @@ function mountTimeOfDay() {
   elements.sessionTime.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   if (elements.buildId) elements.buildId.textContent = BUILD_ID;
 }
-
-const sessionId = params.get("session") || params.get("id") || "";
 
 function reconcileDesktopHostControls() {
   const root = document.querySelector(".live-console");

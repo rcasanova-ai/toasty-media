@@ -212,6 +212,40 @@ server {
         proxy_request_buffering on;
     }
 
+    # ---- Studio broadcast (Program -> X / YouTube / ...) ----
+    # MUST stay ABOVE the generic /api/organizations block below (regex locations match first-come).
+    # The browser sends Program as many SHORT chunk POSTs (~1/s, a few hundred KB each) instead of one
+    # request that stays open for the whole show: a long-lived request would be buffered by nginx
+    # (proxy_request_buffering on waits for the ENTIRE body) and killed by proxy_read_timeout, which is
+    # exactly what ended streams after ~30s. Each chunk completes in milliseconds, so no timeout applies
+    # to the stream's lifetime. Uses the toasty_presence zone (300r/m) — chunk cadence would exceed the
+    # 60r/m toasty_settings zone the generic block uses. Node enforces auth/CSRF/ownership per request.
+    location ~ ^/api/organizations/creator-broadcast/ {
+        limit_req zone=toasty_presence burst=60 nodelay;
+        client_max_body_size 10m;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+    }
+    # ---- end Studio broadcast ----
+
     location ~ ^/api/organizations(/.*)?$ {
         # Broad prefix match covering every org-scoped route added for accounts/orgs/billing: create/list,
         # get/update, settings, members (list/invite/role/remove), brand-profiles, ai-providers (BYOK,

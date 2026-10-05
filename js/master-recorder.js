@@ -85,7 +85,7 @@ export class MasterRecorder {
     return MasterProgramRecorder.isSupported();
   }
 
-  async start({ recordingId, video, audio } = {}) {
+  async start({ recordingId, video, audio, captureStream = null } = {}) {
     this.recordingId = recordingId || nextRecordingId();
     const inspection = inspectComposedMaster({ video, audio });
     if (inspection.ok) {
@@ -115,7 +115,7 @@ export class MasterRecorder {
     }
     this.mode = "fallback-display";
     this.reason = inspection.reason || "tab-capture-fallback";
-    const started = await this.fallback.start({ recordingId: this.recordingId });
+    const started = await this.fallback.start({ recordingId: this.recordingId, captureStream });
     this.startedAt = started.startedAt;
     return { ...started, mode: this.mode, reason: this.reason };
   }

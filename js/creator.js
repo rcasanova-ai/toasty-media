@@ -1,4 +1,8 @@
-import { ToastyBroadcastController } from "./broadcast-client.js";
+import { StudioBroadcastClient } from "./broadcast-client.js";
+import { ProgramFeed } from "./program-feed.js";
+import { ProgramOrchestrator } from "./program-orchestrator.js";
+import { MasterProgramRecorder, nextRecordingId } from "./program-recording.js";
+import { GoLivePanel } from "./go-live-panel.js";
 import { studioApiEndpoint } from "./studio-api.js";
 import { createDisposableRoomId, getGuestInviteUrl } from "./video-engine.js";
 const $=s=>document.querySelector(s); let screen=null,cam=null,mic=null,rec=null,chunks=[],started=0,marks=[],lastRecording=null,currentScene="game",programCanvas=null,programCtx=null,programRaf=0;
@@ -9,7 +13,7 @@ document.querySelectorAll("[data-mode]").forEach(b=>b.onclick=()=>{document.quer
 $("#captureBtn").onclick=async()=>{
   if(screen){
     screen.getTracks().forEach(t=>t.stop());
-    screen=null;
+    screen=null;syncProgramAudio();
     $("#screenPreview").srcObject=null;
     $("#stageEmpty").hidden=false;
     $("#captureBtn").textContent="Capture game / screen";
@@ -33,16 +37,16 @@ $("#captureBtn").onclick=async()=>{
     $("#stageEmpty").hidden=true;
     $("#captureBtn").textContent="Stop capture";
     const hasSystemAudio=screen.getAudioTracks().length>0;
-    setStatus(hasSystemAudio?"Game / screen captured with system audio.":"Game / screen captured. No system audio track was shared.");
+    setStatus(hasSystemAudio?"Game / screen captured with system audio.":"Game / screen captured. No system audio track was shared.");syncProgramAudio();
     screen.getVideoTracks()[0]?.addEventListener("ended",()=>{
-      screen=null;
+      screen=null;syncProgramAudio();
       preview.srcObject=null;
       $("#stageEmpty").hidden=false;
       $("#captureBtn").textContent="Capture game / screen";
       setStatus("Capture ended.");
     },{once:true});
   }catch(e){
-    screen=null;
+    screen=null;syncProgramAudio();
     $("#screenPreview").srcObject=null;
     const denied=e?.name==="NotAllowedError";
     setStatus(denied?"Screen capture was cancelled or blocked.":"Could not capture the screen: "+(e?.message||"unknown error"));
@@ -74,13 +78,13 @@ $("#micBtn").onclick=async()=>{
     mic.getTracks().forEach(t=>t.stop());
     mic=null;
     $("#micBtn").classList.remove("active");
-    setStatus("Mic off.");
+    setStatus("Mic off.");syncProgramAudio();
     return;
   }
   try{
     mic=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false},video:false});
     $("#micBtn").classList.add("active");
-    setStatus("Mic ready.");
+    setStatus("Mic ready.");syncProgramAudio();
   }catch(e){
     setStatus("Could not start mic: "+(e?.message||"permission denied"));
   }
@@ -153,64 +157,127 @@ function getProgramVideoStream(){
   if(!programRaf)renderProgramFrame();
   return programCanvas.captureStream(30);
 }
-$("#recordBtn").onclick=async()=>{
-  if(rec&&rec.state!=="inactive"){rec.stop();return}
-  if(!screen&&!$("#voiceoverPreview").src&&!cam)return setStatus("Capture a game/screen, load a video, or turn on the camera first.");
-  if(!mic)await $("#micBtn").onclick();
-  const source=screen||$("#voiceoverPreview").captureStream?.();
-  const videoStream=getProgramVideoStream();
-  const audioCtx=new AudioContext();
-  await audioCtx.resume().catch(()=>{});
-  const dest=audioCtx.createMediaStreamDestination();
-  for(const s of [source,mic])for(const t of s?.getAudioTracks?.()||[]){
-    try{audioCtx.createMediaStreamSource(new MediaStream([t])).connect(dest)}catch{}
+// ---- ONE Program, shared with Studio's core (program-feed / program-orchestrator / go-live-panel) ----
+// Program here = the canvas picture + ONE audio mix (screen/game audio once, mic once). Record and Go Live
+// are two consumers of that same feed — going live while recording (or the reverse) never builds a second one.
+let programAudio=null,voiceoverCapture=null,voiceoverCaptureSrc="";
+// captureStream() mints a NEW stream (new tracks) on every call — cache one per loaded file so the voiceover
+// video's audio joins the mix exactly once.
+function voiceoverStream(){
+  const v=$("#voiceoverPreview");
+  if(!v.src)return null;
+  if(voiceoverCaptureSrc!==v.src){voiceoverCapture=v.captureStream?.()||null;voiceoverCaptureSrc=v.src}
+  return voiceoverCapture;
+}
+function syncProgramAudio(){
+  if(!programAudio)return;
+  const want=new Set();
+  for(const src of [screen||voiceoverStream(),mic]){
+    for(const t of src?.getAudioTracks?.()||[]){
+      want.add(t.id);
+      if(!programAudio.nodes.has(t.id)&&t.readyState==="live"){
+        try{const node=programAudio.ctx.createMediaStreamSource(new MediaStream([t]));node.connect(programAudio.dest);programAudio.nodes.set(t.id,node)}catch{}
+      }
+    }
   }
-  const combined=new MediaStream([...videoStream.getVideoTracks(),...dest.stream.getAudioTracks()]);
-  chunks=[];marks=[];started=Date.now();
-  const mime=MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")?"video/webm;codecs=vp9,opus":"video/webm";
-  try{rec=new MediaRecorder(combined,{mimeType:mime})}catch(e){return setStatus("Recording is not supported in this browser: "+(e?.message||"unknown error"))}
-  rec.ondataavailable=e=>e.data.size&&chunks.push(e.data);
-  rec.onstop=()=>{
-    combined.getVideoTracks().forEach(t=>t.stop());
-    audioCtx.close().catch(()=>{});
-    const blob=new Blob(chunks,{type:rec.mimeType||"video/webm"});
-    const recordingId="creator-"+Date.now().toString(36);
-    const objectUrl=URL.createObjectURL(blob);
-    lastRecording={blob,recordingId,objectUrl,durationSeconds:Math.max(1,Math.round((Date.now()-started)/1000))};
-    $("#recordingPreview").src=objectUrl;
-    $("#recordingResult").hidden=false;
-    $("#recordingResultStatus").textContent="Recording ready. Download WebM now, or create MP4/transcript.";
-    $("#recordBtn").classList.remove("on");
-    $("#recordBtn").textContent="Record";
-    $("#markBtn").disabled=true;
-    setStatus("Recording ready.");
-  };
-  rec.start(1000);
-  $("#recordBtn").classList.add("on");
-  $("#recordBtn").textContent="Stop";
-  $("#markBtn").disabled=false;
-  setStatus("Recording program output…");
+  for(const [id,node] of programAudio.nodes)if(!want.has(id)){try{node.disconnect()}catch{}programAudio.nodes.delete(id)}
+}
+async function acquireProgram(){
+  if(!screen&&!$("#voiceoverPreview").src&&!cam)throw new Error("Capture a game/screen, load a video, or turn on the camera first.");
+  if(!mic)await $("#micBtn").onclick();
+  const videoStream=getProgramVideoStream();
+  const ctx=new AudioContext();
+  await ctx.resume().catch(()=>{});
+  const dest=ctx.createMediaStreamDestination();
+  programAudio={ctx,dest,nodes:new Map()};
+  syncProgramAudio();
+  const stream=new MediaStream([...videoStream.getVideoTracks(),...dest.stream.getAudioTracks()]);
+  return {stream,dispose(){videoStream.getTracks().forEach(t=>t.stop());programAudio?.ctx.close().catch(()=>{});programAudio=null}};
+}
+const programFeed=new ProgramFeed({acquire:acquireProgram,label:"Creator Program"});
+const broadcast=new StudioBroadcastClient();
+let masterRecorder=null;
+const studio=new ProgramOrchestrator({
+  feed:programFeed,
+  broadcaster:broadcast,
+  recorder:{
+    async start({stream}){
+      chunks=[];marks=[];started=Date.now();
+      masterRecorder=new MasterProgramRecorder({status:setStatus});
+      const info=await masterRecorder.start({recordingId:"creator-"+nextRecordingId(),captureStream:stream});
+      return {...info,startedAt:info.startedAt||Date.now()};
+    },
+    async stop(){
+      const result=await masterRecorder.stop();
+      masterRecorder=null;
+      onRecordingStopped(result);
+      return result;
+    }
+  }
+});
+function onRecordingStopped(result){
+  const objectUrl=URL.createObjectURL(result.blob);
+  lastRecording={blob:result.blob,recordingId:result.recordingId,objectUrl,mp4:null,mp4State:"preparing",durationSeconds:Math.max(1,Math.round((result.stoppedAt-result.startedAt)/1000))};
+  $("#recordingPreview").src=objectUrl;
+  $("#recordingResult").hidden=false;
+  setStatus("Recording ready.");
+  void finalizeMp4();
+  renderRecordingResult();
+}
+async function finalizeMp4(){
+  const rec=lastRecording;if(!rec)return;
+  rec.mp4State="preparing";renderRecordingResult();
+  try{
+    const form=new FormData();
+    form.append("manifest",JSON.stringify({kind:"master-program",recordingId:rec.recordingId,durationSeconds:rec.durationSeconds,title:"Toasty Creator"}));
+    form.append("source",rec.blob,rec.recordingId+".webm");
+    const r=await fetch(studioApiEndpoint()+"/api/recordings/finalize",{method:"POST",credentials:"include",headers:{"X-Toasty-CSRF":"1"},body:form});
+    if(!r.ok){let e={};try{e=await r.json()}catch{}throw new Error(e.error||"Could not create MP4.");}
+    rec.mp4=await r.blob();rec.mp4State="ready";
+  }catch(e){rec.mp4State="failed";rec.mp4Error=e.message}
+  if(lastRecording===rec)renderRecordingResult();
+}
+// Truthful recording actions: "Download MP4" only ever downloads an MP4. Until it exists the button says
+// "Preparing MP4…"; on failure there is "Retry MP4". The source WebM lives under Advanced.
+function renderRecordingResult(){
+  const rec=lastRecording;if(!rec)return;
+  const mp4=$("#downloadMp4Btn"),retry=$("#retryMp4Btn"),s=$("#recordingResultStatus");
+  mp4.disabled=rec.mp4State!=="ready";
+  mp4.textContent=rec.mp4State==="preparing"?"Preparing MP4…":"Download MP4";
+  mp4.hidden=rec.mp4State==="failed";
+  retry.hidden=rec.mp4State!=="failed";
+  s.textContent=rec.mp4State==="ready"?"MP4 ready.":rec.mp4State==="preparing"?"Recording saved. Preparing MP4… you can already play it.":"MP4 could not be prepared ("+(rec.mp4Error||"error")+"). Retry MP4 — your recording is safe under Advanced → Download source WebM.";
+}
+$("#recordBtn").onclick=async()=>{
+  const btn=$("#recordBtn");
+  btn.disabled=true;
+  try{
+    if(studio.recording.active)await studio.stopRecording();
+    else{setStatus("Recording the Program…");await studio.startRecording();}
+  }catch(e){setStatus(e?.message||"Could not record.")}
+  finally{btn.disabled=false}
 };
 $("#markBtn").onclick=()=>{const sec=((Date.now()-started)/1000).toFixed(1);marks.push(sec);$("#clips").replaceChildren(...marks.map((m,i)=>{const row=document.createElement("div");row.textContent="Clip "+(i+1)+" · "+m+"s";return row;}));};
 $("#voiceoverPreview").onplay=()=>setStatus("Voiceover playback running.");
-const bc=new ToastyBroadcastController({getProgramUrl:()=>location.href,requireLegacyAuthGate:false,onStateChange:s=>{$("#liveBtn").classList.toggle("on",s==="live")}}).init();
-const panel=$("#broadcastPanel");
-$("#broadcastMount").appendChild(panel);
-panel.setAttribute("role","dialog");
-panel.setAttribute("aria-modal","true");
-const closeBroadcast=document.createElement("button");
-closeBroadcast.type="button";
-closeBroadcast.className="creator-broadcast-close";
-closeBroadcast.setAttribute("aria-label","Close broadcast settings");
-closeBroadcast.textContent="× Close";
-panel.prepend(closeBroadcast);
-function closeBroadcastPanel(){panel.hidden=true;$("#liveBtn").focus();}
-function openBroadcastPanel(){panel.hidden=false;closeBroadcast.focus();}
-closeBroadcast.onclick=closeBroadcastPanel;
-$("#liveBtn").onclick=()=>panel.hidden?openBroadcastPanel():closeBroadcastPanel();
-document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!panel.hidden)closeBroadcastPanel();});
-$("#broadcastMount").addEventListener("click",e=>{if(e.target===$("#broadcastMount")&&!panel.hidden)closeBroadcastPanel();});
-$("#openProgramOutput").hidden=true;
+const goLive=new GoLivePanel({client:broadcast,studio});
+$("#liveBtn").onclick=async()=>{
+  if(studio.mode==="live"){if(confirm("End the live broadcast? Toasty will finish the automatic recording."))await studio.endLive();return}
+  goLive.open();
+};
+const MODE_LABEL={backstage:"BACKSTAGE",record:"● RECORDING",live:"● LIVE"};
+function renderMode(snap){
+  const {mode,recording,destinations}=snap;
+  const chip=$("#modeChip");chip.dataset.mode=mode;chip.textContent=MODE_LABEL[mode];
+  const dests=$("#modeDestinations");
+  dests.replaceChildren(...destinations.filter(d=>d.state!=="stopped"&&d.state!=="idle").map(d=>{const c=document.createElement("span");c.dataset.state=d.state;const name={x:"X",youtube:"YouTube",tiktok:"TikTok",instagram:"Instagram"}[d.destination]||d.destination;c.textContent=d.state==="live"?name+" ● LIVE":d.state==="error"?name+" ERROR":name+" connecting…";if(d.error)c.title=d.error;return c}));
+  const rec=$("#modeRec");rec.hidden=!(recording.active&&mode==="live");rec.textContent=recording.origin==="live-auto"?"● REC · automatic":"● REC";
+  const recBtn=$("#recordBtn");recBtn.classList.toggle("on",recording.active);recBtn.textContent=recording.active?"Stop":"Record";
+  const live=$("#liveBtn");live.classList.toggle("on",mode==="live");live.textContent=mode==="live"?"End Live":snap.busy==="going-live"?"Connecting…":"Go Live";
+  $("#markBtn").disabled=!recording.active;
+  if(snap.notice||snap.recordingError)setStatus(snap.recordingError||snap.notice);
+}
+studio.on(renderMode);renderMode(studio.snapshot());
+addEventListener("beforeunload",()=>{broadcast.stop()});
 function setStatus(s){$("#status").textContent=s}
 
 async function createCreatorAgentKey(){const s=$("#agentKeyStatus");try{const r=await fetch(studioApiEndpoint()+"/api/creator/tokens",{method:"POST",credentials:"include",headers:{"X-Toasty-CSRF":"1"}});const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not create API key.");s.textContent="API key (shown once): "+d.token;}catch(e){s.textContent=e.message;}}
@@ -232,6 +299,7 @@ $("#inviteFriendBtn").onclick=async()=>{
 };
 
 function downloadBlob(blob,name){const a=document.createElement("a");const url=URL.createObjectURL(blob);a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
-$("#downloadWebmBtn").onclick=()=>{if(!lastRecording)return;downloadBlob(lastRecording.blob,lastRecording.recordingId+".webm");};
-$("#downloadMp4Btn").onclick=async()=>{if(!lastRecording)return;const b=$("#downloadMp4Btn"),s=$("#recordingResultStatus");b.disabled=true;s.textContent="Creating MP4…";try{const form=new FormData();form.append("manifest",JSON.stringify({kind:"master-program",recordingId:lastRecording.recordingId,durationSeconds:lastRecording.durationSeconds,title:"Toasty Creator"}));form.append("source",lastRecording.blob,lastRecording.recordingId+".webm");const r=await fetch(studioApiEndpoint()+"/api/recordings/finalize",{method:"POST",credentials:"include",headers:{"X-Toasty-CSRF":"1"},body:form});if(!r.ok){let e={};try{e=await r.json()}catch{}throw new Error(e.error||"Could not create MP4.");}const blob=await r.blob();downloadBlob(blob,lastRecording.recordingId+".mp4");s.textContent="MP4 ready and downloaded.";}catch(e){s.textContent=e.message;}finally{b.disabled=false;}};
+$("#downloadWebmBtn").onclick=()=>{if(!lastRecording)return;downloadBlob(lastRecording.blob,lastRecording.recordingId+"-source.webm");};
+$("#downloadMp4Btn").onclick=()=>{if(!lastRecording||lastRecording.mp4State!=="ready")return;downloadBlob(lastRecording.mp4,lastRecording.recordingId+".mp4");};
+$("#retryMp4Btn").onclick=()=>finalizeMp4();
 $("#downloadTranscriptBtn").onclick=async()=>{if(!lastRecording)return;const b=$("#downloadTranscriptBtn"),s=$("#recordingResultStatus");b.disabled=true;s.textContent="Transcribing recording…";try{const form=new FormData();form.append("source",lastRecording.blob,lastRecording.recordingId+".webm");const r=await fetch(studioApiEndpoint()+"/api/creator/recordings/transcribe",{method:"POST",credentials:"include",headers:{"X-Toasty-CSRF":"1"},body:form});const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not transcribe recording.");downloadBlob(new Blob([d.transcript||""],{type:"text/plain;charset=utf-8"}),lastRecording.recordingId+"-transcript.txt");s.textContent="Transcript ready and downloaded.";}catch(e){s.textContent=e.message;}finally{b.disabled=false;}};

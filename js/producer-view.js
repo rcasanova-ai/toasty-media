@@ -50,6 +50,8 @@ export class ProducerView {
       masterPlayback: root.querySelector("#lvMasterPlayback"),
       masterVideo: root.querySelector("#lvMasterVideo"),
       masterDownload: root.querySelector("#lvMasterDownload"),
+      masterRetry: root.querySelector("#lvMasterRetry"),
+      playbackEchoNote: root.querySelector("#lvPlaybackEchoNote"),
       masterDownloadWebm: root.querySelector("#lvMasterDownloadWebm"),
       transcriptDownload: root.querySelector("#lvTranscriptDownload"),
       masterPlay: root.querySelector("#lvMasterPlay"),
@@ -171,6 +173,8 @@ export class ProducerView {
     });
     this.elements.masterPlay?.addEventListener("click", () => this.playMaster());
     this.elements.masterDownload?.addEventListener("click", () => this.downloadMaster());
+    this.elements.masterRetry?.addEventListener("click", () => this.retryMp4());
+    this.bindPlaybackEchoGuard();
     this.elements.masterDownloadWebm?.addEventListener("click", () => this.downloadSourceWebm());
     this.elements.transcriptDownload?.addEventListener("click", () => this.downloadTranscript());
     this.elements.masterManifest?.addEventListener("click", () => this.downloadManifest());
@@ -642,12 +646,13 @@ export class ProducerView {
     this.elements.recordTimer.hidden = !active && !saving;
     if (this.elements.recordStatus) {
       if (saving) this.elements.recordStatus.textContent = "Saving recording...";
-      else if (processing) this.elements.recordStatus.textContent = "Recording saved · Preparing MP4...";
+      else if (processing) this.elements.recordStatus.textContent = "Recording saved · Preparing MP4…";
       else if (active && recording.startedAt) {
         const elapsed = Math.floor((Date.now() - recording.startedAt) / 1000);
-        this.elements.recordStatus.textContent = `RECORDING · ${formatClock(elapsed)}`;
+        const auto = recording.origin === "live-auto" ? " · automatic (Live)" : "";
+        this.elements.recordStatus.textContent = `RECORDING · ${formatClock(elapsed)}${auto}`;
       } else if (recording.last?.finalizationStatus === "finalized") this.elements.recordStatus.textContent = "Recording ready";
-      else if (recording.last?.finalizationStatus === "failed") this.elements.recordStatus.textContent = "Recording saved";
+      else if (recording.last?.finalizationStatus === "failed") this.elements.recordStatus.textContent = "Recording saved · MP4 failed";
       else if (recording.last?.finalizationStatus === "local-only") this.elements.recordStatus.textContent = "Recording saved in this tab only";
       else if (recording.last) this.elements.recordStatus.textContent = "Recording saved";
       else this.elements.recordStatus.textContent = "Idle";
@@ -662,16 +667,18 @@ export class ProducerView {
     }
     this.renderMasterPlayback(recording.last);
     this.renderRecordingGate();
+    this.applyPlaybackEchoGuard();
   }
 
+  // Truthful recording actions. "Download MP4" only ever exists as a click target once a real MP4 has been
+  // produced by backend finalization; until then the button says what is happening ("Preparing MP4…") or
+  // offers Retry MP4. The source WebM is never handed out under an MP4 label — it lives under Advanced.
   renderMasterPlayback(last) {
     if (!this.elements.masterPlayback) return;
-    // ROOT CAUSE (MP4 finalization incident follow-up): last.sourceBlob is retained regardless of MP4
-    // finalization outcome (see live-session.js's post-stop state and its finalization-failure catch,
-    // which only ever adds fields, never clears sourceBlob) — but this method used to gate EVERY button,
-    // including a WebM download, on last.blob/.objectUrl (the MP4-or-webm-fallback pair), so a producer
-    // whose MP4 failed had no visible, dedicated way to get the WebM Toasty already saved for them. This
-    // button is gated on sourceBlob alone, independent of MP4 status, in both branches below.
+    const status = last?.finalizationStatus || "";
+    const mp4Ready = Boolean(last?.masterBlob) && status === "finalized";
+    const preparing = status === "pending-finalization";
+    const failed = status === "failed" || status === "local-only";
     if (this.elements.masterDownloadWebm) this.elements.masterDownloadWebm.disabled = !last?.sourceBlob;
     if (this.elements.transcriptDownload) {
       const hasTranscript = (this.session.transcript?.lines || []).length > 0;
@@ -680,54 +687,102 @@ export class ProducerView {
       this.elements.transcriptDownload.title = hasTranscript ? "Download transcript as TXT and JSON" : "No transcript captured for this recording";
     }
     const playbackUrl = last?.objectUrl || last?.sourceObjectUrl || "";
-    if (!last?.blob || !playbackUrl) {
-      this.elements.masterPlayback.hidden = !last;
-      if (this.elements.masterVideo) this.elements.masterVideo.removeAttribute("src");
-      if (this.elements.masterDownload) this.elements.masterDownload.disabled = true;
-      if (this.elements.masterPlay) this.elements.masterPlay.disabled = true;
-      if (this.elements.masterManifest) this.elements.masterManifest.disabled = !last?.manifest;
-      if (this.elements.masterManifestNote && last?.finalizationStatus === "pending-finalization") {
-        this.elements.masterManifestNote.textContent = "Recording saved · Preparing MP4...";
-      } else if (this.elements.masterManifestNote && last?.finalizationStatus === "failed") {
-        this.elements.masterManifestNote.textContent = "Recording saved. MP4 processing failed and can be retried.";
-      } else if (this.elements.masterManifestNote && last?.finalizationStatus === "local-only") {
-        this.elements.masterManifestNote.textContent = "Recording is only available in this tab. Keep this page open and download details before leaving.";
-      }
-      return;
+    this.elements.masterPlayback.hidden = !last;
+    if (this.elements.masterDownload) {
+      this.elements.masterDownload.disabled = !mp4Ready;
+      this.elements.masterDownload.hidden = failed;
+      this.elements.masterDownload.textContent = preparing ? "Preparing MP4…" : "Download MP4";
     }
-    this.elements.masterPlayback.hidden = false;
-    if (this.elements.masterDownload) this.elements.masterDownload.disabled = false;
-    if (this.elements.masterPlay) this.elements.masterPlay.disabled = false;
+    if (this.elements.masterRetry) {
+      this.elements.masterRetry.hidden = !failed;
+      this.elements.masterRetry.disabled = !last?.sourceBlob;
+    }
+    if (this.elements.masterPlay) this.elements.masterPlay.disabled = !playbackUrl;
     if (this.elements.masterManifest) this.elements.masterManifest.disabled = !last?.manifest;
-    if (this.elements.masterVideo && this.elements.masterVideo.src !== playbackUrl) {
-      this.elements.masterVideo.src = playbackUrl;
+    if (this.elements.masterVideo) {
+      if (playbackUrl && this.elements.masterVideo.src !== playbackUrl) this.elements.masterVideo.src = playbackUrl;
+      else if (!playbackUrl) this.elements.masterVideo.removeAttribute("src");
     }
-    if (this.elements.masterManifestNote) {
+    if (this.elements.masterManifestNote && last) {
       const duration = formatClock(Math.round(last.durationSeconds || 0));
-      this.elements.masterManifestNote.textContent = `${duration}. MP4 recording. Play to confirm Host, Guest, lower thirds, TAKE LIVE, speech, and soundboard.`;
+      if (mp4Ready) this.elements.masterManifestNote.textContent = `${duration} · MP4 ready. Play to confirm Host, Guest, lower thirds, speech and soundboard.`;
+      else if (preparing) this.elements.masterManifestNote.textContent = `${duration} · Recording saved. Preparing MP4… you can already play it; the MP4 download unlocks when it's ready.`;
+      else if (status === "local-only") this.elements.masterManifestNote.textContent = `${duration} · Recording is only in this tab and MP4 could not be prepared. Retry MP4, or keep this page open and use Advanced → Download Source WebM.`;
+      else if (failed) this.elements.masterManifestNote.textContent = `${duration} · MP4 could not be prepared. Retry MP4 — your recording is safe (Advanced → Download Source WebM).`;
+      else this.elements.masterManifestNote.textContent = `${duration} · Recording saved.`;
     }
   }
 
   playMaster() {
     const video = this.elements.masterVideo;
     if (!video?.src) return;
+    this.applyPlaybackEchoGuard();
     video.play?.().catch(() => {});
   }
 
   downloadMaster() {
-  const last = this.session.recording.last;
-  if (!last?.blob) return;
+    const last = this.session.recording.last;
+    // Truthful by construction: only a finalized MP4 is ever downloaded here. Anything else is explained,
+    // never silently swapped for a WebM and never a silent no-op.
+    if (!last?.masterBlob || last.finalizationStatus !== "finalized") {
+      this.elements.masterManifestNote.textContent = last?.finalizationStatus === "pending-finalization"
+        ? "The MP4 is still being prepared. The download unlocks as soon as it's ready."
+        : "There is no MP4 yet. Use Retry MP4.";
+      return;
+    }
+    downloadFile(last.masterBlob, `${last.recordingId}.mp4`);
+  }
 
-  const isMp4 = Boolean(last.masterBlob);
-  const extension = isMp4 ? "mp4" : "webm";
+  async retryMp4() {
+    if (this.elements.masterRetry) this.elements.masterRetry.disabled = true;
+    try {
+      await this.session.retryRecordingFinalization();
+    } catch (error) {
+      console.error("[Producer] Retry MP4 failed", error);
+    } finally {
+      this.renderMasterPlayback(this.session.recording.last);
+    }
+  }
 
-  if (!isMp4) return;
-  downloadFile(last.blob, `${last.recordingId}.${extension}`);
-}
+  // ---- Playback must never echo into Program ----
+  // The recording played back here comes out of THIS machine's speakers. If the host mic is live (or Studio is
+  // recording / live) that audio re-enters Program through the mic and loops — the loud echo seen when
+  // playing a recording in Producer. The recording file itself was never the problem; this is local
+  // monitoring. While anything could pick the speakers up, playback is paused and held muted.
+  playbackIsHot() {
+    const session = this.session;
+    const micOpen = session.hostState === "in-studio" && !session.av?.micMuted;
+    return Boolean(session.recording?.active || session.studio?.mode !== "backstage" || micOpen);
+  }
 
-  // Explicit, dedicated WebM download — always the original tab-capture source, never the MP4, and
-  // available whether or not MP4 finalization ever succeeded. Distinct from downloadMaster() above,
-  // which downloads whichever of the two is currently "the" recording depending on finalization state.
+  applyPlaybackEchoGuard() {
+    const video = this.elements.masterVideo;
+    const note = this.elements.playbackEchoNote;
+    if (!video) return;
+    const hot = this.playbackIsHot();
+    if (hot) {
+      if (!video.paused) video.pause();
+      video.muted = true;
+    }
+    if (note) {
+      note.hidden = !hot;
+      note.textContent = hot
+        ? "Playback is muted while your mic is open or you are recording / live, so it can't echo into Program. Mute your mic or finish recording to hear it."
+        : "";
+    }
+  }
+
+  bindPlaybackEchoGuard() {
+    const video = this.elements.masterVideo;
+    if (!video) return;
+    video.addEventListener("play", () => this.applyPlaybackEchoGuard());
+    video.addEventListener("volumechange", () => { if (!video.muted && this.playbackIsHot()) this.applyPlaybackEchoGuard(); });
+    this.session.on("av", () => this.applyPlaybackEchoGuard());
+    this.session.on("studio", () => this.applyPlaybackEchoGuard());
+  }
+
+  // Explicit, dedicated WebM download — always the original tab-capture source (Advanced), never labelled
+  // as MP4, available whether or not MP4 finalization ever succeeded.
   downloadSourceWebm() {
     const last = this.session.recording.last;
     if (!last?.sourceBlob) return;
@@ -762,7 +817,7 @@ export class ProducerView {
       return;
     }
     this.elements.recordNote.textContent = this.session.programOutput?.readyToRecord
-      ? "Click RECORD PROGRAM, select the Program Output tab, and turn Share tab audio ON."
+      ? "Click Record, select the Program Output tab, and turn Share tab audio ON. Record and Go Live share that one pick."
       : "Record is ready. Clicking it opens Program Output and then the browser capture picker.";
   }
 
@@ -789,7 +844,7 @@ export class ProducerView {
         await this.session.startRecording();
       }
     } catch (error) {
-      this.elements.recordNote.textContent = `${humanizeError(error)} Click RECORD PROGRAM to try again.`;
+      this.elements.recordNote.textContent = `${humanizeError(error)} Click Record to try again.`;
       this.elements.recordNote.dataset.error = "true";
     } finally {
       this.elements.recordToggle.disabled = this.session.recording.status === "saving" || (!this.session.canRecord() && !this.session.recording.active);

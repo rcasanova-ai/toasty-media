@@ -91,7 +91,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const scryptAsync = promisify(scrypt);
 const execFileAsync = promisify(execFile);
 const rateBuckets = new Map();
-const creatorBroadcastJobs = new Map();
+const studioBroadcastJobs = new Map();
 const TOASTY_EXPERT_DISCOVERY_PRICE = 0.001;
 const TOASTY_EXPERT_DISCOVERY_RECIPIENT = process.env.SVM_PAY_TO || process.env.TOASTY_EXPERTS_X402_RECIPIENT || "";
 const TOASTY_SOLANA_NETWORK = process.env.TOASTY_SOLANA_NETWORK || "solana-devnet";
@@ -322,28 +322,48 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  // ---- Creator RTMP broadcast: authenticated by the existing Studio session ----
-  if (req.method === "POST" && req.url === "/api/organizations/creator-broadcast/start") {
-    if (!requireCsrf(req, res)) return;
-    const session = await requireSession(req, res); if (!session) return;
-    const body = await readJson(req, 64 * 1024);
-    const id=randomUUID();
-    const destinations=Array.isArray(body?.destinations)&&body.destinations.length?body.destinations:[{destination:body.destination,streamUrl:body.streamUrl,streamKey:body.streamKey}];
-    const cleanDestinations=destinations.map((d)=>{if(typeof d?.streamUrl!=="string"||!/^rtmps?:\/\//i.test(d.streamUrl))throw httpError(400,"Every destination needs a valid RTMP or RTMPS URL.");if(typeof d?.streamKey!=="string"||d.streamKey.trim().length<2)throw httpError(400,"Every destination needs a stream key.");return {destination:String(d.destination||"custom"),streamUrl:d.streamUrl.trim(),streamKey:d.streamKey.trim()};});
-    creatorBroadcastJobs.set(id,{id,userId:session.id,state:"ready",createdAt:Date.now(),destinations:cleanDestinations,width:Math.min(1920,Math.max(640,Number(body.width)||1920)),height:Math.min(1080,Math.max(360,Number(body.height)||1080)),fps:Math.min(60,Math.max(24,Number(body.fps)||30)),bitrateKbps:Math.min(12000,Math.max(1000,Number(body.bitrateKbps)||6000)),process:null,stderr:""});
-    sendJson(req,res,201,{id,state:"ready",ingestPath:`/api/organizations/creator-broadcast/${id}/ingest`}); return;
-  }
-  const creatorBroadcastIngest=req.url?.match(/^\/api\/organizations\/creator-broadcast\/([a-f0-9-]+)\/ingest$/i);
-  if(req.method==="POST"&&creatorBroadcastIngest){
-    if(!requireCsrf(req,res))return; const session=await requireSession(req,res); if(!session)return;
-    const job=creatorBroadcastJobs.get(creatorBroadcastIngest[1]); if(!job||job.userId!==session.id){sendJson(req,res,404,{error:"Broadcast not found."});return;}
-    if(job.process){sendJson(req,res,409,{error:"Broadcast is already ingesting."});return;} startCreatorBroadcastFfmpeg(job,req,res); return;
-  }
-  const creatorBroadcastStop=req.url?.match(/^\/api\/organizations\/creator-broadcast\/([a-f0-9-]+)\/stop$/i);
-  if(req.method==="POST"&&creatorBroadcastStop){
-    if(!requireCsrf(req,res))return; const session=await requireSession(req,res); if(!session)return;
-    const job=creatorBroadcastJobs.get(creatorBroadcastStop[1]); if(!job||job.userId!==session.id){sendJson(req,res,404,{error:"Broadcast not found."});return;}
-    stopCreatorBroadcast(job); creatorBroadcastJobs.delete(job.id); sendJson(req,res,200,{id:job.id,state:"stopped"}); return;
+  // ---- Studio broadcast (Program -> external destinations): authenticated by the Studio session ----
+  // Destination credentials (RTMP(S) URL + stream key) are saved ONCE server-side, encrypted, scoped to the
+  // caller's organization, and never returned to the browser. The browser only names destinations to
+  // broadcast to; it streams the Program as many SHORT chunk requests (no long-lived request for a proxy
+  // to time out or buffer) — see startStudioBroadcast / acceptStudioBroadcastChunk.
+  if (req.url?.startsWith("/api/organizations/creator-broadcast/") && req.method !== "OPTIONS") {
+    const pathname = req.url.split("?")[0];
+    const sub = pathname.slice("/api/organizations/creator-broadcast/".length);
+    if (req.method === "GET" && sub === "destinations") {
+      const session = await requireSession(req, res); if (!session) return;
+      await handleBroadcastDestinationsList(req, res, session); return;
+    }
+    if (req.method === "POST" && sub === "destinations") {
+      if (!requireCsrf(req, res) || !limit(req, res, "broadcast-destination-save", 30, 15 * 60 * 1000)) return;
+      const session = await requireSession(req, res); if (!session) return;
+      await handleBroadcastDestinationSave(req, res, session); return;
+    }
+    const destinationDelete = sub.match(/^destinations\/([a-z0-9-]+)\/delete$/);
+    if (req.method === "POST" && destinationDelete) {
+      if (!requireCsrf(req, res)) return;
+      const session = await requireSession(req, res); if (!session) return;
+      await handleBroadcastDestinationDelete(req, res, session, destinationDelete[1]); return;
+    }
+    if (req.method === "POST" && sub === "start") {
+      if (!requireCsrf(req, res) || !limit(req, res, "broadcast-start", 30, 15 * 60 * 1000)) return;
+      const session = await requireSession(req, res); if (!session) return;
+      await handleStudioBroadcastStart(req, res, session); return;
+    }
+    const jobRoute = sub.match(/^([a-f0-9-]{36})\/(chunk|status|stop)$/i);
+    if (jobRoute) {
+      const [, jobId, action] = jobRoute;
+      if (action === "status" ? req.method !== "GET" : req.method !== "POST") { sendJson(req, res, 405, { error: "Method not allowed." }); return; }
+      if (req.method === "POST" && !requireCsrf(req, res)) return;
+      const session = await requireSession(req, res); if (!session) return;
+      const job = studioBroadcastJobs.get(jobId);
+      if (!job || job.userId !== session.id) { sendJson(req, res, 404, { error: "Broadcast not found." }); return; }
+      if (action === "chunk") await acceptStudioBroadcastChunk(req, res, job);
+      else if (action === "status") sendJson(req, res, 200, studioBroadcastPublic(job));
+      else { await stopStudioBroadcast(job, "stopped by producer"); studioBroadcastJobs.delete(job.id); sendJson(req, res, 200, studioBroadcastPublic(job)); }
+      return;
+    }
+    sendJson(req, res, 404, { error: "Not found." }); return;
   }
 
   // ---- Creator Agent API (local Ollama -> Toasty) ----
@@ -10807,20 +10827,249 @@ function safeDriveFolderName(value) {
   return String(value || "General").trim().replace(/[\\/:*?"<>|\r\n]+/g, "-").replace(/\s+/g, " ").slice(0, 80) || "General";
 }
 
-function startCreatorBroadcastFfmpeg(job,req,res){
-  const destinations=job.destinations||[];
-  const gop=Math.max(job.fps*2,48);
-  const split=destinations.length>1?["-filter_complex",`[0:v]split=${destinations.length}${destinations.map((_,i)=>`[v${i}]`).join("")}`]:[];
-  const outputs=destinations.flatMap((d,i)=>{const target=`${d.streamUrl.replace(/\\/+$/,"")}/${d.streamKey.replace(/^\\/+/,"")}`;return [...(destinations.length>1?["-map",`[v${i}]`,"-map","0:a?"]:["-map","0:v","-map","0:a?"]),"-vf",`scale=${job.width}:${job.height}:force_original_aspect_ratio=decrease,pad=${job.width}:${job.height}:(ow-iw)/2:(oh-ih)/2`,"-r",String(job.fps),"-c:v","libx264","-preset","veryfast","-tune","zerolatency","-pix_fmt","yuv420p","-b:v",`${job.bitrateKbps}k`,"-maxrate",`${job.bitrateKbps}k`,"-bufsize",`${job.bitrateKbps*2}k`,"-g",String(gop),"-keyint_min",String(gop),"-c:a","aac","-b:a","128k","-ar","48000","-f","flv",target];});
-  const args=["-hide_banner","-loglevel","warning","-fflags","+genpts","-f","webm","-i","pipe:0",...split,...outputs];
-  const ffmpeg=spawn(FFMPEG,args,{stdio:["pipe","ignore","pipe"]}); job.process=ffmpeg;job.state="live";job.startedAt=Date.now();job.stderr="";
-  ffmpeg.stderr.on("data",x=>{job.stderr=(job.stderr+x.toString()).slice(-8000);});
-  ffmpeg.on("exit",(code,signal)=>{job.process=null;job.state=code===0||signal==="SIGTERM"?"stopped":"failed";job.exitCode=code;job.signal=signal;});
-  req.on("aborted",()=>stopCreatorBroadcast(job));req.on("error",()=>stopCreatorBroadcast(job));req.pipe(ffmpeg.stdin);
-  res.writeHead(200,{"Content-Type":"application/json","Cache-Control":"no-store","Connection":"keep-alive"});
-  ffmpeg.on("exit",()=>{if(!res.writableEnded)res.end(JSON.stringify({id:job.id,state:job.state,exitCode:job.exitCode??null,error:job.state==="failed"?"Broadcast destination failed.":null}));});
+// ---- Studio broadcast core ----
+// ONE Program in, ONE encode, N isolated relays out:
+//   browser chunks -> encoder ffmpeg (WebM -> H.264/AAC FLV on stdout) -> relay ffmpeg per destination (-c copy)
+// A relay that fails (bad key, destination outage) only takes ITS destination down; the encoder and every
+// other relay keep running. Chunked ingest (many short POSTs) means no HTTP request ever has to stay open
+// behind nginx, whose proxy_read_timeout / request buffering would otherwise kill or stall a long stream.
+const BROADCAST_DESTINATION_LABELS = { x: "X", youtube: "YouTube", tiktok: "TikTok", instagram: "Instagram", custom: "Custom RTMP" };
+const BROADCAST_CHUNK_MAX_BYTES = 8 * 1024 * 1024;
+const BROADCAST_IDLE_TIMEOUT_MS = 20 * 1000;
+
+async function resolveBroadcastOrganization(req, res, session, requestedId) {
+  // Same resolution the rest of Studio uses (honors organization-locked accounts and verifies membership).
+  let organizationId = await resolveOrganizationForSession(session, requestedId || null);
+  if (!organizationId) {
+    await ensureDefaultOrganizationForUser({ id: session.id, name: session.name, email: session.email });
+    organizationId = await resolveOrganizationForSession(session, null);
+  }
+  if (!organizationId) { sendJson(req, res, 404, { error: "Organization not found." }); return null; }
+  return organizationId;
 }
-function stopCreatorBroadcast(job){if(job.process&&!job.process.killed){job.process.stdin?.end();job.process.kill("SIGTERM");}job.state="stopped";}
+
+function cleanBroadcastDestinationName(value) {
+  const name = String(value || "").trim().toLowerCase();
+  return Object.hasOwn(BROADCAST_DESTINATION_LABELS, name) ? name : "";
+}
+
+async function handleBroadcastDestinationsList(req, res, session) {
+  const organizationId = await resolveBroadcastOrganization(req, res, session, new URL(req.url, "http://x").searchParams.get("organizationId")); if (!organizationId) return;
+  const result = await db("list_broadcast_destinations", { organizationId });
+  sendJson(req, res, 200, { organizationId, destinations: result.destinations || [] });
+}
+
+async function handleBroadcastDestinationSave(req, res, session) {
+  const body = await readJson(req, 16 * 1024);
+  const destination = cleanBroadcastDestinationName(body?.destination);
+  if (!destination) throw httpError(400, "Choose X, YouTube, TikTok, Instagram or Custom RTMP.");
+  const streamUrl = String(body?.streamUrl || "").trim();
+  const streamKey = String(body?.streamKey || "").trim();
+  let parsed;
+  try { parsed = new URL(streamUrl); } catch { throw httpError(400, "Paste the full RTMP or RTMPS URL."); }
+  if (!/^rtmps?:$/.test(parsed.protocol) || !parsed.hostname) throw httpError(400, "The URL must start with rtmp:// or rtmps://.");
+  if (/[\s"'`;|&<>$\\]/.test(streamUrl) || streamUrl.length > 500) throw httpError(400, "That URL has characters a stream URL cannot contain.");
+  if (streamKey.length < 2 || streamKey.length > 400 || /[\s"'`;|&<>$\\]/.test(streamKey)) throw httpError(400, "Paste the stream key exactly as the destination shows it.");
+  const organizationId = await resolveBroadcastOrganization(req, res, session, body?.organizationId); if (!organizationId) return;
+  const encryptedSecret = encryptSecret(JSON.stringify({ streamUrl, streamKey }));
+  const result = await db("upsert_broadcast_destination", {
+    id: randomUUID(), organizationId, destination, label: BROADCAST_DESTINATION_LABELS[destination],
+    urlHost: parsed.hostname, keyLast4: streamKey.slice(-4), encryptedSecret
+  });
+  sendJson(req, res, 200, { destination: result.destination });
+}
+
+async function handleBroadcastDestinationDelete(req, res, session, rawDestination) {
+  const destination = cleanBroadcastDestinationName(rawDestination);
+  if (!destination) throw httpError(400, "Unknown destination.");
+  const organizationId = await resolveBroadcastOrganization(req, res, session, null); if (!organizationId) return;
+  await db("delete_broadcast_destination", { organizationId, destination });
+  sendJson(req, res, 200, { ok: true });
+}
+
+async function handleStudioBroadcastStart(req, res, session) {
+  const body = await readJson(req, 16 * 1024);
+  const organizationId = await resolveBroadcastOrganization(req, res, session, body?.organizationId); if (!organizationId) return;
+  const names = [...new Set((Array.isArray(body?.destinations) ? body.destinations : []).map(cleanBroadcastDestinationName).filter(Boolean))];
+  if (!names.length) throw httpError(400, "Choose at least one destination to go live to.");
+  const targets = [];
+  for (const name of names) {
+    const stored = await db("get_broadcast_destination_secret", { organizationId, destination: name });
+    if (!stored.destination?.encryptedSecret) throw httpError(409, `${BROADCAST_DESTINATION_LABELS[name]} is not connected yet. Connect it first.`);
+    const secret = JSON.parse(decryptSecret(stored.destination.encryptedSecret));
+    targets.push({ destination: name, label: BROADCAST_DESTINATION_LABELS[name], streamUrl: secret.streamUrl, streamKey: secret.streamKey });
+  }
+  // One active broadcast per user: a new start replaces a stale one rather than stacking ffmpeg processes.
+  for (const existing of studioBroadcastJobs.values()) {
+    if (existing.userId === session.id) { await stopStudioBroadcast(existing, "replaced by a new broadcast"); studioBroadcastJobs.delete(existing.id); }
+  }
+  const job = {
+    id: randomUUID(), userId: session.id, organizationId, state: "starting", createdAt: Date.now(), startedAt: null,
+    width: Math.min(1920, Math.max(640, Number(body?.width) || 1920)),
+    height: Math.min(1080, Math.max(360, Number(body?.height) || 1080)),
+    fps: Math.min(60, Math.max(24, Number(body?.fps) || 30)),
+    bitrateKbps: Math.min(12000, Math.max(1000, Number(body?.bitrateKbps) || 6000)),
+    nextSeq: 0, bytesIn: 0, lastChunkAt: Date.now(), encoder: null, stopping: false, watchdog: null,
+    targets: targets.map((target) => ({ ...target, state: "connecting", error: "", relay: null, stderr: "" }))
+  };
+  studioBroadcastJobs.set(job.id, job);
+  try { launchStudioBroadcast(job); } catch (error) { studioBroadcastJobs.delete(job.id); throw httpError(500, "The broadcast engine could not start."); }
+  sendJson(req, res, 201, studioBroadcastPublic(job));
+}
+
+function studioBroadcastPublic(job) {
+  const destinations = job.targets.map((t) => ({ destination: t.destination, label: t.label, state: t.state, error: t.error || "" }));
+  return { id: job.id, state: job.state, live: destinations.some((d) => d.state === "live"), bytesIn: job.bytesIn, nextSeq: job.nextSeq, destinations };
+}
+
+function redactBroadcastSecrets(text, target) {
+  let out = String(text || "");
+  for (const secret of [target.streamKey, target.streamUrl]) if (secret) out = out.split(secret).join("***");
+  return out.replace(/rtmps?:\/\/\S+/gi, "rtmp://***").trim();
+}
+
+function launchStudioBroadcast(job) {
+  const gop = Math.max(job.fps * 2, 48);
+  const encoderArgs = [
+    "-hide_banner", "-loglevel", "warning", // NO "+nobuffer": it discards the probed packets, including the stream's FIRST keyframe, so the encoder then
+    // emits nothing until the next keyframe (seconds later with Chrome MediaRecorder's long keyframe interval)
+    // and logs "Discarding interframe without a prior keyframe". Verified empirically.
+    "-fflags", "+genpts", "-analyzeduration", "500000", "-probesize", "500000",
+    "-f", "webm", "-i", "pipe:0",
+    "-vf", `scale=${job.width}:${job.height}:force_original_aspect_ratio=decrease,pad=${job.width}:${job.height}:(ow-iw)/2:(oh-ih)/2`,
+    "-r", String(job.fps), "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency", "-pix_fmt", "yuv420p",
+    "-b:v", `${job.bitrateKbps}k`, "-maxrate", `${job.bitrateKbps}k`, "-bufsize", `${job.bitrateKbps * 2}k`, "-g", String(gop), "-keyint_min", String(gop),
+    "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2",
+    "-flvflags", "no_duration_filesize", "-f", "flv", "pipe:1"
+  ];
+  const encoder = spawn(FFMPEG, encoderArgs, { stdio: ["pipe", "pipe", "pipe"] });
+  job.encoder = encoder;
+  let encoderStderr = "";
+  encoder.stderr.on("data", (chunk) => {
+    encoderStderr = (encoderStderr + chunk.toString()).slice(-4000);
+    // Ops visibility only: the encoder never sees stream URLs/keys (those live in the relays), so this is safe to log.
+    console.warn(`[studio-broadcast ${job.id.slice(0, 8)}] encoder: ${chunk.toString().trim().slice(0, 300)}`);
+  });
+  encoder.stdin.on("error", () => {});
+  encoder.stdout.on("data", (chunk) => {
+    for (const target of job.targets) {
+      const relay = target.relay;
+      if (!relay || !relay.stdin.writable) continue;
+      if (relay.stdin.writableLength > 32 * 1024 * 1024) { failBroadcastTarget(job, target, "Destination is too slow to keep up."); continue; }
+      relay.stdin.write(chunk);
+    }
+  });
+  encoder.on("error", () => { job.state = "failed"; job.targets.forEach((t) => failBroadcastTarget(job, t, "Broadcast engine unavailable.")); });
+  encoder.on("exit", (code) => {
+    job.encoder = null;
+    for (const target of job.targets) { try { target.relay?.stdin.end(); } catch (_) {} }
+    if (!job.stopping) {
+      job.state = "failed";
+      const detail = code === 0 ? "The Program feed ended." : "The Program encoder stopped.";
+      job.targets.forEach((t) => { if (t.state !== "error") failBroadcastTarget(job, t, detail); });
+    }
+  });
+  for (const target of job.targets) {
+    const url = `${target.streamUrl.replace(/\/+$/, "")}/${target.streamKey.replace(/^\/+/, "")}`;
+    const relay = spawn(FFMPEG, ["-hide_banner", "-loglevel", "warning", "-nostats", "-progress", "pipe:1", "-f", "flv", "-i", "pipe:0", "-c", "copy", "-f", "flv", url], { stdio: ["pipe", "pipe", "pipe"] });
+    target.relay = relay;
+    relay.stdin.on("error", () => {});
+    // -progress lines only report frames/bytes once the RTMP handshake succeeded and media is flowing,
+    // so "live" here means the destination is ACTUALLY receiving Program — not merely that we tried.
+    let progressBuffer = "";
+    relay.stdout.on("data", (chunk) => {
+      progressBuffer = (progressBuffer + chunk.toString()).slice(-2000);
+      const frame = /frame=(\d+)/g; let m, last = 0;
+      while ((m = frame.exec(progressBuffer))) last = Number(m[1]);
+      const size = /total_size=(\d+)/g; let s, bytes = 0;
+      while ((s = size.exec(progressBuffer))) bytes = Number(s[1]);
+      if ((last > 0 || bytes > 4096) && target.state === "connecting") { target.state = "live"; refreshStudioBroadcastState(job); }
+    });
+    relay.stderr.on("data", (chunk) => { target.stderr = (target.stderr + chunk.toString()).slice(-3000); });
+    relay.on("error", () => failBroadcastTarget(job, target, "Broadcast engine unavailable."));
+    relay.on("exit", (code) => {
+      target.relay = null;
+      if (job.stopping || target.state === "stopped") { target.state = "stopped"; return; }
+      const reason = redactBroadcastSecrets(target.stderr.split("\n").filter(Boolean).pop(), target);
+      failBroadcastTarget(job, target, code === 0 ? "The destination closed the stream." : `${target.label} rejected or dropped the stream. Check the URL and stream key.${reason ? ` (${reason.slice(0, 120)})` : ""}`);
+    });
+  }
+  job.watchdog = setInterval(() => {
+    if (Date.now() - job.lastChunkAt > BROADCAST_IDLE_TIMEOUT_MS) {
+      stopStudioBroadcast(job, "Program feed stopped arriving").finally(() => studioBroadcastJobs.delete(job.id));
+    }
+  }, 5000);
+  job.watchdog.unref?.();
+}
+
+function failBroadcastTarget(job, target, message) {
+  if (target.state === "error" || target.state === "stopped") return;
+  target.state = "error";
+  target.error = message;
+  try { target.relay?.stdin.end(); target.relay?.kill("SIGTERM"); } catch (_) {}
+  refreshStudioBroadcastState(job);
+}
+
+// Studio is "live" only while at least one destination is actually receiving. When the last one is gone the
+// encoder is shut down; the browser sees every destination in a terminal state.
+function refreshStudioBroadcastState(job) {
+  if (job.stopping) return;
+  if (job.targets.some((t) => t.state === "live")) { job.state = "live"; job.startedAt = job.startedAt || Date.now(); return; }
+  if (job.targets.every((t) => t.state === "error" || t.state === "stopped")) {
+    job.state = "failed";
+    try { job.encoder?.stdin.end(); job.encoder?.kill("SIGTERM"); } catch (_) {}
+  }
+}
+
+async function acceptStudioBroadcastChunk(req, res, job) {
+  if (job.stopping || job.state === "failed") { sendJson(req, res, 410, { ...studioBroadcastPublic(job), error: "Broadcast has ended." }); return; }
+  const chunks = []; let size = 0;
+  for await (const piece of req) {
+    size += piece.length;
+    if (size > BROADCAST_CHUNK_MAX_BYTES) { sendJson(req, res, 413, { error: "Chunk too large." }); return; }
+    chunks.push(piece);
+  }
+  job.lastChunkAt = Date.now();
+  // Body = 4-byte big-endian chunk sequence number + media bytes. The sequence rides in the body (not the URL
+  // or a custom header) so every chunk POSTs to ONE constant URL and the browser caches the CORS preflight.
+  const body = Buffer.concat(chunks);
+  if (body.length < 4) { sendJson(req, res, 400, { error: "Missing chunk sequence." }); return; }
+  const seq = body.readUInt32BE(0);
+  if (seq < job.nextSeq) { sendJson(req, res, 200, { ...studioBroadcastPublic(job), duplicate: true }); return; }
+  if (seq > job.nextSeq) { sendJson(req, res, 409, { ...studioBroadcastPublic(job), error: "Chunk out of order." }); return; }
+  const data = body.subarray(4);
+  const stdin = job.encoder?.stdin;
+  if (!stdin?.writable) { sendJson(req, res, 410, { ...studioBroadcastPublic(job), error: "Broadcast has ended." }); return; }
+  job.nextSeq += 1; job.bytesIn += data.length;
+  if (!stdin.write(data)) {
+    await new Promise((resolve) => {
+      const done = () => { stdin.off("drain", done); stdin.off("close", done); resolve(); };
+      stdin.on("drain", done); stdin.on("close", done);
+    });
+  }
+  sendJson(req, res, 200, studioBroadcastPublic(job));
+}
+
+async function stopStudioBroadcast(job, reason = "stopped") {
+  if (job.stopping) return;
+  job.stopping = true;
+  if (job.watchdog) clearInterval(job.watchdog);
+  job.state = "stopped";
+  for (const target of job.targets) { if (target.state !== "error") target.state = "stopped"; }
+  const encoder = job.encoder;
+  try { encoder?.stdin.end(); } catch (_) {}
+  await new Promise((resolve) => {
+    if (!encoder) return resolve();
+    const timer = setTimeout(() => { try { encoder.kill("SIGKILL"); } catch (_) {} resolve(); }, 4000);
+    encoder.once("exit", () => { clearTimeout(timer); resolve(); });
+  });
+  for (const target of job.targets) {
+    const relay = target.relay;
+    if (!relay) continue;
+    try { relay.stdin.end(); } catch (_) {}
+    setTimeout(() => { try { relay.kill("SIGTERM"); } catch (_) {} }, 1500).unref?.();
+  }
+}
 
 function httpError(statusCode, publicMessage) {
   const error = new Error(publicMessage);

@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="../css/studio.css">
     <link rel="stylesheet" href="../css/studio-white-label.css">
     <link rel="stylesheet" href="../css/studio-shell-v2.css">
+    <link rel="stylesheet" href="../css/golive.css">
     <script>
       if (window.top === window.self && /\/director\.html$/i.test(window.location.pathname)) {
         window.location.replace(`./${window.location.search}`);
@@ -407,30 +408,31 @@
         </section>
 
         <section class="live-console live-studio-panel" id="liveConsole" data-lv-view="host" aria-label="Live Studio console">
-          <header class="lv-topbar" aria-label="Producer status">
+          <header class="lv-topbar" aria-label="Studio status and controls">
             <div class="lv-topbar-left">
               <span class="lv-brand-chip" id="lvTopBrand">Toasty Media</span>
               <strong class="lv-session-name" id="lvTopSessionName">Live Studio</strong>
-              <span class="lv-live-state" id="lvTopLiveState" data-state="backstage">BACKSTAGE</span>
-              <span class="lv-health-chip" id="lvTopDestinations" hidden>OFFLINE</span>
-              <span class="lv-health-chip" id="lvTopRecordingState" data-state="off">REC OFF</span>
+              <!-- The ONE status the producer needs: BACKSTAGE, RECORDING or LIVE. Derived only from the
+                   Record/Live orchestrator (js/program-orchestrator.js) — never from camera, guests,
+                   screen share, Program Output or VDO connectivity. -->
+              <span class="lv-live-state lv-mode-chip" id="lvTopLiveState" data-state="backstage" role="status" aria-live="polite">BACKSTAGE</span>
+              <span class="lv-dest-chips" id="lvTopDestinations" hidden aria-label="Live destinations"></span>
+              <span class="lv-dest-chip lv-rec-state" id="lvTopRecordingState" data-state="off" hidden>● REC</span>
             </div>
             <nav class="lv-view-switch" aria-label="Studio view">
               <button type="button" class="lv-view-btn" data-lv-view-btn="host" aria-pressed="true">Host</button>
               <button type="button" class="lv-view-btn" data-lv-view-btn="producer" aria-pressed="false">Producer</button>
             </nav>
+            <div class="lv-primary-actions" role="group" aria-label="Share, record and go live">
+              <button type="button" class="lv-primary-btn" id="lvTopShareScreen" aria-pressed="false">Share Screen</button>
+              <button type="button" class="lv-primary-btn lv-primary-btn--record" id="lvTopRecord" aria-pressed="false">Record</button>
+              <button type="button" class="lv-primary-btn lv-primary-btn--live lv-live-launch" id="lvTopGoLive" aria-pressed="false">Go Live</button>
+            </div>
             <div class="lv-topbar-status">
-              <span class="lv-rec-chip" id="lvRecChip" hidden>
-                <span class="lv-rec-dot" aria-hidden="true"></span>
-                <span>REC</span>
-                <span id="lvRecChipTime">00:00:00</span>
-              </span>
               <span class="lv-policy-chip" id="lvPolicyChip" hidden></span>
               <span class="lv-health-chip" id="lvTopHealth">Offline</span>
               <span class="lv-identity-chip" id="lvTopHost">Host: Not joined</span>
               <span class="lv-identity-chip" id="lvTopProducer">Producer: Local</span>
-              <button type="button" class="lv-mini-btn" id="lvTopRecord">RECORD</button>
-              <button type="button" class="lv-mini-btn lv-live-launch" id="lvTopGoLive">GO LIVE</button>
               <button type="button" class="lv-mini-btn" id="lvTopProgramOutput">Program Output</button>
               <button type="button" class="lv-mini-btn" id="lvTopSettings">Dashboard</button>
               <button type="button" class="lv-mini-btn lv-mini-btn-danger" id="lvTopEndSession">End Session</button>
@@ -641,7 +643,7 @@
               </label>
               <div class="po-button-group" id="lvPoSceneGroup" role="radiogroup" aria-label="Program scene">
                 <button type="button" class="po-swatch" data-scene="holding" aria-pressed="true">Starting Soon</button>
-                <button type="button" class="po-swatch" data-scene="live" aria-pressed="false">Live</button>
+                <button type="button" class="po-swatch" data-scene="live" aria-pressed="false">Show</button>
                 <button type="button" class="po-swatch" data-scene="brb" aria-pressed="false">BRB</button>
                 <button type="button" class="po-swatch po-swatch--warn" data-scene="technical-difficulties" aria-pressed="false">Technical Difficulties</button>
                 <button type="button" class="po-swatch" data-scene="ending" aria-pressed="false">Ending</button>
@@ -677,33 +679,34 @@
                 <span>Program Recording</span>
                 <span class="lv-chip" id="lvRecordStatus">Idle</span>
               </div>
-              <p class="recording-purpose" id="lvRecordPurpose">Records the audience picture and sound from Program Output.</p>
+              <p class="recording-purpose" id="lvRecordPurpose">Records what the audience sees and hears (Program). Going Live starts this automatically.</p>
               <p class="lv-po-ready-flags">
                 <span class="lv-po-flag" id="lvPoVideoFlag" data-ready="false">VIDEO —</span>
                 <span class="lv-po-flag" id="lvPoAudioFlag" data-ready="false">AUDIO —</span>
               </p>
               <div class="recording-actions">
                 <strong id="lvRecordTimer" class="recording-timer" hidden>00:00</strong>
-                <p class="control-note">Use the persistent Record control in the bottom bar.</p>
                 <button id="lvRecordMarker" class="btn btn-ghost btn-small" type="button" hidden>Mark</button>
               </div>
-              <p class="control-note" id="lvRecordNote">Open Program Output first. Wait until VIDEO READY and AUDIO READY, then start recording.</p>
-              <ol class="lv-record-steps">
-                <li>Click Record Program.</li>
-                <li>Select the Toasty Studio Program Output tab.</li>
-                <li>Turn Share tab audio ON.</li>
-              </ol>
+              <p class="control-note" id="lvRecordNote">Click Record, pick the Toasty Program Output tab and turn Share tab audio ON. Record and Go Live share that one pick.</p>
               <div class="master-playback" id="lvMasterPlayback" hidden>
                 <p class="rail-card-title">Last recording</p>
                 <video id="lvMasterVideo" class="master-playback-video" controls playsinline></video>
+                <p class="control-note" id="lvPlaybackEchoNote" hidden></p>
                 <div class="recording-actions">
                   <button id="lvMasterPlay" class="btn btn-ghost btn-small" type="button">Play</button>
-                  <button id="lvMasterDownload" class="btn btn-ghost btn-small" type="button">Download MP4</button>
-                  <button id="lvMasterDownloadWebm" class="btn btn-ghost btn-small" type="button">Download WebM</button>
+                  <button id="lvMasterDownload" class="btn btn-primary btn-small" type="button" disabled>Download MP4</button>
+                  <button id="lvMasterRetry" class="btn btn-ghost btn-small" type="button" hidden>Retry MP4</button>
                   <button id="lvTranscriptDownload" class="btn btn-ghost btn-small" type="button">Download Transcript</button>
-                  <button id="lvMasterManifest" class="btn btn-ghost btn-small" type="button">Recording Details</button>
                 </div>
                 <p class="control-note" id="lvMasterManifestNote"></p>
+                <details class="recording-advanced">
+                  <summary>Advanced</summary>
+                  <div class="recording-actions">
+                    <button id="lvMasterDownloadWebm" class="btn btn-ghost btn-small" type="button">Download Source WebM</button>
+                    <button id="lvMasterManifest" class="btn btn-ghost btn-small" type="button">Recording Details</button>
+                  </div>
+                </details>
               </div>
             </section>
 
@@ -855,10 +858,14 @@
             <div class="lv-host-controls">
               <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
               <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>
-              <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Share screen">Screen</button>
+              <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Share a screen, window, tab or game into Program">Share Screen</button>
               <button id="lvLeaveStudio" class="lv-icon-btn lv-icon-btn-danger" type="button" title="Leave Studio" hidden>Leave Studio</button>
             </div>
-            <button id="lvRecordToggle" class="rec-toggle lv-bottom-record" type="button" aria-pressed="false" disabled>RECORD PROGRAM</button>
+            <div class="lv-bottom-actions">
+              <span class="lv-bottom-mode" id="lvBottomMode" role="status" data-state="backstage">BACKSTAGE</span>
+              <button id="lvRecordToggle" class="rec-toggle lv-bottom-record" type="button" aria-pressed="false" disabled>RECORD</button>
+              <button id="lvBottomGoLive" class="rec-toggle lv-bottom-golive" type="button" aria-pressed="false">GO LIVE</button>
+            </div>
             <nav class="lv-bottom-nav" aria-label="Producer navigation">
               <button type="button" class="lv-bottom-nav-btn" data-producer-jump="participants">Participants</button>
               <button type="button" class="lv-bottom-nav-btn" data-producer-jump="chat">Chat</button>

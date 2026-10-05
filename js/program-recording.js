@@ -406,10 +406,14 @@ export function idleRecordingState(last = null) {
   };
 }
 
-export function activeRecordingState({ recordingId, startedAt, last = null } = {}) {
+// `origin` records WHO started this recording ("manual" = the producer pressed Record; "live-auto" = Going
+// Live started it). It is explicit state, never inferred from button state, because End Live may only stop
+// a recording that Going Live itself started.
+export function activeRecordingState({ recordingId, startedAt, last = null, origin = "manual" } = {}) {
   return {
     kind: RecordingKind.MASTER,
     active: true,
+    origin,
     startedAt,
     recordingId,
     status: "recording",
@@ -704,22 +708,28 @@ export class MasterProgramRecorder {
     return masterCaptureSupported();
   }
 
-  async start({ recordingId } = {}) {
+  // `captureStream`: the shared Program capture (js/program-feed.js). When given, this recorder CONSUMES it —
+  // no second getDisplayMedia picker — and never stops its tracks (the feed owns the capture's lifetime).
+  async start({ recordingId, captureStream = null } = {}) {
     const Rec = this.MediaRecorderImpl;
     const getDisplayMedia = this.displayMedia || globalThis.navigator?.mediaDevices?.getDisplayMedia?.bind(globalThis.navigator.mediaDevices);
-    if (!getDisplayMedia || !Rec) {
+    if ((!getDisplayMedia && !captureStream) || !Rec) {
       throw Object.assign(new Error(captureFailureMessage("unsupported")), { reason: "unsupported" });
     }
     this.recordingId = recordingId || nextRecordingId();
     this.chunks = [];
     this.stoppedAt = null;
     this._stopping = false;
-    this.status?.(PROGRAM_OUTPUT_PICKER_INSTRUCTION);
-    const capture = await getDisplayMedia(programOutputDisplayConstraints());
+    this.ownsCapture = !captureStream;
+    let capture = captureStream;
+    if (!capture) {
+      this.status?.(PROGRAM_OUTPUT_PICKER_INSTRUCTION);
+      capture = await getDisplayMedia(programOutputDisplayConstraints());
+    }
     this.captureStream = capture;
     const inspection = inspectMasterCapture(capture);
     if (!inspection.ok) {
-      capture.getTracks().forEach((track) => track.stop());
+      if (this.ownsCapture) capture.getTracks().forEach((track) => track.stop());
       this.captureStream = null;
       const error = new Error(captureFailureMessage(inspection.reason));
       error.reason = inspection.reason;
@@ -785,7 +795,7 @@ export class MasterProgramRecorder {
     return new Promise((resolve, reject) => {
       const finish = () => {
         this.stoppedAt = Date.now();
-        this.captureStream?.getTracks().forEach((track) => track.stop());
+        if (this.ownsCapture) this.captureStream?.getTracks().forEach((track) => track.stop());
         const blob = new Blob(this.chunks, { type: this.recorder.mimeType || this.mimeType || "video/webm" });
         const result = {
           recordingId: this.recordingId,
