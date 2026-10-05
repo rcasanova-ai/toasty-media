@@ -11,6 +11,7 @@ on:
     paths:
       - "scripts/toasty-auth-db.py"
       - "scripts/render-production-server.mjs"
+      - "scripts/creator-broadcast-test.mjs"
       - ".github/workflows/deploy-render-helper.yml"
 
 concurrency:
@@ -31,6 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           node --check scripts/render-production-server.mjs
+          node scripts/creator-broadcast-test.mjs
           node scripts/cost-safety-architecture-test.mjs
 
       - name: Validate live Studio stability
