@@ -2059,7 +2059,6 @@ export class LiveSession {
       masterBlob: null,
       sourceBlob: captureResult.blob,
       objectUrl: URL.createObjectURL(captureResult.blob),
-      sourceObjectUrl: "",objectUrl: "",
       sourceObjectUrl: URL.createObjectURL(captureResult.blob),
       mimeType: captureResult.mimeType,
       sourceMimeType: captureResult.mimeType,
