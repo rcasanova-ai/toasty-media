@@ -1,4 +1,4 @@
-const DEFAULT_ENDPOINT = window.TOASTY_BROADCAST_ENDPOINT || "https://broadcast.toasty.media";
+const DEFAULT_ENDPOINT = window.TOASTY_BROADCAST_ENDPOINT || "https://render.toasty.media";
 
 export class ToastyBroadcastController {
   constructor({ getProgramUrl, requireLegacyAuthGate = true, onStateChange, onError } = {}) {
@@ -179,7 +179,7 @@ export class ToastyBroadcastController {
       this.captureStream = capture;
       videoTrack.addEventListener("ended", () => this.stop());
       const [width, height] = this.elements.broadcastResolution.value.split("x").map(Number);
-      const start = await this.request("/broadcast/start", { method: "POST", body: JSON.stringify({ destination: this.elements.broadcastDestination.value, streamUrl, streamKey, width, height, fps: 30, bitrateKbps: Number(this.elements.broadcastBitrate.value) }) });
+      const start = await this.request("/api/organizations/creator-broadcast/start", { method: "POST", body: JSON.stringify({ destination: this.elements.broadcastDestination.value, streamUrl, streamKey, width, height, fps: 30, bitrateKbps: Number(this.elements.broadcastBitrate.value) }) });
       this.broadcastId = start.id;
       this.elements.broadcastStreamKey.value = "";
       await this.beginIngest(start.ingestPath);
@@ -206,7 +206,7 @@ export class ToastyBroadcastController {
     this.recorder = new MediaRecorder(this.captureStream, { mimeType, videoBitsPerSecond: 8_000_000, audioBitsPerSecond: 160_000 });
     this.recorder.addEventListener("dataavailable", async (event) => { if (event.data?.size && this.writer) { try { await this.writer.write(new Uint8Array(await event.data.arrayBuffer())); } catch (_) {} } });
     this.recorder.addEventListener("stop", async () => { try { await this.writer?.close(); } catch (_) {} this.writer = null; });
-    this.ingestPromise = fetch(`${this.endpoint}${ingestPath}`, { method: "POST", headers: { "Content-Type": "application/octet-stream" }, credentials: "include", body: stream.readable, duplex: "half", signal: this.abortController.signal }).then(async (response) => {
+    this.ingestPromise = fetch(`${this.endpoint}${ingestPath}`, { method: "POST", headers: { "Content-Type": "application/octet-stream", "X-Toasty-CSRF": "1" }, credentials: "include", body: stream.readable, duplex: "half", signal: this.abortController.signal }).then(async (response) => {
       if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || `Broadcast ingest failed (${response.status}).`); }
       return response;
     }).catch((error) => { if (error.name !== "AbortError" && this.broadcastId) { this.setHelp(`Broadcast ingest stopped: ${error.message}`, true); this.stop({ quiet: true }); } });
@@ -227,7 +227,7 @@ export class ToastyBroadcastController {
     this.writer = null;
     this.abortController?.abort();
     this.abortController = null;
-    if (id) { try { await this.request(`/broadcast/${id}/stop`, { method: "POST", body: "{}" }); } catch (_) {} }
+    if (id) { try { await this.request(`/api/organizations/creator-broadcast/${id}/stop`, { method: "POST", body: "{}" }); } catch (_) {} }
     this.updateUi("offline");
     if (!quiet) this.setHelp("Broadcast ended.");
   }
