@@ -214,6 +214,7 @@ async function initStudio() {
     getProgramUrl: () => elements.listenerInvite.value,
     requireLegacyAuthGate: false,
     onStateChange: (broadcastState) => session.setLive(broadcastState === "live"),
+    onLiveStart: async () => { if (!session.recording?.active) await session.startRecording(); },
     onError: () => renderBroadcastError()
   }).init();
 
