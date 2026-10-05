@@ -52,7 +52,7 @@ const elements = {
   topHealth: document.querySelector("#lvTopHealth"),
   topHost: document.querySelector("#lvTopHost"),
   topProducer: document.querySelector("#lvTopProducer"),
-  topProgramOutput: document.querySelector("#lvTopProgramOutput"),
+  topGoLive: document.querySelector("#lvTopGoLive"),\n  topProgramOutput: document.querySelector("#lvTopProgramOutput"),
   topSettings: document.querySelector("#lvTopSettings"),
   topEndSession: document.querySelector("#lvTopEndSession"),
   bottomNavButtons: [...document.querySelectorAll("[data-producer-jump]")],
@@ -289,7 +289,7 @@ function bindProducerWorkspaces() {
 }
 
 function bindProducerChrome() {
-  elements.topProgramOutput?.addEventListener("click", () => document.querySelector("#lvOpenProgramOutput")?.click());
+  elements.topGoLive?.addEventListener("click", () => { setView("producer"); document.querySelector("#broadcastPanel")?.scrollIntoView({ behavior: "smooth", block: "center" }); document.querySelector("#broadcastStreamUrl")?.focus(); });\n  elements.topProgramOutput?.addEventListener("click", () => document.querySelector("#lvOpenProgramOutput")?.click());
   elements.topSettings?.addEventListener("click", () => {
     window.open("./dashboard.html", "_blank", "noopener");
   });
