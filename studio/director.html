@@ -411,7 +411,9 @@
             <div class="lv-topbar-left">
               <span class="lv-brand-chip" id="lvTopBrand">Toasty Media</span>
               <strong class="lv-session-name" id="lvTopSessionName">Live Studio</strong>
-              <span class="lv-live-state" id="lvTopLiveState" data-state="backstage">BACKSTAGE</span>\n              <span class="lv-health-chip" id="lvTopDestinations" hidden>OFFLINE</span>\n              <span class="lv-health-chip" id="lvTopRecordingState" data-state="off">REC OFF</span>
+              <span class="lv-live-state" id="lvTopLiveState" data-state="backstage">BACKSTAGE</span>
+              <span class="lv-health-chip" id="lvTopDestinations" hidden>OFFLINE</span>
+              <span class="lv-health-chip" id="lvTopRecordingState" data-state="off">REC OFF</span>
             </div>
             <nav class="lv-view-switch" aria-label="Studio view">
               <button type="button" class="lv-view-btn" data-lv-view-btn="host" aria-pressed="true">Host</button>
@@ -427,7 +429,9 @@
               <span class="lv-health-chip" id="lvTopHealth">Offline</span>
               <span class="lv-identity-chip" id="lvTopHost">Host: Not joined</span>
               <span class="lv-identity-chip" id="lvTopProducer">Producer: Local</span>
-              <button type="button" class="lv-mini-btn lv-live-launch" id="lvTopGoLive">GO LIVE</button>\n              <button type="button" class="lv-mini-btn" id="lvTopProgramOutput">Program Output</button>
+              <button type="button" class="lv-mini-btn" id="lvTopRecord">RECORD</button>
+              <button type="button" class="lv-mini-btn lv-live-launch" id="lvTopGoLive">GO LIVE</button>
+              <button type="button" class="lv-mini-btn" id="lvTopProgramOutput">Program Output</button>
               <button type="button" class="lv-mini-btn" id="lvTopSettings">Dashboard</button>
               <button type="button" class="lv-mini-btn lv-mini-btn-danger" id="lvTopEndSession">End Session</button>
             </div>
@@ -694,7 +698,7 @@
                 <video id="lvMasterVideo" class="master-playback-video" controls playsinline></video>
                 <div class="recording-actions">
                   <button id="lvMasterPlay" class="btn btn-ghost btn-small" type="button">Play</button>
-                  <button id="lvMasterDownload" class="btn btn-ghost btn-small" type="button">Download Recording</button>
+                  <button id="lvMasterDownload" class="btn btn-ghost btn-small" type="button">Download MP4</button>
                   <button id="lvMasterDownloadWebm" class="btn btn-ghost btn-small" type="button">Download WebM</button>
                   <button id="lvTranscriptDownload" class="btn btn-ghost btn-small" type="button">Download Transcript</button>
                   <button id="lvMasterManifest" class="btn btn-ghost btn-small" type="button">Recording Details</button>

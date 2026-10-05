@@ -48,11 +48,15 @@ const elements = {
   policyChip: document.querySelector("#lvPolicyChip"),
   topBrand: document.querySelector("#lvTopBrand"),
   topSessionName: document.querySelector("#lvTopSessionName"),
-  topLiveState: document.querySelector("#lvTopLiveState"),\n  topDestinations: document.querySelector("#lvTopDestinations"),\n  topRecordingState: document.querySelector("#lvTopRecordingState"),
+  topLiveState: document.querySelector("#lvTopLiveState"),
+  topDestinations: document.querySelector("#lvTopDestinations"),
+  topRecordingState: document.querySelector("#lvTopRecordingState"),
   topHealth: document.querySelector("#lvTopHealth"),
   topHost: document.querySelector("#lvTopHost"),
   topProducer: document.querySelector("#lvTopProducer"),
-  topGoLive: document.querySelector("#lvTopGoLive"),\n  topProgramOutput: document.querySelector("#lvTopProgramOutput"),
+  topRecord: document.querySelector("#lvTopRecord"),
+  topGoLive: document.querySelector("#lvTopGoLive"),
+  topProgramOutput: document.querySelector("#lvTopProgramOutput"),
   topSettings: document.querySelector("#lvTopSettings"),
   topEndSession: document.querySelector("#lvTopEndSession"),
   bottomNavButtons: [...document.querySelectorAll("[data-producer-jump]")],
@@ -210,6 +214,7 @@ async function initStudio() {
     getProgramUrl: () => elements.listenerInvite.value,
     requireLegacyAuthGate: false,
     onStateChange: (broadcastState) => session.setLive(broadcastState === "live"),
+    onLiveStart: async () => { if (!session.recording?.active) await session.startRecording(); },
     onError: () => renderBroadcastError()
   }).init();
 
@@ -289,7 +294,9 @@ function bindProducerWorkspaces() {
 }
 
 function bindProducerChrome() {
-  elements.topGoLive?.addEventListener("click", () => { setView("producer"); document.querySelector("#broadcastPanel")?.scrollIntoView({ behavior: "smooth", block: "center" }); document.querySelector("#broadcastStreamUrl")?.focus(); });\n  elements.topProgramOutput?.addEventListener("click", () => document.querySelector("#lvOpenProgramOutput")?.click());
+  elements.topRecord?.addEventListener("click", () => { setView("producer"); document.querySelector("#lvRecordToggle")?.click(); });
+  elements.topGoLive?.addEventListener("click", () => { setView("producer"); document.querySelector("#broadcastPanel")?.scrollIntoView({ behavior: "smooth", block: "center" }); document.querySelector("#broadcastStreamUrl")?.focus(); });
+  elements.topProgramOutput?.addEventListener("click", () => document.querySelector("#lvOpenProgramOutput")?.click());
   elements.topSettings?.addEventListener("click", () => {
     window.open("./dashboard.html", "_blank", "noopener");
   });
