@@ -178,9 +178,9 @@ jobs:
           # Homepage marker: a stable brand string (hero copy changes freely — never assert on marketing copy).
           grep -Fq 'Toasty Media' /tmp/home.html
           # Studio Backstage / Record / Live shell + Go Live assets are actually served.
-          curl --fail --silent --show-error --location https://toasty.media/studio/director.html >/tmp/director.html
-          grep -Fq 'id="lvTopGoLive"' /tmp/director.html
-          grep -Fq 'id="lvTopShareScreen"' /tmp/director.html
+          # director.html itself 302s unauthenticated visitors to the sign-in shell, so verify the module that drives it.
+          curl --fail --silent --show-error --location https://toasty.media/js/director.js | grep -Fq 'lvTopShareScreen'
+          curl --fail --silent --show-error --location https://toasty.media/js/director.js | grep -Fq 'lvTopGoLive'
           curl --fail --silent --show-error --location https://toasty.media/js/program-orchestrator.js | grep -Fq 'ProgramOrchestrator'
           curl --fail --silent --show-error --location https://toasty.media/js/go-live-panel.js | grep -Fq 'GoLivePanel'
           curl --fail --silent --show-error --location https://toasty.media/css/golive.css | grep -Fq 'golive-dialog'
