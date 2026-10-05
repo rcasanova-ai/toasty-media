@@ -179,7 +179,7 @@ export class ToastyBroadcastController {
       this.captureStream = capture;
       videoTrack.addEventListener("ended", () => this.stop());
       const [width, height] = this.elements.broadcastResolution.value.split("x").map(Number);
-      const start = await this.request("/api/organizations/creator-broadcast/start", { method: "POST", body: JSON.stringify({ destination: this.elements.broadcastDestination.value, streamUrl, streamKey, width, height, fps: 30, bitrateKbps: Number(this.elements.broadcastBitrate.value) }) });
+      const saved = JSON.parse(localStorage.getItem("toasty.broadcast.destinations") || "[]");\n      const destinations = [{ destination: this.elements.broadcastDestination.value, streamUrl, streamKey }, ...saved.filter((d)=>d?.enabled && d.streamUrl && d.streamKey)];\n      const unique = destinations.filter((d,i,a)=>a.findIndex(x=>x.streamUrl===d.streamUrl && x.streamKey===d.streamKey)===i);\n      const start = await this.request("/api/organizations/creator-broadcast/start", { method: "POST", body: JSON.stringify({ destinations: unique, width, height, fps: 30, bitrateKbps: Number(this.elements.broadcastBitrate.value) }) });
       this.broadcastId = start.id;
       this.elements.broadcastStreamKey.value = "";
       await this.beginIngest(start.ingestPath);
