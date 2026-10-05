@@ -673,8 +673,14 @@ export class ProducerView {
     // whose MP4 failed had no visible, dedicated way to get the WebM Toasty already saved for them. This
     // button is gated on sourceBlob alone, independent of MP4 status, in both branches below.
     if (this.elements.masterDownloadWebm) this.elements.masterDownloadWebm.disabled = !last?.sourceBlob;
-    if (this.elements.transcriptDownload) this.elements.transcriptDownload.disabled = !(this.session.transcript?.lines || []).length;
-    if (!last?.blob || !last?.objectUrl) {
+    if (this.elements.transcriptDownload) {
+      const hasTranscript = (this.session.transcript?.lines || []).length > 0;
+      this.elements.transcriptDownload.disabled = !hasTranscript;
+      this.elements.transcriptDownload.hidden = false;
+      this.elements.transcriptDownload.title = hasTranscript ? "Download transcript as TXT and JSON" : "No transcript captured for this recording";
+    }
+    const playbackUrl = last?.objectUrl || last?.sourceObjectUrl || "";
+    if (!last?.blob || !playbackUrl) {
       this.elements.masterPlayback.hidden = !last;
       if (this.elements.masterVideo) this.elements.masterVideo.removeAttribute("src");
       if (this.elements.masterDownload) this.elements.masterDownload.disabled = true;
@@ -693,8 +699,8 @@ export class ProducerView {
     if (this.elements.masterDownload) this.elements.masterDownload.disabled = false;
     if (this.elements.masterPlay) this.elements.masterPlay.disabled = false;
     if (this.elements.masterManifest) this.elements.masterManifest.disabled = !last?.manifest;
-    if (this.elements.masterVideo && this.elements.masterVideo.src !== last.objectUrl) {
-      this.elements.masterVideo.src = last.objectUrl;
+    if (this.elements.masterVideo && this.elements.masterVideo.src !== playbackUrl) {
+      this.elements.masterVideo.src = playbackUrl;
     }
     if (this.elements.masterManifestNote) {
       const duration = formatClock(Math.round(last.durationSeconds || 0));
