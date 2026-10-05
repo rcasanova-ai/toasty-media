@@ -46,3 +46,14 @@ assert(server.includes("COST_SAFETY_SWITCHES"),"cost safety switches are present
 assert(server.includes("byok_required"),"AI requires organization BYOK");
 
 console.log("ALL PASSED - Toasty Studio release gate.");
+
+// Studio recording/transcript + Moxie release regressions
+{
+  const director=readFileSync(new URL("../studio/director.html",import.meta.url),"utf8");
+  const view=readFileSync(new URL("../js/producer-view.js",import.meta.url),"utf8");
+  const moxie=readFileSync(new URL("../js/live-producer.js",import.meta.url),"utf8");
+  assert(director.includes('id="lvTranscriptDownload"'),"finished recording exposes Download Transcript");
+  assert(view.includes('downloadTranscript()'),"transcript download handler is wired");
+  assert(view.includes('-transcript.txt')&&view.includes('-transcript.json'),"transcript exports TXT and JSON");
+  assert(moxie.includes('requiresApproval: true')&&moxie.includes('takeProposalLive(feedEntryId)'),"Moxie research candidate stays approval-gated and has take-live handoff");
+}

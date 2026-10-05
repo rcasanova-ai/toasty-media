@@ -51,6 +51,7 @@ export class ProducerView {
       masterVideo: root.querySelector("#lvMasterVideo"),
       masterDownload: root.querySelector("#lvMasterDownload"),
       masterDownloadWebm: root.querySelector("#lvMasterDownloadWebm"),
+      transcriptDownload: root.querySelector("#lvTranscriptDownload"),
       masterPlay: root.querySelector("#lvMasterPlay"),
       masterManifest: root.querySelector("#lvMasterManifest"),
       masterManifestNote: root.querySelector("#lvMasterManifestNote"),
@@ -171,6 +172,7 @@ export class ProducerView {
     this.elements.masterPlay?.addEventListener("click", () => this.playMaster());
     this.elements.masterDownload?.addEventListener("click", () => this.downloadMaster());
     this.elements.masterDownloadWebm?.addEventListener("click", () => this.downloadSourceWebm());
+    this.elements.transcriptDownload?.addEventListener("click", () => this.downloadTranscript());
     this.elements.masterManifest?.addEventListener("click", () => this.downloadManifest());
     this.elements.openProgramOutput.addEventListener("click", () => {
       this.session.noteProgramOutputOpening?.();
@@ -671,6 +673,7 @@ export class ProducerView {
     // whose MP4 failed had no visible, dedicated way to get the WebM Toasty already saved for them. This
     // button is gated on sourceBlob alone, independent of MP4 status, in both branches below.
     if (this.elements.masterDownloadWebm) this.elements.masterDownloadWebm.disabled = !last?.sourceBlob;
+    if (this.elements.transcriptDownload) this.elements.transcriptDownload.disabled = !(this.session.transcript?.lines || []).length;
     if (!last?.blob || !last?.objectUrl) {
       this.elements.masterPlayback.hidden = !last;
       if (this.elements.masterVideo) this.elements.masterVideo.removeAttribute("src");
@@ -722,6 +725,15 @@ export class ProducerView {
     const last = this.session.recording.last;
     if (!last?.sourceBlob) return;
     downloadFile(last.sourceBlob, `${last.recordingId}-source.webm`);
+  }
+
+  downloadTranscript() {
+    const lines = this.session.transcript?.lines || [];
+    if (!lines.length) return;
+    const txt = lines.map((line) => `[${line.timestamp ? new Date(line.timestamp).toISOString() : ""}] ${line.speaker || "Speaker"}: ${line.text || ""}`).join("\n");
+    const id = this.session.recording.last?.recordingId || `transcript-${Date.now()}`;
+    downloadFile(new Blob([txt], { type: "text/plain;charset=utf-8" }), `${id}-transcript.txt`);
+    downloadFile(new Blob([JSON.stringify(lines, null, 2)], { type: "application/json" }), `${id}-transcript.json`);
   }
 
   downloadManifest() {
