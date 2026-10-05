@@ -48,7 +48,7 @@ const elements = {
   policyChip: document.querySelector("#lvPolicyChip"),
   topBrand: document.querySelector("#lvTopBrand"),
   topSessionName: document.querySelector("#lvTopSessionName"),
-  topLiveState: document.querySelector("#lvTopLiveState"),
+  topLiveState: document.querySelector("#lvTopLiveState"),\n  topDestinations: document.querySelector("#lvTopDestinations"),\n  topRecordingState: document.querySelector("#lvTopRecordingState"),
   topHealth: document.querySelector("#lvTopHealth"),
   topHost: document.querySelector("#lvTopHost"),
   topProducer: document.querySelector("#lvTopProducer"),
@@ -479,9 +479,19 @@ function renderProducerChrome() {
     elements.topSessionName.textContent = session.durableSession?.title || "Live Studio";
   }
   if (elements.topLiveState) {
-    const scene = session.program?.scene || "holding";
-    elements.topLiveState.dataset.state = scene;
-    elements.topLiveState.textContent = sceneLabel(scene);
+    const live = Boolean(session.connection?.live);
+    elements.topLiveState.dataset.state = live ? "live" : "backstage";
+    elements.topLiveState.textContent = live ? "LIVE" : "BACKSTAGE";
+  }
+  if (elements.topDestinations) {
+    const live = Boolean(session.connection?.live);
+    elements.topDestinations.hidden = !live;
+    elements.topDestinations.textContent = live ? "ON AIR" : "OFFLINE";
+  }
+  if (elements.topRecordingState) {
+    const recording = Boolean(session.recording?.active);
+    elements.topRecordingState.dataset.state = recording ? "recording" : "off";
+    elements.topRecordingState.textContent = recording ? "● REC" : "REC OFF";
   }
   if (elements.topHealth) {
     const output = session.programOutput || {};
