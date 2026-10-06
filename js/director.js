@@ -61,6 +61,8 @@ const elements = {
   topProgramOutput: document.querySelector("#lvTopProgramOutput"),
   topSettings: document.querySelector("#lvTopSettings"),
   topEndSession: document.querySelector("#lvTopEndSession"),
+  topMore: document.querySelector("#lvTopMore"),
+  topMoreMenu: document.querySelector("#lvTopMoreMenu"),
   bottomNavButtons: [...document.querySelectorAll("[data-producer-jump]")],
   producerWorkspaceButtons: [...document.querySelectorAll("[data-producer-workspace]")],
   sessionDate: document.querySelector("#sessionDate"),
@@ -314,6 +316,11 @@ function bindProducerChrome() {
     window.open("./dashboard.html", "_blank", "noopener");
   });
   elements.topEndSession?.addEventListener("click", () => endCurrentSession(elements.topEndSession));
+  elements.topMore?.addEventListener("click", () => {
+    const open = elements.topMore?.getAttribute("aria-expanded") === "true";
+    elements.topMore?.setAttribute("aria-expanded", String(!open));
+    if (elements.topMoreMenu) elements.topMoreMenu.hidden = open;
+  });
   elements.bottomNavButtons.forEach((button) => {
     button.addEventListener("click", () => jumpProducerPanel(button.dataset.producerJump));
   });
