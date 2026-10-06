@@ -1692,6 +1692,137 @@ const server = createServer(async (req, res) => {
   }
 });
 
+// Voyageurs Studio tenant. The login email is deliberately NOT the tenant key: the stable user/org IDs
+// own the organization, recordings, permissions and brand. That means voyageurs@toasty.media can be
+// changed later without creating a new tenant or moving any Studio data.
+const VOYAGEURS_USER_ID = "b6308c95-2e05-417b-a9c1-cc0828247cda";
+const VOYAGEURS_ORGANIZATION_ID = "91aa5a20-7eec-4f96-a79b-71dcbefab778";
+const VOYAGEURS_MEMBERSHIP_ID = "454e939a-2c9c-425c-b1d3-fde01e435c36";
+const VOYAGEURS_BRAND_PROFILE_ID = "9f0cb029-a498-4942-b2ed-cf52dfa20be0";
+const VOYAGEURS_LOGIN_EMAIL = "voyageurs@toasty.media";
+const VOYAGEURS_TEMP_PASSWORD_HASH = "scrypt$2bab0db0373ac9aa424104bed11d1b93$ee9cb00f957182d107218078eeca38ac0c493c323bddf1f53f466782f221b1e7e407afdb1a6d9f056ce0e1d929b4943298d36658381fe870969f9e05ddd39130";
+
+const VOYAGEURS_BRAND_OVERRIDES = Object.freeze({
+  label: "The Voyageurs",
+  homeUrl: "https://www.thevoyageurs.org/",
+  textLogo: "THE VOYAGEURS",
+  atmosphereBrand: "THE VOYAGEURS",
+  atmosphereProduct: "STUDIO",
+  showPoweredBy: true,
+  vars: {
+    "--brand-primary": "#C62026",
+    "--brand-secondary": "#FFFFFF",
+    "--brand-accent": "#EF3340",
+    "--brand-background": "#090909",
+    "--brand-surface": "#141414",
+    "--brand-surface-alt": "#1D1D1D",
+    "--brand-text": "#FFFFFF",
+    "--brand-text-muted": "#B9B9B9",
+    "--brand-border": "rgba(255,255,255,0.12)",
+    "--brand-button": "#C62026",
+    "--brand-button-text": "#FFFFFF",
+    "--brand-focus": "#EF3340",
+    "--brand-gradient": "linear-gradient(135deg, #EF3340, #C62026)",
+    "--studio-canvas": "#090909",
+    "--studio-canvas-2": "#101010",
+    "--studio-surface": "#141414",
+    "--studio-surface-2": "#1D1D1D",
+    "--studio-surface-raised": "#252525",
+    "--studio-line": "rgba(255,255,255,0.11)",
+    "--studio-line-strong": "rgba(198,32,38,0.44)",
+    "--studio-line-warm": "rgba(239,51,64,0.48)",
+    "--studio-cream": "#FFFFFF",
+    "--studio-cream-dim": "#DDDDDD",
+    "--studio-muted": "#A9A9A9",
+    "--studio-orange": "#C62026",
+    "--studio-orange-bright": "#EF3340",
+    "--studio-amber": "#FFFFFF",
+    "--studio-burnt": "#7D1519",
+    "--studio-brown": "#181818",
+    "--studio-green": "#46C37B",
+    "--studio-client-glow": "rgba(198,32,38,0.22)",
+    "--studio-button-text": "#FFFFFF",
+    "--studio-button-shadow": "rgba(198,32,38,0.28)",
+    "--studio-button-shadow-hover": "rgba(198,32,38,0.40)",
+    "--studio-atmosphere-stroke": "rgba(198,32,38,0.10)",
+    "--studio-atmosphere-stroke-2": "rgba(255,255,255,0.045)",
+    "--studio-mark-opacity": "0.055"
+  },
+  copy: {
+    poweredBy: "Powered by Toasty Media Studio"
+  }
+});
+
+async function ensureVoyageursStudioLogin() {
+  let result = await db("get_user_by_id", { id: VOYAGEURS_USER_ID });
+  let user = result.user;
+
+  if (!user) {
+    const byEmail = await db("get_user_by_email", { email: VOYAGEURS_LOGIN_EMAIL });
+    user = byEmail.user;
+  }
+
+  if (!user) {
+    const created = await db("create_user", {
+      id: VOYAGEURS_USER_ID,
+      name: "The Voyageurs",
+      email: VOYAGEURS_LOGIN_EMAIL,
+      passwordHash: VOYAGEURS_TEMP_PASSWORD_HASH
+    });
+    user = created.user;
+  }
+  if (!user) throw new Error("Cannot provision Voyageurs Studio login.");
+
+  let orgResult = await db("get_organization", { id: VOYAGEURS_ORGANIZATION_ID });
+  let organization = orgResult.organization;
+  if (!organization) {
+    const createdOrg = await db("create_organization", {
+      id: VOYAGEURS_ORGANIZATION_ID,
+      name: "The Voyageurs",
+      slug: "the-voyageurs",
+      ownerUserId: user.id,
+      membershipId: VOYAGEURS_MEMBERSHIP_ID
+    });
+    organization = createdOrg.organization;
+  }
+  if (!organization) throw new Error("Cannot provision Voyageurs Studio organization.");
+
+  let profileResult = await db("get_brand_profile", { id: VOYAGEURS_BRAND_PROFILE_ID });
+  let brandProfile = profileResult.brandProfile;
+  if (!brandProfile) {
+    const createdProfile = await db("create_brand_profile", {
+      id: VOYAGEURS_BRAND_PROFILE_ID,
+      organizationId: VOYAGEURS_ORGANIZATION_ID,
+      name: "The Voyageurs",
+      baseThemeId: "toasty",
+      overrides: VOYAGEURS_BRAND_OVERRIDES
+    });
+    brandProfile = createdProfile.brandProfile;
+  } else {
+    const updatedProfile = await db("update_brand_profile", {
+      id: VOYAGEURS_BRAND_PROFILE_ID,
+      name: "The Voyageurs",
+      baseThemeId: "toasty",
+      overrides: VOYAGEURS_BRAND_OVERRIDES
+    });
+    brandProfile = updatedProfile.brandProfile || brandProfile;
+  }
+  if (!brandProfile) throw new Error("Cannot provision Voyageurs Studio brand.");
+
+  await db("update_organization", {
+    id: VOYAGEURS_ORGANIZATION_ID,
+    name: "The Voyageurs",
+    activeBrandProfileId: VOYAGEURS_BRAND_PROFILE_ID
+  });
+  await db("user_set_branding", {
+    id: user.id,
+    mode: "locked",
+    brandId: `org:${VOYAGEURS_ORGANIZATION_ID}`
+  });
+
+  console.log("[Toasty bootstrap] Voyageurs Studio login ready.");
+}
+
 // One-time bootstrap for the requested Mateo Creator login. The repository contains only a
 // scrypt verifier, never the plaintext temporary password. Existing accounts are never overwritten.
 async function ensureMateoCreatorLogin() {
@@ -1715,6 +1846,7 @@ async function ensureMateoCreatorLogin() {
   console.log("[Toasty bootstrap] Mateo Creator login ready.");
 }
 
+if (process.env.TOASTY_DISABLE_VOYAGEURS_BOOTSTRAP !== "1") await ensureVoyageursStudioLogin();
 if (process.env.TOASTY_DISABLE_MATEO_BOOTSTRAP !== "1") await ensureMateoCreatorLogin();
 
 server.listen(PORT, HOST, () => {
