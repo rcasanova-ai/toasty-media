@@ -157,8 +157,14 @@ async function main(){
     "INSERT INTO ai_usage_events (id,organization_id,session_id,occurred_at,provider,model,feature,input_tokens,output_tokens,total_tokens,estimated_cost,latency_ms,metadata_json,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     ["ai_test_2",customerOrg.id,customerSession2.data.session.id,now,"deepseek","deepseek-reasoner","moxie_session_research",300,100,400,0.004,640,"{}",now]
   );
+  execSql(
+    "INSERT INTO studio_broadcast_usage (id,organization_id,session_id,user_id,started_at,ended_at,duration_seconds,destination_count,destinations_json,bytes_in,bytes_out,encoder_seconds,estimated_network_cost,estimated_compute_cost,estimated_total_cost,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    ["broadcast_test_1",customerOrg.id,customerSession.data.session.id,second.data.user.id,now,now,3600,2,'["youtube","x"]',2700000000,5400000000,3600,0.05,0.10,0.15,now]
+  );
   const usageDetail=await req(`/api/organizations/platform-admin/organizations/${customerOrg.id}/detail`,{cookie:founder.cookie});
   assert(usageDetail.data.aiUsageReport?.totals?.totalTokens===550,"platform admin gets organization-wide AI token totals");
+  assert(usageDetail.data.studioEconomics?.totals?.bytesOut===5400000000,"platform admin gets actual Studio broadcast egress");
+  assert(usageDetail.data.studioEconomics?.bySession?.some(r=>r.sessionId===customerSession.data.session.id && r.estimatedBroadcastCost===0.15),"platform admin gets Studio broadcast cost by session");
   assert(usageDetail.data.aiUsageReport?.bySession?.length>=2,"platform admin gets AI usage compared across sessions");
   assert(usageDetail.data.aiUsageReport?.byProviderModel?.some(r=>r.model==="deepseek-chat"),"platform admin gets provider/model breakdown");
 

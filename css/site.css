@@ -1894,3 +1894,52 @@ h2 {
     margin-bottom: 1rem;
   }
 }
+
+/* Books library */
+.book-library-intro {
+  color: #dfcdbb;
+  font-size: 1.12rem;
+  margin: -1rem auto 2rem;
+  max-width: 1120px;
+}
+.book-grid-four {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.book-grid-four .book-card {
+  min-height: 0;
+}
+.book-grid-four .book-cover {
+  aspect-ratio: 3 / 4;
+  max-height: 460px;
+  object-fit: contain;
+  width: 100%;
+}
+.book-card-placeholder {
+  justify-content: center;
+}
+.book-placeholder-mark {
+  align-items: center;
+  aspect-ratio: 3 / 4;
+  background: linear-gradient(145deg, rgba(237,154,111,.22), rgba(255,246,232,.05));
+  border: 1px solid rgba(217,166,111,.28);
+  color: var(--toast-bright);
+  display: flex;
+  font-family: var(--font-heading);
+  font-size: clamp(4rem, 9vw, 7rem);
+  font-weight: 900;
+  justify-content: center;
+  letter-spacing: -.05em;
+  margin-bottom: 1rem;
+}
+.book-feature {
+  border-top: 1px solid var(--line);
+}
+.book-feature figure img {
+  aspect-ratio: 3 / 4;
+  object-fit: contain;
+}
+@media (max-width: 760px) {
+  .book-grid-four {
+    grid-template-columns: 1fr;
+  }
+}

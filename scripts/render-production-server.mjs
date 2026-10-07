@@ -92,6 +92,12 @@ const scryptAsync = promisify(scrypt);
 const execFileAsync = promisify(execFile);
 const rateBuckets = new Map();
 const studioBroadcastJobs = new Map();
+// Marginal Studio cost model. Raw usage is always recorded; operators can set these rates to match the
+// actual VPS/provider contract without exposing any of it to customers. Zero is intentionally valid when
+// transfer/CPU are included in a fixed server bill.
+const STUDIO_EGRESS_USD_PER_GB = Math.max(0, Number(process.env.TOASTY_STUDIO_EGRESS_USD_PER_GB || 0));
+const STUDIO_INGRESS_USD_PER_GB = Math.max(0, Number(process.env.TOASTY_STUDIO_INGRESS_USD_PER_GB || 0));
+const STUDIO_ENCODER_USD_PER_HOUR = Math.max(0, Number(process.env.TOASTY_STUDIO_ENCODER_USD_PER_HOUR || 0));
 const TOASTY_EXPERT_DISCOVERY_PRICE = 0.001;
 const TOASTY_EXPERT_DISCOVERY_RECIPIENT = process.env.SVM_PAY_TO || process.env.TOASTY_EXPERTS_X402_RECIPIENT || "";
 const TOASTY_SOLANA_NETWORK = process.env.TOASTY_SOLANA_NETWORK || "solana-devnet";
@@ -1692,6 +1698,137 @@ const server = createServer(async (req, res) => {
   }
 });
 
+// Voyageurs Studio tenant. The login email is deliberately NOT the tenant key: the stable user/org IDs
+// own the organization, recordings, permissions and brand. That means voyageurs@toasty.media can be
+// changed later without creating a new tenant or moving any Studio data.
+const VOYAGEURS_USER_ID = "b6308c95-2e05-417b-a9c1-cc0828247cda";
+const VOYAGEURS_ORGANIZATION_ID = "91aa5a20-7eec-4f96-a79b-71dcbefab778";
+const VOYAGEURS_MEMBERSHIP_ID = "454e939a-2c9c-425c-b1d3-fde01e435c36";
+const VOYAGEURS_BRAND_PROFILE_ID = "9f0cb029-a498-4942-b2ed-cf52dfa20be0";
+const VOYAGEURS_LOGIN_EMAIL = "voyageurs@toasty.media";
+const VOYAGEURS_TEMP_PASSWORD_HASH = "scrypt$2bab0db0373ac9aa424104bed11d1b93$ee9cb00f957182d107218078eeca38ac0c493c323bddf1f53f466782f221b1e7e407afdb1a6d9f056ce0e1d929b4943298d36658381fe870969f9e05ddd39130";
+
+const VOYAGEURS_BRAND_OVERRIDES = Object.freeze({
+  label: "The Voyageurs",
+  homeUrl: "https://www.thevoyageurs.org/",
+  textLogo: "THE VOYAGEURS",
+  atmosphereBrand: "THE VOYAGEURS",
+  atmosphereProduct: "STUDIO",
+  showPoweredBy: true,
+  vars: {
+    "--brand-primary": "#C62026",
+    "--brand-secondary": "#FFFFFF",
+    "--brand-accent": "#EF3340",
+    "--brand-background": "#090909",
+    "--brand-surface": "#141414",
+    "--brand-surface-alt": "#1D1D1D",
+    "--brand-text": "#FFFFFF",
+    "--brand-text-muted": "#B9B9B9",
+    "--brand-border": "rgba(255,255,255,0.12)",
+    "--brand-button": "#C62026",
+    "--brand-button-text": "#FFFFFF",
+    "--brand-focus": "#EF3340",
+    "--brand-gradient": "linear-gradient(135deg, #EF3340, #C62026)",
+    "--studio-canvas": "#090909",
+    "--studio-canvas-2": "#101010",
+    "--studio-surface": "#141414",
+    "--studio-surface-2": "#1D1D1D",
+    "--studio-surface-raised": "#252525",
+    "--studio-line": "rgba(255,255,255,0.11)",
+    "--studio-line-strong": "rgba(198,32,38,0.44)",
+    "--studio-line-warm": "rgba(239,51,64,0.48)",
+    "--studio-cream": "#FFFFFF",
+    "--studio-cream-dim": "#DDDDDD",
+    "--studio-muted": "#A9A9A9",
+    "--studio-orange": "#C62026",
+    "--studio-orange-bright": "#EF3340",
+    "--studio-amber": "#FFFFFF",
+    "--studio-burnt": "#7D1519",
+    "--studio-brown": "#181818",
+    "--studio-green": "#46C37B",
+    "--studio-client-glow": "rgba(198,32,38,0.22)",
+    "--studio-button-text": "#FFFFFF",
+    "--studio-button-shadow": "rgba(198,32,38,0.28)",
+    "--studio-button-shadow-hover": "rgba(198,32,38,0.40)",
+    "--studio-atmosphere-stroke": "rgba(198,32,38,0.10)",
+    "--studio-atmosphere-stroke-2": "rgba(255,255,255,0.045)",
+    "--studio-mark-opacity": "0.055"
+  },
+  copy: {
+    poweredBy: "Powered by Toasty Media Studio"
+  }
+});
+
+async function ensureVoyageursStudioLogin() {
+  let result = await db("get_user_by_id", { id: VOYAGEURS_USER_ID });
+  let user = result.user;
+
+  if (!user) {
+    const byEmail = await db("get_user_by_email", { email: VOYAGEURS_LOGIN_EMAIL });
+    user = byEmail.user;
+  }
+
+  if (!user) {
+    const created = await db("create_user", {
+      id: VOYAGEURS_USER_ID,
+      name: "The Voyageurs",
+      email: VOYAGEURS_LOGIN_EMAIL,
+      passwordHash: VOYAGEURS_TEMP_PASSWORD_HASH
+    });
+    user = created.user;
+  }
+  if (!user) throw new Error("Cannot provision Voyageurs Studio login.");
+
+  let orgResult = await db("get_organization", { id: VOYAGEURS_ORGANIZATION_ID });
+  let organization = orgResult.organization;
+  if (!organization) {
+    const createdOrg = await db("create_organization", {
+      id: VOYAGEURS_ORGANIZATION_ID,
+      name: "The Voyageurs",
+      slug: "the-voyageurs",
+      ownerUserId: user.id,
+      membershipId: VOYAGEURS_MEMBERSHIP_ID
+    });
+    organization = createdOrg.organization;
+  }
+  if (!organization) throw new Error("Cannot provision Voyageurs Studio organization.");
+
+  let profileResult = await db("get_brand_profile", { id: VOYAGEURS_BRAND_PROFILE_ID });
+  let brandProfile = profileResult.brandProfile;
+  if (!brandProfile) {
+    const createdProfile = await db("create_brand_profile", {
+      id: VOYAGEURS_BRAND_PROFILE_ID,
+      organizationId: VOYAGEURS_ORGANIZATION_ID,
+      name: "The Voyageurs",
+      baseThemeId: "toasty",
+      overrides: VOYAGEURS_BRAND_OVERRIDES
+    });
+    brandProfile = createdProfile.brandProfile;
+  } else {
+    const updatedProfile = await db("update_brand_profile", {
+      id: VOYAGEURS_BRAND_PROFILE_ID,
+      name: "The Voyageurs",
+      baseThemeId: "toasty",
+      overrides: VOYAGEURS_BRAND_OVERRIDES
+    });
+    brandProfile = updatedProfile.brandProfile || brandProfile;
+  }
+  if (!brandProfile) throw new Error("Cannot provision Voyageurs Studio brand.");
+
+  await db("update_organization", {
+    id: VOYAGEURS_ORGANIZATION_ID,
+    name: "The Voyageurs",
+    activeBrandProfileId: VOYAGEURS_BRAND_PROFILE_ID
+  });
+  await db("user_set_branding", {
+    id: user.id,
+    mode: "locked",
+    brandId: `org:${VOYAGEURS_ORGANIZATION_ID}`
+  });
+
+  console.log("[Toasty bootstrap] Voyageurs Studio login ready.");
+}
+
 // One-time bootstrap for the requested Mateo Creator login. The repository contains only a
 // scrypt verifier, never the plaintext temporary password. Existing accounts are never overwritten.
 async function ensureMateoCreatorLogin() {
@@ -1715,6 +1852,7 @@ async function ensureMateoCreatorLogin() {
   console.log("[Toasty bootstrap] Mateo Creator login ready.");
 }
 
+if (process.env.TOASTY_DISABLE_VOYAGEURS_BOOTSTRAP !== "1") await ensureVoyageursStudioLogin();
 if (process.env.TOASTY_DISABLE_MATEO_BOOTSTRAP !== "1") await ensureMateoCreatorLogin();
 
 server.listen(PORT, HOST, () => {
@@ -3179,7 +3317,12 @@ async function handlePlatformStatus(req, res, session) {
       anthropic: { configured: Boolean(ANTHROPIC_API_KEY), model: ANTHROPIC_MODEL }
     },
     safetySwitches: COST_SAFETY_SWITCHES,
-    founderAiFallback: Boolean(DEEPSEEK_API_KEY)
+    founderAiFallback: Boolean(DEEPSEEK_API_KEY),
+    studioCostRates: {
+      ingressUsdPerGb: STUDIO_INGRESS_USD_PER_GB,
+      egressUsdPerGb: STUDIO_EGRESS_USD_PER_GB,
+      encoderUsdPerHour: STUDIO_ENCODER_USD_PER_HOUR
+    }
   });
 }
 
@@ -3243,7 +3386,7 @@ async function handlePlatformResetUsage(req, res, organizationId) {
 
 async function platformOrganizationSnapshot(organizationId) {
   if (!SAFE_ID.test(organizationId)) throw httpError(400, "Invalid organization id.");
-  const [org, settings, members, invites, brands, billing, subscriptions, credentials, sessions, today, month, intents, aiUsageReport] = await Promise.all([
+  const [org, settings, members, invites, brands, billing, subscriptions, credentials, sessions, today, month, intents, aiUsageReport, studioEconomics] = await Promise.all([
     db("get_organization", { id: organizationId }),
     db("get_organization_settings", { organizationId }),
     db("list_memberships", { organizationId }),
@@ -3256,7 +3399,8 @@ async function platformOrganizationSnapshot(organizationId) {
     db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("day") }),
     db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("month") }),
     db("list_payment_intents", { organizationId }),
-    db("platform_ai_usage_report", { organizationId })
+    db("platform_ai_usage_report", { organizationId }),
+    db("platform_studio_economics_report", { organizationId })
   ]);
   if (!org.organization) throw httpError(404, "Organization not found.");
   return {
@@ -3272,6 +3416,7 @@ async function platformOrganizationSnapshot(organizationId) {
     usage: { today: today.usage || {}, month: month.usage || {} },
     paymentIntents: intents.paymentIntents || [],
     aiUsageReport: aiUsageReport || { totals: {}, bySession: [], byProviderModel: [], byFeature: [], recentEvents: [] },
+    studioEconomics: studioEconomics || { totals: {}, bySession: [], recentBroadcasts: [] },
     limits: planLimitsFor(org.organization.plan),
     safety: safetySwitchSnapshot()
   };
@@ -11095,6 +11240,12 @@ async function handleBroadcastDestinationDelete(req, res, session, rawDestinatio
 async function handleStudioBroadcastStart(req, res, session) {
   const body = await readJson(req, 16 * 1024);
   const organizationId = await resolveBroadcastOrganization(req, res, session, body?.organizationId); if (!organizationId) return;
+  let sessionId = null;
+  const requestedSessionId = sessionText(body?.sessionId, 80);
+  if (requestedSessionId && SAFE_ID.test(requestedSessionId)) {
+    const owned = await db("session_get", { id: requestedSessionId, ownerUserId: session.id });
+    if (owned.session?.organizationId === organizationId) sessionId = owned.session.id;
+  }
   const names = [...new Set((Array.isArray(body?.destinations) ? body.destinations : []).map(cleanBroadcastDestinationName).filter(Boolean))];
   if (!names.length) throw httpError(400, "Choose at least one destination to go live to.");
   const targets = [];
@@ -11109,13 +11260,14 @@ async function handleStudioBroadcastStart(req, res, session) {
     if (existing.userId === session.id) { await stopStudioBroadcast(existing, "replaced by a new broadcast"); studioBroadcastJobs.delete(existing.id); }
   }
   const job = {
-    id: randomUUID(), userId: session.id, organizationId, state: "starting", createdAt: Date.now(), startedAt: null,
+    id: randomUUID(), userId: session.id, organizationId, sessionId, state: "starting", createdAt: Date.now(), startedAt: null,
     width: Math.min(1920, Math.max(640, Number(body?.width) || 1920)),
     height: Math.min(1080, Math.max(360, Number(body?.height) || 1080)),
     fps: Math.min(60, Math.max(24, Number(body?.fps) || 30)),
     bitrateKbps: Math.min(12000, Math.max(1000, Number(body?.bitrateKbps) || 6000)),
     nextSeq: 0, bytesIn: 0, lastChunkAt: Date.now(), encoder: null, stopping: false, watchdog: null,
-    targets: targets.map((target) => ({ ...target, state: "connecting", error: "", relay: null, stderr: "" }))
+    targets: targets.map((target) => ({ ...target, state: "connecting", error: "", relay: null, stderr: "", bytesOut: 0, liveStartedAt: null })),
+    economicsPersisted: false
   };
   studioBroadcastJobs.set(job.id, job);
   try { launchStudioBroadcast(job); } catch (error) { studioBroadcastJobs.delete(job.id); throw httpError(500, "The broadcast engine could not start."); }
@@ -11188,7 +11340,8 @@ function launchStudioBroadcast(job) {
       while ((m = frame.exec(progressBuffer))) last = Number(m[1]);
       const size = /total_size=(\d+)/g; let s, bytes = 0;
       while ((s = size.exec(progressBuffer))) bytes = Number(s[1]);
-      if ((last > 0 || bytes > 4096) && target.state === "connecting") { target.state = "live"; refreshStudioBroadcastState(job); }
+      if (bytes > target.bytesOut) target.bytesOut = bytes;
+      if ((last > 0 || bytes > 4096) && target.state === "connecting") { target.state = "live"; target.liveStartedAt = target.liveStartedAt || Date.now(); refreshStudioBroadcastState(job); }
     });
     relay.stderr.on("data", (chunk) => { target.stderr = (target.stderr + chunk.toString()).slice(-3000); });
     relay.on("error", () => failBroadcastTarget(job, target, "Broadcast engine unavailable."));
@@ -11255,6 +11408,41 @@ async function acceptStudioBroadcastChunk(req, res, job) {
   sendJson(req, res, 200, studioBroadcastPublic(job));
 }
 
+async function persistStudioBroadcastEconomics(job) {
+  if (job.economicsPersisted) return;
+  job.economicsPersisted = true;
+  if (!job.startedAt && !job.bytesIn) return;
+  const endedAtMs = Date.now();
+  const durationSeconds = job.startedAt ? Math.max(0, Math.round((endedAtMs - job.startedAt) / 1000)) : 0;
+  const liveTargets = job.targets.filter((target) => target.liveStartedAt);
+  const bytesOut = job.targets.reduce((sum, target) => sum + Math.max(0, Number(target.bytesOut) || 0), 0);
+  const gib = 1024 ** 3;
+  const estimatedNetworkCost = (job.bytesIn / gib) * STUDIO_INGRESS_USD_PER_GB + (bytesOut / gib) * STUDIO_EGRESS_USD_PER_GB;
+  const estimatedComputeCost = (durationSeconds / 3600) * STUDIO_ENCODER_USD_PER_HOUR;
+  try {
+    await db("studio_broadcast_usage_record", {
+      id: job.id,
+      organizationId: job.organizationId,
+      sessionId: job.sessionId || null,
+      userId: job.userId,
+      startedAt: job.startedAt ? new Date(job.startedAt).toISOString() : null,
+      endedAt: new Date(endedAtMs).toISOString(),
+      durationSeconds,
+      destinationCount: liveTargets.length,
+      destinations: liveTargets.map((target) => target.destination),
+      bytesIn: job.bytesIn,
+      bytesOut,
+      encoderSeconds: durationSeconds,
+      estimatedNetworkCost,
+      estimatedComputeCost,
+      estimatedTotalCost: estimatedNetworkCost + estimatedComputeCost
+    });
+  } catch (error) {
+    job.economicsPersisted = false;
+    console.error("[Studio economics] failed to persist broadcast usage", error);
+  }
+}
+
 async function stopStudioBroadcast(job, reason = "stopped") {
   if (job.stopping) return;
   job.stopping = true;
@@ -11274,6 +11462,7 @@ async function stopStudioBroadcast(job, reason = "stopped") {
     try { relay.stdin.end(); } catch (_) {}
     setTimeout(() => { try { relay.kill("SIGTERM"); } catch (_) {} }, 1500).unref?.();
   }
+  await persistStudioBroadcastEconomics(job);
 }
 
 function httpError(statusCode, publicMessage) {

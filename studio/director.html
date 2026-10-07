@@ -423,19 +423,22 @@
               <button type="button" class="lv-view-btn" data-lv-view-btn="host" aria-pressed="true">Host</button>
               <button type="button" class="lv-view-btn" data-lv-view-btn="producer" aria-pressed="false">Producer</button>
             </nav>
-            <div class="lv-primary-actions" role="group" aria-label="Share, record and go live">
-              <button type="button" class="lv-primary-btn" id="lvTopShareScreen" aria-pressed="false">Share Screen</button>
-              <button type="button" class="lv-primary-btn lv-primary-btn--record" id="lvTopRecord" aria-pressed="false">Record</button>
+            <div class="lv-primary-actions" role="group" aria-label="Broadcast">
               <button type="button" class="lv-primary-btn lv-primary-btn--live lv-live-launch" id="lvTopGoLive" aria-pressed="false">Go Live</button>
             </div>
             <div class="lv-topbar-status">
               <span class="lv-policy-chip" id="lvPolicyChip" hidden></span>
-              <span class="lv-health-chip" id="lvTopHealth">Offline</span>
-              <span class="lv-identity-chip" id="lvTopHost">Host: Not joined</span>
-              <span class="lv-identity-chip" id="lvTopProducer">Producer: Local</span>
-              <button type="button" class="lv-mini-btn" id="lvTopProgramOutput">Program Output</button>
-              <button type="button" class="lv-mini-btn" id="lvTopSettings">Dashboard</button>
-              <button type="button" class="lv-mini-btn lv-mini-btn-danger" id="lvTopEndSession">End Session</button>
+              <button type="button" class="lv-mini-btn" id="lvTopMore" aria-expanded="false" aria-controls="lvTopMoreMenu">•••</button>
+              <div class="lv-top-more-menu" id="lvTopMoreMenu" hidden>
+                <button type="button" class="lv-mini-btn" id="lvTopProgramOutput">Program Output</button>
+                <button type="button" class="lv-mini-btn" id="lvTopSettings">Dashboard</button>
+                <button type="button" class="lv-mini-btn lv-mini-btn-danger" id="lvTopEndSession">End Session</button>
+              </div>
+              <span id="lvTopHealth" hidden>Offline</span>
+              <span id="lvTopHost" hidden>Host: Not joined</span>
+              <span id="lvTopProducer" hidden>Producer: Local</span>
+              <button type="button" id="lvTopRecord" hidden>Record</button>
+              <button type="button" id="lvTopShareScreen" hidden>Share Screen</button>
             </div>
           </header>
 
@@ -858,18 +861,18 @@
             <div class="lv-host-controls">
               <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
               <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>
-              <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Share a screen, window, tab or game into Program">Share Screen</button>
-              <button id="lvLeaveStudio" class="lv-icon-btn lv-icon-btn-danger" type="button" title="Leave Studio" hidden>Leave Studio</button>
+              <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Present a screen, window, tab or game into Program">＋ Present</button>
+              <button id="lvLeaveStudio" class="lv-icon-btn lv-icon-btn-danger" type="button" title="Leave Studio" hidden>Leave</button>
             </div>
             <div class="lv-bottom-actions">
               <span class="lv-bottom-mode" id="lvBottomMode" role="status" data-state="backstage">BACKSTAGE</span>
               <button id="lvRecordToggle" class="rec-toggle lv-bottom-record" type="button" aria-pressed="false" disabled>RECORD</button>
               <button id="lvBottomGoLive" class="rec-toggle lv-bottom-golive" type="button" aria-pressed="false">GO LIVE</button>
             </div>
-            <nav class="lv-bottom-nav" aria-label="Producer navigation">
-              <button type="button" class="lv-bottom-nav-btn" data-producer-jump="participants">Participants</button>
+            <nav class="lv-bottom-nav" aria-label="Producer tools">
+              <button type="button" class="lv-bottom-nav-btn" data-producer-jump="participants">People</button>
               <button type="button" class="lv-bottom-nav-btn" data-producer-jump="chat">Chat</button>
-              <button type="button" class="lv-bottom-nav-btn" data-producer-jump="assets">Assets / Media</button>
+              <button type="button" class="lv-bottom-nav-btn" data-producer-jump="assets">Tools</button>
             </nav>
           </footer>
         </section>

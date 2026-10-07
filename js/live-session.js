@@ -194,7 +194,10 @@ export class LiveSession {
     // Backstage / Record / Live model (js/program-orchestrator.js); recording and broadcast are just two
     // consumers of the same feed, so Going Live never opens a second capture picker.
     this.programFeed = new ProgramFeed({ acquire: () => this._captureProgramOutput() });
-    this.broadcast = new StudioBroadcastClient();
+    this.broadcast = new StudioBroadcastClient({
+      getSessionId: () => this.durableSession?.id || null,
+      getOrganizationId: () => this.durableSession?.organizationId || null
+    });
     this.studio = new ProgramOrchestrator({
       feed: this.programFeed,
       recorder: {
@@ -909,6 +912,24 @@ export class LiveSession {
   _syncProgramPreview() {
     const stage = this._containers?.programPreview;
     if (!stage) return;
+    const compositionState = this.canonicalControlState();
+
+    // Local bootstrap only: while a Host screen publisher is BINDING, mount its viewer in Program
+    // Preview even though the canonical/presence state remains active:false. VDO.Ninja only emits the
+    // push-connection:true event once a viewer peer actually connects. Previously we waited for that
+    // event before composing the screen, so no viewer was ever created and the share timed out after
+    // 15 seconds. This breaks that circular dependency without advertising an unconfirmed share to
+    // guests or remote Program Output.
+    if (this.screenShare?.ownerParticipantId === "host"
+      && this.screenShare?.state === ScreenShareState.BINDING
+      && this.screenShare?.transportSourceId) {
+      compositionState.screenShare = {
+        ...serializeScreenShareSource(this.screenShare),
+        active: true,
+        state: ScreenShareState.BINDING
+      };
+    }
+
     syncProgramRenderer({
       stage,
       engine: this.engine,
@@ -924,7 +945,7 @@ export class LiveSession {
         if (participant?.participantId === "host" || participant?.role === ParticipantRole.HOST) return this._hostPreviewStream;
         return null;
       },
-      compositionState: this.canonicalControlState()
+      compositionState
     });
   }
 
@@ -1702,6 +1723,14 @@ export class LiveSession {
       }
     }, SCREEN_SHARE_CONNECT_TIMEOUT_MS);
     this.emit("screenshare", this.screenShare);
+
+    // Bootstrap the screen viewer immediately while the publisher is still BINDING. VDO.Ninja's
+    // push-connection event is a peer/viewer connection signal, not a standalone "capture picker
+    // succeeded" event. Waiting for push-connection before mounting any viewer creates a deadlock:
+    // no viewer -> no push connection -> share never becomes active. _syncProgramPreview() uses a
+    // local-only provisional active screen source while BINDING so the viewer can connect. Presence
+    // and remote Program Output still see active:false until _confirmScreenShare() runs.
+    this._syncProgramPreview();
     return this.screenShare;
   }
 
@@ -1757,6 +1786,8 @@ export class LiveSession {
     this._preShareComposition = null;
     this.timeline.record(ProductionEventType.SHARE_STOPPED, { failed: true, reason }, { participantId: ownerParticipantId });
     this.emit("screenshare", this.screenShare);
+    // Remove the provisional BINDING viewer tile immediately after a cancelled/blocked share.
+    this._syncProgramPreview();
   }
 
   async stopScreenShare() {

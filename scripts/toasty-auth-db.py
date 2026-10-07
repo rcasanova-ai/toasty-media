@@ -1232,6 +1232,35 @@ def migrate(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_events_org ON ai_usage_events(organization_id, occurred_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ai_usage_events_session ON ai_usage_events(session_id)")
 
+    # Platform-admin-only Studio economics telemetry. This records server-side broadcast usage only;
+    # local browser recording has no Toasty server media cost. Cost fields are marginal estimates using
+    # the operator-configured rates in render-production-server.mjs, so raw bytes/minutes remain the
+    # authoritative measurements even when rates are zero or change later.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS studio_broadcast_usage (
+          id TEXT PRIMARY KEY,
+          organization_id TEXT NOT NULL REFERENCES organizations(id),
+          session_id TEXT,
+          user_id TEXT,
+          started_at TEXT,
+          ended_at TEXT NOT NULL,
+          duration_seconds INTEGER NOT NULL DEFAULT 0,
+          destination_count INTEGER NOT NULL DEFAULT 0,
+          destinations_json TEXT NOT NULL DEFAULT '[]',
+          bytes_in INTEGER NOT NULL DEFAULT 0,
+          bytes_out INTEGER NOT NULL DEFAULT 0,
+          encoder_seconds INTEGER NOT NULL DEFAULT 0,
+          estimated_network_cost REAL NOT NULL DEFAULT 0,
+          estimated_compute_cost REAL NOT NULL DEFAULT 0,
+          estimated_total_cost REAL NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_studio_broadcast_usage_org ON studio_broadcast_usage(organization_id, ended_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_studio_broadcast_usage_session ON studio_broadcast_usage(session_id)")
+
     # Post-event content hooks — retains attribution back to organization/session/speaker/sponsor/campaign
     # for every derived artifact (clip, quote card, article draft, social copy, ...). Storage of the actual
     # media/text stays wherever media_assets already puts it; this table is the durable attribution +
@@ -6050,6 +6079,112 @@ def main():
                 "estimatedCost": float(row["estimated_cost"] or 0),
             } for row in feature_rows],
             "recentEvents": [public_ai_usage_event(row) for row in recent_rows],
+        }
+        print(json.dumps(report))
+        return
+
+    # ---- Studio broadcast economics (platform operator telemetry) ----
+
+    if action == "studio_broadcast_usage_record":
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO studio_broadcast_usage (
+              id, organization_id, session_id, user_id, started_at, ended_at, duration_seconds,
+              destination_count, destinations_json, bytes_in, bytes_out, encoder_seconds,
+              estimated_network_cost, estimated_compute_cost, estimated_total_cost, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"], payload["organizationId"], payload.get("sessionId"), payload.get("userId"),
+                payload.get("startedAt"), payload.get("endedAt") or now, int(payload.get("durationSeconds") or 0),
+                int(payload.get("destinationCount") or 0), json.dumps(payload.get("destinations") or []),
+                int(payload.get("bytesIn") or 0), int(payload.get("bytesOut") or 0), int(payload.get("encoderSeconds") or 0),
+                float(payload.get("estimatedNetworkCost") or 0), float(payload.get("estimatedComputeCost") or 0),
+                float(payload.get("estimatedTotalCost") or 0), now,
+            ),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True, "id": payload["id"]}))
+        return
+
+    if action == "platform_studio_economics_report":
+        organization_id = payload["organizationId"]
+        rows = conn.execute(
+            """
+            SELECT b.*, s.title AS session_title, s.status AS session_status
+            FROM studio_broadcast_usage b
+            LEFT JOIN live_sessions s ON s.id = b.session_id
+            WHERE b.organization_id = ?
+            ORDER BY b.ended_at DESC
+            LIMIT 500
+            """,
+            (organization_id,),
+        ).fetchall()
+        totals = conn.execute(
+            """
+            SELECT COUNT(*) AS broadcasts,
+                   COALESCE(SUM(duration_seconds),0) AS duration_seconds,
+                   COALESCE(SUM(destination_count),0) AS destination_instances,
+                   COALESCE(SUM(bytes_in),0) AS bytes_in,
+                   COALESCE(SUM(bytes_out),0) AS bytes_out,
+                   COALESCE(SUM(encoder_seconds),0) AS encoder_seconds,
+                   COALESCE(SUM(estimated_network_cost),0) AS network_cost,
+                   COALESCE(SUM(estimated_compute_cost),0) AS compute_cost,
+                   COALESCE(SUM(estimated_total_cost),0) AS total_cost
+            FROM studio_broadcast_usage WHERE organization_id = ?
+            """,
+            (organization_id,),
+        ).fetchone()
+        session_rows = conn.execute(
+            """
+            SELECT s.id AS session_id, s.title AS session_title, s.status AS session_status,
+                   COALESCE(SUM(b.duration_seconds),0) AS duration_seconds,
+                   COALESCE(SUM(b.destination_count),0) AS destination_instances,
+                   COALESCE(SUM(b.bytes_in),0) AS bytes_in,
+                   COALESCE(SUM(b.bytes_out),0) AS bytes_out,
+                   COALESCE(SUM(b.encoder_seconds),0) AS encoder_seconds,
+                   COALESCE(SUM(b.estimated_total_cost),0) AS broadcast_cost,
+                   COUNT(b.id) AS broadcasts
+            FROM live_sessions s
+            LEFT JOIN studio_broadcast_usage b ON b.session_id = s.id AND b.organization_id = s.organization_id
+            WHERE s.organization_id = ?
+            GROUP BY s.id
+            ORDER BY MAX(COALESCE(b.ended_at, s.created_at)) DESC
+            LIMIT 250
+            """,
+            (organization_id,),
+        ).fetchall()
+        report = {
+            "totals": {
+                "broadcasts": int(totals["broadcasts"] or 0),
+                "durationSeconds": int(totals["duration_seconds"] or 0),
+                "destinationInstances": int(totals["destination_instances"] or 0),
+                "bytesIn": int(totals["bytes_in"] or 0),
+                "bytesOut": int(totals["bytes_out"] or 0),
+                "encoderSeconds": int(totals["encoder_seconds"] or 0),
+                "estimatedNetworkCost": float(totals["network_cost"] or 0),
+                "estimatedComputeCost": float(totals["compute_cost"] or 0),
+                "estimatedTotalCost": float(totals["total_cost"] or 0),
+            },
+            "bySession": [{
+                "sessionId": row["session_id"], "sessionTitle": row["session_title"] or "Untitled session",
+                "sessionStatus": row["session_status"] or "", "broadcasts": int(row["broadcasts"] or 0),
+                "durationSeconds": int(row["duration_seconds"] or 0),
+                "destinationInstances": int(row["destination_instances"] or 0),
+                "bytesIn": int(row["bytes_in"] or 0), "bytesOut": int(row["bytes_out"] or 0),
+                "encoderSeconds": int(row["encoder_seconds"] or 0), "estimatedBroadcastCost": float(row["broadcast_cost"] or 0),
+            } for row in session_rows],
+            "recentBroadcasts": [{
+                "id": row["id"], "sessionId": row["session_id"], "sessionTitle": row["session_title"] or "Untitled session",
+                "sessionStatus": row["session_status"] or "", "startedAt": row["started_at"], "endedAt": row["ended_at"],
+                "durationSeconds": int(row["duration_seconds"] or 0), "destinationCount": int(row["destination_count"] or 0),
+                "destinations": json.loads(row["destinations_json"] or "[]"), "bytesIn": int(row["bytes_in"] or 0),
+                "bytesOut": int(row["bytes_out"] or 0), "encoderSeconds": int(row["encoder_seconds"] or 0),
+                "estimatedNetworkCost": float(row["estimated_network_cost"] or 0),
+                "estimatedComputeCost": float(row["estimated_compute_cost"] or 0),
+                "estimatedTotalCost": float(row["estimated_total_cost"] or 0),
+            } for row in rows],
         }
         print(json.dumps(report))
         return
