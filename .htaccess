@@ -15,6 +15,12 @@
 # once the churn settles — content-hashed/versioned filenames (real long-lived immutable caching) is
 # the eventual production answer, not this.
 <IfModule mod_headers.c>
+  # Studio embeds VDO.Ninja in a cross-origin iframe for camera/mic and screen publishing. The iframe's
+  # own allow="display-capture" attribute is necessary but browsers may still block getDisplayMedia when
+  # the top-level document's Permissions-Policy does not delegate display capture to that origin.
+  # Delegate only the media features Studio actually uses, and only to self + VDO.Ninja.
+  Header always set Permissions-Policy "camera=(self \"https://vdo.ninja\"), microphone=(self \"https://vdo.ninja\"), display-capture=(self \"https://vdo.ninja\")"
+
   <FilesMatch "\.(html|htm|js|css)$">
     Header set Cache-Control "no-store, no-cache, must-revalidate"
     Header unset Expires
