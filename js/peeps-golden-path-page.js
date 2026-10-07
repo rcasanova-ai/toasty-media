@@ -164,7 +164,8 @@ function stepEvidence() {
 }
 
 // ---- Receipt ----
-function stateTag(state) { return `<i class="tag ${state === "done" ? "good" : ""}">${state === "done" ? "✓ done" : state === "na" ? "n/a" : "pending"}</i>`; }
+const STATUS_TAG = { onchain_verified: "ONCHAIN VERIFIED", ledger_posted: "OFFCHAIN", simulated: "SIMULATED" };
+function stateTag(state) { return `<i class="tag ${state === "done" ? "good" : ""}">${state === "done" ? "✓ DONE" : state === "na" ? "N/A" : "PENDING"}</i>`; }
 function safeExplorer(url) { return typeof url === "string" && url.startsWith("https://explorer.solana.com/tx/") ? url : ""; }
 function money(e) { return `${e.currency === "USD" ? "$" : ""}${Number(e.amount).toFixed(2)}${e.currency === "USDC" ? " USDC" : ""}`; }
 
@@ -173,8 +174,8 @@ function receiptCard() {
   const r = receipt;
   const sol = r.solana;
   const events = sol.events.map((e) => `<div class="row" style="grid-template-columns:1fr auto"><span><strong>Introduction fee · ${esc(money(e))}</strong><br><span class="muted">${esc(e.label)}</span>
-      ${e.signature ? `<br><span class="muted">Signature <code style="word-break:break-all">${esc(e.signature)}</code> · ${esc(e.network)}${e.slot ? ` · slot ${esc(e.slot)}` : ""}</span>${safeExplorer(e.explorerUrl) ? `<br><a class="link" href="${esc(safeExplorer(e.explorerUrl))}" target="_blank" rel="noopener noreferrer">View on Solana Explorer ↗</a>` : ""}` : ""}</span><i class="tag ${e.status === "onchain_verified" ? "good" : ""}">${esc(e.status.replace(/_/g, " "))}</i></div>`).join("");
-  const funding = sol.doughFunding.map((f) => `<div class="row" style="grid-template-columns:1fr auto"><span><strong>Dough funded · $${Number(f.amount).toFixed(2)} ${esc(f.asset)}</strong><br><span class="muted">${esc(f.label)}</span><br><span class="muted">Signature <code style="word-break:break-all">${esc(f.signature)}</code></span>${safeExplorer(f.explorerUrl) ? `<br><a class="link" href="${esc(safeExplorer(f.explorerUrl))}" target="_blank" rel="noopener noreferrer">View on Solana Explorer ↗</a>` : ""}</span><i class="tag good">onchain verified</i></div>`).join("");
+      ${e.signature ? `<br><span class="muted">Signature <code style="word-break:break-all">${esc(e.signature)}</code> · ${esc(e.network)}${e.slot ? ` · slot ${esc(e.slot)}` : ""}</span>${safeExplorer(e.explorerUrl) ? `<br><a class="link" href="${esc(safeExplorer(e.explorerUrl))}" target="_blank" rel="noopener noreferrer">View on Solana Explorer ↗</a>` : ""}` : ""}</span><i class="tag ${e.status === "onchain_verified" ? "good" : ""}">${esc(STATUS_TAG[e.status] || e.status.replace(/_/g, " ").toUpperCase())}</i></div>`).join("");
+  const funding = sol.doughFunding.map((f) => `<div class="row" style="grid-template-columns:1fr auto"><span><strong>Dough funded · $${Number(f.amount).toFixed(2)} ${esc(f.asset)}</strong><br><span class="muted">${esc(f.label)}</span><br><span class="muted">Signature <code style="word-break:break-all">${esc(f.signature)}</code></span>${safeExplorer(f.explorerUrl) ? `<br><a class="link" href="${esc(safeExplorer(f.explorerUrl))}" target="_blank" rel="noopener noreferrer">View on Solana Explorer ↗</a>` : ""}</span><i class="tag good">ONCHAIN VERIFIED</i></div>`).join("");
   return `<section class="card" id="gp-receipt"><span class="eyebrow">Receipt · request ${esc(r.requestId)}</span><h3>What actually happened</h3>
     <p class="muted">Lifecycle state: <b>${esc(String(r.lifecycleState).replace(/_/g, " "))}</b>${r.jam ? ` · Jam <code>${esc(r.jam.id)}</code> (${esc(r.jam.status)}) · Studio session <code>${esc(r.jam.studioSessionId || "none yet")}</code>` : ""}</p>
     ${r.checks.map((c) => `<div class="row" style="grid-template-columns:1fr auto"><span>${esc(c.label)}<br><span class="muted">${esc(c.detail)}</span></span>${stateTag(c.state)}</div>`).join("")}
@@ -188,7 +189,7 @@ function receiptCard() {
     <h4 style="margin-top:18px">Money &amp; Solana</h4>
     <p class="muted">Network: ${esc(sol.network)}${sol.recipientConfigured ? "" : " · on-chain recipient not configured on this server"}</p>
     ${events || `<p class="muted">The introduction fee hasn't been paid yet.</p>`}${funding}
-    <div class="row" style="grid-template-columns:1fr auto"><span><strong>Guest compensation · $${Number(r.dough.compensationOwed).toFixed(2)}</strong><br><span class="muted">Off-chain: Dough ledger, atomic debit + credit, idempotent. ${esc(r.dough.note)}</span></span><i class="tag ${r.dough.status === "settled" ? "good" : ""}">${esc(r.dough.status.replace(/_/g, " "))}</i></div>
+    <div class="row" style="grid-template-columns:1fr auto"><span><strong>Guest compensation · $${Number(r.dough.compensationOwed).toFixed(2)}</strong><br><span class="muted">Off-chain: Dough ledger, atomic debit + credit, idempotent. ${esc(r.dough.note)}</span></span><i class="tag ${r.dough.status === "settled" ? "good" : ""}">OFFCHAIN · ${r.dough.status === "settled" ? "SETTLED" : esc(r.dough.status.replace(/_/g, " ").toUpperCase())}</i></div>
     <p class="muted">Generated ${esc(r.generatedAt)}</p></section>`;
 }
 

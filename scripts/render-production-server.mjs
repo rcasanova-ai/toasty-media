@@ -11069,7 +11069,7 @@ function setCors(req, res) {
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Toasty-Render-Token, X-Toasty-CSRF");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Toasty-Render-Token, X-Toasty-CSRF, X-Payment-Signature, X-Solana-Transaction-Signature, X-Payment-Asset, X-Payment-Amount");
   res.setHeader("Access-Control-Max-Age", "86400");
   return true;
 }

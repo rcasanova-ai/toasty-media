@@ -56,7 +56,7 @@ async function main() {
   txs.set(F0.signature, F0.result); txs.set(F1.signature, F1.result);
   await new Promise((r) => rpc.listen(0, "127.0.0.1", r));
   server = spawn("node", [join(ROOT, "scripts", "render-production-server.mjs")], {
-    env: { ...process.env, TOASTY_RENDER_PORT: String(PORT), TOASTY_AUTH_DB: dbPath, TOASTY_AUTH_DB_HELPER: helper, TOASTY_SESSION_SECRET: "real-tx-test-secret", RESEND_API_KEY: "", PEEPS_TEST_ADAPTERS: "1",
+    env: { ...process.env, TOASTY_DISABLE_VOYAGEURS_BOOTSTRAP: "1", TOASTY_DISABLE_MATEO_BOOTSTRAP: "1", TOASTY_RENDER_PORT: String(PORT), TOASTY_AUTH_DB: dbPath, TOASTY_AUTH_DB_HELPER: helper, TOASTY_SESSION_SECRET: "real-tx-test-secret", RESEND_API_KEY: "", PEEPS_TEST_ADAPTERS: "1",
       SVM_PAY_TO: RECIPIENT, TOASTY_EXPERTS_X402_RECIPIENT: "", TOASTY_BILLING_SOLANA_RECIPIENT: RECIPIENT, TOASTY_USDC_MINT: USDC, TOASTY_USDT_MINT: "", TOASTY_SOLANA_NETWORK: "solana-devnet",
       TOASTY_SOLANA_RPC_URL: `http://127.0.0.1:${rpc.address().port}`, TOASTY_SOLANA_PAYER_KEYPAIR: "", SVM_KEYPAIR_PATH: "", STRIPE_SECRET_KEY: "", STRIPE_WEBHOOK_SECRET: "" },
     stdio: ["ignore", "pipe", "pipe"]

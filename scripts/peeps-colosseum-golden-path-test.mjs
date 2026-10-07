@@ -118,12 +118,12 @@ async function main() {
   await new Promise((resolve) => fakeRpc.listen(0, "127.0.0.1", resolve));
   server = spawn("node", [join(ROOT, "scripts", "render-production-server.mjs")], {
     env: {
-      ...process.env, TOASTY_RENDER_PORT: String(PORT), TOASTY_AUTH_DB: dbPath, TOASTY_AUTH_DB_HELPER: helper,
+      ...process.env, TOASTY_DISABLE_VOYAGEURS_BOOTSTRAP: "1", TOASTY_DISABLE_MATEO_BOOTSTRAP: "1", TOASTY_RENDER_PORT: String(PORT), TOASTY_AUTH_DB: dbPath, TOASTY_AUTH_DB_HELPER: helper,
       TOASTY_SESSION_SECRET: "colosseum-golden-path-secret", RESEND_API_KEY: "", PEEPS_TEST_ADAPTERS: "1",
       // Real-payments configuration: with a recipient set, the demo payment provider is DISABLED.
       SVM_PAY_TO: RECIPIENT, TOASTY_EXPERTS_X402_RECIPIENT: "", TOASTY_BILLING_SOLANA_RECIPIENT: RECIPIENT,
       TOASTY_USDC_MINT: USDC_MINT, TOASTY_USDT_MINT: "", TOASTY_SOLANA_NETWORK: "solana-devnet",
-      TOASTY_SOLANA_RPC_URL: `http://127.0.0.1:${fakeRpc.address().port}`, TOASTY_SOLANA_PAYER_KEYPAIR: "", STRIPE_SECRET_KEY: "", STRIPE_WEBHOOK_SECRET: ""
+      TOASTY_SOLANA_RPC_URL: `http://127.0.0.1:${fakeRpc.address().port}`, TOASTY_SOLANA_PAYER_KEYPAIR: "", SVM_KEYPAIR_PATH: "", STRIPE_SECRET_KEY: "", STRIPE_WEBHOOK_SECRET: ""
     },
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -235,6 +235,8 @@ async function main() {
   const crossReuse = await api(`/api/peeps/requests/${other.data.request.id}/authorize`, { method: "POST", cookie, headers: proofHeaders(paySignature), body: { candidates: [{ candidateId: other.data.candidates[0].id, outreachEmail: "carbon.guest@example.com" }] } });
   assert(crossReuse.status === 409, `one on-chain payment can't be spent on a second request (${crossReuse.status})`);
   assert(count("peeps_economic_events", "transaction_signature = ?", [paySignature]) === 1, "the signature is bound to exactly one economic event");
+  const spentElsewhere = db("dough_funding_confirm", { id: fundAgain.data.intent.id, providerReference: paySignature, transactionSignature: paySignature });
+  assert(spentElsewhere.error === "duplicate_reference" && balance("user", requesterId).spendBalance === 30, "and the reverse: a signature spent on a Peeps event can't later fund Dough");
 
   // ------------------------------------------------------------------------------------------------
   stage("Candidate is contacted and accepts (token-gated response page, no account)");

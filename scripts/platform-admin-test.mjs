@@ -30,7 +30,7 @@ c.execute(sys.argv[1],json.loads(sys.argv[2]))
 c.commit()`,sql,JSON.stringify(params)],{encoding:"utf8"});if(r.status!==0)throw new Error(r.stderr);}
 
 const server=spawn("node",[join(ROOT,"scripts","render-production-server.mjs")],{
-  env:{...process.env,TOASTY_RENDER_PORT:String(PORT),TOASTY_AUTH_DB:dbPath,TOASTY_AUTH_DB_HELPER:helper,TOASTY_SESSION_SECRET:"platform-admin-test",DEEPSEEK_API_KEY:"founder-test-key",RESEND_API_KEY:"",TOASTY_DISABLE_MATEO_BOOTSTRAP:"1"},
+  env:{...process.env,TOASTY_RENDER_PORT:String(PORT),TOASTY_AUTH_DB:dbPath,TOASTY_AUTH_DB_HELPER:helper,TOASTY_SESSION_SECRET:"platform-admin-test",DEEPSEEK_API_KEY:"founder-test-key",RESEND_API_KEY:"",TOASTY_DISABLE_MATEO_BOOTSTRAP:"1",TOASTY_DISABLE_VOYAGEURS_BOOTSTRAP:"1"},
   stdio:["ignore","pipe","pipe"]
 });
 let output="";server.stdout.on("data",c=>output+=c);server.stderr.on("data",c=>output+=c);
