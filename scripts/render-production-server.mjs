@@ -4336,12 +4336,16 @@ async function verifySolanaTransactionForIntent(intent, transactionSignature) {
     if (post - pre < expectedLamports) throw httpError(400, "That transaction underpays the quoted amount.");
   } else {
     const expectedMint = intent.mintOverride || solanaMintFor(intent.asset);
-    const preEntry = (tx.meta?.preTokenBalances || []).find((entry) => entry.owner === intent.recipientWallet && entry.mint === expectedMint);
-    const postEntry = (tx.meta?.postTokenBalances || []).find((entry) => entry.owner === intent.recipientWallet && entry.mint === expectedMint);
-    if (!postEntry) throw httpError(400, `That transaction does not deliver ${intent.asset} (on the expected mint) to the expected wallet.`);
-    const preAmount = preEntry ? Number(preEntry.uiTokenAmount?.uiAmount || 0) : 0;
-    const postAmount = Number(postEntry.uiTokenAmount?.uiAmount || 0);
-    if (postAmount - preAmount < intent.cryptoAmount - 1e-6) throw httpError(400, "That transaction underpays the quoted amount.");
+    // Real getTransaction(jsonParsed) shape: token balances carry `owner` + `mint` + a decimal-exact
+    // `uiAmountString` (`uiAmount` is null for a zero balance and deprecated). A payer's funds may land in
+    // several token accounts owned by the recipient, so credit = sum(post) - sum(pre) across ALL of the
+    // recipient's accounts for this mint; moving funds between the recipient's own accounts nets to zero.
+    const sumFor = (entries) => (entries || []).filter((entry) => entry.owner === intent.recipientWallet && entry.mint === expectedMint)
+      .reduce((total, entry) => total + Number(entry.uiTokenAmount?.uiAmountString ?? entry.uiTokenAmount?.uiAmount ?? 0), 0);
+    if (!(tx.meta?.postTokenBalances || []).some((entry) => entry.owner === intent.recipientWallet && entry.mint === expectedMint)) {
+      throw httpError(400, `That transaction does not deliver ${intent.asset} (on the expected mint) to the expected wallet.`);
+    }
+    if (sumFor(tx.meta?.postTokenBalances) - sumFor(tx.meta?.preTokenBalances) < intent.cryptoAmount - 1e-6) throw httpError(400, "That transaction underpays the quoted amount.");
   }
   return tx;
 }
@@ -7252,10 +7256,20 @@ function solanaExplorerTxUrl(signature, network = TOASTY_SOLANA_NETWORK) {
 async function verifyPeepsOnchainPayment({ signature, requestId, amount }) {
   if (!TOASTY_EXPERT_DISCOVERY_RECIPIENT) throw httpError(503, "On-chain payment verification isn't configured on this server.");
   const tx = await verifySolanaTransactionForIntent({ recipientWallet: TOASTY_EXPERT_DISCOVERY_RECIPIENT, asset: "USDC", cryptoAmount: amount, mintOverride: TOASTY_USDC_MINT }, signature);
-  const keys = (tx.transaction?.message?.accountKeys || []).map((entry) => (typeof entry === "string" ? entry : entry.pubkey));
+  // Static keys plus any keys loaded from address lookup tables (versioned transactions).
+  const keys = [
+    ...(tx.transaction?.message?.accountKeys || []).map((entry) => (typeof entry === "string" ? entry : entry.pubkey)),
+    ...(tx.meta?.loadedAddresses?.writable || []), ...(tx.meta?.loadedAddresses?.readonly || [])
+  ];
   if (!keys.includes(peepsPaymentReference(requestId))) throw httpError(400, "That transaction doesn't carry this request's payment reference, so it can't be applied to it.");
+  // Payer = the owner whose USDC balance fell the most in this transaction (the account that actually
+  // funded it). A relayer that only pays the fee is not the payer. Falls back to the fee payer.
+  const owed = new Map();
+  for (const entry of tx.meta?.preTokenBalances || []) if (entry.mint === TOASTY_USDC_MINT) owed.set(entry.owner, (owed.get(entry.owner) || 0) + Number(entry.uiTokenAmount?.uiAmountString ?? entry.uiTokenAmount?.uiAmount ?? 0));
+  for (const entry of tx.meta?.postTokenBalances || []) if (entry.mint === TOASTY_USDC_MINT) owed.set(entry.owner, (owed.get(entry.owner) || 0) - Number(entry.uiTokenAmount?.uiAmountString ?? entry.uiTokenAmount?.uiAmount ?? 0));
+  const spender = [...owed.entries()].filter(([owner, drop]) => owner !== TOASTY_EXPERT_DISCOVERY_RECIPIENT && drop > 1e-9).sort((x, y) => y[1] - x[1])[0];
   return {
-    payerWallet: keys[0] || null,
+    payerWallet: spender?.[0] || keys[0] || null,
     slot: Number.isFinite(tx.slot) ? tx.slot : null,
     blockTime: Number.isFinite(tx.blockTime) ? new Date(tx.blockTime * 1000).toISOString() : null
   };
