@@ -92,6 +92,12 @@ const scryptAsync = promisify(scrypt);
 const execFileAsync = promisify(execFile);
 const rateBuckets = new Map();
 const studioBroadcastJobs = new Map();
+// Marginal Studio cost model. Raw usage is always recorded; operators can set these rates to match the
+// actual VPS/provider contract without exposing any of it to customers. Zero is intentionally valid when
+// transfer/CPU are included in a fixed server bill.
+const STUDIO_EGRESS_USD_PER_GB = Math.max(0, Number(process.env.TOASTY_STUDIO_EGRESS_USD_PER_GB || 0));
+const STUDIO_INGRESS_USD_PER_GB = Math.max(0, Number(process.env.TOASTY_STUDIO_INGRESS_USD_PER_GB || 0));
+const STUDIO_ENCODER_USD_PER_HOUR = Math.max(0, Number(process.env.TOASTY_STUDIO_ENCODER_USD_PER_HOUR || 0));
 const TOASTY_EXPERT_DISCOVERY_PRICE = 0.001;
 const TOASTY_EXPERT_DISCOVERY_RECIPIENT = process.env.SVM_PAY_TO || process.env.TOASTY_EXPERTS_X402_RECIPIENT || "";
 const TOASTY_SOLANA_NETWORK = process.env.TOASTY_SOLANA_NETWORK || "solana-devnet";
@@ -3311,7 +3317,12 @@ async function handlePlatformStatus(req, res, session) {
       anthropic: { configured: Boolean(ANTHROPIC_API_KEY), model: ANTHROPIC_MODEL }
     },
     safetySwitches: COST_SAFETY_SWITCHES,
-    founderAiFallback: Boolean(DEEPSEEK_API_KEY)
+    founderAiFallback: Boolean(DEEPSEEK_API_KEY),
+    studioCostRates: {
+      ingressUsdPerGb: STUDIO_INGRESS_USD_PER_GB,
+      egressUsdPerGb: STUDIO_EGRESS_USD_PER_GB,
+      encoderUsdPerHour: STUDIO_ENCODER_USD_PER_HOUR
+    }
   });
 }
 
@@ -3375,7 +3386,7 @@ async function handlePlatformResetUsage(req, res, organizationId) {
 
 async function platformOrganizationSnapshot(organizationId) {
   if (!SAFE_ID.test(organizationId)) throw httpError(400, "Invalid organization id.");
-  const [org, settings, members, invites, brands, billing, subscriptions, credentials, sessions, today, month, intents, aiUsageReport] = await Promise.all([
+  const [org, settings, members, invites, brands, billing, subscriptions, credentials, sessions, today, month, intents, aiUsageReport, studioEconomics] = await Promise.all([
     db("get_organization", { id: organizationId }),
     db("get_organization_settings", { organizationId }),
     db("list_memberships", { organizationId }),
@@ -3388,7 +3399,8 @@ async function platformOrganizationSnapshot(organizationId) {
     db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("day") }),
     db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("month") }),
     db("list_payment_intents", { organizationId }),
-    db("platform_ai_usage_report", { organizationId })
+    db("platform_ai_usage_report", { organizationId }),
+    db("platform_studio_economics_report", { organizationId })
   ]);
   if (!org.organization) throw httpError(404, "Organization not found.");
   return {
@@ -3404,6 +3416,7 @@ async function platformOrganizationSnapshot(organizationId) {
     usage: { today: today.usage || {}, month: month.usage || {} },
     paymentIntents: intents.paymentIntents || [],
     aiUsageReport: aiUsageReport || { totals: {}, bySession: [], byProviderModel: [], byFeature: [], recentEvents: [] },
+    studioEconomics: studioEconomics || { totals: {}, bySession: [], recentBroadcasts: [] },
     limits: planLimitsFor(org.organization.plan),
     safety: safetySwitchSnapshot()
   };
@@ -11022,6 +11035,12 @@ async function handleBroadcastDestinationDelete(req, res, session, rawDestinatio
 async function handleStudioBroadcastStart(req, res, session) {
   const body = await readJson(req, 16 * 1024);
   const organizationId = await resolveBroadcastOrganization(req, res, session, body?.organizationId); if (!organizationId) return;
+  let sessionId = null;
+  const requestedSessionId = sessionText(body?.sessionId, 80);
+  if (requestedSessionId && SAFE_ID.test(requestedSessionId)) {
+    const owned = await db("session_get", { id: requestedSessionId, ownerUserId: session.id });
+    if (owned.session?.organizationId === organizationId) sessionId = owned.session.id;
+  }
   const names = [...new Set((Array.isArray(body?.destinations) ? body.destinations : []).map(cleanBroadcastDestinationName).filter(Boolean))];
   if (!names.length) throw httpError(400, "Choose at least one destination to go live to.");
   const targets = [];
@@ -11036,13 +11055,14 @@ async function handleStudioBroadcastStart(req, res, session) {
     if (existing.userId === session.id) { await stopStudioBroadcast(existing, "replaced by a new broadcast"); studioBroadcastJobs.delete(existing.id); }
   }
   const job = {
-    id: randomUUID(), userId: session.id, organizationId, state: "starting", createdAt: Date.now(), startedAt: null,
+    id: randomUUID(), userId: session.id, organizationId, sessionId, state: "starting", createdAt: Date.now(), startedAt: null,
     width: Math.min(1920, Math.max(640, Number(body?.width) || 1920)),
     height: Math.min(1080, Math.max(360, Number(body?.height) || 1080)),
     fps: Math.min(60, Math.max(24, Number(body?.fps) || 30)),
     bitrateKbps: Math.min(12000, Math.max(1000, Number(body?.bitrateKbps) || 6000)),
     nextSeq: 0, bytesIn: 0, lastChunkAt: Date.now(), encoder: null, stopping: false, watchdog: null,
-    targets: targets.map((target) => ({ ...target, state: "connecting", error: "", relay: null, stderr: "" }))
+    targets: targets.map((target) => ({ ...target, state: "connecting", error: "", relay: null, stderr: "", bytesOut: 0, liveStartedAt: null })),
+    economicsPersisted: false
   };
   studioBroadcastJobs.set(job.id, job);
   try { launchStudioBroadcast(job); } catch (error) { studioBroadcastJobs.delete(job.id); throw httpError(500, "The broadcast engine could not start."); }
@@ -11115,7 +11135,8 @@ function launchStudioBroadcast(job) {
       while ((m = frame.exec(progressBuffer))) last = Number(m[1]);
       const size = /total_size=(\d+)/g; let s, bytes = 0;
       while ((s = size.exec(progressBuffer))) bytes = Number(s[1]);
-      if ((last > 0 || bytes > 4096) && target.state === "connecting") { target.state = "live"; refreshStudioBroadcastState(job); }
+      if (bytes > target.bytesOut) target.bytesOut = bytes;
+      if ((last > 0 || bytes > 4096) && target.state === "connecting") { target.state = "live"; target.liveStartedAt = target.liveStartedAt || Date.now(); refreshStudioBroadcastState(job); }
     });
     relay.stderr.on("data", (chunk) => { target.stderr = (target.stderr + chunk.toString()).slice(-3000); });
     relay.on("error", () => failBroadcastTarget(job, target, "Broadcast engine unavailable."));
@@ -11182,6 +11203,41 @@ async function acceptStudioBroadcastChunk(req, res, job) {
   sendJson(req, res, 200, studioBroadcastPublic(job));
 }
 
+async function persistStudioBroadcastEconomics(job) {
+  if (job.economicsPersisted) return;
+  job.economicsPersisted = true;
+  if (!job.startedAt && !job.bytesIn) return;
+  const endedAtMs = Date.now();
+  const durationSeconds = job.startedAt ? Math.max(0, Math.round((endedAtMs - job.startedAt) / 1000)) : 0;
+  const liveTargets = job.targets.filter((target) => target.liveStartedAt);
+  const bytesOut = job.targets.reduce((sum, target) => sum + Math.max(0, Number(target.bytesOut) || 0), 0);
+  const gib = 1024 ** 3;
+  const estimatedNetworkCost = (job.bytesIn / gib) * STUDIO_INGRESS_USD_PER_GB + (bytesOut / gib) * STUDIO_EGRESS_USD_PER_GB;
+  const estimatedComputeCost = (durationSeconds / 3600) * STUDIO_ENCODER_USD_PER_HOUR;
+  try {
+    await db("studio_broadcast_usage_record", {
+      id: job.id,
+      organizationId: job.organizationId,
+      sessionId: job.sessionId || null,
+      userId: job.userId,
+      startedAt: job.startedAt ? new Date(job.startedAt).toISOString() : null,
+      endedAt: new Date(endedAtMs).toISOString(),
+      durationSeconds,
+      destinationCount: liveTargets.length,
+      destinations: liveTargets.map((target) => target.destination),
+      bytesIn: job.bytesIn,
+      bytesOut,
+      encoderSeconds: durationSeconds,
+      estimatedNetworkCost,
+      estimatedComputeCost,
+      estimatedTotalCost: estimatedNetworkCost + estimatedComputeCost
+    });
+  } catch (error) {
+    job.economicsPersisted = false;
+    console.error("[Studio economics] failed to persist broadcast usage", error);
+  }
+}
+
 async function stopStudioBroadcast(job, reason = "stopped") {
   if (job.stopping) return;
   job.stopping = true;
@@ -11201,6 +11257,7 @@ async function stopStudioBroadcast(job, reason = "stopped") {
     try { relay.stdin.end(); } catch (_) {}
     setTimeout(() => { try { relay.kill("SIGTERM"); } catch (_) {} }, 1500).unref?.();
   }
+  await persistStudioBroadcastEconomics(job);
 }
 
 function httpError(statusCode, publicMessage) {
