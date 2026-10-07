@@ -91,7 +91,7 @@ function renderAll(){
   $("paDefaultSession").value=pretty(s.defaultSessionSettings);$("paDefaultCTA").value=pretty(s.defaultCTA);$("paDefaultEndCard").value=pretty(s.defaultEndCard);
   $("paSocialLinks").value=pretty(s.socialLinks);$("paDomainConfig").value=pretty(s.customDomainConfig);
 
-  renderMembers();renderPendingInvites();renderBrands();renderAi();renderSessions();renderUsage();renderBilling();
+  renderMembers();renderPendingInvites();renderBrands();renderAi();renderSessions();renderUsage();renderEconomics();renderBilling();
 }
 
 function renderPlatformStatus(){
@@ -183,6 +183,7 @@ function metric(label,value,detail=""){return '<div class="settings-card"><h2>'+
 function fmtTokens(value){return Number(value||0).toLocaleString();}
 function fmtCost(value){const n=Number(value||0);return n===0?"$0.00":n<0.01?"$"+n.toFixed(4):"$"+n.toFixed(2);}
 function fmtLatency(value){const n=Number(value||0);return n?Math.round(n).toLocaleString()+" ms":"—";}
+function fmtDurationSeconds(value){const total=Math.max(0,Math.round(Number(value)||0));const h=Math.floor(total/3600),m=Math.floor((total%3600)/60),s=total%60;if(h)return h+"h "+m+"m";if(m)return m+"m "+s+"s";return s+"s";}
 
 function renderUsage(){
   const u=state.detail.usage||{},m=u.month||{},t=u.today||{},limits=state.detail.limits||{};
@@ -218,6 +219,31 @@ function renderUsage(){
   $("paAiRecent").innerHTML=(ai.recentEvents||[]).map(ev=>'<tr><td>'+esc(shortDate(ev.occurredAt))+'</td><td>'+esc(sessionNames.get(ev.sessionId)||ev.sessionId||"Organization")+'</td><td>'+esc(human(ev.feature||"unspecified"))+'</td><td>'+esc(human(ev.provider||"unknown"))+'<br><small>'+esc(ev.model||"")+'</small></td><td>'+fmtTokens(ev.totalTokens)+'</td><td>'+fmtCost(ev.estimatedCost)+'</td><td>'+fmtLatency(ev.latencyMs)+'</td></tr>').join("")||'<tr><td colspan="7">No AI calls recorded yet.</td></tr>';
 
   $("paSafety").innerHTML=Object.entries(state.detail.safety||{}).map(([k,v])=>'<div class="platform-row"><strong>'+esc(human(k))+'</strong><span>'+(v?"Enabled":"Disabled")+'</span></div>').join("");
+}
+
+function renderEconomics(){
+  const econ=state.detail.studioEconomics||{},tot=econ.totals||{},ai=state.detail.aiUsageReport||{},aiTot=ai.totals||{};
+  const broadcastCost=Number(tot.estimatedTotalCost||0),aiCost=Number(aiTot.estimatedCost||0),combined=broadcastCost+aiCost;
+  $("paEconomicsCards").innerHTML=[
+    metric("Metered marginal cost",fmtCost(combined),"Broadcast "+fmtCost(broadcastCost)+" · AI "+fmtCost(aiCost)),
+    metric("Live egress",formatBytes(tot.bytesOut||0),fmtTokens(tot.broadcasts||0)+" completed broadcast"+(Number(tot.broadcasts||0)===1?"":"s")),
+    metric("Encoder time",fmtDurationSeconds(tot.encoderSeconds||0),fmtTokens(tot.destinationInstances||0)+" destination run"+(Number(tot.destinationInstances||0)===1?"":"s")),
+    metric("Program ingress",formatBytes(tot.bytesIn||0),"Actual browser → Toasty live media")
+  ].join("");
+
+  const rates=state.status?.studioCostRates||{};
+  const anyRate=Number(rates.ingressUsdPerGb||0)>0||Number(rates.egressUsdPerGb||0)>0||Number(rates.encoderUsdPerHour||0)>0;
+  $("paEconomicsRates").innerHTML=
+    '<div class="platform-row"><div><strong>Cost assumptions</strong><br><small>Ingress '+fmtCost(rates.ingressUsdPerGb||0)+'/GB · Egress '+fmtCost(rates.egressUsdPerGb||0)+'/GB · Encoder '+fmtCost(rates.encoderUsdPerHour||0)+'/hour</small></div><span>'+(anyRate?"Configured":"Usage metered · variable rates currently $0")+'</span></div>'+
+    '<div class="platform-row"><div><strong>Fixed VPS bill</strong><br><small>Not allocated per session. This panel shows marginal usage so a fixed monthly server fee is never falsely presented as per-show spend.</small></div><span>Excluded</span></div>';
+
+  const aiBySession=new Map((ai.bySession||[]).map(row=>[row.sessionId,Number(row.estimatedCost||0)]));
+  $("paEconomicsSessions").innerHTML=(econ.bySession||[]).map(row=>{
+    const b=Number(row.estimatedBroadcastCost||0),a=aiBySession.get(row.sessionId)||0,total=b+a;
+    return '<tr><td><strong>'+esc(row.sessionTitle||"Untitled session")+'</strong><br><small>'+esc(row.sessionId)+'</small></td><td>'+esc(fmtDurationSeconds(row.durationSeconds||0))+'</td><td>'+fmtTokens(row.destinationInstances||0)+'</td><td>'+esc(formatBytes(row.bytesIn||0))+'</td><td>'+esc(formatBytes(row.bytesOut||0))+'</td><td>'+esc(fmtDurationSeconds(row.encoderSeconds||0))+'</td><td>'+fmtCost(b)+'</td><td>'+fmtCost(a)+'</td><td><strong>'+fmtCost(total)+'</strong></td></tr>';
+  }).join("")||'<tr><td colspan="9">No Studio sessions yet.</td></tr>';
+
+  $("paEconomicsRecent").innerHTML=(econ.recentBroadcasts||[]).map(row=>'<tr><td>'+esc(shortDate(row.endedAt))+'</td><td><strong>'+esc(row.sessionTitle||"Untitled session")+'</strong><br><small>'+esc(row.sessionId||"Unattached broadcast")+'</small></td><td>'+esc((row.destinations||[]).map(human).join(", ")||String(row.destinationCount||0))+'</td><td>'+esc(fmtDurationSeconds(row.durationSeconds||0))+'</td><td>'+esc(formatBytes(row.bytesIn||0))+'</td><td>'+esc(formatBytes(row.bytesOut||0))+'</td><td>'+fmtCost(row.estimatedTotalCost||0)+'</td></tr>').join("")||'<tr><td colspan="7">No completed live broadcasts have been metered yet.</td></tr>';
 }
 
 function renderBilling(){

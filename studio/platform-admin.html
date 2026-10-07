@@ -26,6 +26,7 @@
       <button class="platform-nav-btn" data-panel="ai">AI providers</button>
       <button class="platform-nav-btn" data-panel="sessions">Sessions</button>
       <button class="platform-nav-btn" data-panel="usage">Usage & safety</button>
+      <button class="platform-nav-btn" data-panel="economics">Studio economics</button>
       <button class="platform-nav-btn" data-panel="billing">Billing</button>
       <button class="platform-nav-btn" data-panel="integrations">Integrations</button>
     </aside>
@@ -199,6 +200,41 @@
           <div class="settings-card">
             <h2>Platform safety switches</h2>
             <div id="paSafety" class="platform-stack"></div>
+          </div>
+        </section>
+
+
+        <section class="platform-panel" data-panel-view="economics">
+          <div id="paEconomicsCards" class="usage-grid"></div>
+
+          <div class="settings-card">
+            <div class="panel-heading">
+              <div>
+                <h2>Studio cost meter</h2>
+                <p class="hint">Platform-only marginal cost telemetry. Browser-local recording is not billed as server media usage. Live broadcasts record actual ingress, RTMP egress, encoder time and AI cost.</p>
+              </div>
+            </div>
+            <div id="paEconomicsRates" class="platform-stack"></div>
+          </div>
+
+          <div class="settings-card">
+            <h2>Cost by session</h2>
+            <div class="table-wrap">
+              <table class="settings-table">
+                <thead><tr><th>Session</th><th>Broadcast time</th><th>Destinations</th><th>Ingress</th><th>Egress</th><th>Encoder</th><th>Broadcast cost</th><th>AI cost</th><th>Total</th></tr></thead>
+                <tbody id="paEconomicsSessions"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <h2>Recent broadcasts</h2>
+            <div class="table-wrap">
+              <table class="settings-table">
+                <thead><tr><th>Ended</th><th>Session</th><th>Destinations</th><th>Duration</th><th>Ingress</th><th>Egress</th><th>Est. cost</th></tr></thead>
+                <tbody id="paEconomicsRecent"></tbody>
+              </table>
+            </div>
           </div>
         </section>
 

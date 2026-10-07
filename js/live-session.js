@@ -194,7 +194,10 @@ export class LiveSession {
     // Backstage / Record / Live model (js/program-orchestrator.js); recording and broadcast are just two
     // consumers of the same feed, so Going Live never opens a second capture picker.
     this.programFeed = new ProgramFeed({ acquire: () => this._captureProgramOutput() });
-    this.broadcast = new StudioBroadcastClient();
+    this.broadcast = new StudioBroadcastClient({
+      getSessionId: () => this.durableSession?.id || null,
+      getOrganizationId: () => this.durableSession?.organizationId || null
+    });
     this.studio = new ProgramOrchestrator({
       feed: this.programFeed,
       recorder: {

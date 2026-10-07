@@ -24,10 +24,12 @@ function pickMimeType(Rec) {
 }
 
 export class StudioBroadcastClient {
-  constructor({ endpoint, fetchImpl, MediaRecorderImpl } = {}) {
+  constructor({ endpoint, fetchImpl, MediaRecorderImpl, getSessionId, getOrganizationId } = {}) {
     this.endpointOverride = endpoint;
     this.fetch = fetchImpl || ((...args) => fetch(...args));
     this.MediaRecorderImpl = MediaRecorderImpl || globalThis.MediaRecorder;
+    this.getSessionId = typeof getSessionId === "function" ? getSessionId : () => null;
+    this.getOrganizationId = typeof getOrganizationId === "function" ? getOrganizationId : () => null;
     this.listeners = new Set();
     this.broadcastId = null;
     this.recorder = null;
@@ -79,7 +81,14 @@ export class StudioBroadcastClient {
     const Rec = this.MediaRecorderImpl;
     const mimeType = pickMimeType(Rec);
     if (!Rec || !mimeType) throw new Error("This browser cannot encode a Program feed. Use current Chrome or Edge.");
-    const started = await this._request("start", { method: "POST", body: { destinations, width, height, fps, bitrateKbps } });
+    const started = await this._request("start", {
+      method: "POST",
+      body: {
+        destinations, width, height, fps, bitrateKbps,
+        sessionId: this.getSessionId() || null,
+        organizationId: this.getOrganizationId() || null
+      }
+    });
     this.broadcastId = started.id;
     this.queue = []; this.seq = 0; this.stopping = false;
     this._emit(started.destinations);
