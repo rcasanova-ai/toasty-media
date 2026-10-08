@@ -34,6 +34,7 @@ jobs:
           set -euo pipefail
           for t in \
             peeps-colosseum-golden-path-test \
+            peeps-waitlist-server-test \
             solana-real-transaction-verification-test \
             peeps-agent-lifecycle-server-test \
             peeps-introduction-execution-server-test \
