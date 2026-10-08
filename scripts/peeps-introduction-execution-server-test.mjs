@@ -60,7 +60,7 @@ async function waitForHealth() {
 }
 
 const server = spawn("node", [join(ROOT, "scripts", "render-production-server.mjs")], {
-  env: { ...process.env, TOASTY_RENDER_PORT: String(PORT), TOASTY_AUTH_DB: dbPath, TOASTY_AUTH_DB_HELPER: helper, TOASTY_SESSION_SECRET: "peeps-exec-test-secret", RESEND_API_KEY: "", SVM_PAY_TO: "", TOASTY_EXPERTS_X402_RECIPIENT: "", PEEPS_TEST_ADAPTERS: "1" },
+  env: { ...process.env, TOASTY_DISABLE_VOYAGEURS_BOOTSTRAP: "1", TOASTY_DISABLE_MATEO_BOOTSTRAP: "1", TOASTY_RENDER_PORT: String(PORT), TOASTY_AUTH_DB: dbPath, TOASTY_AUTH_DB_HELPER: helper, TOASTY_SESSION_SECRET: "peeps-exec-test-secret", RESEND_API_KEY: "", SVM_PAY_TO: "", TOASTY_EXPERTS_X402_RECIPIENT: "", PEEPS_TEST_ADAPTERS: "1" },
   stdio: ["ignore", "pipe", "pipe"]
 });
 let serverOutput = "";
@@ -471,7 +471,7 @@ async function productionLikeCheck() {
   const dir = mkdtempSync(join(tmpdir(), "toasty-peeps-exec-prod-"));
   const path2 = join(dir, "toasty.sqlite");
   const proc = spawn("node", [join(ROOT, "scripts", "render-production-server.mjs")], {
-    env: { ...process.env, TOASTY_RENDER_PORT: String(port), TOASTY_AUTH_DB: path2, TOASTY_AUTH_DB_HELPER: helper, TOASTY_SESSION_SECRET: "peeps-exec-prod-secret", RESEND_API_KEY: "", SVM_PAY_TO: "", TOASTY_EXPERTS_X402_RECIPIENT: "", PEEPS_TEST_ADAPTERS: "" },
+    env: { ...process.env, TOASTY_DISABLE_VOYAGEURS_BOOTSTRAP: "1", TOASTY_DISABLE_MATEO_BOOTSTRAP: "1", TOASTY_RENDER_PORT: String(port), TOASTY_AUTH_DB: path2, TOASTY_AUTH_DB_HELPER: helper, TOASTY_SESSION_SECRET: "peeps-exec-prod-secret", RESEND_API_KEY: "", SVM_PAY_TO: "", TOASTY_EXPERTS_X402_RECIPIENT: "", PEEPS_TEST_ADAPTERS: "" },
     stdio: ["ignore", "ignore", "ignore"]
   });
   const call = async (p, { method = "GET", cookie: ck, body, headers = {} } = {}) => {

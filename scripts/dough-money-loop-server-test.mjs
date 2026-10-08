@@ -85,7 +85,7 @@ async function main() {
 
   const server = spawn("node", [join(ROOT, "scripts", "render-production-server.mjs")], {
     env: {
-      ...process.env, TOASTY_RENDER_PORT: String(PORT), TOASTY_AUTH_DB: dbPath, TOASTY_AUTH_DB_HELPER: helper,
+      ...process.env, TOASTY_DISABLE_VOYAGEURS_BOOTSTRAP: "1", TOASTY_DISABLE_MATEO_BOOTSTRAP: "1", TOASTY_RENDER_PORT: String(PORT), TOASTY_AUTH_DB: dbPath, TOASTY_AUTH_DB_HELPER: helper,
       TOASTY_SESSION_SECRET: "dough-loop-test-secret", RESEND_API_KEY: "",
       TOASTY_BILLING_SOLANA_RECIPIENT: RECIPIENT, TOASTY_SOLANA_RPC_URL: `http://127.0.0.1:${rpcPort}`,
       TOASTY_USDC_MINT: USDC_MINT, TOASTY_USDT_MINT: "", STRIPE_SECRET_KEY: "", STRIPE_WEBHOOK_SECRET: "",

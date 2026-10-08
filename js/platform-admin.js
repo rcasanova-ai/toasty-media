@@ -60,12 +60,47 @@ function bindStatic(){
   $("paSaveDefaults").onclick=saveDefaults;$("paSaveBilling").onclick=saveBilling;$("paNewBrand").onclick=()=>renderBrandEditor(null,true);
   $("paInviteMember").onclick=inviteMember;$("paCreateMember").onclick=createMember;$("paSaveAiKey").onclick=saveAiKey;
   $("paOrgSearch")?.addEventListener("input",renderOrganizationDirectory);
+  $("paWaitlistSearch")?.addEventListener("input",renderWaitlist);$("paWaitlistRefresh")?.addEventListener("click",loadWaitlist);
 }
 
 function selectPanel(panel){
   state.panel=panel;
   document.querySelectorAll(".platform-nav-btn").forEach(b=>b.classList.toggle("is-active",b.dataset.panel===panel));
   document.querySelectorAll(".platform-panel").forEach(p=>p.classList.toggle("is-active",p.dataset.panelView===panel));
+  if(panel==="waitlist")loadWaitlist();
+}
+
+// ---- Peeps waitlist (platform-wide, not per organization) ----
+const wl={data:null};
+async function loadWaitlist(){
+  try{wl.data=await studioRequest("/api/organizations/platform-admin/peeps-waitlist");renderWaitlist();}
+  catch(error){setMessage(error.message,true);}
+}
+function renderWaitlist(){
+  const d=wl.data;if(!d)return;
+  $("paWaitlistEmail").textContent=d.emailTransport==="resend"?"Email: real delivery via Resend.":"Email: NOT configured (RESEND_API_KEY missing). Emails are logged on the server, not delivered. Invitation links are shown here so you can pass them on yourself.";
+  $("paWaitlistSummary").innerHTML=[["Total",d.total],["Waitlisted",d.byStatus.WAITLISTED||0],["Invited",d.byStatus.INVITED||0],["Active",d.byStatus.ACTIVE||0],["Suspended",d.byStatus.SUSPENDED||0]].map(x=>'<div class="usage-metric"><span>'+esc(x[0])+'</span><strong>'+esc(x[1])+'</strong></div>').join("");
+  const rows=(o)=>Object.entries(o).map(([k,v])=>esc(human(k))+': <b>'+esc(v)+'</b>').join(" · ")||"—";
+  $("paWaitlistBreakdown").innerHTML='<p><b>Interest</b> — '+rows(d.byInterest)+'</p><p><b>Country</b> — '+rows(d.byCountry)+'</p>';
+  const q=($("paWaitlistSearch").value||"").trim().toLowerCase();
+  const list=d.entries.filter(e=>!q||[e.name,e.email,e.country,e.city,e.interestLabel].some(v=>String(v||"").toLowerCase().includes(q)));
+  $("paWaitlistTable").querySelector("tbody").innerHTML=list.map(e=>{
+    const inv=e.invite?human(e.invite.state)+" · expires "+shortDate(e.invite.expiresAt):"—";
+    const canInvite=["WAITLISTED","INVITED"].includes(e.status)&&!e.consentWithdrawnAt;
+    return '<tr><td>'+esc(shortDate(e.createdAt))+'</td><td><strong>'+esc(e.name)+'</strong><br><small>'+esc(e.email)+'</small>'+(e.description?'<br><small>'+esc(e.description)+'</small>':'')+(e.consentWithdrawnAt?'<br><small>Unsubscribed</small>':'')+'</td><td>'+esc([e.country,e.city].filter(Boolean).join(" · ")||"—")+'</td><td>'+esc(e.interestLabel)+'</td><td><b>'+esc(e.status)+'</b></td><td>'+esc(inv)+'</td><td>'+esc(human(e.confirmationEmailStatus))+'</td><td>'
+      +(canInvite?'<button class="btn" data-wl="invite" data-id="'+esc(e.id)+'" type="button">'+(e.status==="INVITED"?"Re-invite":"Invite")+'</button> ':'')
+      +(e.status!=="ACTIVE"&&e.userId?'<button class="btn" data-wl="activate" data-id="'+esc(e.id)+'" type="button">Activate</button> ':'')
+      +(e.status!=="SUSPENDED"?'<button class="btn" data-wl="suspend" data-id="'+esc(e.id)+'" type="button">Suspend</button>':'<button class="btn" data-wl="activate" data-id="'+esc(e.id)+'" type="button">Reinstate</button>')+'</td></tr>';
+  }).join("")||'<tr><td colspan="8" class="hint">No registrations yet.</td></tr>';
+  $("paWaitlistTable").querySelectorAll("[data-wl]").forEach(btn=>btn.onclick=()=>waitlistAction(btn.dataset.id,btn.dataset.wl));
+}
+async function waitlistAction(id,action){
+  try{
+    const r=await post("/api/organizations/platform-admin/peeps-waitlist/"+encodeURIComponent(id)+"/"+action);
+    if(action==="invite")setMessage(r.emailDelivery==="sent"?"Invitation emailed.":"Invitation created but email was NOT delivered ("+r.emailDelivery+"). Link: "+r.inviteUrl,r.emailDelivery!=="sent");
+    else setMessage("Updated.");
+    await loadWaitlist();
+  }catch(error){setMessage(error.message,true);}
 }
 
 async function loadDetail(){

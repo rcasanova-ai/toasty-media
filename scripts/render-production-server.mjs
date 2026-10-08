@@ -282,7 +282,8 @@ const server = createServer(async (req, res) => {
     const session = await readSession(req);
     sendJson(req, res, 200, {
       authenticated: Boolean(session),
-      user: session ? publicSessionUser(session) : null
+      user: session ? publicSessionUser(session) : null,
+      ...(session ? { peepsAccess: (await peepsBetaAllowed(session)) ? "active" : "blocked" } : {})
     });
     return;
   }
@@ -425,6 +426,23 @@ const server = createServer(async (req, res) => {
     if (!session) return;
     await handlePlatformOrganizations(req, res, session);
     return;
+  }
+  if (req.method === "GET" && req.url === "/api/organizations/platform-admin/peeps-waitlist") {
+    if (!limit(req, res, "platform-admin-read", 120, 15 * 60 * 1000)) return;
+    const session = await requirePlatformAdmin(req, res);
+    if (!session) return;
+    await handlePeepsWaitlistAdminList(req, res);
+    return;
+  }
+  {
+    const wlMatch = String(req.url || "").match(/^\/api\/organizations\/platform-admin\/peeps-waitlist\/([^/]+)\/(invite|activate|suspend)$/);
+    if (req.method === "POST" && wlMatch) {
+      if (!requireCsrf(req, res) || !limit(req, res, "platform-admin-write", 60, 15 * 60 * 1000)) return;
+      const session = await requirePlatformAdmin(req, res);
+      if (!session) return;
+      await handlePeepsWaitlistAdminAction(req, res, session, decodeURIComponent(wlMatch[1]), wlMatch[2]);
+      return;
+    }
   }
   if (req.method === "GET" && req.url === "/api/organizations/platform-admin/brand-catalog") {
     const session = await requirePlatformAdmin(req, res);
@@ -1404,6 +1422,35 @@ const server = createServer(async (req, res) => {
     if (!limit(req, res, "jam-invite-consent", 30, 15 * 60 * 1000)) return;
     await handleJamInviteConsent(req, res);
     return;
+  }
+
+  // ---- Peeps public waitlist (no session; CSRF header + origin allowlist + rate limits + bot traps) ----
+  if (req.method === "POST" && req.url === "/api/peeps/waitlist") {
+    if (!requireCsrf(req, res) || !limit(req, res, "peeps-waitlist-join", 20, 60 * 60 * 1000) || !limit(req, res, "peeps-waitlist-join-burst", 6, 60 * 1000)) return;
+    await handlePeepsWaitlistJoin(req, res);
+    return;
+  }
+  {
+    const inviteMatch = String(req.url || "").split("?")[0].match(/^\/api\/peeps\/waitlist\/invite\/([A-Za-z0-9_-]{20,80})(\/accept)?$/);
+    if (inviteMatch && ((req.method === "GET" && !inviteMatch[2]) || (req.method === "POST" && inviteMatch[2]))) {
+      if (req.method === "POST" && !requireCsrf(req, res)) return;
+      if (!limit(req, res, "peeps-waitlist-invite", 20, 15 * 60 * 1000)) return;
+      if (inviteMatch[2]) await handlePeepsWaitlistInviteAccept(req, res, inviteMatch[1]);
+      else await handlePeepsWaitlistInviteGet(req, res, inviteMatch[1]);
+      return;
+    }
+  }
+  if (req.method === "GET" && String(req.url || "").startsWith("/api/peeps/waitlist/unsubscribe")) {
+    if (!limit(req, res, "peeps-waitlist-unsub", 20, 15 * 60 * 1000)) return;
+    await handlePeepsWaitlistUnsubscribe(req, res);
+    return;
+  }
+  if (isPeepsBetaGatedPath(req.url)) {
+    const gateSession = await readSession(req);
+    if (gateSession && !(await peepsBetaAllowed(gateSession))) {
+      sendJson(req, res, 403, { error: "Your Peeps access isn't active yet. We'll email you when your invitation is ready.", code: "peeps_beta_inactive" });
+      return;
+    }
   }
 
   // Public provenance-backed pitch roast. This is explicitly a simulation based on documented
@@ -4931,7 +4978,8 @@ function parseCookies(header) {
 const DB_EXPECTED_ERRORS = new Set([
   "duplicate_email", "kicked", "full", "invalid_mode", "invalid_brand", "brand_forbidden",
   "duplicate_slug", "already_member", "invalid_token", "expired_token", "duplicate_reference", "duplicate_signature",
-  "slug_taken", "invalid_amount", "not_found", "invalid_transition", "conflict"
+  "slug_taken", "invalid_amount", "not_found", "invalid_transition", "conflict",
+  "invalid_state", "consent_withdrawn", "no_account", "invalid_status"
 ]);
 
 async function db(action, values = {}) {
@@ -10329,6 +10377,199 @@ async function handleJamSettle(req, res, authSession) {
   // the settlement stays honestly pending (see peepsSettleJam / peeps_settlement_transfer).
   const settlements = await peepsSettleJam(jam, authSession);
   sendJson(req, res, 200, { settlements });
+}
+
+// ====================================================================================================
+// PEEPS PUBLIC WAITLIST
+//
+// Visitors register interest (no account, no password, no access). A waitlist row only ever moves
+// WAITLISTED -> INVITED (admin sends a single-use, expiring invitation) -> ACTIVE (invitee accepts and gets an
+// account) and can be SUSPENDED by an admin. Waitlist data is never served publicly: the only public
+// responses are a uniform "you're on the list" (identical for new and duplicate sign-ups, so the form is not
+// an email-enumeration oracle) and invitation lookups that need the unguessable token.
+// Email honesty: every send records what really happened — sent (provider accepted it), simulated (no
+// RESEND_API_KEY: console only, NOT delivered) or failed — and the admin view shows it.
+// ====================================================================================================
+const PEEPS_WAITLIST_CONSENT_VERSION = "peeps-waitlist-2026-10-v1";
+const PEEPS_WAITLIST_INTERESTS = Object.freeze({
+  community_services: "Community Services", professional_networking: "Professional Networking", mentorship: "Mentorship", consulting: "Consulting", other: "Other"
+});
+const PEEPS_WAITLIST_INVITE_TTL_DAYS = Math.max(1, Number(process.env.PEEPS_WAITLIST_INVITE_TTL_DAYS) || 7);
+const PEEPS_WAITLIST_MIN_FILL_MS = 1500;
+// Off by default so existing accounts keep working. When "1", ONLY platform admins and ACTIVE waitlist members
+// may use the Peeps app/API (a closed beta); an account that was never on the waitlist is refused.
+const PEEPS_BETA_REQUIRE_INVITE = process.env.PEEPS_BETA_REQUIRE_INVITE === "1";
+const peepsBetaCache = new Map();
+
+function peepsWaitlistUnsubscribeToken(id) {
+  return `${id}.${createHmac("sha256", SESSION_SECRET || "toasty-peeps").update(`peeps-waitlist-unsubscribe:${id}`).digest("base64url")}`;
+}
+
+function peepsWaitlistFooter(entry) {
+  // The unsubscribe endpoint lives on the API host (render.toasty.media in production), not the static site.
+  const apiBase = (process.env.TOASTY_PUBLIC_API_BASE || "https://render.toasty.media").replace(/\/$/, "");
+  const url = `${apiBase}/api/peeps/waitlist/unsubscribe?t=${encodeURIComponent(peepsWaitlistUnsubscribeToken(entry.id))}`;
+  return `<hr><p style="color:#777;font-size:12px">You're receiving this because you asked to join the Toasty Peeps waitlist. <a href="${url}">Unsubscribe from Peeps launch and invitation emails</a>.</p>`;
+}
+
+function peepsWaitlistCleanText(value, max) {
+  return String(value ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+async function peepsWaitlistSendConfirmation(entry) {
+  let status = "failed";
+  try {
+    const result = await sendEmail({
+      to: entry.email,
+      subject: "You're on the Toasty Peeps waitlist",
+      html: `<p>Hi ${escapeHtml(entry.name)},</p><p>You're on the <b>Toasty Peeps</b> waitlist. Thank you.</p>
+<p>Peeps helps AI agents and people find, qualify and reach the right person based on what they've actually done, experienced and know, and puts them in front of audiences beyond their region.</p>
+<p>We're opening the private beta gradually. <b>You don't have access yet</b>: we'll email you an invitation as access becomes available. Nothing more is needed from you now.</p>
+<p>Your interest: ${escapeHtml(PEEPS_WAITLIST_INTERESTS[entry.interest] || "Other")}. Joining is free.</p>${peepsWaitlistFooter(entry)}`
+    });
+    status = result.ok ? (result.transport === "resend" ? "sent" : "simulated") : "failed";
+  } catch (error) {
+    console.error("[Toasty Peeps] waitlist confirmation email failed", error);
+  }
+  await db("peeps_waitlist_set_email_status", { id: entry.id, status });
+  return status;
+}
+
+async function handlePeepsWaitlistJoin(req, res) {
+  const body = await readJson(req);
+  const uniform = () => sendJson(req, res, 200, { ok: true, message: "You're on the Peeps waitlist. We'll email you when access opens." });
+  // Bot traps: a hidden field real people never fill, and a form that was submitted impossibly fast. Both get
+  // the normal success response (so a bot learns nothing) and store nothing.
+  if (peepsWaitlistCleanText(body.website, 200) || (Number.isFinite(Number(body.elapsedMs)) && Number(body.elapsedMs) < PEEPS_WAITLIST_MIN_FILL_MS)) return uniform();
+  const name = cleanName(peepsWaitlistCleanText(body.name, 120));
+  const email = normalizeEmail(body.email);
+  if (!name) return sendJson(req, res, 400, { error: "Please tell us your name." });
+  if (!email || email.length > 254 || !EMAIL_PATTERN.test(email) || /[\s,;<>"]/.test(email)) return sendJson(req, res, 400, { error: "Enter a valid email address." });
+  const interest = String(body.interest || "");
+  if (!Object.hasOwn(PEEPS_WAITLIST_INTERESTS, interest)) return sendJson(req, res, 400, { error: "Choose what you're most interested in." });
+  if (body.consent !== true) return sendJson(req, res, 400, { error: "Please agree to receive Peeps launch and beta invitation emails to join the waitlist." });
+  const joined = await db("peeps_waitlist_join", {
+    id: newId("pwl"), email, name, interest, consentVersion: PEEPS_WAITLIST_CONSENT_VERSION,
+    country: peepsWaitlistCleanText(body.country, 80), city: peepsWaitlistCleanText(body.city, 80), description: peepsWaitlistCleanText(body.description, 1000)
+  });
+  if (joined.created) { peepsBetaCache.clear(); await peepsWaitlistSendConfirmation(joined.entry); }
+  return uniform();
+}
+
+function peepsWaitlistMaskEmail(email) {
+  const [local, domain = ""] = String(email).split("@");
+  return `${local.slice(0, 1)}${"*".repeat(Math.max(1, Math.min(6, local.length - 1)))}@${domain}`;
+}
+
+async function handlePeepsWaitlistInviteGet(req, res, token) {
+  const lookup = await db("peeps_waitlist_invite_lookup", { tokenHash: hashInviteToken(token) });
+  if (lookup.state !== "valid") return sendJson(req, res, lookup.state === "invalid" ? 404 : 410, { error: lookup.state === "expired" ? "This invitation has expired. Ask for a new one." : lookup.state === "used" ? "This invitation was already used." : "This invitation is no longer valid.", state: lookup.state });
+  const existing = (await db("get_user_by_email", { email: lookup.entry.email })).user;
+  sendJson(req, res, 200, { state: "valid", name: lookup.entry.name, email: peepsWaitlistMaskEmail(lookup.entry.email), existingAccount: Boolean(existing) });
+}
+
+async function handlePeepsWaitlistInviteAccept(req, res, token) {
+  const tokenHash = hashInviteToken(token);
+  const lookup = await db("peeps_waitlist_invite_lookup", { tokenHash });
+  if (lookup.state !== "valid") return sendJson(req, res, lookup.state === "invalid" ? 404 : 410, { error: lookup.state === "expired" ? "This invitation has expired. Ask for a new one." : "This invitation is no longer valid.", state: lookup.state });
+  const body = await readJson(req);
+  const entry = lookup.entry;
+  const existing = (await db("get_user_by_email", { email: entry.email })).user;
+  if (existing && existing.status !== "active") return sendJson(req, res, 403, { error: "This account can't be activated. Contact support." });
+  const password = String(body?.password || "");
+  if (!existing && password.length < 10) return sendJson(req, res, 400, { error: "Use a password with at least 10 characters." });
+  const claim = await db("peeps_waitlist_invite_claim", { tokenHash });
+  if (!claim.claimed) return sendJson(req, res, 410, { error: "This invitation was already used or is no longer valid.", state: claim.state });
+  try {
+    let user = existing;
+    if (!user) {
+      const created = await db("create_user", { id: randomUUID(), name: entry.name, email: entry.email, passwordHash: await hashPassword(password) });
+      if (!created.user) throw httpError(409, "An account with that email already exists. Sign in instead.");
+      user = created.user;
+      await createDefaultOrganizationForUser(user);
+    }
+    const activated = await db("peeps_waitlist_set_status", { id: entry.id, status: "ACTIVE", userId: user.id, markVerified: true });
+    if (activated.error) throw httpError(409, "Could not activate this invitation.");
+    peepsBetaCache.clear();
+    if (existing) return sendJson(req, res, 200, { accepted: true, existingAccount: true, authenticated: false });
+    setSession(req, res, { ...user, emailVerifiedAt: new Date().toISOString() });
+    return sendJson(req, res, 201, { accepted: true, existingAccount: false, authenticated: true });
+  } catch (error) {
+    await db("peeps_waitlist_invite_unclaim", { tokenHash });
+    throw error;
+  }
+}
+
+async function handlePeepsWaitlistUnsubscribe(req, res) {
+  const raw = new URL(req.url, "http://x").searchParams.get("t") || "";
+  const [id] = raw.split(".");
+  const html = (status, text) => { setCors(req, res); res.writeHead(status, { "Content-Type": "text/html; charset=utf-8" }); res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Toasty Peeps</title><body style="font-family:system-ui;max-width:32rem;margin:15vh auto;padding:0 1rem"><h1>Toasty Peeps</h1><p>${text}</p>`); };
+  if (!SAFE_ID.test(id || "") || !safeStringEqual(raw, peepsWaitlistUnsubscribeToken(id))) return html(400, "That unsubscribe link isn't valid.");
+  const entry = (await db("peeps_waitlist_get", { id })).entry;
+  if (!entry) return html(400, "That unsubscribe link isn't valid.");
+  await db("peeps_waitlist_withdraw_consent", { id });
+  html(200, "You've been unsubscribed. You won't receive Peeps launch or beta invitation emails, and any open invitation was cancelled.");
+}
+
+function peepsWaitlistAdminView(entry) {
+  return { ...entry, interestLabel: PEEPS_WAITLIST_INTERESTS[entry.interest] || entry.interest };
+}
+
+async function handlePeepsWaitlistAdminList(req, res) {
+  const result = await db("peeps_waitlist_list", { limit: 1000 });
+  sendJson(req, res, 200, { total: result.total, byInterest: result.byInterest, byStatus: result.byStatus, byCountry: result.byCountry, consentVersion: PEEPS_WAITLIST_CONSENT_VERSION, emailTransport: RESEND_API_KEY ? "resend" : "dev_not_delivered", entries: (result.entries || []).map(peepsWaitlistAdminView) });
+}
+
+async function handlePeepsWaitlistAdminAction(req, res, adminSession, id, action) {
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid id.");
+  if (action === "invite") {
+    const { token, tokenHash } = issueInviteToken();
+    const result = await db("peeps_waitlist_invite_create", { id, inviteId: newId("pwi"), tokenHash, expiresAt: inviteExpiry(PEEPS_WAITLIST_INVITE_TTL_DAYS), createdByUserId: adminSession.id });
+    if (result.error === "not_found") throw httpError(404, "Not found.");
+    if (result.error === "invalid_state") throw httpError(409, `Can't invite someone who is ${result.status}.`);
+    if (result.error === "consent_withdrawn") throw httpError(409, "This person unsubscribed from Peeps emails.");
+    const entry = result.entry;
+    const inviteUrl = `${APP_BASE_URL.replace(/\/$/, "")}/peeps/join/?token=${token}`;
+    let delivery = "failed";
+    try {
+      const sent = await sendEmail({
+        to: entry.email, subject: "You're invited to the Toasty Peeps private beta",
+        html: `<p>Hi ${escapeHtml(entry.name)},</p><p>Access to the <b>Toasty Peeps</b> private beta is opening for you.</p><p><a href="${inviteUrl}">Accept your invitation</a></p><p>This single-use link expires in ${PEEPS_WAITLIST_INVITE_TTL_DAYS} days.</p>${peepsWaitlistFooter(entry)}`
+      });
+      delivery = sent.ok ? (sent.transport === "resend" ? "sent" : "simulated") : "failed";
+    } catch (error) { console.error("[Toasty Peeps] invitation email failed", error); }
+    peepsBetaCache.clear();
+    // The link is only handed back to the admin when it was NOT really delivered, so they can pass it on
+    // themselves; a successfully delivered token is never echoed.
+    return sendJson(req, res, 200, { entry: peepsWaitlistAdminView(entry), emailDelivery: delivery, ...(delivery === "sent" ? {} : { inviteUrl }) });
+  }
+  if (action === "activate" || action === "suspend") {
+    const result = await db("peeps_waitlist_set_status", { id, status: action === "activate" ? "ACTIVE" : "SUSPENDED" });
+    if (result.error === "not_found") throw httpError(404, "Not found.");
+    if (result.error === "no_account") throw httpError(409, "This person has no account yet. Send an invitation so they can create one.");
+    peepsBetaCache.clear();
+    return sendJson(req, res, 200, { entry: peepsWaitlistAdminView(result.entry) });
+  }
+  throw httpError(404, "Not found.");
+}
+
+// Private-beta gate for /api/peeps/*. A waitlist row that is not ACTIVE blocks that email's Peeps access
+// (WAITLISTED/INVITED/SUSPENDED); platform admins always pass. With PEEPS_BETA_REQUIRE_INVITE=1, accounts
+// with no waitlist row are blocked too.
+async function peepsBetaAllowed(session) {
+  if (!session || isPlatformAdmin(session)) return true;
+  const email = normalizeEmail(session.email);
+  const cached = peepsBetaCache.get(email);
+  if (cached && Date.now() - cached.at < 20000) return cached.allowed;
+  const entry = (await db("peeps_waitlist_get", { email })).entry;
+  const allowed = entry ? entry.status === "ACTIVE" : !PEEPS_BETA_REQUIRE_INVITE;
+  peepsBetaCache.set(email, { at: Date.now(), allowed });
+  return allowed;
+}
+
+function isPeepsBetaGatedPath(url = "") {
+  const path = String(url).split("?")[0];
+  return path.startsWith("/api/peeps/") && !path.startsWith("/api/peeps/waitlist") && !path.startsWith("/api/peeps/respond/") && path !== "/api/peeps/josip-roast";
 }
 
 // ---- Dub claim (section 27) ----

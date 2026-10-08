@@ -87,6 +87,11 @@ jobs:
           set -euo pipefail
           node scripts/peeps-josip-roast-test.mjs
 
+      - name: Validate Peeps public waitlist
+        run: |
+          set -euo pipefail
+          node scripts/peeps-waitlist-server-test.mjs
+
       - name: Configure SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.TOASTY_RENDER_SSH_PRIVATE_KEY || secrets.TOASTY_SSH_PRIVATE_KEY }}
