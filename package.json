@@ -1,0 +1,16 @@
+{
+  "name": "toasty-peeps",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Toasty Peeps: human context for AI agents. Zero-dependency Node + Python app; runs fully offline in demo mode.",
+  "license": "UNLICENSED",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node scripts/dev.mjs",
+    "start:seeded": "node scripts/dev.mjs --seed",
+    "demo": "node scripts/dev.mjs --static-only",
+    "test": "node scripts/run-peeps-tests.mjs",
+    "test:demo": "node scripts/peeps-demo-test.mjs",
+    "test:golden-path": "node scripts/peeps-colosseum-golden-path-test.mjs"
+  }
+}
