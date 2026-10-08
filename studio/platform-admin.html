@@ -29,6 +29,7 @@
       <button class="platform-nav-btn" data-panel="economics">Studio economics</button>
       <button class="platform-nav-btn" data-panel="billing">Billing</button>
       <button class="platform-nav-btn" data-panel="integrations">Integrations</button>
+      <button class="platform-nav-btn" data-panel="waitlist">Peeps waitlist</button>
     </aside>
 
     <section class="platform-admin-main">
@@ -203,6 +204,22 @@
           </div>
         </section>
 
+
+        <section class="platform-panel" data-panel-view="waitlist">
+          <div class="settings-card">
+            <div class="panel-heading"><div><h2>Peeps waitlist</h2><p class="hint">Private. Visible only to platform administrators. A waitlist entry is not an account and grants no access until you invite the person and they accept.</p></div><button id="paWaitlistRefresh" class="btn" type="button">Refresh</button></div>
+            <p id="paWaitlistEmail" class="hint"></p>
+            <div id="paWaitlistSummary" class="usage-grid"></div>
+          </div>
+          <div class="settings-card">
+            <h3>By interest and country</h3>
+            <div id="paWaitlistBreakdown" class="hint"></div>
+          </div>
+          <div class="settings-card">
+            <div class="panel-heading"><h3>Registrations</h3><input id="paWaitlistSearch" type="search" placeholder="Search name, email, country…" aria-label="Search waitlist"></div>
+            <div style="overflow-x:auto"><table class="settings-table" id="paWaitlistTable"><thead><tr><th>Registered</th><th>Name / email</th><th>Country · city</th><th>Interest</th><th>Access</th><th>Invitation</th><th>Confirmation email</th><th></th></tr></thead><tbody></tbody></table></div>
+          </div>
+        </section>
 
         <section class="platform-panel" data-panel-view="economics">
           <div id="paEconomicsCards" class="usage-grid"></div>

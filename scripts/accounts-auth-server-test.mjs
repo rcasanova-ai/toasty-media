@@ -68,7 +68,7 @@ function latestTokenFor(pathFragment) {
 }
 
 const server = spawn("node", [join(ROOT, "scripts", "render-production-server.mjs")], {
-  env: { ...process.env, TOASTY_RENDER_PORT: String(PORT), TOASTY_AUTH_DB: dbPath, TOASTY_AUTH_DB_HELPER: helper, TOASTY_SESSION_SECRET: "accounts-auth-test-secret", RESEND_API_KEY: "" },
+  env: { ...process.env, TOASTY_DISABLE_VOYAGEURS_BOOTSTRAP: "1", TOASTY_DISABLE_MATEO_BOOTSTRAP: "1", TOASTY_RENDER_PORT: String(PORT), TOASTY_AUTH_DB: dbPath, TOASTY_AUTH_DB_HELPER: helper, TOASTY_SESSION_SECRET: "accounts-auth-test-secret", RESEND_API_KEY: "" },
   stdio: ["ignore", "pipe", "pipe"]
 });
 let serverOutput = "";
