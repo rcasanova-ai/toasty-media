@@ -8,12 +8,23 @@
 <link rel="icon" href="../../shared/brand/toasty-media/ToastyTransparent.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Libre+Franklin:wght@800;900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="./demo.css?v=17">
+<link rel="stylesheet" href="./demo.css?v=18">
 </head>
 <body>
 <header class="top">
   <a class="brand" href="./" aria-label="Toasty Peeps demo home"><img src="../../shared/brand/toasty-media/ToastyTransparent.png" alt=""><span><b>TOASTY</b><em>PEEPS</em></span></a>
+  <div class="top-mid">
+    <span class="pill persona" id="persona">You → your agent</span>
+    <span class="seg" aria-label="Demo speed">
+      <button id="spPitch" data-act="speed" data-v="pitch">Pitch</button>
+      <button id="spNormal" data-act="speed" data-v="normal">Normal</button>
+    </span>
+  </div>
   <div class="top-right">
+    <button class="ghost" data-act="drawer" data-pane="dub">Sarah's Dub</button>
+    <button class="ghost" data-act="drawer" data-pane="ledger">Ledger</button>
+    <button class="ghost" data-act="drawer" data-pane="trust">Trust</button>
+    <button class="ghost" data-act="drawer" data-pane="sources">Data sources</button>
     <button class="ghost danger" data-act="reset">Reset demo</button>
   </div>
 </header>
@@ -22,6 +33,6 @@
 <div id="overlay" class="overlay" hidden></div>
 <aside id="drawer" class="drawer" hidden></aside>
 <div id="toast" class="toast" hidden></div>
-<script type="module" src="./demo.js?v=17"></script>
+<script type="module" src="./demo.js?v=18"></script>
 </body>
 </html>

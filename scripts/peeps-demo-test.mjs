@@ -11,12 +11,13 @@ assert.equal(E.contextSpend(s), PRICING.contextUnlockUsd);
 assert.ok(s.ledger.every((e) => e.mode === 'demo' && e.settlement === 'none'));
 
 // Dub answers from evidence, is honest about unknown/private
-for (const id of ['q_led', 'q_crypto', 'q_comfort', 'q_limits']) {
+for (const id of ['q_banking', 'q_procurement', 'q_fit', 'q_comfort', 'q_limits']) {
   const r = E.askDub(s, id); assert.equal(r.kind, 'answer', id); assert.ok(r.evidence.length);
 }
 const priv = E.askDub(s, 'x_round');
 assert.equal(priv.kind, 'private'); assert.deepEqual(priv.evidence, []);
-assert.ok(!JSON.stringify(priv).match(/\$\d/));
+assert.match(priv.text, /policy does not permit me to disclose/);
+assert.ok(!priv.text.match(/DBS|Kasikorn|UOB|named contact|commercial terms/i));
 const unk = E.askDub(s, 'q_terms');
 assert.equal(unk.kind, 'unknown'); assert.equal(unk.canAsk, true);
 assert.match(unk.text, /don’t have sufficient evidence/);
@@ -28,28 +29,34 @@ assert.equal(claim.provenance, 'self'); assert.equal(claim.source, 'Sarah');
 assert.equal(E.askDub(s, 'q_terms').kind, 'answer');
 assert.equal(E.coverage(s), 64);
 
-// batch: 8 investigated, $2.00, 3 qualified, 5 excluded; David excluded for crypto
+// batch: David wins the profile search; Sarah wins qualification.
 const b = E.runBatchQualification(s);
-assert.equal(b.investigated, 8); assert.equal(b.contextSpend, 2); assert.equal(b.qualified.length, 3); assert.equal(b.excluded.length, 5);
-assert.deepEqual(b.qualified.map((c) => c.id), ['sarah', 'niran', 'michael']);
+assert.equal(b.investigated, 2); assert.equal(b.contextSpend, 0.5); assert.equal(b.qualified.length, 1); assert.equal(b.excluded.length, 1);
+assert.deepEqual(b.qualified.map((c) => c.id), ['sarah']);
 const david = CANDIDATES.find((c) => c.id === 'david');
-assert.ok(david.surface > 90 && /crypto/i.test(david.exclusion.reason));
+const sarah = CANDIDATES.find((c) => c.id === 'sarah');
+assert.equal(david.surface, 94); assert.equal(sarah.surface, 82);
+assert.match(david.exclusion.reason, /institutional banking/i);
+assert.match(david.exclusion.detail, /enterprise procurement/i);
+assert.match(david.exclusion.detail, /regulated financial/i);
 
-// David: strong keyword match, excluded on context, answered from evidence
-const dq = E.answerFromDub(DAVID_DUB, DAVID_INTENTS[1]);
-assert.equal(dq.kind, 'answer'); assert.match(dq.text, /71%/); assert.ok(dq.evidence.length);
+// David: strong illustrative profile match, excluded on institutional capability gap
+const dq = E.answerFromDub(DAVID_DUB, DAVID_INTENTS[0]);
+assert.equal(dq.kind, 'answer'); assert.match(dq.text, /30,000/); assert.ok(dq.evidence.length);
+const gap = E.answerFromDub(DAVID_DUB, DAVID_INTENTS[2]);
+assert.equal(gap.kind, 'answer'); assert.match(gap.text, /do not have evidence/i); assert.deepEqual(gap.evidence, []);
 assert.equal(E.answerFromDub(DAVID_DUB, { topic: 'something_else' }).kind, 'unknown');
 
 // agent run: whole pool investigated in the planned order inside the budget; request text is the seeded outcome
 assert.equal(INVESTIGATION_ORDER.length, CANDIDATES.length);
-assert.ok(new Set(INVESTIGATION_ORDER).size === 8 && INVESTIGATION_ORDER.every((id) => E.candidate(id)));
-assert.ok(E.contextSpend(s) <= INVESTIGATION_BUDGET_USD && /interview the best three/.test(REQUEST_TEXT));
+assert.ok(new Set(INVESTIGATION_ORDER).size === 2 && INVESTIGATION_ORDER.every((id) => E.candidate(id)));
+assert.ok(E.contextSpend(s) <= INVESTIGATION_BUDGET_USD && /Solana payments startup/.test(REQUEST_TEXT));
 
-// introductions: one authorization approaches all three qualified, $75 reserved, excluded never approached
-assert.equal(E.introTotal(), 75);
+// introductions: one authorization approaches Sarah only, excluded David is never approached
+assert.equal(E.introTotal(), 25);
 assert.throws(() => E.reserveJam(E.initialState(), 'david'));
 const ai = E.initialState(); E.authorizeIntroductions(ai); E.authorizeIntroductions(ai);
-assert.equal(E.jamReserved(ai), 75); assert.deepEqual(Object.keys(ai.jams).sort(), ['michael', 'niran', 'sarah']);
+assert.equal(E.jamReserved(ai), 25); assert.deepEqual(Object.keys(ai.jams).sort(), ['sarah']);
 assert.equal(ai.jam.created, true);
 
 // Jam requires acceptance; completion settles once
