@@ -1,0 +1,31 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Join the Toasty Peeps waitlist</title><meta name="description" content="Join the free Toasty Peeps waitlist. We'll email you an invitation as private beta access opens."><link rel="icon" href="../../shared/brand/toasty-media/ToastyTransparent.png"><link rel="stylesheet" href="../peeps.css?v=20261008w1">
+<style>
+[hidden]{display:none!important}
+.wl{max-width:560px;margin:0 auto;padding:20px 16px 64px}.wl h1{font:900 clamp(32px,9vw,48px)/1 'Libre Franklin',Arial;letter-spacing:-.04em;margin:8px 0 12px}.wl .lead{font-size:16px;line-height:1.55;color:#5e4940;margin:0 0 20px}
+.wl form{display:grid;gap:14px}.wl label{display:grid;gap:6px;font-size:13px;font-weight:800;color:#4a2d2a}.wl label small{font-weight:600;color:#7a6a60}
+.wl input,.wl select,.wl textarea{font:inherit;font-size:16px;padding:13px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;color:#231412;width:100%;min-height:48px}.wl textarea{min-height:96px;resize:vertical}
+.wl .two{display:grid;grid-template-columns:1fr;gap:14px}@media(min-width:520px){.wl .two{grid-template-columns:1fr 1fr}}
+.wl .consent{display:flex;gap:10px;align-items:flex-start;font-weight:600;line-height:1.45}.wl .consent input{width:22px;min-height:22px;margin-top:2px;flex:none}
+.wl button[type=submit]{min-height:52px;font-size:16px;width:100%}.wl .note{font-size:12px;color:#7a6a60;line-height:1.5}
+.wl .msg{padding:12px 14px;border-radius:10px;font-size:14px;line-height:1.45}.wl .msg[data-state=error]{background:#fbe9e7;color:var(--red)}.wl .msg[data-state=ok]{background:#e6f4ec;color:var(--green)}
+.wl .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}.wl details{font-size:13px;color:#5e4940}
+.wl .soon{display:inline-block;font-size:11px;font-weight:800;background:#fff0d8;color:#8b5e1c;border-radius:999px;padding:2px 8px;margin-left:6px}
+</style></head><body><header><a class="brand" href="../"><img src="../../shared/brand/toasty-media/ToastyTransparent.png" alt="Toasty"><span><b>TOASTY</b><em>PEEPS</em></span></a><nav><a href="../">Back to Peeps</a></nav></header>
+<main class="wl" id="wl"><small style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#8b5e1c;font-weight:900">PRIVATE BETA · FREE TO JOIN</small>
+<h1>Join the Peeps waitlist</h1>
+<p class="lead">Peeps is opening gradually. Tell us what you're after and we'll email you an invitation as access becomes available. Joining doesn't give you access yet, and it's free.</p>
+<form id="wlForm" novalidate>
+<div class="hp" aria-hidden="true"><label>Website<input id="wlWebsite" name="website" tabindex="-1" autocomplete="off"></label></div>
+<label>Name<input id="wlName" name="name" autocomplete="name" required maxlength="120"></label>
+<label>Email<input id="wlEmail" name="email" type="email" inputmode="email" autocomplete="email" autocapitalize="none" required maxlength="254"></label>
+<div class="two"><label>Country <small>(optional)</small><input id="wlCountry" name="country" autocomplete="country-name" maxlength="80"></label><label>City <small>(optional)</small><input id="wlCity" name="city" autocomplete="address-level2" maxlength="80"></label></div>
+<label>What are you most interested in?<select id="wlInterest" name="interest" required><option value="">Choose one…</option><option value="community_services">Community Services</option><option value="professional_networking">Professional Networking</option><option value="mentorship">Mentorship</option><option value="consulting">Consulting</option><option value="other">Other</option></select></label>
+<p class="note" id="wlCommunityNote" hidden>Community Services is an upcoming Peeps category. It isn't available yet. Selecting it helps us see how much demand there is.</p>
+<label>What are you looking for? <small>(optional)</small><textarea id="wlDescription" name="description" maxlength="1000"></textarea></label>
+<label class="consent"><input id="wlConsent" name="consent" type="checkbox" required><span>I agree to receive Toasty Peeps launch updates and private beta invitation emails. I can unsubscribe at any time.</span></label>
+<button type="submit" id="wlSubmit">Join the waitlist</button>
+<p id="wlMessage" class="msg" role="status" aria-live="polite" hidden></p>
+<details><summary>Privacy</summary><p>We collect your name, email, optional location and the details above only to run the Peeps waitlist: to email you a confirmation and, when access opens, your invitation. We record when and to what text you consented. Your details are visible only to Toasty administrators, are never shown publicly and are not sold. Every email has an unsubscribe link; unsubscribing stops Peeps emails and cancels any open invitation. To ask for your data to be corrected or deleted, email <a href="mailto:studio@toasty.media">studio@toasty.media</a>.</p></details>
+</form>
+<div id="wlDone" hidden><h1>You're on the list</h1><p class="lead">Thanks. We'll email a confirmation to <b id="wlDoneEmail"></b> and send an invitation as beta access becomes available. You don't have access yet, and nothing more is needed from you now.</p><p class="note">No email after a few minutes? Check spam.</p><a class="button" href="../">Back to Peeps</a></div>
+</main><script type="module" src="../../js/peeps-waitlist-page.js?v=20261008w1"></script></body></html>

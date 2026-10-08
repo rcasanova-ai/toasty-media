@@ -39,6 +39,11 @@ export async function gatePeepsApp({
       if (destination) redirect(publicPath);
       return { authenticated: false, user: null };
     }
+    // Signed in but not (yet) cleared for the private beta (waitlisted / invited / suspended): never reveal the app.
+    if (session.peepsAccess === "blocked") {
+      if (destination) redirect("/peeps/waitlist/");
+      return { authenticated: true, user: session.user || null, blocked: true };
+    }
     reveal();
     return { authenticated: true, user: session.user || null };
   } catch {

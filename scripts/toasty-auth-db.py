@@ -1892,6 +1892,55 @@ def migrate(conn):
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_settlements_jam ON peeps_settlements(jam_id)")
 
+    # ---- Peeps public waitlist ----
+    # A waitlist row is NOT an account: it has no password and grants nothing. Access states are
+    # WAITLISTED -> INVITED -> ACTIVE, with SUSPENDED as an admin stop. `email` is stored normalized
+    # (lower-case) and is UNIQUE, so a duplicate registration can never create a second row. Consent is
+    # recorded with a timestamp and the exact consent-text version. Invitation tokens are single-use,
+    # expiring, and only their SHA-256 hash is stored.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_waitlist (
+          id TEXT PRIMARY KEY,
+          email TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL,
+          country TEXT NOT NULL DEFAULT '',
+          city TEXT NOT NULL DEFAULT '',
+          interest TEXT NOT NULL CHECK(interest IN ('community_services','professional_networking','mentorship','consulting','other')),
+          description TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'WAITLISTED' CHECK(status IN ('WAITLISTED','INVITED','ACTIVE','SUSPENDED')),
+          consent_at TEXT NOT NULL,
+          consent_version TEXT NOT NULL,
+          consent_withdrawn_at TEXT,
+          user_id TEXT,
+          invited_at TEXT,
+          invited_by_user_id TEXT,
+          activated_at TEXT,
+          suspended_at TEXT,
+          confirmation_email_status TEXT NOT NULL DEFAULT 'pending',
+          confirmation_email_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_waitlist_status ON peeps_waitlist(status, created_at)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_waitlist_invites (
+          id TEXT PRIMARY KEY,
+          waitlist_id TEXT NOT NULL REFERENCES peeps_waitlist(id),
+          token_hash TEXT NOT NULL UNIQUE,
+          expires_at TEXT NOT NULL,
+          used_at TEXT,
+          revoked_at TEXT,
+          created_by_user_id TEXT,
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_waitlist_invites_wl ON peeps_waitlist_invites(waitlist_id)")
+
     # Peeps economic events — one row per economic event in a request's lifecycle (today: the
     # introduction authorization payment). `status` says exactly what is true: onchain_verified (a Solana
     # transaction the SERVER confirmed against the RPC), ledger_posted (internal Dough ledger, no chain)
@@ -3300,6 +3349,32 @@ def public_peeps_economic_event(row):
         "transactionSignature": row["transaction_signature"], "slot": row["slot"], "blockTime": row["block_time"],
         "verifiedAt": row["verified_at"], "metadata": _json_or(row["metadata_json"], {}), "createdAt": row["created_at"],
     }
+
+
+def public_peeps_waitlist(row, conn=None):
+    if not row:
+        return None
+    entry = {
+        "id": row["id"], "email": row["email"], "name": row["name"], "country": row["country"], "city": row["city"],
+        "interest": row["interest"], "description": row["description"], "status": row["status"],
+        "consentAt": row["consent_at"], "consentVersion": row["consent_version"], "consentWithdrawnAt": row["consent_withdrawn_at"],
+        "userId": row["user_id"], "invitedAt": row["invited_at"], "activatedAt": row["activated_at"], "suspendedAt": row["suspended_at"],
+        "confirmationEmailStatus": row["confirmation_email_status"], "confirmationEmailAt": row["confirmation_email_at"],
+        "createdAt": row["created_at"], "updatedAt": row["updated_at"],
+    }
+    if conn is not None:
+        inv = conn.execute("SELECT * FROM peeps_waitlist_invites WHERE waitlist_id = ? ORDER BY created_at DESC LIMIT 1", (row["id"],)).fetchone()
+        if inv:
+            now = datetime.now(timezone.utc)
+            try:
+                expired = datetime.fromisoformat(inv["expires_at"].replace("Z", "+00:00")) <= now
+            except ValueError:
+                expired = True
+            entry["invite"] = {"createdAt": inv["created_at"], "expiresAt": inv["expires_at"], "usedAt": inv["used_at"], "revokedAt": inv["revoked_at"],
+                               "state": "used" if inv["used_at"] else "revoked" if inv["revoked_at"] else "expired" if expired else "pending"}
+        else:
+            entry["invite"] = None
+    return entry
 
 
 def public_dub_entry(row):
@@ -7735,6 +7810,153 @@ def main():
             (payload["userId"], int(payload.get("limit") or 5)),
         ).fetchall()
         print(json.dumps({"intents": [{**public_dough_funding_intent(r), "paidAt": r["paid_at"]} for r in rows]}))
+        return
+
+    # ---- Peeps waitlist actions ----
+    if action == "peeps_waitlist_join":
+        now = utc_now()
+        try:
+            conn.execute(
+                "INSERT INTO peeps_waitlist (id, email, name, country, city, interest, description, status, consent_at, consent_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'WAITLISTED', ?, ?, ?, ?)",
+                (payload["id"], payload["email"], payload["name"], payload.get("country") or "", payload.get("city") or "", payload["interest"], payload.get("description") or "", now, payload["consentVersion"], now, now),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            row = conn.execute("SELECT * FROM peeps_waitlist WHERE email = ?", (payload["email"],)).fetchone()
+            print(json.dumps({"duplicate": True, "entry": public_peeps_waitlist(row)}))
+            return
+        print(json.dumps({"created": True, "entry": public_peeps_waitlist(conn.execute("SELECT * FROM peeps_waitlist WHERE id = ?", (payload["id"],)).fetchone())}))
+        return
+
+    if action == "peeps_waitlist_get":
+        if payload.get("id"):
+            row = conn.execute("SELECT * FROM peeps_waitlist WHERE id = ?", (payload["id"],)).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM peeps_waitlist WHERE email = ?", (payload["email"],)).fetchone()
+        print(json.dumps({"entry": public_peeps_waitlist(row, conn)}))
+        return
+
+    if action == "peeps_waitlist_set_email_status":
+        conn.execute("UPDATE peeps_waitlist SET confirmation_email_status = ?, confirmation_email_at = ?, updated_at = ? WHERE id = ?", (payload["status"], utc_now(), utc_now(), payload["id"]))
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "peeps_waitlist_withdraw_consent":
+        conn.execute("UPDATE peeps_waitlist SET consent_withdrawn_at = COALESCE(consent_withdrawn_at, ?), updated_at = ? WHERE id = ?", (utc_now(), utc_now(), payload["id"]))
+        conn.execute("UPDATE peeps_waitlist_invites SET revoked_at = COALESCE(revoked_at, ?) WHERE waitlist_id = ? AND used_at IS NULL", (utc_now(), payload["id"]))
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "peeps_waitlist_list":
+        limit_n = max(1, min(2000, int(payload.get("limit") or 500)))
+        rows = conn.execute("SELECT * FROM peeps_waitlist ORDER BY created_at DESC LIMIT ?", (limit_n,)).fetchall()
+        def tally(col, fallback):
+            return {(r[0] or fallback): r[1] for r in conn.execute(f"SELECT {col}, COUNT(*) FROM peeps_waitlist GROUP BY {col} ORDER BY COUNT(*) DESC").fetchall()}
+        countries = {}
+        for r in conn.execute("SELECT LOWER(TRIM(country)), COUNT(*) FROM peeps_waitlist GROUP BY LOWER(TRIM(country)) ORDER BY COUNT(*) DESC").fetchall():
+            countries[r[0] or "(not given)"] = r[1]
+        total = conn.execute("SELECT COUNT(*) FROM peeps_waitlist").fetchone()[0]
+        print(json.dumps({"total": total, "byInterest": tally("interest", "other"), "byStatus": tally("status", "WAITLISTED"), "byCountry": countries, "entries": [public_peeps_waitlist(r, conn) for r in rows]}))
+        return
+
+    # Issues a fresh single-use invitation (revoking any earlier unused one) and marks the person INVITED.
+    # Only a WAITLISTED or already-INVITED person can be invited; ACTIVE/SUSPENDED are refused.
+    if action == "peeps_waitlist_invite_create":
+        now = utc_now()
+        row = conn.execute("SELECT * FROM peeps_waitlist WHERE id = ?", (payload["id"],)).fetchone()
+        if not row:
+            print(json.dumps({"error": "not_found"}))
+            return
+        if row["status"] not in ("WAITLISTED", "INVITED"):
+            print(json.dumps({"error": "invalid_state", "status": row["status"]}))
+            return
+        if row["consent_withdrawn_at"]:
+            print(json.dumps({"error": "consent_withdrawn"}))
+            return
+        conn.execute("UPDATE peeps_waitlist_invites SET revoked_at = ? WHERE waitlist_id = ? AND used_at IS NULL AND revoked_at IS NULL", (now, payload["id"]))
+        conn.execute("INSERT INTO peeps_waitlist_invites (id, waitlist_id, token_hash, expires_at, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?)", (payload["inviteId"], payload["id"], payload["tokenHash"], payload["expiresAt"], payload.get("createdByUserId"), now))
+        conn.execute("UPDATE peeps_waitlist SET status = 'INVITED', invited_at = ?, invited_by_user_id = ?, updated_at = ? WHERE id = ?", (now, payload.get("createdByUserId"), now, payload["id"]))
+        conn.commit()
+        print(json.dumps({"entry": public_peeps_waitlist(conn.execute("SELECT * FROM peeps_waitlist WHERE id = ?", (payload["id"],)).fetchone(), conn)}))
+        return
+
+    if action == "peeps_waitlist_invite_lookup":
+        inv = conn.execute("SELECT * FROM peeps_waitlist_invites WHERE token_hash = ?", (payload["tokenHash"],)).fetchone()
+        if not inv:
+            print(json.dumps({"state": "invalid"}))
+            return
+        row = conn.execute("SELECT * FROM peeps_waitlist WHERE id = ?", (inv["waitlist_id"],)).fetchone()
+        try:
+            expired = datetime.fromisoformat(inv["expires_at"].replace("Z", "+00:00")) <= datetime.now(timezone.utc)
+        except ValueError:
+            expired = True
+        state = "used" if inv["used_at"] else "revoked" if inv["revoked_at"] else "expired" if expired else "valid"
+        if state == "valid" and row["status"] != "INVITED":
+            state = "revoked"
+        print(json.dumps({"state": state, "entry": public_peeps_waitlist(row)}))
+        return
+
+    # Atomic single-use claim. rowcount==1 means THIS call consumed the token.
+    if action == "peeps_waitlist_invite_claim":
+        now_dt = datetime.now(timezone.utc)
+        inv = conn.execute("SELECT * FROM peeps_waitlist_invites WHERE token_hash = ?", (payload["tokenHash"],)).fetchone()
+        if not inv:
+            print(json.dumps({"claimed": False, "state": "invalid"}))
+            return
+        try:
+            expired = datetime.fromisoformat(inv["expires_at"].replace("Z", "+00:00")) <= now_dt
+        except ValueError:
+            expired = True
+        if expired:
+            print(json.dumps({"claimed": False, "state": "expired"}))
+            return
+        cur = conn.execute("UPDATE peeps_waitlist_invites SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND revoked_at IS NULL", (utc_now(), payload["tokenHash"]))
+        conn.commit()
+        if cur.rowcount != 1:
+            print(json.dumps({"claimed": False, "state": "used"}))
+            return
+        row = conn.execute("SELECT * FROM peeps_waitlist WHERE id = ?", (inv["waitlist_id"],)).fetchone()
+        if row["status"] != "INVITED":
+            conn.execute("UPDATE peeps_waitlist_invites SET used_at = NULL WHERE token_hash = ?", (payload["tokenHash"],))
+            conn.commit()
+            print(json.dumps({"claimed": False, "state": "revoked"}))
+            return
+        print(json.dumps({"claimed": True, "entry": public_peeps_waitlist(row)}))
+        return
+
+    if action == "peeps_waitlist_invite_unclaim":
+        conn.execute("UPDATE peeps_waitlist_invites SET used_at = NULL WHERE token_hash = ?", (payload["tokenHash"],))
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    # Admin/accept transitions. ACTIVE requires a linked user account; SUSPENDED revokes open invitations.
+    if action == "peeps_waitlist_set_status":
+        now = utc_now()
+        row = conn.execute("SELECT * FROM peeps_waitlist WHERE id = ?", (payload["id"],)).fetchone()
+        if not row:
+            print(json.dumps({"error": "not_found"}))
+            return
+        status = payload["status"]
+        user_id = payload.get("userId") or row["user_id"]
+        if status == "ACTIVE":
+            if not user_id:
+                print(json.dumps({"error": "no_account"}))
+                return
+            conn.execute("UPDATE peeps_waitlist SET status = 'ACTIVE', user_id = ?, activated_at = COALESCE(activated_at, ?), suspended_at = NULL, updated_at = ? WHERE id = ?", (user_id, now, now, payload["id"]))
+            if payload.get("markVerified"):
+                conn.execute("UPDATE users SET email_verified_at = COALESCE(email_verified_at, ?), updated_at = ? WHERE id = ?", (now, now, user_id))
+        elif status == "SUSPENDED":
+            conn.execute("UPDATE peeps_waitlist SET status = 'SUSPENDED', suspended_at = ?, updated_at = ? WHERE id = ?", (now, now, payload["id"]))
+            conn.execute("UPDATE peeps_waitlist_invites SET revoked_at = ? WHERE waitlist_id = ? AND used_at IS NULL AND revoked_at IS NULL", (now, payload["id"]))
+        else:
+            print(json.dumps({"error": "invalid_status"}))
+            return
+        conn.commit()
+        print(json.dumps({"entry": public_peeps_waitlist(conn.execute("SELECT * FROM peeps_waitlist WHERE id = ?", (payload["id"],)).fetchone(), conn)}))
         return
 
     if action == "peeps_settlement_list":
