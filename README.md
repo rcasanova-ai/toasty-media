@@ -1,6 +1,6 @@
 # Toasty Media
 
-> **Colosseum judges: start with [`peeps/README.md`](peeps/README.md).** Clone, then `npm run demo` and open http://127.0.0.1:4173/peeps/demo/ (no install, no accounts, no wallet).
+> **Colosseum judges: start with [`peeps/README.md`](peeps/README.md).** Clone (see the fast sparse clone in that README), then `npm run demo` and open http://127.0.0.1:4173/peeps/demo/ (no install, no accounts, no wallet).
 
 This repository contains the Toasty Media public website foundation and Toasty Studio, a browser-based interview and podcast studio.
 

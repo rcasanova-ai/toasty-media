@@ -147,3 +147,5 @@ __pycache__/
 
 # Local Peeps sandbox (scripts/dev.mjs)
 .peeps-local/
+
+.DS_Store

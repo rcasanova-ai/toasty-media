@@ -1,5 +1,7 @@
 # Toasty Peeps golden-path demo
 
+> Current, judge-oriented walkthrough: [`peeps/README.md`](../peeps/README.md). The table below is the original script; the shipped demo now approaches Sarah only ($25 Jam) and shows David as not qualified.
+
 A self-contained, deterministic, ~45-60 second product demo of the Peeps qualification lifecycle for the Colosseum pitch.
 
 - **URL:** `/peeps/demo/` (locally: `http://localhost:4173/peeps/demo/` via the `toasty-static` launch config)

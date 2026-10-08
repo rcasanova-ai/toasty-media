@@ -59,10 +59,13 @@ What is verified on-chain today (devnet-tested, same code path for mainnet): the
 ## Quick start (60 seconds)
 
 ```bash
-git clone https://github.com/rcasanova-ai/toasty-media.git
+git clone --depth 1 --filter=blob:none --sparse https://github.com/rcasanova-ai/toasty-media.git
 cd toasty-media
+git sparse-checkout set --no-cone '/*' '!/shared/brand/toasty-media/Ricardo/' '!/shared/brand/toasty-media/Brand/' '!/assets/' '!/site/'
 npm run demo
 ```
+
+The repository also hosts the full Toasty Media marketing site, including ~100 MB of photos and brand assets that Peeps does not need. The three-line clone above skips them (about 40 MB instead of 150 MB, and it is much faster on a slow connection). A plain `git clone https://github.com/rcasanova-ai/toasty-media.git` works too, just slower.
 
 Open **http://127.0.0.1:4173/peeps/demo/**. No install step, no `.env`, no login, no network calls to Toasty.
 
@@ -95,16 +98,18 @@ The key variables (all optional) are documented in [`.env.example`](../.env.exam
 
 ## Demo walkthrough (David/Sarah)
 
-`/peeps/demo/` runs the scenario deterministically (about 50 seconds autonomous at Pitch speed, plus your three clicks). Use **Reset demo** any time.
+`/peeps/demo/` runs the scenario deterministically (about 50 seconds autonomous at **Pitch** speed, plus your three clicks). **Reset demo** (top right) restarts it at any time.
 
-1. **Find my Peeps (click 1).** One box, pre-filled: *"A Solana payments startup needs someone who can open institutional banking and fintech partnerships in Southeast Asia."* The agent turns it into criteria and searches a pool of 8 people.
-2. **David Reyes: 95% keyword match.** A Web3 founder with a 30k-follower community. The agent pays **$0.25** for context (shown as **x402 / USDC · DEMO**) and interviews David's **Dub**. The Dub answers only from evidence: strong community influence, but **no demonstrated institutional capability**. **Excluded**: strong keywords, wrong context.
-3. **Sarah Chen.** The agent unlocks her context and runs a **Dub-to-Dub qualification**. On the terms question the Dub has no evidence, so it **asks Sarah**; her reply becomes a self-attested claim. **Qualified, 94%.**
-4. **Shortlist.** "I found 3 people worth your time." Nobody has been contacted yet: the person's attention is protected until the requester authorizes.
-5. **Authorize introductions · $75 (click 2).** The agent contacts each Dub: boundaries satisfied, rate confirmed, accepted, **Jam created**, funds reserved in **Dough**.
-6. **Join Jam (click 3).** A simulated Studio session: **consent from both sides**, recording indicator, live transcription, Jam context panel (what Sarah will and won't discuss).
-7. **Results.** Recording, transcript, insights, a verified **Breadcrumb**, participation verified, **$25 released**, and Sarah's Dub improves (before/after profile coverage for the *next* agent).
-8. **Network growth.** A non-Peep who joined by link sees *"You contributed to this Jam. Claim your Dub."*
+The requester is a confidential Solana payments startup: *"someone who can open institutional banking and fintech partnerships in Southeast Asia."* The story is **community influence versus institutional capability**.
+
+1. **Find my Peeps (click 1).** One pre-filled box. The agent turns the request into 7 criteria (market, capability, buyer, must-have procurement + compliance fluency, "crypto reach alone is not enough", ...) and searches a pool of seeded candidates.
+2. **David Reyes: great keywords, wrong context.** A Web3 founder with 30,000 followers and 8 years of crypto community work. The agent pays **$0.25** for his context (labelled simulated, **x402 / Solana USDC · DEMO**) and interviews David's **Dub**. The Dub answers only from evidence: strong community-building, **no demonstrated institutional banking relationships, no enterprise procurement, no regulated-institution experience**. He is shown as **NOT QUALIFIED** ("Crypto audience size is not evidence of bank-access capability").
+3. **Sarah Chen: institutional capability.** The agent unlocks her context and runs a **Dub-to-Dub qualification**. When the Dub has no evidence on the final terms it **asks Sarah** rather than inventing an answer; her reply becomes a self-attested claim. She is **qualified (94% illustrative match)**.
+4. **Recommendation.** "Approach Sarah only. She is the qualified path for banking and fintech partnerships in Southeast Asia. Jam cost: $25." Nobody has been contacted yet.
+5. **Authorize introduction · $25 (click 2).** The agent contacts Sarah's Dub (boundaries satisfied, rate confirmed). **Sarah accepts**; the Jam is created and **$25 is committed in Dough**.
+6. **Join Jam (click 3).** A simulated Studio room: **consent from both sides**, recording, live transcript, and a Jam context panel showing what Sarah will and will not disclose. Requester identity stays confidential until both sides approve disclosure.
+7. **Settlement and evidence.** Summary, insights and action items; **trust checks** (verified participation, device consistency, unique payout destination, progressive verification) release the **$25 Dough** payout; a verified **Breadcrumb** is created and **Sarah's Dub gets richer** (before/after, for the next agent).
+8. **See how the network grows.** A non-Peep who joined by link sees *"You contributed to this Jam. Claim your Dub."*
 
 ### Simulated vs real (the demo never blurs this)
 
@@ -113,7 +118,7 @@ The key variables (all optional) are documented in [`.env.example`](../.env.exam
 | People, Dubs, candidates, Breadcrumbs | **Seeded** (fictional) |
 | Provenance/access logic, trust evaluator, ledger arithmetic, idempotent unlocks | **Real code**, seeded inputs |
 | Outcome interpretation (stands in for an LLM) | **Mocked**, deterministic |
-| Context unlock, escrow, Dough credit | **Simulated**: marked `Demo transaction`, `mode: demo`, no RPC or wallet is ever called |
+| Context unlock ($0.25), Jam escrow, Dough credit | **Simulated**: marked `Demo transaction`, `mode: demo`, no RPC or wallet is ever called |
 | Studio room, recording, transcript | **Simulated** |
 
 **No transaction shown in the demo is a real Solana transaction.** Real, verifiable transactions only exist in the production UI/API (`/peeps/app/`), where every payment line is labelled **ONCHAIN VERIFIED**, **OFFCHAIN** (ledger), **SIMULATED** or **PENDING**, and a transaction signature or Explorer link is only ever shown for a payment the server verified on-chain.
