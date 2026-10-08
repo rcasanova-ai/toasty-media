@@ -1,0 +1,55 @@
+name: Peeps tests
+
+# Test-only. No deploy, no secrets, no SSH. Runs the Peeps production-path suite (including the Colosseum
+# golden path and real-mainnet-structure Solana verification) on every PR and on main.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: peeps-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  peeps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax checks
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/toasty-auth-db.py
+          node --check scripts/render-production-server.mjs
+      - name: Peeps and Solana suite
+        run: |
+          set -euo pipefail
+          for t in \
+            peeps-colosseum-golden-path-test \
+            peeps-waitlist-server-test \
+            solana-real-transaction-verification-test \
+            peeps-agent-lifecycle-server-test \
+            peeps-introduction-execution-server-test \
+            peeps-jam-lifecycle-server-test \
+            peeps-post-session-server-test \
+            dough-ledger-test \
+            dough-money-loop-server-test \
+            accounts-solana-server-test \
+            accounts-auth-server-test \
+            platform-admin-test \
+            peeps-demo-test \
+            peeps-auth-gate-test \
+            peeps-fit-engine-test \
+            peeps-jam-lobby-test; do
+            echo "::group::$t"
+            node "scripts/$t.mjs"
+            echo "::endgroup::"
+          done

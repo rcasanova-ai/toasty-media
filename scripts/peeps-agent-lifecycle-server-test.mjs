@@ -66,7 +66,7 @@ async function payAndAuthorize(requestId, cookie, candidates) {
   const demoPay = await jsonFetch("/api/peeps/demo-payments/authorize", { method: "POST", cookie, body: { requestId } });
   assert(demoPay.status === 200 && demoPay.data.demo === true && demoPay.data.transactionSignature.startsWith("demo-"), "the demo payment provider issues an obviously-fake, clearly-labeled signature");
 
-  return jsonFetch(`/api/peeps/requests/${requestId}/authorize`, {
+  const paid = await jsonFetch(`/api/peeps/requests/${requestId}/authorize`, {
     method: "POST",
     cookie,
     headers: {
@@ -79,6 +79,10 @@ async function payAndAuthorize(requestId, cookie, candidates) {
     },
     body: { candidates }
   });
+  if (paid.status === 200 && paid.data.payment) {
+    assert(paid.data.payment.status === "simulated" && paid.data.payment.signature === null && paid.data.payment.explorerUrl === null && /simulated/i.test(paid.data.payment.label), "a demo-provider payment is reported as SIMULATED with no signature or Explorer link");
+  }
+  return paid;
 }
 
 async function main() {

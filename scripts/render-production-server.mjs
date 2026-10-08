@@ -4515,24 +4515,31 @@ async function verifySolanaTransactionForIntent(intent, transactionSignature) {
   if (tx.meta?.err) throw httpError(400, "That transaction failed on-chain and cannot be credited.");
 
   const accountKeys = (tx.transaction?.message?.accountKeys || []).map((entry) => (typeof entry === "string" ? entry : entry.pubkey));
-  const recipientIndex = accountKeys.indexOf(intent.recipientWallet);
-  if (recipientIndex === -1) throw httpError(400, "That transaction does not pay the expected Toasty billing wallet.");
-
   if (intent.asset === "SOL") {
+    // Native SOL moves lamports between wallet accounts, so the recipient wallet itself must be a key in
+    // the transaction. SPL tokens (below) move between TOKEN accounts: the recipient is identified by the
+    // token balance's `owner`, and its wallet address usually isn't an account key at all.
+    const recipientIndex = accountKeys.indexOf(intent.recipientWallet);
+    if (recipientIndex === -1) throw httpError(400, "That transaction does not pay the expected Toasty billing wallet.");
     const pre = tx.meta?.preBalances?.[recipientIndex];
     const post = tx.meta?.postBalances?.[recipientIndex];
     if (typeof pre !== "number" || typeof post !== "number") throw httpError(400, "Could not read the SOL balance change on that transaction.");
     const expectedLamports = Math.round(intent.cryptoAmount * 1e9);
     if (post - pre < expectedLamports) throw httpError(400, "That transaction underpays the quoted amount.");
   } else {
-    const expectedMint = solanaMintFor(intent.asset);
-    const preEntry = (tx.meta?.preTokenBalances || []).find((entry) => entry.owner === intent.recipientWallet && entry.mint === expectedMint);
-    const postEntry = (tx.meta?.postTokenBalances || []).find((entry) => entry.owner === intent.recipientWallet && entry.mint === expectedMint);
-    if (!postEntry) throw httpError(400, `That transaction does not deliver ${intent.asset} (on the expected mint) to the expected wallet.`);
-    const preAmount = preEntry ? Number(preEntry.uiTokenAmount?.uiAmount || 0) : 0;
-    const postAmount = Number(postEntry.uiTokenAmount?.uiAmount || 0);
-    if (postAmount - preAmount < intent.cryptoAmount - 1e-6) throw httpError(400, "That transaction underpays the quoted amount.");
+    const expectedMint = intent.mintOverride || solanaMintFor(intent.asset);
+    // Real getTransaction(jsonParsed) shape: token balances carry `owner` + `mint` + a decimal-exact
+    // `uiAmountString` (`uiAmount` is null for a zero balance and deprecated). A payer's funds may land in
+    // several token accounts owned by the recipient, so credit = sum(post) - sum(pre) across ALL of the
+    // recipient's accounts for this mint; moving funds between the recipient's own accounts nets to zero.
+    const sumFor = (entries) => (entries || []).filter((entry) => entry.owner === intent.recipientWallet && entry.mint === expectedMint)
+      .reduce((total, entry) => total + Number(entry.uiTokenAmount?.uiAmountString ?? entry.uiTokenAmount?.uiAmount ?? 0), 0);
+    if (!(tx.meta?.postTokenBalances || []).some((entry) => entry.owner === intent.recipientWallet && entry.mint === expectedMint)) {
+      throw httpError(400, `That transaction does not deliver ${intent.asset} (on the expected mint) to the expected wallet.`);
+    }
+    if (sumFor(tx.meta?.postTokenBalances) - sumFor(tx.meta?.preTokenBalances) < intent.cryptoAmount - 1e-6) throw httpError(400, "That transaction underpays the quoted amount.");
   }
+  return tx;
 }
 
 async function handleSolanaIntentConfirm(req, res, session, intentId) {
@@ -7384,7 +7391,7 @@ async function handlePeepsRequestReplaceCandidate(req, res, authSession) {
 // product behavior: never charge merely to see whether Peeps found anyone). Real Solana verification
 // reuses readDiscoveryPaymentProof exactly like /api/agent/find-experts; the demo provider only exists
 // when no real recipient is configured (see handlePeepsDemoPaymentAuthorize).
-function peepsIntroductionPaymentRequirement(reason = "payment_required") {
+function peepsIntroductionPaymentRequirement(reason = "payment_required", requestId = "") {
   const demo = !TOASTY_EXPERT_DISCOVERY_RECIPIENT;
   return {
     status: 402,
@@ -7400,15 +7407,69 @@ function peepsIntroductionPaymentRequirement(reason = "payment_required") {
       network: demo ? "demo" : TOASTY_SOLANA_NETWORK,
       asset: "USDC",
       amount: PEEPS_INTRODUCTION_PRICE.toFixed(3),
-      payTo: demo ? "demo-recipient" : TOASTY_EXPERT_DISCOVERY_RECIPIENT
+      payTo: demo ? "demo-recipient" : TOASTY_EXPERT_DISCOVERY_RECIPIENT,
+      ...(demo ? {} : { tokenMint: TOASTY_USDC_MINT, ...(requestId ? { reference: peepsPaymentReference(requestId) } : {}) })
     }],
     submitProofTo: demo ? "/api/peeps/demo-payments/authorize" : "/api/agent/payments/proof",
     continueWith: "/api/peeps/requests/:id/authorize"
   };
 }
 
-function sendPeepsIntroductionPaymentRequirement(req, res, reason) {
-  const requirement = peepsIntroductionPaymentRequirement(reason);
+// ---- Solana evidence for Peeps economic events -------------------------------------------------------
+// A browser/agent may SUPPLY a transaction signature; it is only ever a claim. verifyPeepsOnchainPayment
+// re-reads the transaction from the Solana RPC and checks: it exists at "confirmed" commitment, it did not
+// fail, the configured recipient received >= the price in the configured USDC mint, and (Solana Pay style)
+// it carries this request's unguessable reference key — so a stranger can't spend someone else's public
+// transaction as their own payment. The payer is whoever the CHAIN says paid (fee payer), never a header.
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+function base58Encode(bytes) {
+  let n = BigInt(`0x${Buffer.from(bytes).toString("hex") || "0"}`);
+  let out = "";
+  while (n > 0n) { out = BASE58_ALPHABET[Number(n % 58n)] + out; n /= 58n; }
+  for (const byte of bytes) { if (byte === 0) out = `1${out}`; else break; }
+  return out;
+}
+
+// Deterministic, request-bound 32-byte reference key (valid as a read-only account in the payment tx).
+function peepsPaymentReference(requestId) {
+  return base58Encode(createHmac("sha256", SESSION_SECRET || "toasty-peeps").update(`peeps-intro-reference:${requestId}`).digest());
+}
+
+// TOASTY_SOLANA_NETWORK is either a friendly name ("solana-devnet") or a CAIP-2 id ("solana:<genesis hash
+// prefix>", the form x402 uses). Mainnet has no cluster query string on Solana Explorer.
+const SOLANA_CAIP2_CLUSTERS = Object.freeze({ EtWTRABZaYq6iMfeYKouRu166VU2xqa1: "devnet", "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3z": "testnet" });
+function solanaExplorerTxUrl(signature, network = TOASTY_SOLANA_NETWORK) {
+  if (!signature) return null;
+  const n = String(network || "");
+  const caip = n.startsWith("solana:") ? SOLANA_CAIP2_CLUSTERS[n.slice(7)] : "";
+  const cluster = caip || (/dev/i.test(n) ? "devnet" : /test/i.test(n) ? "testnet" : "");
+  return `https://explorer.solana.com/tx/${encodeURIComponent(signature)}${cluster ? `?cluster=${cluster}` : ""}`;
+}
+
+async function verifyPeepsOnchainPayment({ signature, requestId, amount }) {
+  if (!TOASTY_EXPERT_DISCOVERY_RECIPIENT) throw httpError(503, "On-chain payment verification isn't configured on this server.");
+  const tx = await verifySolanaTransactionForIntent({ recipientWallet: TOASTY_EXPERT_DISCOVERY_RECIPIENT, asset: "USDC", cryptoAmount: amount, mintOverride: TOASTY_USDC_MINT }, signature);
+  // Static keys plus any keys loaded from address lookup tables (versioned transactions).
+  const keys = [
+    ...(tx.transaction?.message?.accountKeys || []).map((entry) => (typeof entry === "string" ? entry : entry.pubkey)),
+    ...(tx.meta?.loadedAddresses?.writable || []), ...(tx.meta?.loadedAddresses?.readonly || [])
+  ];
+  if (!keys.includes(peepsPaymentReference(requestId))) throw httpError(400, "That transaction doesn't carry this request's payment reference, so it can't be applied to it.");
+  // Payer = the owner whose USDC balance fell the most in this transaction (the account that actually
+  // funded it). A relayer that only pays the fee is not the payer. Falls back to the fee payer.
+  const owed = new Map();
+  for (const entry of tx.meta?.preTokenBalances || []) if (entry.mint === TOASTY_USDC_MINT) owed.set(entry.owner, (owed.get(entry.owner) || 0) + Number(entry.uiTokenAmount?.uiAmountString ?? entry.uiTokenAmount?.uiAmount ?? 0));
+  for (const entry of tx.meta?.postTokenBalances || []) if (entry.mint === TOASTY_USDC_MINT) owed.set(entry.owner, (owed.get(entry.owner) || 0) - Number(entry.uiTokenAmount?.uiAmountString ?? entry.uiTokenAmount?.uiAmount ?? 0));
+  const spender = [...owed.entries()].filter(([owner, drop]) => owner !== TOASTY_EXPERT_DISCOVERY_RECIPIENT && drop > 1e-9).sort((x, y) => y[1] - x[1])[0];
+  return {
+    payerWallet: spender?.[0] || keys[0] || null,
+    slot: Number.isFinite(tx.slot) ? tx.slot : null,
+    blockTime: Number.isFinite(tx.blockTime) ? new Date(tx.blockTime * 1000).toISOString() : null
+  };
+}
+
+function sendPeepsIntroductionPaymentRequirement(req, res, reason, requestId = "") {
+  const requirement = peepsIntroductionPaymentRequirement(reason, requestId);
   setCors(req, res);
   res.writeHead(402, {
     "Content-Type": "application/json",
@@ -7615,12 +7676,41 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
   // A caller that already brought its own x402 proof (an agent, section 7) is honored directly and never
   // touched by Dough at all — Dough is the HUMAN default, not the only rail. Everyone else (the normal
   // Peeps UI, no wallet involved) spends Dough first.
+  // Idempotent per request: the introduction fee is paid once. If a verified on-chain event already exists
+  // (or a real on-chain proof is re-submitted after any event exists) the call is a replay: it never
+  // re-verifies, charges or records again, and the new transaction is not consumed. Demo/Dough callers keep
+  // their original per-call contract (the Dough debit is itself idempotent per request).
+  const economicKey = `peeps-intro:${id}`;
+  const priorEvent = (await db("peeps_economic_event_get", { idempotencyKey: economicKey })).event;
+  const headerProof = req.headers["x-payment-signature"] ? readDiscoveryPaymentProof(req, PEEPS_INTRODUCTION_PRICE) : null;
   let proof;
-  if (req.headers["x-payment-signature"]) {
-    proof = readDiscoveryPaymentProof(req, PEEPS_INTRODUCTION_PRICE);
+  if (priorEvent && (priorEvent.status === "onchain_verified" || (headerProof?.ok && !headerProof.demo))) {
+    proof = { ok: true, replay: true, event: priorEvent };
+  } else if (headerProof) {
+    proof = headerProof;
     if (!proof.ok) {
-      sendPeepsIntroductionPaymentRequirement(req, res, proof.reason);
+      sendPeepsIntroductionPaymentRequirement(req, res, proof.reason, id);
       return;
+    }
+    if (proof.demo) {
+      // A "demo-" signature is only ever honoured by the clearly-labelled demo provider, i.e. when no real
+      // payment recipient is configured. With real infrastructure on, it is refused — never a free pass.
+      if (TOASTY_EXPERT_DISCOVERY_RECIPIENT) {
+        sendPeepsIntroductionPaymentRequirement(req, res, "demo_payment_disabled", id);
+        return;
+      }
+    } else {
+      // A real-looking signature is a CLAIM. Verify it on-chain before anything is authorized; the payer is
+      // taken from the chain, not from the x-payer-wallet header.
+      let chain;
+      try {
+        chain = await verifyPeepsOnchainPayment({ signature: proof.transactionSignature, requestId: id, amount: PEEPS_INTRODUCTION_PRICE });
+      } catch (error) {
+        if (!(error?.statusCode >= 400 && error.statusCode < 500)) throw error; // RPC outage / not configured: a server problem, not a bad proof
+        sendJson(req, res, 402, { ...peepsIntroductionPaymentRequirement("payment_not_verified", id), error: "Payment could not be verified.", message: error?.message || "That transaction could not be verified on Solana." });
+        return;
+      }
+      proof = { ...proof, payerWallet: chain.payerWallet, slot: chain.slot, blockTime: chain.blockTime, verifiedOnchain: true };
     }
   } else {
     const doughChargeRef = `peeps-intro:${id}`;
@@ -7636,7 +7726,7 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
       // silently demand a raw wallet signature from a normal person who has no wallet (section 6). The
       // x402 requirement is ALSO included so an agent/power-user caller can retry that way in one round
       // trip if they choose to, without a separate lookup call.
-      const requirement = peepsIntroductionPaymentRequirement("insufficient_dough");
+      const requirement = peepsIntroductionPaymentRequirement("insufficient_dough", id);
       sendJson(req, res, 402, {
         ...requirement,
         error: "Not enough Dough.",
@@ -7645,6 +7735,48 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
         fundUrl: "/peeps/app/dough.html"
       });
       return;
+    }
+  }
+
+  // Record the economic event BEFORE any Jam/introduction exists: a refused or conflicting claim (e.g. a
+  // signature already spent elsewhere) must leave nothing behind.
+  let economicEvent = proof.event || null;
+  if (!proof.replay) {
+    const rail = proof.dough ? "dough-ledger" : (proof.demo ? "demo-x402-simulated" : "x402-solana-usdc");
+    const recorded = await db("record_peeps_economic_event", {
+      id: newId("pev"), requestId: id, jamId: request.jamId || null, kind: "introduction_authorization", idempotencyKey: economicKey, rail,
+      status: proof.dough ? "ledger_posted" : (proof.demo ? "simulated" : "onchain_verified"),
+      amount: PEEPS_INTRODUCTION_PRICE, currency: proof.dough ? "USD" : "USDC",
+      network: proof.dough ? "internal" : (proof.demo ? "demo" : TOASTY_SOLANA_NETWORK),
+      tokenMint: (proof.demo || proof.dough) ? null : TOASTY_USDC_MINT,
+      payerWallet: proof.payerWallet, payeeWallet: proof.dough ? null : (TOASTY_EXPERT_DISCOVERY_RECIPIENT || "demo-recipient"),
+      transactionSignature: proof.transactionSignature, slot: proof.slot ?? null, blockTime: proof.blockTime ?? null,
+      verifiedAt: proof.verifiedOnchain ? new Date().toISOString() : null,
+      metadata: { candidateIds: selections.map((s) => s.candidateId), approvalSource: proof.approvalSource }
+    });
+    if (recorded.error === "duplicate_signature") throw httpError(409, "This transaction has already been used for a different payment.");
+    economicEvent = recorded.event;
+    if (recorded.created) {
+      await db("record_payment", {
+        id: newId("pay"),
+        paymentKind: "EXPERT_DISCOVERY",
+        rail,
+        provider: "toasty-peeps",
+        purpose: "peeps introduction authorization",
+        status: "PAYMENT_VERIFIED",
+        network: proof.dough ? "internal" : (proof.demo ? "demo" : TOASTY_SOLANA_NETWORK),
+        payerWallet: proof.payerWallet,
+        payeeWallet: proof.dough ? null : (TOASTY_EXPERT_DISCOVERY_RECIPIENT || "demo-recipient"),
+        amount: PEEPS_INTRODUCTION_PRICE,
+        currency: "USDC",
+        tokenMint: (proof.demo || proof.dough) ? null : TOASTY_USDC_MINT,
+        transactionSignature: proof.transactionSignature,
+        paymentRequirement: peepsIntroductionPaymentRequirement("payment_required", id),
+        paymentSignature: proof.paymentSignature,
+        policyDecision: "APPROVED",
+        approvalSource: proof.approvalSource,
+        metadata: { requestId: id, candidateIds: selections.map((s) => s.candidateId), economicEventId: economicEvent.id, verificationStatus: proof.dough ? "DOUGH_LEDGER" : (proof.demo ? "DEMO_SIMULATED" : "VERIFIED") }
+      });
     }
   }
 
@@ -7672,27 +7804,6 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
   }
   await db("peeps_request_update", { id, fields: { jamId, status: "introductions_authorized" } });
 
-  await db("record_payment", {
-    id: newId("pay"),
-    paymentKind: "EXPERT_DISCOVERY",
-    rail: proof.dough ? "dough-ledger" : (proof.demo ? "demo-x402-simulated" : "x402-solana-usdc"),
-    provider: "toasty-peeps",
-    purpose: "peeps introduction authorization",
-    status: "PAYMENT_VERIFIED",
-    network: proof.dough ? "internal" : (proof.demo ? "demo" : TOASTY_SOLANA_NETWORK),
-    payerWallet: proof.payerWallet,
-    payeeWallet: proof.dough ? null : (TOASTY_EXPERT_DISCOVERY_RECIPIENT || "demo-recipient"),
-    amount: PEEPS_INTRODUCTION_PRICE,
-    currency: "USDC",
-    tokenMint: (proof.demo || proof.dough) ? null : TOASTY_USDC_MINT,
-    transactionSignature: proof.transactionSignature,
-    paymentRequirement: peepsIntroductionPaymentRequirement(),
-    paymentSignature: proof.paymentSignature,
-    policyDecision: "APPROVED",
-    approvalSource: proof.approvalSource,
-    metadata: { requestId: id, jamId, candidateIds: selections.map((s) => s.candidateId), verificationStatus: proof.dough ? "DOUGH_LEDGER" : (proof.demo ? "DEMO_SIMULATED" : "VERIFIED") }
-  });
-
   const introductions = [];
   const skipped = [];
   const jamForAuthorize = await peepsLoadJam(jamId);
@@ -7710,7 +7821,7 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
     introductions.push(outcome.introduction);
   }
 
-  sendJson(req, res, 200, { jamId, introductions, skipped });
+  sendJson(req, res, 200, { jamId, introductions, skipped, payment: economicEvent ? peepsEconomicEventView(economicEvent) : null });
 }
 
 // ====================================================================================================
@@ -9432,7 +9543,7 @@ function peepsExecutionPath(req) {
 function isPeepsExecutionRoute(req) {
   const path = String(req.url || "").split("?")[0];
   return /^\/api\/peeps\/(introductions|bookings|openings|messages)\/[^/]+/.test(path)
-    || /^\/api\/peeps\/requests\/[^/]+\/(availability|lifecycle|reconcile|outcome|settle)$/.test(path)
+    || /^\/api\/peeps\/requests\/[^/]+\/(availability|lifecycle|receipt|payment-requirement|reconcile|outcome|settle)$/.test(path)
     || /^\/api\/peeps\/(breadcrumbs\/[^/]+\/corroborate|my-dub(\/breadcrumbs\/[^/]+\/review)?)$/.test(path)
     || path === "/api/peeps/test-outbox";
 }
@@ -10109,12 +10220,106 @@ async function peepsRequestLifecycleFull(request) {
   };
 }
 
+// ---- Judge receipt: one concise, read-only statement of what actually happened on a request ----
+// Everything here is read from stored state (Jam, participants, completion, transcripts, Breadcrumbs, Dub
+// entries, Dough settlements, economic events). Nothing is inferred client-side and nothing is invented:
+// each money line says which rail it used and whether it is on-chain, ledger-only, simulated or pending,
+// and a transaction signature is only ever shown for a payment the server itself verified on-chain.
+function peepsEconomicEventView(event) {
+  const onchain = event.status === "onchain_verified" && Boolean(event.transactionSignature);
+  return {
+    id: event.id, kind: event.kind, rail: event.rail, status: event.status, amount: event.amount, currency: event.currency,
+    network: event.network, tokenMint: onchain ? event.tokenMint : null, payerWallet: onchain ? event.payerWallet : null, payeeWallet: onchain ? event.payeeWallet : null,
+    signature: onchain ? event.transactionSignature : null, explorerUrl: onchain ? solanaExplorerTxUrl(event.transactionSignature, event.network) : null,
+    slot: onchain ? event.slot : null, blockTime: onchain ? event.blockTime : null, verifiedAt: event.verifiedAt || null,
+    label: onchain ? "On-chain: USDC payment confirmed on Solana by the server"
+      : event.status === "ledger_posted" ? "Off-chain: spent from the requester's Dough ledger"
+      : "Simulated: demo provider, no funds moved"
+  };
+}
+
+async function peepsReceiptView(request) {
+  const jamId = request.jamId;
+  const [jam, introsResult, candidatesResult, eventsResult, fundingResult] = await Promise.all([
+    jamId ? peepsLoadJam(jamId) : Promise.resolve(null),
+    db("peeps_introduction_list", { requestId: request.id }),
+    db("peeps_candidate_list", { requestId: request.id }),
+    db("peeps_economic_event_list", { requestId: request.id }),
+    db("dough_funding_intent_list_onchain", { userId: request.createdByUserId, limit: 3 })
+  ]);
+  const participants = jam ? (((await db("jam_participant_list", { jamId })).participants || []).filter((p) => !["removed", "declined"].includes(p.status))) : [];
+  const [completion, breadcrumbs, transcripts, artifacts, settlements] = await Promise.all([
+    jamId ? db("peeps_completion_get", { jamId }).then((r) => r.completion || null) : null,
+    jamId ? db("peeps_breadcrumb_list", { jamId }).then((r) => r.breadcrumbs || []) : [],
+    jamId ? db("peeps_transcript_list", { jamId }).then((r) => r.transcripts || []) : [],
+    jamId ? db("jam_artifact_list", { jamId }).then((r) => r.artifacts || []) : [],
+    jamId ? db("peeps_settlement_list", { jamId }).then((r) => r.settlements || []) : []
+  ]);
+  const candidateById = new Map((candidatesResult.candidates || []).map((c) => [c.id, c]));
+  const intros = (introsResult.introductions || []).filter((i) => !["declined", "cancelled"].includes(i.status));
+  const dubIds = [...new Set(participants.map((p) => p.dubId))];
+  const dubEntries = dubIds.length ? ((await db("dub_entry_list", { dubIds })).entries || []) : [];
+  const jamBreadcrumbIds = new Set(breadcrumbs.map((b) => b.id));
+  const fromThisJam = dubEntries.filter((e) => jamBreadcrumbIds.has(e.breadcrumbId));
+  const attended = participants.filter((p) => ["attended", "completed"].includes(p.status));
+  const proposed = breadcrumbs.filter((b) => b.kind !== "participation");
+  const owed = attended.filter((p) => Number(p.compensationAmount) > 0);
+  const totalOwed = owed.reduce((sum, p) => sum + Number(p.compensationAmount), 0);
+  const paid = owed.filter((p) => p.compensationStatus === "paid");
+  const settlementStatus = !totalOwed ? "none_due" : paid.length === owed.length ? "settled" : "pending";
+  const check = (key, label, done, detail, na = false) => ({ key, label, state: na ? "na" : (done ? "done" : "pending"), detail });
+  const authEvent = (eventsResult.events || []).find((e) => e.kind === "introduction_authorization");
+  return {
+    requestId: request.id, generatedAt: new Date().toISOString(), lifecycleState: request.status,
+    outcomeRequest: { who: request.whoText, outcome: request.outcomeText },
+    candidates: intros.map((i) => {
+      const c = candidateById.get(i.candidateId);
+      return { introductionId: i.id, name: c?.displayName || "Candidate", headline: c?.headline || "", source: c?.source || "", dubId: i.dubId, status: i.status };
+    }),
+    jam: jam ? { id: jam.id, title: jam.title, status: jam.status, studioSessionId: jam.studioSessionId || null, scheduledAt: jam.scheduledAt || null, studioUrl: jam.studioSessionId ? `/studio/director.html?session=${encodeURIComponent(jam.studioSessionId)}` : null } : null,
+    participants: participants.map((p) => ({ participantId: p.id, name: p.displayName || "Guest", status: p.status, consentCapturedAt: p.consentCapturedAt || null, attendedAt: p.attendedAt || null, completedAt: p.completedAt || null })),
+    evidence: {
+      completion: completion ? { trigger: completion.trigger, startedAt: completion.startedAt, endedAt: completion.endedAt } : null,
+      transcripts: transcripts.map((t) => ({ id: t.id, source: t.source, segments: t.segmentCount ?? null })),
+      recordingPresent: artifacts.some((a) => a.artifactType === "recording" && a.status === "ready" && a.storageReference)
+    },
+    breadcrumbs: {
+      total: proposed.length,
+      items: proposed.map((b) => ({ id: b.id, kind: PEEPS_BREADCRUMB_KINDS[b.kind] || b.kind, statement: b.correctedStatement || b.statement, status: b.status, evidenceClass: b.evidenceClass, provenance: { jamId: b.provenance?.jamId, transcriptId: b.provenance?.transcriptId, segmentIndex: b.provenance?.segmentIndex, speaker: b.provenance?.speaker, method: b.provenance?.method } })),
+      attendanceFacts: breadcrumbs.filter((b) => b.kind === "participation").length
+    },
+    dub: { entriesFromThisJam: fromThisJam.length, publicEntriesFromThisJam: fromThisJam.filter((e) => e.visibility === "public").length, note: fromThisJam.length ? "This Jam added evidence to the participant's Dub. Only participant-approved entries are public." : "No evidence has reached the Dub yet." },
+    dough: {
+      rail: "dough-ledger", onchain: false, compensationOwed: totalOwed, compensationPaid: paid.reduce((s, p) => s + Number(p.compensationAmount), 0), status: settlementStatus,
+      items: settlements.map((x) => ({ participantId: x.jamParticipantId, amount: x.amount, status: x.status, reason: x.reason || null, paidAt: x.paidAt || null })),
+      note: "Compensation moves between Dough ledger accounts (off-chain, atomic debit + credit, idempotent). It reaches Solana when the participant withdraws as USDC."
+    },
+    solana: {
+      network: TOASTY_SOLANA_NETWORK, recipientConfigured: Boolean(TOASTY_EXPERT_DISCOVERY_RECIPIENT),
+      events: (eventsResult.events || []).map(peepsEconomicEventView),
+      doughFunding: (fundingResult.intents || []).map((f) => ({ id: f.id, amount: f.amount, asset: f.asset || "USDC", signature: f.transactionSignature, explorerUrl: solanaExplorerTxUrl(f.transactionSignature), paidAt: f.paidAt, status: "onchain_verified", label: "On-chain: USDC deposit verified by the server, credited as Dough" }))
+    },
+    checks: [
+      check("interaction", "Interaction occurred", Boolean(completion) && attended.length > 0, completion ? `${attended.length} participant(s) attended` : "The Jam has not been completed"),
+      check("consent", "Consent captured", attended.length > 0 && attended.every((p) => p.consentCapturedAt), `${attended.filter((p) => p.consentCapturedAt).length} of ${attended.length || participants.length} consented`),
+      check("attendance", "Participant attended", attended.length > 0, attended.length ? "From participant join events" : "No join event recorded"),
+      check("evidence", "Evidence generated", transcripts.length > 0 || artifacts.some((a) => a.status === "ready"), `${transcripts.length} transcript(s)`),
+      check("breadcrumb", "Breadcrumb created", proposed.length > 0, `${proposed.length} derived from the stored transcript`),
+      check("payment", "Introduction payment", Boolean(authEvent), authEvent ? peepsEconomicEventView(authEvent).label : "Not authorized yet"),
+      check("settlement", "Compensation settled", settlementStatus === "settled", settlementStatus === "none_due" ? "No compensation was part of this request" : settlementStatus === "settled" ? "Settled in Dough" : "Pending: requester funding or outcome verification", settlementStatus === "none_due"),
+      check("dub", "Dub gained evidence", fromThisJam.length > 0, `${fromThisJam.length} entr${fromThisJam.length === 1 ? "y" : "ies"} from this Jam`)
+    ]
+  };
+}
+
 async function routePeepsPostSession(req, res, authSession, parts) {
   const method = req.method;
   const [kind, id, action] = parts;
   if (kind === "requests") {
     const request = await requireOwnedPeepsRequest(req, res, authSession, id, method === "GET" ? "viewer" : "member");
     if (!request) return true;
+    if (method === "GET" && action === "receipt") { sendJson(req, res, 200, await peepsReceiptView((await db("peeps_request_get_by_id", { id })).request)); return true; }
+    if (method === "GET" && action === "payment-requirement") { sendJson(req, res, 200, { requirement: peepsIntroductionPaymentRequirement("payment_required", id), explorerNetwork: TOASTY_SOLANA_NETWORK }); return true; }
     if (method === "GET" && action === "lifecycle") { sendJson(req, res, 200, await peepsRequestLifecycleFull((await db("peeps_request_get_by_id", { id })).request)); return true; }
     if (method !== "POST") return false;
     if (action === "reconcile") {
@@ -11105,7 +11310,7 @@ function setCors(req, res) {
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Toasty-Render-Token, X-Toasty-CSRF");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Toasty-Render-Token, X-Toasty-CSRF, X-Payment-Signature, X-Solana-Transaction-Signature, X-Payment-Asset, X-Payment-Amount");
   res.setHeader("Access-Control-Max-Age", "86400");
   return true;
 }

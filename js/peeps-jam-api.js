@@ -170,3 +170,18 @@ export const evaluatePeepsOutcome = (requestId, fields = {}) => studioRequest(`/
 export const settlePeepsRequest = (requestId) => studioRequest(`/api/peeps/requests/${enc(requestId)}/settle`, { method: "POST", body: "{}" });
 export const corroboratePeepsBreadcrumb = (id) => studioRequest(`/api/peeps/breadcrumbs/${enc(id)}/corroborate`, { method: "POST", body: "{}" });
 export const submitJamTranscript = (jamId, fields) => studioRequest(`/api/jams/${enc(jamId)}/transcript`, { method: "POST", body: JSON.stringify(fields) });
+
+// ---- Colosseum judge path: receipt + optional on-chain (Solana USDC) introduction payment ----
+export const getPeepsReceipt = (requestId) => studioRequest(`/api/peeps/requests/${enc(requestId)}/receipt`);
+export const getPeepsPaymentRequirement = (requestId) => studioRequest(`/api/peeps/requests/${enc(requestId)}/payment-requirement`);
+
+// Submits a Solana USDC transaction signature as the introduction payment. The signature is only a CLAIM:
+// the server re-reads the transaction from Solana (recipient, mint, amount, success, this request's payment
+// reference, never-used-before) and refuses anything it cannot verify. The browser never signs or holds keys.
+export async function authorizePeepsIntroductionsOnchain(requestId, candidates, { compensationAmount, signature } = {}) {
+  const result = await rawPost(`/api/peeps/requests/${encodeURIComponent(requestId)}/authorize`, { candidates, compensationAmount }, {
+    "X-Payment-Signature": signature, "X-Solana-Transaction-Signature": signature, "X-Payment-Asset": "USDC", "X-Payment-Amount": "0.25"
+  });
+  if (!result.ok) throw new Error(result.data.message || result.data.error || "Could not verify that payment.");
+  return result.data;
+}

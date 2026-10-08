@@ -1941,6 +1941,41 @@ def migrate(conn):
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_waitlist_invites_wl ON peeps_waitlist_invites(waitlist_id)")
 
+    # Peeps economic events — one row per economic event in a request's lifecycle (today: the
+    # introduction authorization payment). `status` says exactly what is true: onchain_verified (a Solana
+    # transaction the SERVER confirmed against the RPC), ledger_posted (internal Dough ledger, no chain)
+    # or simulated (demo provider, nothing real moved). `idempotency_key` makes the event single-shot per
+    # request; the partial UNIQUE index on transaction_signature means one on-chain payment can never back
+    # two events. record_peeps_economic_event additionally refuses a signature already used by Dough funding
+    # or org billing, so a transaction can only ever be spent once across all of them.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_economic_events (
+          id TEXT PRIMARY KEY,
+          request_id TEXT NOT NULL,
+          jam_id TEXT,
+          kind TEXT NOT NULL,
+          idempotency_key TEXT NOT NULL UNIQUE,
+          rail TEXT NOT NULL,
+          status TEXT NOT NULL,
+          amount REAL NOT NULL,
+          currency TEXT NOT NULL,
+          network TEXT,
+          token_mint TEXT,
+          payer_wallet TEXT,
+          payee_wallet TEXT,
+          transaction_signature TEXT,
+          slot INTEGER,
+          block_time TEXT,
+          verified_at TEXT,
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_peeps_economic_events_sig ON peeps_economic_events(transaction_signature) WHERE transaction_signature IS NOT NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_economic_events_request ON peeps_economic_events(request_id, created_at)")
+
     bootstrap_stablecorp_brand_lock(conn)
 
     conn.commit()
@@ -3301,6 +3336,18 @@ def public_peeps_settlement(row):
         "payerUserId": row["payer_user_id"], "payeeSubjectType": row["payee_subject_type"], "payeeSubjectId": row["payee_subject_id"],
         "amount": row["amount"], "status": row["status"], "reason": row["reason"], "availableAtAttempt": row["available_at_attempt"],
         "paidAt": row["paid_at"], "createdAt": row["created_at"], "updatedAt": row["updated_at"],
+    }
+
+
+def public_peeps_economic_event(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"], "requestId": row["request_id"], "jamId": row["jam_id"], "kind": row["kind"], "rail": row["rail"],
+        "status": row["status"], "amount": row["amount"], "currency": row["currency"], "network": row["network"],
+        "tokenMint": row["token_mint"], "payerWallet": row["payer_wallet"], "payeeWallet": row["payee_wallet"],
+        "transactionSignature": row["transaction_signature"], "slot": row["slot"], "blockTime": row["block_time"],
+        "verifiedAt": row["verified_at"], "metadata": _json_or(row["metadata_json"], {}), "createdAt": row["created_at"],
     }
 
 
@@ -4972,6 +5019,9 @@ def main():
             fields.append("paid_at = ?")
             values.append(now)
         values.append(payload["id"])
+        if payload.get("transactionSignature") and conn.execute("SELECT 1 FROM peeps_economic_events WHERE transaction_signature = ?", (payload["transactionSignature"],)).fetchone():
+            print(json.dumps({"error": "duplicate_signature"}))
+            return
         try:
             conn.execute(f"UPDATE billing_payment_intents SET {', '.join(fields)} WHERE id = ?", values)
             conn.commit()
@@ -6840,6 +6890,9 @@ def main():
         if row["status"] == "paid":
             print(json.dumps({"ok": True, "alreadyPaid": True, "amount": row["amount"]}))
             return
+        if payload.get("transactionSignature") and conn.execute("SELECT 1 FROM peeps_economic_events WHERE transaction_signature = ?", (payload["transactionSignature"],)).fetchone():
+            print(json.dumps({"ok": False, "error": "duplicate_reference"}))
+            return
         try:
             cursor = conn.execute(
                 "UPDATE dough_funding_intents SET status = 'paid', paid_at = ?, provider_reference = COALESCE(?, provider_reference), transaction_signature = ? WHERE id = ? AND status != 'paid'",
@@ -7692,6 +7745,71 @@ def main():
             """
         ).fetchall()
         print(json.dumps({"dubs": [public_dub(r) for r in rows]}))
+        return
+
+    if action == "peeps_economic_event_get":
+        row = conn.execute("SELECT * FROM peeps_economic_events WHERE idempotency_key = ?", (payload["idempotencyKey"],)).fetchone()
+        print(json.dumps({"event": public_peeps_economic_event(row)}))
+        return
+
+    if action == "peeps_economic_event_list":
+        rows = conn.execute("SELECT * FROM peeps_economic_events WHERE request_id = ? ORDER BY created_at ASC", (payload["requestId"],)).fetchall()
+        print(json.dumps({"events": [public_peeps_economic_event(r) for r in rows]}))
+        return
+
+    # Single-shot per idempotencyKey. A replay returns the ORIGINAL event with created=false; a signature
+    # already spent anywhere else (another request, Dough funding, org billing) is refused outright.
+    if action == "record_peeps_economic_event":
+        now = utc_now()
+        sig = payload.get("transactionSignature") or None
+        existing = conn.execute("SELECT * FROM peeps_economic_events WHERE idempotency_key = ?", (payload["idempotencyKey"],)).fetchone()
+        if existing:
+            print(json.dumps({"event": public_peeps_economic_event(existing), "created": False}))
+            return
+        if sig:
+            used = (
+                conn.execute("SELECT 1 FROM peeps_economic_events WHERE transaction_signature = ?", (sig,)).fetchone()
+                or conn.execute("SELECT 1 FROM dough_funding_intents WHERE transaction_signature = ?", (sig,)).fetchone()
+                or conn.execute("SELECT 1 FROM billing_payment_intents WHERE transaction_signature = ?", (sig,)).fetchone()
+            )
+            if used:
+                print(json.dumps({"error": "duplicate_signature"}))
+                return
+        try:
+            conn.execute(
+                """
+                INSERT INTO peeps_economic_events (
+                  id, request_id, jam_id, kind, idempotency_key, rail, status, amount, currency, network, token_mint,
+                  payer_wallet, payee_wallet, transaction_signature, slot, block_time, verified_at, metadata_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload["id"], payload["requestId"], payload.get("jamId"), payload["kind"], payload["idempotencyKey"],
+                    payload["rail"], payload["status"], payload["amount"], payload.get("currency") or "USDC", payload.get("network"),
+                    payload.get("tokenMint"), payload.get("payerWallet"), payload.get("payeeWallet"), sig, payload.get("slot"),
+                    payload.get("blockTime"), payload.get("verifiedAt"), json.dumps(payload.get("metadata") or {}), now,
+                ),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            raced = conn.execute("SELECT * FROM peeps_economic_events WHERE idempotency_key = ?", (payload["idempotencyKey"],)).fetchone()
+            if raced:
+                print(json.dumps({"event": public_peeps_economic_event(raced), "created": False}))
+            else:
+                print(json.dumps({"error": "duplicate_signature"}))
+            return
+        row = conn.execute("SELECT * FROM peeps_economic_events WHERE idempotency_key = ?", (payload["idempotencyKey"],)).fetchone()
+        print(json.dumps({"event": public_peeps_economic_event(row), "created": True}))
+        return
+
+    # Paid, server-verified Solana Dough fundings for a user — receipt evidence of where the Dough came from.
+    if action == "dough_funding_intent_list_onchain":
+        rows = conn.execute(
+            "SELECT * FROM dough_funding_intents WHERE user_id = ? AND status = 'paid' AND transaction_signature IS NOT NULL AND provider = 'solana-usdc' ORDER BY paid_at DESC LIMIT ?",
+            (payload["userId"], int(payload.get("limit") or 5)),
+        ).fetchall()
+        print(json.dumps({"intents": [{**public_dough_funding_intent(r), "paidAt": r["paid_at"]} for r in rows]}))
         return
 
     # ---- Peeps waitlist actions ----
