@@ -9,7 +9,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const usd = (n) => '$' + (Number.isInteger(n) ? n.toFixed(0) : n.toFixed(2));
 const usd2 = (n) => '$' + n.toFixed(2);
 
-const SPEEDS = { pitch: 1.25, normal: 2.2 }; // deterministic pacing multipliers
+const SPEEDS = { pitch: 0.72, normal: 1.4 }; // deterministic pacing multipliers; pitch run is ~45-60s
 const SPEED_KEY = 'toasty.peeps.demo.speed';
 let speed = 'pitch';
 try { speed = localStorage.getItem(SPEED_KEY) === 'normal' ? 'normal' : 'pitch'; } catch { /* default */ }
@@ -25,7 +25,7 @@ const mkWait = (t) => async (ms) => { await sleep(ms * SPEEDS[speed]); if (t !==
 const guarded = async (fn) => { try { await fn(); } catch (e) { if (e !== CANCEL) console.error(e); } };
 
 const PERSONA = { compose: 'You → your agent', understand: 'Agent working', discover: 'Agent working', investigate: 'Agent ↔ Dubs', qualify: 'Agent working', shortlist: 'Agent → you', approach: 'Agent ↔ Dubs', ready: 'Sarah accepted', studio: 'The human layer', wrapup: 'Agent resuming', results: 'Viewing as Sarah', growth: 'Network view' };
-const SHORT_REASON = { tom: 'Geography mismatch', anong: 'Seed raise outside requested window', mei: 'Not open to research', kittipong: 'Insufficient evidence', david: 'Strong keyword match, poor contextual match' };
+const SHORT_REASON = { david: 'Profile search winner, qualification mismatch' };
 
 const av = (c, cls = '') => `<div class="av ${cls}" style="--h:${c.hue ?? 22}">${esc(c.initials || c.name.split(' ').map((x) => x[0]).join('').slice(0, 2))}</div>`;
 const prov = (p) => `<span class="b ${p}" title="${esc(PROVENANCE[p]?.tip || '')}">${esc(PROVENANCE[p]?.label || p)}</span>`;
@@ -97,7 +97,7 @@ const live = (txt, done) => { const el = $('#livechip'); if (el) { el.textConten
 
 function workspaceHtml() {
   const approach = S.phase === 'approach';
-  return `<div class="ws"><aside class="ws-left"><div class="card"><div class="lbl">Goal</div><p style="font-size:15px">${esc(REQUEST_TEXT)}</p><div class="hr"></div><div class="lbl">Understood as</div><div class="crit-l" id="critl"></div></div>
+  return `<div class="ws"><aside class="ws-left"><div class="card"><div class="lbl">Goal</div><p style="font-size:15px">${esc(REQUEST_TEXT)}</p><div class="hr"></div><div class="lbl">Understood as</div><div class="crit-l" id="critl"></div><div class="hr"></div><div class="tiny">Requester identity remains confidential until both sides approve disclosure.</div></div>
     <div class="card"><div class="lbl">Investigation</div><div class="row sp"><span class="spent" id="spent">${usd2(E.contextSpend(S))}</span><span class="tiny">Budget ${usd2(INVESTIGATION_BUDGET_USD)}</span></div><div class="meter"><i id="meterfill" style="width:${(E.contextSpend(S) / INVESTIGATION_BUDGET_USD) * 100}%"></i></div><div class="tiny">Context bought by your agent · x402 / Solana USDC · DEMO</div></div>
     <div class="card" id="introCard" ${approach ? '' : 'hidden'}><div class="lbl">Introductions authorized</div><div class="row sp"><span class="spent" id="introAmt">${usd2(E.jamReserved(S))}</span><span class="tiny">of ${usd(E.introTotal())} reserved</span></div></div></aside>
   <section class="card" style="padding:16px 16px 6px"><div class="wsh"><span>Peeps Agent</span><span class="tiny">for ${esc(REQUESTER.org)}</span><span class="live" id="livechip" style="margin-left:auto">Working</span></div><div class="hr"></div><div class="feed" id="feed"></div></section>
@@ -142,7 +142,7 @@ const verdictHtml = (ok, c, lines) => `<div class="verdict ${ok ? 'q' : 'x'}"><b
 
 async function investigateDavid(c, wait) {
   addLine(`${esc(c.name)}`, 'head');
-  addLine(`Initial match: <b>${c.surface}%</b> · strong on keywords`, 'sub');
+  addLine(`Illustrative profile match: <b>${c.surface}%</b> · 30,000 followers · crypto conference speaker · 8 years in Web3`, 'sub');
   await wait(500);
   await unlockSeq(c, wait);
   addLine(`Contacting ${esc(c.name.split(' ')[0])}’s Dub…`, 'dim'); await wait(500);
@@ -151,8 +151,8 @@ async function investigateDavid(c, wait) {
     await say(msgs, 'agent', agentMsg(it.ask), wait);
     await say(msgs, 'dub', dubBubble('David’s Dub', { who: 'dub', ...E.answerFromDub(DAVID_DUB, it) }), wait);
   }
-  await say(msgs, 'agent', agentMsg('The request explicitly excludes crypto.'), wait);
-  const v = `<div class="verdict x"><b class="t">✕ EXCLUDED</b><div><b>Reason:</b> ${esc(SHORT_REASON.david)}.<div class="tiny" style="margin-top:2px;color:#d9968c">${esc(c.exclusion.detail)}</div></div></div>`;
+  await say(msgs, 'agent', agentMsg('The request needs institutional banking access, enterprise procurement experience and regulated-financial-institution navigation.'), wait);
+  const v = `<div class="verdict x"><b class="t">✕ NOT QUALIFIED</b><div><b>Reason:</b> ${esc(SHORT_REASON.david)}.<div class="tiny" style="margin-top:2px;color:#d9968c">${esc(c.exclusion.detail)}</div></div></div>`;
   msgs.insertAdjacentHTML('beforeend', v); moveCard(c.id, 'x'); $('#feed').scrollTop = $('#feed').scrollHeight;
   await wait(900);
 }
@@ -173,14 +173,14 @@ async function investigateSarah(c, wait) {
     if (rec.kind === 'unknown') {
       sysNote(msgs, '<b>Clarification requested from Sarah.</b> She permits clarification requests. The agent does not guess.'); await wait(500);
       msgs.insertAdjacentHTML('beforeend', '<div class="typing" id="typ" style="align-self:flex-start;background:rgba(95,211,154,.1)"><i style="background:var(--green)"></i><i style="background:var(--green)"></i><i style="background:var(--green)"></i></div>'); await wait(1300); $('#typ')?.remove();
-      msgs.insertAdjacentHTML('beforeend', `<div class="msg human"><small>Sarah</small>Yes. I participated directly in the final negotiation.</div>`); await wait(700);
+      msgs.insertAdjacentHTML('beforeend', `<div class="msg human"><small>Sarah</small>Yes. I’m willing to evaluate the opportunity at the capability level. Please keep the requester anonymous until mutual consent.</div>`); await wait(700);
       E.clarify(S, it.id, 'yes'); persist();
       const upd = S.interview.log.at(-1);
       await say(msgs, 'dub', `<div class="msg dub learned"><small>${name}</small><div><b>Context updated.</b></div><div>${esc(upd.text)}</div><div class="ev"><span class="t">Provenance</span>${prov('self')}<span class="tiny">Added: ${esc(upd.addedAt)}</span></div></div>`, wait, 400);
       await wait(400);
     }
   }
-  msgs.insertAdjacentHTML('beforeend', verdictHtml(true, c, `<b>Contextual match: ${c.contextual}%</b><div class="tiny">Led her raise · enterprise SaaS · open to compensated research · $${S.dub.pricing.jam60}/hour</div>`));
+  msgs.insertAdjacentHTML('beforeend', verdictHtml(true, c, `<b>Illustrative qualification score: ${c.contextual}%</b><div class="tiny">Banking partnerships · payment-sector experience · procurement/compliance fluency · $${S.dub.pricing.jam60}/hour</div>`));
   moveCard(c.id, 'q'); $('#feed').scrollTop = $('#feed').scrollHeight; toast('Sarah’s Dub learned something new');
   await wait(900);
 }
@@ -233,12 +233,12 @@ VIEWS.understand = VIEWS.discover = VIEWS.investigate = VIEWS.qualify = {
 VIEWS.shortlist = {
   html: () => {
     const sum = E.batchSummary(S); const david = E.candidate('david'); const total = E.introTotal();
-    return `<div class="sl-head"><div class="eyebrow">Your agent is back</div><h1 class="h1" style="margin:8px 0 6px">I found 3 people<br><span style="color:var(--accent2)">worth your time.</span></h1></div>
+    return `<div class="sl-head"><div class="eyebrow">Your agent is back</div><h1 class="h1" style="margin:8px 0 6px">David wins the profile search.<br><span style="color:var(--accent2)">Sarah wins the qualification.</span></h1></div>
     <div class="grid4" style="margin-bottom:18px"><div class="stat"><small>Investigated</small><b>${sum.investigated}</b></div><div class="stat"><small>Qualified</small><b style="color:var(--green)">${sum.qualified.length}</b></div><div class="stat"><small>Excluded</small><b style="color:var(--red)">${sum.excluded.length}</b></div><div class="stat"><small>Context purchased</small><b>${usd2(sum.contextSpend)}</b></div></div>
     <div class="rec3">${sum.qualified.map((c) => `<article class="card ${c.hero ? 'glow' : ''}"><div class="row">${av(c, 'lg')}<div><b style="font-size:20px">${esc(c.name)}</b><div class="mut" style="font-size:13px">${esc(c.headline)} · ${esc(c.sector)}</div></div></div><div class="row sp"><div><div class="pct">${c.contextual}%</div><div class="tiny">contextual match</div></div><div style="text-align:right"><b style="font-size:20px">${usd(c.rate)} / hour</b></div></div><div class="lbl" style="margin:6px 0 0">Why</div><ul class="rs">${c.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></article>`).join('')}</div>
-    <div class="davidcard" style="margin:18px 0"><div><div class="tiny" style="color:#d9968c;letter-spacing:.12em;text-transform:uppercase;font-weight:800">Excluded by your agent</div><div class="row" style="margin-top:6px">${av(david, 'lg')}<div><b style="font-size:22px">${esc(david.name)}</b><div class="mut">${david.surface}% keyword match</div></div></div></div><div class="big2" style="color:var(--red)">✕ EXCLUDED</div><p style="max-width:430px;color:#ffb3a8"><b>71% recent crypto activity</b> conflicted with your request. Strong keyword match, poor contextual match.</p></div>
+    <div class="davidcard" style="margin:18px 0"><div><div class="tiny" style="color:#d9968c;letter-spacing:.12em;text-transform:uppercase;font-weight:800">Rejected by qualification</div><div class="row" style="margin-top:6px">${av(david, 'lg')}<div><b style="font-size:22px">${esc(david.name)}</b><div class="mut">${david.surface}% illustrative profile match</div></div></div></div><div class="big2" style="color:var(--red)">✕ NOT QUALIFIED</div><p style="max-width:500px;color:#ffb3a8"><b>No demonstrated institutional banking relationships.</b> No enterprise procurement experience. No evidence of navigating regulated financial institutions.</p></div>
     <div class="row wrap tiny" style="margin-bottom:18px"><span>Also excluded:</span>${sum.excluded.filter((c) => c.id !== 'david').map((c) => `<span class="chip bad">${esc(c.name.split(' ')[0])} · ${esc(SHORT_REASON[c.id] || c.exclusion.reason)}</span>`).join('')}</div>
-    <div class="recommend"><div style="max-width:560px"><div class="eyebrow">Agent recommendation</div><p style="font-size:20px;margin-top:6px">I recommend approaching all three. Their combined Jam cost is <b>${usd(total)}</b>.</p></div><button class="cta xl" data-act="authorize">Authorize introductions · ${usd(total)}</button></div>`;
+    <div class="recommend"><div style="max-width:620px"><div class="eyebrow">Agent recommendation</div><p style="font-size:20px;margin-top:6px">Approach Sarah only. She is the qualified path for banking and fintech partnerships in Southeast Asia. Jam cost: <b>${usd(total)}</b>.</p><div class="tiny">Scores and evidence are illustrative, simulated, and labelled in the demo ledger.</div></div><button class="cta xl" data-act="authorize">Authorize introduction · ${usd(total)}</button></div>`;
   },
 };
 
@@ -248,12 +248,12 @@ VIEWS.approach = {
   async start(t, wait) {
     setPhase('approach'); live('Approaching');
     PARSED_CRITERIA.forEach(critLine);
-    addLine(`Introductions authorized · ${usd(E.introTotal())}`, 'head'); await wait(600);
+    addLine(`Introduction authorized · ${usd(E.introTotal())}`, 'head'); await wait(600);
     const q = E.qualifiedCandidates();
     for (const c of q) { if (!S.pool[c.id]) S.pool[c.id] = 'q'; }
     // Sarah: full sequence
     addLine('Contacting Sarah’s Dub…', 'dim'); await wait(500);
-    const steps = ['Opportunity presented', 'Sarah’s boundaries satisfied', `Rate confirmed: ${usd(S.dub.pricing.jam60)}`, 'Sarah accepted', 'Permission granted · shares display name, company, contact via Toasty only', null, null];
+    const steps = ['Opportunity presented without requester identity', 'Sarah’s boundaries satisfied', `Rate confirmed: ${usd(S.dub.pricing.jam60)}`, 'Sarah accepted', 'Permission granted · shares display name, company, contact via Toasty only', null, null];
     for (const [i, s] of steps.entries()) {
       if (s) addLine(s, 'ok');
       if (i === 5) { E.reserveJam(S, 'sarah'); persist(); updIntro(); addLine('Jam created', 'ok'); addLine(`${usd(E.candidate('sarah').rate)} reserved`, 'ok'); $('[data-pid="sarah"]')?.classList.add('booked'); break; }
@@ -267,7 +267,7 @@ VIEWS.approach = {
       const r = row.querySelector('.res'); r.className = 'res q'; r.textContent = `✓ Jam created · ${usd(c.rate)} reserved`;
       $(`[data-pid="${c.id}"]`)?.classList.add('booked'); $('#feed').scrollTop = $('#feed').scrollHeight; await wait(350);
     }
-    addLine(`All three Dubs accepted. ${usd(E.jamReserved(S))} reserved.`, 'head'); live('Done', true); await wait(1300);
+    addLine(`Sarah accepted. ${usd(E.jamReserved(S))} reserved.`, 'head'); live('Done', true); await wait(900);
     enter('ready');
   },
 };
@@ -277,7 +277,7 @@ VIEWS.ready = {
   html: () => {
     const others = E.qualifiedCandidates().filter((c) => c.id !== 'sarah');
     return `<div class="jamcard card glow stack" style="margin-top:4vh"><div class="status">Sarah accepted</div><h1 class="big">Your agents handled the qualification.<br><span style="color:var(--accent2)">Now it’s worth your time to talk.</span></h1>
-    <div class="card" style="background:#150c0a;text-align:left"><div class="row sp wrap"><div class="row">${av({ name: 'Sarah Chen', hue: 22 }, 'lg')}<div><b style="font-size:22px">Sarah Chen</b><div class="mut">Fundraising Research Jam</div></div></div><div class="row wrap"><span class="b plain">60 minutes</span><span class="b verified">${usd(JAM.rate)} committed</span><span class="b plain">Recorded · transcribed · with consent</span></div></div></div>
+    <div class="card" style="background:#150c0a;text-align:left"><div class="row sp wrap"><div class="row">${av({ name: 'Sarah Chen', hue: 22 }, 'lg')}<div><b style="font-size:22px">Sarah Chen</b><div class="mut">${esc(JAM.title)}</div></div></div><div class="row wrap"><span class="b plain">60 minutes</span><span class="b verified">${usd(JAM.rate)} committed</span><span class="b plain">Recorded · transcribed · with consent</span></div></div></div>
     <button class="cta xl" data-act="joinjam">Join Jam →</button>
     <p class="tiny">Also reserved by your agent: ${others.map((c) => `${esc(c.name.split(' ')[0])} (${usd(c.rate)})`).join(' · ')}</p></div>`;
   },
@@ -286,11 +286,11 @@ VIEWS.ready = {
 // ------------------------------------------------------------------ 9. studio
 VIEWS.studio = {
   html: () => `<div class="eyebrow">The human layer</div><div class="studio-wrap" style="margin-top:8px"><div class="room"><div class="room-h"><div class="row"><img src="../../shared/brand/toasty-media/ToastyTransparent.png" width="30" alt=""><b>Toasty Studio</b><span class="mut">· ${JAM.title}</span></div><div class="row wrap"><span class="rec" id="recind" style="visibility:hidden">REC</span><span class="b verified" id="trind" style="visibility:hidden">Live transcription</span><span class="tiny" id="clock">00:00 · demo clock</span></div></div>
-  <div class="tiles"><div class="tile" style="--h:22" id="tSarah">${av({ name: 'Sarah Chen', hue: 22 }, 'xl')}<span class="nm">Sarah Chen</span><div class="lv"><i></i><i></i><i></i><i></i><i></i></div></div><div class="tile quiet" style="--h:200" id="tReq">${av({ name: 'Ricardo', hue: 200 }, 'xl')}<span class="nm">${esc(REQUESTER.name)} · ${esc(REQUESTER.org)}</span><div class="lv"><i></i><i></i><i></i><i></i><i></i></div></div></div>
+  <div class="tiles"><div class="tile" style="--h:22" id="tSarah">${av({ name: 'Sarah Chen', hue: 22 }, 'xl')}<span class="nm">Sarah Chen</span><div class="lv"><i></i><i></i><i></i><i></i><i></i></div></div><div class="tile quiet" style="--h:200" id="tReq">${av({ name: REQUESTER.name, initials: 'RQ', hue: 200 }, 'xl')}<span class="nm">${esc(REQUESTER.name)} · ${esc(REQUESTER.org)}</span><div class="lv"><i></i><i></i><i></i><i></i><i></i></div></div></div>
   <div class="row sp wrap" style="padding:0 18px 12px"><div class="chips" id="consent"><span class="b plain">Consent</span><span class="b self" id="cS">Sarah · waiting</span><span class="b self" id="cR">${esc(REQUESTER.name)} · waiting</span></div></div>
   <div id="moxie"></div><div class="caps" id="caps"></div>
   <div class="room-f"><span></span><button class="cta" data-act="endjam">End Jam</button></div></div>
-  <aside class="card stack"><div class="lbl">Jam context</div><b style="font-size:18px">${JAM.title}</b><div class="row wrap"><span class="b plain">60 min</span><span class="b verified">${usd(JAM.rate)} committed</span></div><div class="hr"></div><div class="lbl">Briefed by your agent</div><p class="mut" style="font-size:14px">Goal: understand founder fundraising experience.</p><div class="lbl">Sarah will discuss</div><div class="chips">${S.dub.interests.topics.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</div><div class="lbl">Sarah won’t disclose</div><div class="chips">${S.dub.boundaries.topics.slice(0, 2).map((x) => `<span class="chip bad">${esc(x)}</span>`).join('')}</div></aside></div>`,
+  <aside class="card stack"><div class="lbl">Jam context</div><b style="font-size:18px">${JAM.title}</b><div class="row wrap"><span class="b plain">60 min</span><span class="b verified">${usd(JAM.rate)} committed</span></div><div class="hr"></div><div class="lbl">Briefed by your agent</div><p class="mut" style="font-size:14px">Goal: qualify banking and payment-sector partnership capability while preserving requester anonymity.</p><div class="lbl">Sarah will discuss</div><div class="chips">${S.dub.interests.topics.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</div><div class="lbl">Sarah won’t disclose</div><div class="chips">${S.dub.boundaries.topics.slice(0, 2).map((x) => `<span class="chip bad">${esc(x)}</span>`).join('')}</div></aside></div>`,
   async start(t, wait) {
     await wait(900); $('#cS').textContent = 'Sarah · consented ✓'; $('#cS').className = 'b verified'; await wait(700);
     $('#cR').textContent = `${REQUESTER.name} · consented ✓`; $('#cR').className = 'b verified'; await wait(600);
@@ -335,7 +335,7 @@ VIEWS.results = {
     <div class="card glow reveal ${st >= 2 ? 'on' : ''}" id="rvDub" style="margin-top:16px"><div class="row sp wrap"><div><div class="eyebrow">Richer Dub</div><h2 class="h2" style="margin:4px 0">Your Dub got smarter.</h2></div><div class="ring" style="--p:${st >= 2 ? after : before}" id="pring"><b>${st >= 2 ? after : before}%</b></div></div>
     <div class="row sp tiny" style="margin-top:12px"><span>Context coverage at start of demo: ${before}%</span><span>Now: ${after}%</span></div><div class="bar" style="margin:6px 0 14px"><u style="width:${before}%"></u><i id="cbar" style="width:${st >= 2 ? after : before}%"></i></div>
     <div class="grid2"><div class="card" style="background:#150c0a"><div class="lbl">The agent that asked before</div><div class="tiny">${SARAH_DUB.knowledge.length} claims · ${SARAH_DUB.breadcrumbs.length} Breadcrumbs · 0 completed Jams</div></div><div class="card" style="background:rgba(95,211,154,.06);border-color:rgba(95,211,154,.4)"><div class="lbl" style="color:var(--green)">The next agent that asks</div><div class="tiny" style="color:var(--text)">${S.dub.knowledge.length} claims · ${S.dub.breadcrumbs.length} Breadcrumbs · 1 verified completed Jam</div></div></div>
-    <div class="msg dub" style="margin-top:12px;max-width:100%"><small>Next agent: “Has Sarah completed a paid research Jam?”</small><div>Yes. One verified Jam, evidenced by a Studio recording and transcript.</div><div class="ev">${prov('verified')}</div></div>
+    <div class="msg dub" style="margin-top:12px;max-width:100%"><small>Next agent: “Has Sarah completed a paid banking-partnership qualification Jam?”</small><div>Yes. One verified Jam, evidenced by a Studio recording and transcript.</div><div class="ev">${prov('verified')}</div></div>
     </div>
     <h3 style="margin:26px 0 12px;font-size:20px">Session artifacts</h3>${artifacts}
     <div class="card" style="margin-top:16px"><div class="row sp"><b>Trust checks on this payout</b><span class="b ${tr.decision === 'release' ? 'verified' : 'unknown'}">${tr.decision === 'release' ? 'Released' : 'Held'}</span></div>${sigHtml(tr)}</div>
@@ -363,7 +363,7 @@ const CLAIM_STEPS = ['Confirming it’s you', 'Creating your account', 'Claiming
 const invited = () => (S.growth.invited = S.growth.invited || []);
 const netSvg = () => {
   const live = S.growth.stage >= 4; const inv = invited();
-  const base = [['You', 80, 130, 1], ['Sarah', 200, 60, 1], ['Niran', 200, 200, 0.5], [INVITEE.name.split(' ')[0], 340, 130, live ? 1 : 0.25]];
+  const base = [['You', 80, 130, 1], ['Sarah', 200, 60, 1], ['David', 200, 200, 0.35], [INVITEE.name.split(' ')[0], 340, 130, live ? 1 : 0.25]];
   const spots = [[480, 40], [520, 100], [520, 160], [480, 220], [420, 250]];
   const nodes = base.concat(inv.map((id, i) => [SUGGESTED.find((x) => x.id === id).name.split(' ')[0], spots[i][0], spots[i][1], 0.85]));
   const edges = [[0, 1], [0, 2], [1, 3]].concat(inv.map((_, i) => [3, 4 + i]));
@@ -416,6 +416,21 @@ const SOURCES = [
   ['Toasty Studio room', 'mock', 'Simulated Studio session. The real Studio at /studio is untouched and not called.'],
   ['Recording & transcript', 'mock', 'Scripted demo clip and transcript; no media is captured.'],
 ];
+const TABS = [['identity', 'Identity'], ['evidence', 'Evidence'], ['boundaries', 'Boundaries'], ['availability', 'Availability']];
+function dubPane() {
+  if (dubTab === 'evidence') {
+    return `<div class="stack">${S.dub.knowledge.map((k) => `<div class="src" style="align-items:flex-start"><div><b>${esc(k.text)}</b><div class="tiny">${esc(k.answer || 'Private: disclosure blocked by Sarah’s policy.')}</div><div class="ev">${prov(k.provenance)}<span class="b plain">${esc(ACCESS[k.access]?.label || k.access)}</span>${k.learned ? '<span class="b self">Learned in demo</span>' : ''}</div></div></div>`).join('')}</div>`;
+  }
+  if (dubTab === 'boundaries') {
+    return `<div class="stack"><div><div class="lbl">Will not disclose</div><div class="chips">${S.dub.boundaries.topics.map((x) => `<span class="chip bad">${esc(x)}</span>`).join('')}</div></div><div><div class="lbl">Declines</div><div class="chips">${S.dub.boundaries.requests.map((x) => `<span class="chip bad">${esc(x)}</span>`).join('')}</div></div><div class="tiny">Policy blocks private relationship details; the demo never exposes named bank contacts.</div></div>`;
+  }
+  if (dubTab === 'availability') {
+    const rows = Object.entries(S.dub.availability).map(([k, v]) => `<div class="src"><b>${esc(k.replace(/[A-Z]/g, (m) => ' ' + m).replace(/^./, (m) => m.toUpperCase()))}</b><span class="b ${v ? 'verified' : 'unknown'}">${v ? 'Open' : 'Closed'}</span></div>`).join('');
+    return `<div class="stack">${rows}<div class="src"><b>60-minute Jam</b><span class="b plain">${usd(S.dub.pricing.jam60)}</span></div></div>`;
+  }
+  const p = S.dub.profile;
+  return `<div class="stack"><div class="src"><div><b>${esc(p.name)}</b><div class="tiny">${esc(p.headline)}</div></div><span class="b verified">Seeded demo profile</span></div><div><div class="lbl">Expertise</div><div class="chips">${p.expertise.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</div></div><div><div class="lbl">Sources</div><div class="stack">${S.dub.sources.map((x) => `<div class="src"><div><b>${esc(x.label)}</b><div class="tiny">${esc(x.detail)}</div></div><span class="b ${esc(x.state)}">${esc(x.demo ? 'Simulated' : x.state.replace(/_/g, ' '))}</span></div>`).join('')}</div></div></div>`;
+}
 function dubDrawer() {
   const p = S.dub.profile; const cov = E.coverage(S);
   return `<h2 class="h2">Sarah’s Dub</h2><p class="mut" style="margin-bottom:14px">What your agent is talking to: permissioned, evidence-backed, protective of its human.</p><div class="row wrap" style="margin-bottom:6px"><div class="ring" style="--p:${cov};width:84px;height:84px"><b style="font-size:20px">${cov}%</b></div><div><b>${esc(p.name)}</b> · ${esc(p.role)}<div class="mut" style="font-size:13px">${esc(p.headline)}</div><div class="tiny">${S.dub.knowledge.length} claims · ${S.dub.breadcrumbs.length} Breadcrumbs · context coverage, not a person score</div></div></div><div class="tabs">${TABS.map(([id, l]) => `<button class="tab ${dubTab === id ? 'on' : ''}" data-act="tab" data-tab="${id}">${l}</button>`).join('')}</div><div class="card" id="dubPane">${dubPane()}</div>`;

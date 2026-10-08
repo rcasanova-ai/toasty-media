@@ -186,7 +186,7 @@ export function completeJam(s, { actualMin = 60, demoClock = true, overrides = {
   s.post.trust = trust;
   s.jam.ended = true;
   s.dub.breadcrumbs.push({
-    id: 'bc_jam_1', text: 'Participated in a 60-minute founder fundraising research Jam.', status: 'verified', date: today(),
+    id: 'bc_jam_1', text: 'Participated in a 60-minute banking partnership qualification Jam.', status: 'verified', date: today(),
     evidence: ['Studio session', 'Transcript'], earned: true,
   });
   s.post.breadcrumb = 'bc_jam_1';
@@ -211,7 +211,7 @@ export function claimDub(s) {
   if (s.growth.claimed) return s.growth.claimedDub;
   const dub = {
     owner: INVITEE.name, headline: INVITEE.headline, coverage: 12,
-    breadcrumbs: [{ text: 'Participated in a 60-minute founder fundraising research Jam.', status: 'verified', date: today(), evidence: ['Studio session', 'Transcript'] }],
+    breadcrumbs: [{ text: 'Participated in a 60-minute banking partnership qualification Jam.', status: 'verified', date: today(), evidence: ['Studio session', 'Transcript'] }],
     pendingDoughUsd: PRICING.externalOfferUsd,
   };
   s.growth.claimed = true; s.growth.claimedDub = dub;
