@@ -149,3 +149,6 @@ __pycache__/
 .peeps-local/
 
 .DS_Store
+
+# Zcash regtest harness data (binaries, chain, throwaway wallets)
+.zcash-regtest/
