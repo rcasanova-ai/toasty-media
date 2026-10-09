@@ -4986,7 +4986,8 @@ const DB_EXPECTED_ERRORS = new Set([
   "duplicate_email", "kicked", "full", "invalid_mode", "invalid_brand", "brand_forbidden",
   "duplicate_slug", "already_member", "invalid_token", "expired_token", "duplicate_reference", "duplicate_signature",
   "slug_taken", "invalid_amount", "not_found", "invalid_transition", "conflict",
-  "invalid_state", "consent_withdrawn", "no_account", "invalid_status"
+  "invalid_state", "consent_withdrawn", "no_account", "invalid_status",
+  "bad_challenge", "memo_mismatch", "amount_mismatch", "txid_mismatch", "duplicate_transaction", "already_paid", "busy"
 ]);
 
 async function db(action, values = {}) {
@@ -8599,6 +8600,7 @@ async function peepsResponseView(ctx) {
     recording: peepsRecordingStatus(request, jam),
     compensation: peepsCompensation(jam),
     facilitatedByPeeps: true,
+    confidentialSettlement: ZCASH_ENABLED && peepsCompensation(jam) ? { network: ZCASH_NETWORK, networkLabel: ZCASH_NETWORKS[ZCASH_NETWORK] } : null,
     needs: ["accepted", "scheduling"].includes(intro.status) ? peepsComputeNeeds(ctx, jam, prefs) : [],
     known: { timezone: timezone || null, durationMinutes: prefs.durationMinutes || null, recordingPreference: prefs.recordingPreference || null, compensation: prefs.compensation || null },
     submitted: { availability: intro.availability?.windows ? { timezone: intro.availability.timezone, windows: intro.availability.windows.map((w) => ({ start: w.start, end: w.end })), minNoticeHours: intro.availability.minNoticeHours } : null },
@@ -8657,8 +8659,10 @@ async function handlePeepsRespond(req, res) {
     res.writeHead(200, { "Content-Type": "text/calendar; charset=utf-8", "Content-Disposition": 'attachment; filename="conversation.ics"' });
     return void res.end(ics);
   }
+  if (req.method === "GET" && action === "zec") return handlePeepsZecRecipient(req, res, ctx, action, {});
   if (req.method !== "POST") throw httpError(404, "Not found.");
   const body = await readJson(req);
+  if (action === "zec-address" || action === "zec-confirm") return handlePeepsZecRecipient(req, res, ctx, action, body);
   const jam = await peepsLoadJam(intro.jamId);
 
   if (action === "breadcrumbs" && parts[3] === "review") {
@@ -9544,6 +9548,7 @@ function isPeepsExecutionRoute(req) {
   const path = String(req.url || "").split("?")[0];
   return /^\/api\/peeps\/(introductions|bookings|openings|messages)\/[^/]+/.test(path)
     || /^\/api\/peeps\/requests\/[^/]+\/(availability|lifecycle|receipt|payment-requirement|reconcile|outcome|settle)$/.test(path)
+    || /^\/api\/peeps\/requests\/[^/]+\/zec-settlements(\/[^/]+\/(approve|submit|fail))?$/.test(path)
     || /^\/api\/peeps\/(breadcrumbs\/[^/]+\/corroborate|my-dub(\/breadcrumbs\/[^/]+\/review)?)$/.test(path)
     || path === "/api/peeps/test-outbox";
 }
@@ -9552,6 +9557,7 @@ async function routePeepsExecution(req, res, authSession) {
   const { url, parts } = peepsExecutionPath(req);
   const [kind, id, action] = parts;
   const method = req.method;
+  if (kind === "requests" && action === "zec-settlements") { await handlePeepsZecRequesterRoute(req, res, authSession, id, parts); return; }
   if (await routePeepsPostSession(req, res, authSession, parts)) return;
 
   if (kind === "test-outbox" && method === "GET") {
@@ -10004,6 +10010,8 @@ async function peepsSettleJam(jam, authSession) {
       settlements.push({ participantId: participant.id, status: "settled_to_dough", paymentId, amount });
     } else if (result.status === "insufficient") {
       settlements.push({ participantId: participant.id, status: "payment_pending", amount, reason: "requester_funding_required", shortfall: result.shortfall, available: result.available, fundUrl: "/peeps/app/dough.html" });
+    } else if (result.status === "zcash_in_progress") {
+      settlements.push({ participantId: participant.id, status: "settling_via_confidential_zec", amount });
     } else if (result.status === "already_paid") {
       settlements.push({ participantId: participant.id, status: "already_paid" });
     } else {
@@ -10266,6 +10274,8 @@ async function peepsReceiptView(request) {
   const owed = attended.filter((p) => Number(p.compensationAmount) > 0);
   const totalOwed = owed.reduce((sum, p) => sum + Number(p.compensationAmount), 0);
   const paid = owed.filter((p) => p.compensationStatus === "paid");
+  const zecRows = ((await db("peeps_zec_list", { requestId: request.id })).settlements || []).filter((z) => z.state !== "FAILED" || ZCASH_ENABLED);
+  const zecPaidIds = new Set(zecRows.filter((z) => z.state === "VERIFIED").map((z) => z.jamParticipantId));
   const settlementStatus = !totalOwed ? "none_due" : paid.length === owed.length ? "settled" : "pending";
   const check = (key, label, done, detail, na = false) => ({ key, label, state: na ? "na" : (done ? "done" : "pending"), detail });
   const authEvent = (eventsResult.events || []).find((e) => e.kind === "introduction_authorization");
@@ -10290,10 +10300,16 @@ async function peepsReceiptView(request) {
     },
     dub: { entriesFromThisJam: fromThisJam.length, publicEntriesFromThisJam: fromThisJam.filter((e) => e.visibility === "public").length, note: fromThisJam.length ? "This Jam added evidence to the participant's Dub. Only participant-approved entries are public." : "No evidence has reached the Dub yet." },
     dough: {
-      rail: "dough-ledger", onchain: false, compensationOwed: totalOwed, compensationPaid: paid.reduce((s, p) => s + Number(p.compensationAmount), 0), status: settlementStatus,
-      items: settlements.map((x) => ({ participantId: x.jamParticipantId, amount: x.amount, status: x.status, reason: x.reason || null, paidAt: x.paidAt || null })),
-      note: "Compensation moves between Dough ledger accounts (off-chain, atomic debit + credit, idempotent). It reaches Solana when the participant withdraws as USDC."
+      rail: "dough-ledger", onchain: false, compensationOwed: totalOwed, compensationPaid: paid.filter((p) => !zecPaidIds.has(p.id)).reduce((s, p) => s + Number(p.compensationAmount), 0), status: settlementStatus,
+      // Each item names the rail that ACTUALLY settled it. A participant settled in shielded ZEC is never reported as a Dough ledger payout.
+      items: settlements.map((x) => ({ participantId: x.jamParticipantId, amount: x.amount, status: x.status, reason: x.reason || null, paidAt: x.paidAt || null, rail: zecPaidIds.has(x.jamParticipantId) ? "zcash_confidential" : "dough_ledger" })),
+      note: "Compensation settled on the Dough ledger moves between ledger accounts (off-chain, atomic debit + credit, idempotent). It reaches Solana when the participant withdraws as USDC."
     },
+    zcash: ZCASH_ENABLED || zecRows.length ? {
+      enabled: ZCASH_ENABLED, network: ZCASH_NETWORK || null, networkLabel: ZCASH_NETWORKS[ZCASH_NETWORK] || null,
+      settlements: zecRows.map((z) => zcashPublicView(z)),
+      privacy: "Confidential settlement: the receipt shows only an opaque reference and state. Addresses, amounts in ZEC, memos and transaction ids are never exposed. Verification is the recipient's own wallet confirmation."
+    } : null,
     solana: {
       network: TOASTY_SOLANA_NETWORK, recipientConfigured: Boolean(TOASTY_EXPERT_DISCOVERY_RECIPIENT),
       events: (eventsResult.events || []).map(peepsEconomicEventView),
@@ -10306,7 +10322,7 @@ async function peepsReceiptView(request) {
       check("evidence", "Evidence generated", transcripts.length > 0 || artifacts.some((a) => a.status === "ready"), `${transcripts.length} transcript(s)`),
       check("breadcrumb", "Breadcrumb created", proposed.length > 0, `${proposed.length} derived from the stored transcript`),
       check("payment", "Introduction payment", Boolean(authEvent), authEvent ? peepsEconomicEventView(authEvent).label : "Not authorized yet"),
-      check("settlement", "Compensation settled", settlementStatus === "settled", settlementStatus === "none_due" ? "No compensation was part of this request" : settlementStatus === "settled" ? "Settled in Dough" : "Pending: requester funding or outcome verification", settlementStatus === "none_due"),
+      check("settlement", "Compensation settled", settlementStatus === "settled", settlementStatus === "none_due" ? "No compensation was part of this request" : settlementStatus === "settled" ? (owed.every((p) => zecPaidIds.has(p.id)) ? "Settled via VERIFIED CONFIDENTIAL ZEC settlement (not the Dough ledger)" : owed.some((p) => zecPaidIds.has(p.id)) ? "Settled: part via Dough ledger, part via VERIFIED CONFIDENTIAL ZEC" : "Settled in Dough") : "Pending: requester funding or outcome verification", settlementStatus === "none_due"),
       check("dub", "Dub gained evidence", fromThisJam.length > 0, `${fromThisJam.length} entr${fromThisJam.length === 1 ? "y" : "ies"} from this Jam`)
     ]
   };
@@ -10775,6 +10791,161 @@ async function peepsBetaAllowed(session) {
 function isPeepsBetaGatedPath(url = "") {
   const path = String(url).split("?")[0];
   return path.startsWith("/api/peeps/") && !path.startsWith("/api/peeps/waitlist") && !path.startsWith("/api/peeps/respond/") && path !== "/api/peeps/josip-roast";
+}
+
+// ====================================================================================================
+// PEEPS CONFIDENTIAL SETTLEMENT (shielded Zcash) — optional, OFF unless ZCASH_SETTLEMENT_ENABLED=1.
+//
+// The requester chooses to settle ONE participant's compensation in shielded ZEC instead of the Dough ledger.
+// Toasty holds no keys, runs no wallet and moves no funds: the requester pays from their OWN wallet after
+// explicitly approving, and the RECIPIENT's own wallet confirms receipt. Toasty cannot see a shielded
+// transaction, so "verified" here means exactly: the recipient — authenticated by their private response link —
+// attested from their wallet that THIS obligation's memo and amount arrived in THIS transaction, once. A
+// sender-supplied transaction id alone never settles anything. Receipts expose only an opaque reference,
+// state, network and the Dough obligation; never addresses, memos, amounts in ZEC or transaction ids.
+// States: PENDING -> AWAITING_APPROVAL -> SUBMITTED -> AWAITING_RECIPIENT_CONFIRMATION -> VERIFIED | FAILED.
+// ====================================================================================================
+const ZCASH_NETWORKS = Object.freeze({ regtest: "REGTEST (test network, no value)", testnet: "TESTNET (test network, no value)", mainnet: "MAINNET" });
+const ZCASH_NETWORK = String(process.env.ZCASH_NETWORK || "").toLowerCase();
+const ZCASH_ENABLED = process.env.ZCASH_SETTLEMENT_ENABLED === "1" && Object.hasOwn(ZCASH_NETWORKS, ZCASH_NETWORK);
+const ZCASH_OBLIGATION_TTL_DAYS = Math.max(1, Number(process.env.ZCASH_OBLIGATION_TTL_DAYS) || 7);
+const ZCASH_STATE_LABEL = Object.freeze({
+  PENDING: "Waiting for the recipient to opt in", AWAITING_APPROVAL: "Waiting for the requester's approval", SUBMITTED: "Payment submitted by the requester",
+  AWAITING_RECIPIENT_CONFIRMATION: "Waiting for the recipient's wallet to confirm", VERIFIED: "VERIFIED CONFIDENTIAL SETTLEMENT", FAILED: "Failed. Nothing was settled"
+});
+// Shielded receivers only (unified or Sapling). Transparent addresses are refused so a "confidential" payment
+// can never be a transparent transfer. Format check only; the wallet that pays validates the address fully.
+const ZCASH_SHIELDED_ADDRESS = Object.freeze({
+  regtest: /^(uregtest1|zregtestsapling1)[a-z0-9]{40,600}$/, testnet: /^(utest1|ztestsapling1)[a-z0-9]{40,600}$/, mainnet: /^(u1|zs1)[a-z0-9]{40,600}$/
+});
+
+function zcashRequireEnabled() {
+  if (!ZCASH_ENABLED) throw httpError(503, "Confidential ZEC settlement isn't enabled on this server.");
+}
+const zcashChallenge = (ref) => createHmac("sha256", SESSION_SECRET || "toasty-peeps").update(`peeps-zec-challenge:${ref}`).digest("base64url");
+const zcashHash = (value) => createHash("sha256").update(String(value)).digest("hex");
+
+function zcashPublicView(row) {
+  return {
+    ref: row.ref, state: row.state, label: ZCASH_STATE_LABEL[row.state], network: row.network, networkLabel: ZCASH_NETWORKS[row.network],
+    doughObligation: row.doughAmount, verified: row.state === "VERIFIED", attempt: row.attempt, approved: row.approved,
+    ...(row.state === "FAILED" ? { failureReason: row.failureReason } : {}), ...(row.confirmedAt ? { verifiedAt: row.confirmedAt } : {})
+  };
+}
+const zcashRow = (r) => r && { ref: r.ref, state: r.state, network: r.network, doughAmount: r.doughAmount, attempt: r.attempt, approved: r.approved, failureReason: r.failureReason, confirmedAt: r.confirmedAt };
+
+async function handlePeepsZecRequesterRoute(req, res, authSession, id, parts) {
+  zcashRequireEnabled();
+  const request = await requireOwnedPeepsRequest(req, res, authSession, id, req.method === "GET" ? "viewer" : "member");
+  if (!request) return;
+  await db("peeps_zec_expire", { requestId: id, nowIso: new Date().toISOString() });
+  const settlementId = parts[3], act = parts[4]; // requests / :id / zec-settlements / :settlementId / :action
+  if (!settlementId) {
+    if (req.method === "GET") {
+      const list = (await db("peeps_zec_list", { requestId: id })).settlements || [];
+      return sendJson(req, res, 200, { enabled: true, network: ZCASH_NETWORK, networkLabel: ZCASH_NETWORKS[ZCASH_NETWORK], settlements: list.map((r) => zcashPublicView({ ...r, ref: r.ref })) });
+    }
+    if (req.method !== "POST") throw httpError(404, "Not found.");
+    // Create the obligation. Requires an attended participant with real compensation owed; one live obligation each.
+    const body = await readJson(req);
+    const participantId = sessionText(body.participantId, 80);
+    const owned = await requireOwnedJamParticipant(req, res, authSession, participantId, "member");
+    if (!owned) return;
+    const participant = (await db("jam_participant_get", { id: participantId })).participant;
+    if (!participant || participant.jamId !== request.jamId) throw httpError(404, "Participant not found on this request.");
+    if (!["attended", "completed"].includes(participant.status)) throw httpError(409, "Compensation is owed only after the participant has taken part.");
+    const doughAmount = Number(participant.compensationAmount) || 0;
+    if (doughAmount <= 0) throw httpError(409, "No compensation is owed to this participant.");
+    if (participant.compensationStatus === "paid") throw httpError(409, "This participant is already paid.");
+    const amountZat = Math.floor(Number(body.amountZat));
+    if (!Number.isFinite(amountZat) || amountZat <= 0 || amountZat > 1e12) throw httpError(400, "Enter the ZEC amount you agreed to pay, in zatoshis.");
+    const ref = `zs_${randomBytes(16).toString("base64url")}`;
+    const created = await db("peeps_zec_create", {
+      id: ref, requestId: id, jamId: request.jamId, jamParticipantId: participantId, dubId: participant.dubId, payerUserId: authSession.id, network: ZCASH_NETWORK,
+      doughAmount, amountZat, memo: `peeps:${ref}`, challengeHash: zcashHash(zcashChallenge(ref)), expiresAt: new Date(Date.now() + ZCASH_OBLIGATION_TTL_DAYS * 86400000).toISOString()
+    });
+    if (created.error === "already_paid") throw httpError(409, "This participant is already paid.");
+    if (created.error) throw httpError(409, "Could not create the settlement. Try again.");
+    return sendJson(req, res, created.created ? 201 : 200, { settlement: zcashPublicView(created.settlement), idempotent: !created.created });
+  }
+  if (!SAFE_ID.test(settlementId) || req.method !== "POST") throw httpError(404, "Not found.");
+  const body = await readJson(req);
+  if (act === "approve") {
+    // The explicit authorization step: only now are the payment instructions released, and only to the requester.
+    if (body.approve !== true) throw httpError(400, "Approve the shielded payment explicitly (approve: true).");
+    const r = await db("peeps_zec_approve", { id: settlementId, requestId: id, userId: authSession.id });
+    if (r.error === "not_found") throw httpError(404, "Settlement not found.");
+    if (r.error === "invalid_state") throw httpError(409, `This settlement is ${r.state}.`);
+    if (!r.instructions.address) throw httpError(409, "The recipient has not opted in to confidential settlement yet.");
+    res.setHeader("Cache-Control", "no-store");
+    return sendJson(req, res, 200, { settlement: zcashPublicView(r.settlement), instructions: { ...r.instructions, networkLabel: ZCASH_NETWORKS[r.instructions.network], note: "Send this exact shielded amount from your own wallet, with this memo, then report it. Toasty never moves your funds." } });
+  }
+  if (act === "submit") {
+    const txid = sessionText(body.txid, 128);
+    if (txid && !/^[0-9a-f]{64}$/i.test(txid)) throw httpError(400, "That doesn't look like a transaction id.");
+    const r = await db("peeps_zec_submit", { id: settlementId, requestId: id, txidHash: txid ? zcashHash(txid.toLowerCase()) : null });
+    if (r.error === "not_found") throw httpError(404, "Settlement not found.");
+    if (r.error === "invalid_state") throw httpError(409, r.state === "PENDING" ? "The recipient has not opted in yet." : "Approve the payment before reporting it.");
+    return sendJson(req, res, 200, { settlement: zcashPublicView(r.settlement), idempotent: Boolean(r.idempotent), note: "Recorded as submitted. It is only settled once the recipient's wallet confirms." });
+  }
+  if (act === "fail") {
+    const r = await db("peeps_zec_fail", { id: settlementId, requestId: id, reason: sessionText(body.reason, 40).replace(/[^a-z_ -]/gi, "") || "payer_reported_failure" });
+    if (r.error === "not_found") throw httpError(404, "Settlement not found.");
+    if (r.error === "invalid_state") throw httpError(409, "A verified settlement can't be failed.");
+    return sendJson(req, res, 200, { settlement: zcashPublicView(r.settlement) });
+  }
+  throw httpError(404, "Not found.");
+}
+
+// ---- Recipient side (response-token gated: the token reaches exactly one participant) ----
+async function handlePeepsZecRecipient(req, res, ctx, action, body) {
+  zcashRequireEnabled();
+  const participantId = ctx.intro.jamParticipantId;
+  if (!participantId) throw httpError(404, "Not found.");
+  if (req.method === "GET" && action === "zec") {
+    const live = (await db("peeps_zec_live_for_participant", { jamParticipantId: participantId }));
+    const view = (await db("peeps_zec_recipient_view", { jamParticipantId: participantId })).settlement;
+    res.setHeader("Cache-Control", "no-store");
+    return sendJson(req, res, 200, {
+      enabled: true, network: ZCASH_NETWORK, networkLabel: ZCASH_NETWORKS[ZCASH_NETWORK], optedIn: live.recipientOptedIn,
+      settlement: view ? { ...zcashPublicView(view), expect: { amountZat: view.amountZat, memo: view.memo }, confirmationCode: zcashChallenge(view.ref) } : null
+    });
+  }
+  if (action === "zec-address") {
+    // Explicit consent + a SHIELDED receiver for this deployment's network. The address is private to the requester's approval step.
+    if (body.consent !== true) throw httpError(400, "Please confirm you want to be paid confidentially in ZEC.");
+    const address = sessionText(body.address, 700);
+    if (!ZCASH_SHIELDED_ADDRESS[ZCASH_NETWORK].test(address)) throw httpError(400, `Enter a shielded ${ZCASH_NETWORK} address (transparent addresses aren't accepted).`);
+    await db("peeps_zec_recipient_set", { jamParticipantId: participantId, address, network: ZCASH_NETWORK });
+    return sendJson(req, res, 200, { ok: true });
+  }
+  if (action === "zec-confirm") {
+    const txid = sessionText(body.txid, 128).toLowerCase();
+    const amountZat = Math.floor(Number(body.amountZat));
+    if (!/^[0-9a-f]{64}$/.test(txid) || !Number.isFinite(amountZat) || amountZat <= 0) throw httpError(400, "A transaction id and the received amount are required.");
+    const ref = sessionText(body.ref, 80);
+    const r = await db("peeps_zec_confirm", {
+      jamParticipantId: participantId, ref, challengeHash: zcashHash(sessionText(body.code, 120)), memo: sessionText(body.memo, 600), amountZat, txidHash: zcashHash(txid), settlementId: newId("pset")
+    });
+    const refused = { not_found: [404, "No matching settlement."], invalid_state: [409, "This settlement can't be confirmed right now."], bad_challenge: [403, "The confirmation code isn't valid."], memo_mismatch: [409, "The memo doesn't match this settlement."], amount_mismatch: [409, "The received amount is less than agreed."], txid_mismatch: [409, "That isn't the transaction the payer reported."], duplicate_transaction: [409, "That transaction already settled a different obligation."], already_paid: [409, "This participant is already paid."], busy: [503, "Try again in a moment."] };
+    if (r.error) throw httpError(...(refused[r.error] || [409, "Could not confirm."]));
+    if (r.verified) {
+      await db("record_payment", { id: `pay_zec_${ref}`, paymentKind: "BOOKING_SETTLEMENT", rail: "zcash-shielded", provider: "toasty-peeps", purpose: "jam-participant-settlement", status: "PAYMENT_RELEASED", network: ZCASH_NETWORK, amount: r.settlement.doughAmount, currency: "USD", policyDecision: "APPROVED", approvalSource: "RECIPIENT_CONFIRMED", metadata: { settlementRef: ref, verificationStatus: "RECIPIENT_CONFIRMED_SHIELDED" } });
+      await db("jam_event_create", { id: newId("jev"), jamId: ctx.intro.jamId, jamParticipantId: participantId, type: "payment.paid", actor: participantId, detail: { rail: "zcash_shielded", settlementRef: ref, network: ZCASH_NETWORK } });
+      const request = (await db("peeps_request_get_by_id", { id: r.settlement.requestId })).request;
+      if (request) await peepsAdvanceSettledState(request);
+    }
+    return sendJson(req, res, 200, { settlement: zcashPublicView(r.settlement), idempotent: Boolean(r.idempotent) });
+  }
+  throw httpError(404, "Not found.");
+}
+
+// After any participant is paid (Dough ledger OR confirmed ZEC) move the request to "paid" if everyone owed is paid.
+async function peepsAdvanceSettledState(request) {
+  const participants = (await db("jam_participant_list", { jamId: request.jamId })).participants || [];
+  const owing = participants.filter((p) => ["attended", "completed"].includes(p.status) && Number(p.compensationAmount) > 0);
+  const outcome = (await db("peeps_completion_get", { jamId: request.jamId })).completion?.outcome;
+  if (owing.length && owing.every((p) => p.compensationStatus === "paid") && outcome?.state === "outcome_verified") await peepsAdvanceRequestState(request, "paid");
 }
 
 // ---- Dub claim (section 27) ----

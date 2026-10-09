@@ -8,7 +8,8 @@ import { studioRequest } from "./studio-api.js";
 import {
   getPrimaryOrganizationId, createPeepsRequest, getPeepsRequest, authorizePeepsIntroductions, authorizePeepsIntroductionsOnchain,
   getPeepsPaymentRequirement, getPeepsReceipt, getPeepsIntroduction, getPeepsBooking, setPeepsRequesterAvailability, bookPeepsIntroduction,
-  submitJamTranscript, completeJam, reconcilePeepsRequest, settlePeepsRequest
+  submitJamTranscript, completeJam, reconcilePeepsRequest, settlePeepsRequest,
+  createZecSettlement, approveZecSettlement, submitZecSettlement, failZecSettlement
 } from "./peeps-jam-api.js";
 
 const root = document.getElementById("gp-root");
@@ -24,6 +25,7 @@ let bookings = {};
 let requirement = null;
 let guestLinks = {};
 let message = "";
+let zecInstructions = {};
 let busy = false;
 let pollTimer = null;
 const booking = new Set();
@@ -160,7 +162,31 @@ function stepEvidence() {
     <p class="muted">Attendance comes from the guest's own join event in Studio; consent from their consent step. Studio doesn't store a transcript itself, so paste what was said (or leave it blank to complete without one).</p>
     <textarea class="field" id="gp-transcript" placeholder="${esc("Host: Welcome…\nGuest: Thanks for having me…")}" ${done ? "disabled" : ""}></textarea>
     <div class="actions" style="margin-top:12px"><button class="btn" id="gp-complete" ${done && receipt.evidence.transcripts.length ? "disabled" : ""}>${done ? "Re-check evidence" : "Complete Jam & generate Breadcrumbs"}</button>
-    <button class="btn secondary" id="gp-settle" ${done && !settled ? "" : "disabled"}>Settle Dough</button></div></section>`;
+    <button class="btn secondary" id="gp-settle" ${done && !settled ? "" : "disabled"}>Settle Dough</button></div></section>${done ? stepZec() : ""}`;
+}
+
+// Optional confidential settlement. Every step is the requester's explicit action; Toasty moves no funds.
+function stepZec() {
+  const z = receipt?.zcash;
+  if (!z?.enabled) return "";
+  const p = receipt.participants.find((x) => ["attended", "completed"].includes(x.status));
+  if (!p) return "";
+  const mine = z.settlements.filter((x) => x.state !== "FAILED").at(-1);
+  const lastFailed = z.settlements.filter((x) => x.state === "FAILED").at(-1);
+  const inst = mine && zecInstructions[mine.ref];
+  let body;
+  if (!mine) body = `<p class="muted">Pay ${esc(p.name)} confidentially in shielded ZEC instead of the Dough ledger. Optional. ${lastFailed ? `The last attempt failed (${esc(lastFailed.failureReason || "failed")}); you can retry.` : ""}</p>
+    <label class="muted" for="gp-zat">Amount agreed, in zatoshis (1 ZEC = 100,000,000)</label><input class="field" id="gp-zat" type="number" min="1" value="100000" style="max-width:220px">
+    <div class="actions"><button class="btn secondary" id="gp-zec-create" data-pid="${esc(p.participantId)}">Settle confidentially in ZEC</button></div>`;
+  else if (mine.state === "PENDING") body = `<p class="muted">Waiting for ${esc(p.name)} to opt in on their private page (they were offered it after booking). Nothing is paid until you approve.</p>`;
+  else if (mine.state === "AWAITING_APPROVAL") body = inst
+    ? `<p><b>Pay from your own wallet</b> (${esc(mine.networkLabel)}). Toasty never moves your funds.</p><p class="muted">Address <code style="word-break:break-all">${esc(inst.address)}</code><br>Amount <code>${esc(inst.amountZat)}</code> zatoshis<br>Memo <code>${esc(inst.memo)}</code></p>
+       <label class="muted" for="gp-ztx">Transaction id from your wallet, once sent</label><input class="field" id="gp-ztx" maxlength="64">
+       <div class="actions"><button class="btn secondary" id="gp-zec-submit" data-ref="${esc(mine.ref)}">I sent it</button> <button class="btn secondary" id="gp-zec-fail" data-ref="${esc(mine.ref)}">It failed</button></div>`
+    : `<p class="muted">${esc(p.name)} opted in. Approve to reveal the payment instructions (shown only to you).</p><div class="actions"><button class="btn secondary" id="gp-zec-approve" data-ref="${esc(mine.ref)}">Approve shielded payment</button></div>`;
+  else if (["SUBMITTED", "AWAITING_RECIPIENT_CONFIRMATION"].includes(mine.state)) body = `<p class="muted">Submitted. Settlement is complete only when ${esc(p.name)}'s own wallet confirms receipt.</p><div class="actions"><button class="btn secondary" id="gp-zec-fail" data-ref="${esc(mine.ref)}">Mark failed</button></div>`;
+  else body = `<p>✓ <b>VERIFIED CONFIDENTIAL SETTLEMENT</b> (${esc(mine.networkLabel)})</p>`;
+  return `<section class="card"><span class="eyebrow">Optional · confidential settlement</span><h3>Pay in shielded ZEC</h3>${body}</section>`;
 }
 
 // ---- Receipt ----
@@ -189,7 +215,8 @@ function receiptCard() {
     <h4 style="margin-top:18px">Money &amp; Solana</h4>
     <p class="muted">Network: ${esc(sol.network)}${sol.recipientConfigured ? "" : " · on-chain recipient not configured on this server"}</p>
     ${events || `<p class="muted">The introduction fee hasn't been paid yet.</p>`}${funding}
-    <div class="row" style="grid-template-columns:1fr auto"><span><strong>Guest compensation · $${Number(r.dough.compensationOwed).toFixed(2)}</strong><br><span class="muted">Off-chain: Dough ledger, atomic debit + credit, idempotent. ${esc(r.dough.note)}</span></span><i class="tag ${r.dough.status === "settled" ? "good" : ""}">OFFCHAIN · ${r.dough.status === "settled" ? "SETTLED" : esc(r.dough.status.replace(/_/g, " ").toUpperCase())}</i></div>
+    <div class="row" style="grid-template-columns:1fr auto"><span><strong>Guest compensation · $${Number(r.dough.compensationOwed).toFixed(2)}</strong><br><span class="muted">${r.dough.items.length && r.dough.items.every((i) => i.rail === "zcash_confidential") ? "Settled on the confidential ZEC rail (below), not the Dough ledger." : `Off-chain: Dough ledger, atomic debit + credit, idempotent. ${esc(r.dough.note)}`}</span></span><i class="tag ${r.dough.status === "settled" ? "good" : ""}">${r.dough.items.length && r.dough.items.every((i) => i.rail === "zcash_confidential") ? "PAID VIA ZEC (SEE BELOW)" : `DOUGH: OFFCHAIN LEDGER ${r.dough.status === "settled" ? "SETTLED" : esc(r.dough.status.replace(/_/g, " ").toUpperCase())}`}</i></div>
+    ${(r.zcash?.settlements || []).map((z) => `<div class="row" style="grid-template-columns:1fr auto"><span><strong>Confidential ZEC settlement · $${Number(z.doughObligation).toFixed(2)} obligation</strong><br><span class="muted">${z.verified ? "ZCASH: CONFIDENTIAL SETTLEMENT VERIFIED by the recipient's own wallet" : esc(z.label)} · ${esc(z.networkLabel)} · ref <code>${esc(z.ref)}</code><br>${esc(r.zcash.privacy)}</span></span><i class="tag ${z.verified ? "good" : ""}">${z.verified ? "VERIFIED CONFIDENTIAL" : esc(z.state.replace(/_/g, " "))}</i></div>`).join("")}
     <p class="muted">Generated ${esc(r.generatedAt)}</p></section>`;
 }
 
@@ -244,6 +271,10 @@ function wire() {
     await completeJam(jamId);
     await reconcilePeepsRequest(requestId);
   }, "Evidence captured from the real Jam."); });
+  on("#gp-zec-create", (el) => act(() => createZecSettlement(requestId, el.dataset.pid, Number(document.getElementById("gp-zat").value)), "Obligation created."));
+  on("#gp-zec-approve", (el) => act(async () => { const r = await approveZecSettlement(requestId, el.dataset.ref); zecInstructions[el.dataset.ref] = r.instructions; }, "Approved. Pay from your own wallet."));
+  on("#gp-zec-submit", (el) => act(() => submitZecSettlement(requestId, el.dataset.ref, document.getElementById("gp-ztx").value.trim()), "Recorded as submitted."));
+  on("#gp-zec-fail", (el) => act(() => failZecSettlement(requestId, el.dataset.ref, "payer_reported_failure"), "Marked failed. Nothing was settled."));
   on("#gp-settle", () => { act(() => settlePeepsRequest(requestId), "Settlement attempted — see the receipt."); });
 }
 
