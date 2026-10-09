@@ -264,6 +264,9 @@ async function init() {
     view = await peepsRespond(token);
     if (view.state === "cancelled" && view.booking) showAvailabilityEditor = true;
     render();
+    if (view.confidentialSettlement && ["booked", "completed"].includes(view.state)) {
+      root.insertAdjacentHTML("beforeend", `<section class="card"><h2>Prefer to be paid confidentially?</h2><p class="note">Optional. Instead of the Dough ledger you can be paid in shielded ZEC (${esc(view.confidentialSettlement.networkLabel)}), only if you opt in and only if the requester approves. <a class="link" href="./zec.html?token=${encodeURIComponent(token)}">Set up confidential payment →</a></p></section>`);
+    }
   } catch (error) {
     root.innerHTML = `<section class="card"><h1>${error.status === 410 ? "This link has expired" : "This link isn't valid"}</h1><p class="note">${esc(error.message)}</p></section>`;
   }

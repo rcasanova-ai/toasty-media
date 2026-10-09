@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const TESTS = [
   "peeps-demo-test", "peeps-fit-engine-test", "peeps-auth-gate-test", "peeps-jam-lobby-test", "peeps-josip-roast-test",
-  "peeps-colosseum-golden-path-test", "solana-real-transaction-verification-test", "peeps-waitlist-server-test",
+  "peeps-colosseum-golden-path-test", "solana-real-transaction-verification-test", "peeps-waitlist-server-test", "peeps-zcash-settlement-server-test",
   "peeps-agent-lifecycle-server-test", "peeps-introduction-execution-server-test", "peeps-jam-lifecycle-server-test", "peeps-post-session-server-test",
   "dough-ledger-test", "dough-money-loop-server-test", "accounts-solana-server-test"
 ];

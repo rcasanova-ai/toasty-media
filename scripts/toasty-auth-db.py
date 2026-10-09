@@ -1976,6 +1976,57 @@ def migrate(conn):
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_peeps_economic_events_sig ON peeps_economic_events(transaction_signature) WHERE transaction_signature IS NOT NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_economic_events_request ON peeps_economic_events(request_id, created_at)")
 
+    # ---- Peeps confidential (shielded ZEC) settlement ----
+    # An obligation to pay one participant's compensation in shielded ZEC instead of the Dough ledger. Toasty
+    # never holds keys or sees the chain: the requester pays from their own wallet and the RECIPIENT's wallet
+    # confirms receipt. Only minimal evidence is kept (hashes, never txids/addresses in receipts). The partial
+    # unique indexes make "one live obligation per participant" and "one transaction confirms one obligation"
+    # database guarantees, not application hopes.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_zec_settlements (
+          id TEXT PRIMARY KEY,
+          request_id TEXT NOT NULL,
+          jam_id TEXT NOT NULL,
+          jam_participant_id TEXT NOT NULL,
+          dub_id TEXT,
+          payer_user_id TEXT NOT NULL,
+          network TEXT NOT NULL CHECK(network IN ('regtest','testnet','mainnet')),
+          dough_amount REAL NOT NULL,
+          amount_zat INTEGER NOT NULL CHECK(amount_zat > 0),
+          state TEXT NOT NULL CHECK(state IN ('PENDING','AWAITING_APPROVAL','SUBMITTED','AWAITING_RECIPIENT_CONFIRMATION','VERIFIED','FAILED')),
+          failure_reason TEXT NOT NULL DEFAULT '',
+          memo TEXT NOT NULL,
+          challenge_hash TEXT NOT NULL,
+          approved_at TEXT,
+          approved_by_user_id TEXT,
+          submitted_at TEXT,
+          submitted_txid_hash TEXT,
+          confirmed_at TEXT,
+          confirmed_txid_hash TEXT,
+          attempt INTEGER NOT NULL DEFAULT 1,
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_peeps_zec_live_participant ON peeps_zec_settlements(jam_participant_id) WHERE state != 'FAILED'")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_peeps_zec_confirmed_tx ON peeps_zec_settlements(confirmed_txid_hash) WHERE confirmed_txid_hash IS NOT NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_zec_request ON peeps_zec_settlements(request_id)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_zec_recipients (
+          jam_participant_id TEXT PRIMARY KEY,
+          address TEXT NOT NULL,
+          network TEXT NOT NULL,
+          consented_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    ensure_columns(conn, "peeps_settlements", {"rail": "TEXT NOT NULL DEFAULT 'dough'"})
+
     bootstrap_stablecorp_brand_lock(conn)
 
     conn.commit()
@@ -3375,6 +3426,18 @@ def public_peeps_waitlist(row, conn=None):
         else:
             entry["invite"] = None
     return entry
+
+
+def public_peeps_zec(row):
+    # NEVER includes the recipient address, memo, challenge, amount in ZEC or any txid/hash. Safe for requester lists.
+    if not row:
+        return None
+    return {
+        "ref": row["id"], "requestId": row["request_id"], "jamId": row["jam_id"], "jamParticipantId": row["jam_participant_id"],
+        "network": row["network"], "doughAmount": row["dough_amount"], "state": row["state"], "failureReason": row["failure_reason"],
+        "approved": bool(row["approved_at"]), "attempt": row["attempt"], "createdAt": row["created_at"], "confirmedAt": row["confirmed_at"],
+        "expiresAt": row["expires_at"],
+    }
 
 
 def public_dub_entry(row):
@@ -7959,6 +8022,199 @@ def main():
         print(json.dumps({"entry": public_peeps_waitlist(conn.execute("SELECT * FROM peeps_waitlist WHERE id = ?", (payload["id"],)).fetchone(), conn)}))
         return
 
+    # ---- Peeps confidential (shielded ZEC) settlement actions ----
+    if action in ("peeps_zec_list", "peeps_zec_get"):
+        if action == "peeps_zec_list":
+            rows = conn.execute("SELECT * FROM peeps_zec_settlements WHERE request_id = ? ORDER BY created_at ASC", (payload["requestId"],)).fetchall()
+            print(json.dumps({"settlements": [public_peeps_zec(r) for r in rows]}))
+        else:
+            row = conn.execute("SELECT * FROM peeps_zec_settlements WHERE id = ?", (payload["id"],)).fetchone()
+            print(json.dumps({"settlement": public_peeps_zec(row)}))
+        return
+
+    if action == "peeps_zec_live_for_participant":
+        row = conn.execute("SELECT * FROM peeps_zec_settlements WHERE jam_participant_id = ? AND state != 'FAILED'", (payload["jamParticipantId"],)).fetchone()
+        if not row:
+            row = conn.execute("SELECT * FROM peeps_zec_settlements WHERE jam_participant_id = ? ORDER BY created_at DESC LIMIT 1", (payload["jamParticipantId"],)).fetchone()
+        rec = conn.execute("SELECT 1 FROM peeps_zec_recipients WHERE jam_participant_id = ?", (payload["jamParticipantId"],)).fetchone()
+        print(json.dumps({"settlement": public_peeps_zec(row), "recipientOptedIn": bool(rec)}))
+        return
+
+    if action == "peeps_zec_recipient_set":
+        now = utc_now()
+        conn.execute("INSERT INTO peeps_zec_recipients (jam_participant_id, address, network, consented_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(jam_participant_id) DO UPDATE SET address = excluded.address, network = excluded.network, updated_at = excluded.updated_at", (payload["jamParticipantId"], payload["address"], payload["network"], now, now))
+        # Opting in moves an obligation that was waiting for the recipient to "awaiting requester approval".
+        conn.execute("UPDATE peeps_zec_settlements SET state = 'AWAITING_APPROVAL', updated_at = ? WHERE jam_participant_id = ? AND state = 'PENDING'", (now, payload["jamParticipantId"]))
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "peeps_zec_create":
+        now = utc_now()
+        pid = payload["jamParticipantId"]
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            paid = conn.execute("SELECT status FROM peeps_settlements WHERE jam_participant_id = ?", (pid,)).fetchone()
+            if paid and paid["status"] == "paid":
+                conn.rollback()
+                print(json.dumps({"error": "already_paid"}))
+                return
+            live = conn.execute("SELECT * FROM peeps_zec_settlements WHERE jam_participant_id = ? AND state != 'FAILED'", (pid,)).fetchone()
+            if live:
+                conn.rollback()
+                print(json.dumps({"settlement": public_peeps_zec(live), "created": False}))
+                return
+            attempts = conn.execute("SELECT COUNT(*) FROM peeps_zec_settlements WHERE jam_participant_id = ?", (pid,)).fetchone()[0]
+            rec = conn.execute("SELECT 1 FROM peeps_zec_recipients WHERE jam_participant_id = ?", (pid,)).fetchone()
+            conn.execute(
+                "INSERT INTO peeps_zec_settlements (id, request_id, jam_id, jam_participant_id, dub_id, payer_user_id, network, dough_amount, amount_zat, state, memo, challenge_hash, attempt, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (payload["id"], payload["requestId"], payload["jamId"], pid, payload.get("dubId"), payload["payerUserId"], payload["network"], payload["doughAmount"], payload["amountZat"], "AWAITING_APPROVAL" if rec else "PENDING", payload["memo"], payload["challengeHash"], attempts + 1, payload["expiresAt"], now, now),
+            )
+            conn.commit()
+        except sqlite3.OperationalError:
+            conn.rollback()
+            print(json.dumps({"error": "busy"}))
+            return
+        print(json.dumps({"settlement": public_peeps_zec(conn.execute("SELECT * FROM peeps_zec_settlements WHERE id = ?", (payload["id"],)).fetchone()), "created": True}))
+        return
+
+    # Expire obligations nobody completed, so a stuck attempt can be retried. Never touches VERIFIED.
+    if action == "peeps_zec_expire":
+        now = utc_now()
+        conn.execute("UPDATE peeps_zec_settlements SET state = 'FAILED', failure_reason = 'expired', updated_at = ? WHERE request_id = ? AND state NOT IN ('VERIFIED','FAILED') AND expires_at < ?", (now, payload["requestId"], payload["nowIso"]))
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    # Requester's explicit approval releases the payment instructions (address, memo, amount) — only to them.
+    if action == "peeps_zec_approve":
+        now = utc_now()
+        row = conn.execute("SELECT * FROM peeps_zec_settlements WHERE id = ?", (payload["id"],)).fetchone()
+        if not row or row["request_id"] != payload["requestId"]:
+            print(json.dumps({"error": "not_found"}))
+            return
+        if row["state"] not in ("AWAITING_APPROVAL", "SUBMITTED", "AWAITING_RECIPIENT_CONFIRMATION"):
+            print(json.dumps({"error": "invalid_state", "state": row["state"]}))
+            return
+        conn.execute("UPDATE peeps_zec_settlements SET approved_at = COALESCE(approved_at, ?), approved_by_user_id = COALESCE(approved_by_user_id, ?), updated_at = ? WHERE id = ?", (now, payload["userId"], now, payload["id"]))
+        conn.commit()
+        rec = conn.execute("SELECT address FROM peeps_zec_recipients WHERE jam_participant_id = ?", (row["jam_participant_id"],)).fetchone()
+        row = conn.execute("SELECT * FROM peeps_zec_settlements WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"settlement": public_peeps_zec(row), "instructions": {"network": row["network"], "address": rec["address"] if rec else None, "amountZat": row["amount_zat"], "memo": row["memo"]}}))
+        return
+
+    if action == "peeps_zec_submit":
+        now = utc_now()
+        row = conn.execute("SELECT * FROM peeps_zec_settlements WHERE id = ?", (payload["id"],)).fetchone()
+        if not row or row["request_id"] != payload["requestId"]:
+            print(json.dumps({"error": "not_found"}))
+            return
+        if row["state"] in ("SUBMITTED", "AWAITING_RECIPIENT_CONFIRMATION", "VERIFIED"):
+            print(json.dumps({"settlement": public_peeps_zec(row), "idempotent": True}))
+            return
+        if row["state"] != "AWAITING_APPROVAL" or not row["approved_at"]:
+            print(json.dumps({"error": "invalid_state", "state": row["state"]}))
+            return
+        conn.execute("UPDATE peeps_zec_settlements SET state = 'SUBMITTED', submitted_at = ?, submitted_txid_hash = ?, updated_at = ? WHERE id = ? AND state = 'AWAITING_APPROVAL'", (now, payload.get("txidHash"), now, payload["id"]))
+        conn.commit()
+        print(json.dumps({"settlement": public_peeps_zec(conn.execute("SELECT * FROM peeps_zec_settlements WHERE id = ?", (payload["id"],)).fetchone())}))
+        return
+
+    # Marks failure. Never reaches a VERIFIED row and never touches the Dough ledger or compensation status.
+    if action == "peeps_zec_fail":
+        now = utc_now()
+        row = conn.execute("SELECT * FROM peeps_zec_settlements WHERE id = ?", (payload["id"],)).fetchone()
+        if not row or row["request_id"] != payload["requestId"]:
+            print(json.dumps({"error": "not_found"}))
+            return
+        if row["state"] == "VERIFIED":
+            print(json.dumps({"error": "invalid_state", "state": row["state"]}))
+            return
+        conn.execute("UPDATE peeps_zec_settlements SET state = 'FAILED', failure_reason = ?, updated_at = ? WHERE id = ? AND state != 'VERIFIED'", (payload.get("reason") or "failed", now, payload["id"]))
+        conn.commit()
+        print(json.dumps({"settlement": public_peeps_zec(conn.execute("SELECT * FROM peeps_zec_settlements WHERE id = ?", (payload["id"],)).fetchone())}))
+        return
+
+    # What the RECIPIENT sees (by their participant id, resolved from their response token). First view while
+    # SUBMITTED means the recipient has been notified: SUBMITTED -> AWAITING_RECIPIENT_CONFIRMATION.
+    if action == "peeps_zec_recipient_view":
+        now = utc_now()
+        row = conn.execute("SELECT * FROM peeps_zec_settlements WHERE jam_participant_id = ? AND state != 'FAILED'", (payload["jamParticipantId"],)).fetchone()
+        if not row:
+            print(json.dumps({"settlement": None}))
+            return
+        if row["state"] == "SUBMITTED":
+            conn.execute("UPDATE peeps_zec_settlements SET state = 'AWAITING_RECIPIENT_CONFIRMATION', updated_at = ? WHERE id = ? AND state = 'SUBMITTED'", (now, row["id"]))
+            conn.commit()
+            row = conn.execute("SELECT * FROM peeps_zec_settlements WHERE id = ?", (row["id"],)).fetchone()
+        view = public_peeps_zec(row)
+        view.update({"amountZat": row["amount_zat"], "memo": row["memo"]})
+        print(json.dumps({"settlement": view}))
+        return
+
+    # Recipient-authenticated confirmation. The caller already proved they hold THIS participant's response token;
+    # here we bind it to the obligation (ref + one-time challenge), the memo, the amount and the transaction, and
+    # make it single-shot. On success ONE transaction marks the obligation VERIFIED and the participant paid.
+    if action == "peeps_zec_confirm":
+        now = utc_now()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM peeps_zec_settlements WHERE jam_participant_id = ? AND state != 'FAILED'", (payload["jamParticipantId"],)).fetchone()
+            if not row or row["id"] != payload["ref"]:
+                conn.rollback()
+                print(json.dumps({"error": "not_found"}))
+                return
+            if row["state"] == "VERIFIED":
+                conn.rollback()
+                same = row["confirmed_txid_hash"] == payload["txidHash"]
+                print(json.dumps({"settlement": public_peeps_zec(row), "idempotent": True, "sameTransaction": same}))
+                return
+            if row["state"] not in ("SUBMITTED", "AWAITING_RECIPIENT_CONFIRMATION"):
+                conn.rollback()
+                print(json.dumps({"error": "invalid_state", "state": row["state"]}))
+                return
+            if payload["challengeHash"] != row["challenge_hash"]:
+                conn.rollback()
+                print(json.dumps({"error": "bad_challenge"}))
+                return
+            if payload["memo"] != row["memo"]:
+                conn.rollback()
+                print(json.dumps({"error": "memo_mismatch"}))
+                return
+            if int(payload["amountZat"]) < int(row["amount_zat"]):
+                conn.rollback()
+                print(json.dumps({"error": "amount_mismatch"}))
+                return
+            if row["submitted_txid_hash"] and row["submitted_txid_hash"] != payload["txidHash"]:
+                conn.rollback()
+                print(json.dumps({"error": "txid_mismatch"}))
+                return
+            paid = conn.execute("SELECT status FROM peeps_settlements WHERE jam_participant_id = ?", (row["jam_participant_id"],)).fetchone()
+            if paid and paid["status"] == "paid":
+                conn.rollback()
+                print(json.dumps({"error": "already_paid"}))
+                return
+            try:
+                conn.execute("UPDATE peeps_zec_settlements SET state = 'VERIFIED', confirmed_at = ?, confirmed_txid_hash = ?, updated_at = ? WHERE id = ?", (now, payload["txidHash"], now, row["id"]))
+            except sqlite3.IntegrityError:
+                conn.rollback()
+                print(json.dumps({"error": "duplicate_transaction"}))
+                return
+            sid = payload["settlementId"]
+            existing = conn.execute("SELECT id FROM peeps_settlements WHERE jam_participant_id = ?", (row["jam_participant_id"],)).fetchone()
+            if existing:
+                conn.execute("UPDATE peeps_settlements SET status = 'paid', reason = '', rail = 'zcash', paid_at = ?, updated_at = ? WHERE jam_participant_id = ?", (now, now, row["jam_participant_id"]))
+            else:
+                conn.execute("INSERT INTO peeps_settlements (id, jam_id, jam_participant_id, request_id, payer_user_id, payee_subject_type, payee_subject_id, amount, status, rail, paid_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'dub', ?, ?, 'paid', 'zcash', ?, ?, ?)", (sid, row["jam_id"], row["jam_participant_id"], row["request_id"], row["payer_user_id"], row["dub_id"] or "", row["dough_amount"], now, now, now))
+            conn.execute("UPDATE jam_participants SET compensation_status = 'paid', updated_at = ? WHERE id = ?", (now, row["jam_participant_id"]))
+            conn.commit()
+        except sqlite3.OperationalError:
+            conn.rollback()
+            print(json.dumps({"error": "busy"}))
+            return
+        print(json.dumps({"settlement": public_peeps_zec(conn.execute("SELECT * FROM peeps_zec_settlements WHERE id = ?", (row["id"],)).fetchone()), "verified": True}))
+        return
+
     if action == "peeps_settlement_list":
         rows = conn.execute("SELECT * FROM peeps_settlements WHERE jam_id = ? ORDER BY created_at ASC", (payload["jamId"],)).fetchall()
         print(json.dumps({"settlements": [public_peeps_settlement(r) for r in rows]}))
@@ -7980,6 +8236,10 @@ def main():
             if row and row["status"] == "paid":
                 conn.rollback()
                 print(json.dumps({"status": "already_paid", "settlement": public_peeps_settlement(row)}))
+                return
+            if conn.execute("SELECT 1 FROM peeps_zec_settlements WHERE jam_participant_id = ? AND state NOT IN ('FAILED','VERIFIED')", (pid,)).fetchone():
+                conn.rollback()
+                print(json.dumps({"status": "zcash_in_progress"}))
                 return
             if not row:
                 conn.execute(

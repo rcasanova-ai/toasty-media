@@ -185,3 +185,11 @@ export async function authorizePeepsIntroductionsOnchain(requestId, candidates, 
   if (!result.ok) throw new Error(result.data.message || result.data.error || "Could not verify that payment.");
   return result.data;
 }
+
+// ---- Confidential (shielded ZEC) settlement. Toasty never moves funds: the requester pays from their own wallet. ----
+const zecPath = (requestId, rest = "") => `/api/peeps/requests/${encodeURIComponent(requestId)}/zec-settlements${rest}`;
+export const listZecSettlements = (requestId) => studioRequest(zecPath(requestId));
+export const createZecSettlement = (requestId, participantId, amountZat) => studioRequest(zecPath(requestId), { method: "POST", body: JSON.stringify({ participantId, amountZat }) });
+export const approveZecSettlement = (requestId, ref) => studioRequest(zecPath(requestId, `/${encodeURIComponent(ref)}/approve`), { method: "POST", body: JSON.stringify({ approve: true }) });
+export const submitZecSettlement = (requestId, ref, txid) => studioRequest(zecPath(requestId, `/${encodeURIComponent(ref)}/submit`), { method: "POST", body: JSON.stringify({ txid }) });
+export const failZecSettlement = (requestId, ref, reason) => studioRequest(zecPath(requestId, `/${encodeURIComponent(ref)}/fail`), { method: "POST", body: JSON.stringify({ reason }) });
