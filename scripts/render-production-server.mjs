@@ -2208,6 +2208,25 @@ async function handleCreatorRecordingTranscribe(req, res) {
   }
 }
 
+// When Studio finalizes a master recording for a session that belongs to a Peeps Jam, register it as the Jam's recording
+// evidence automatically (no manual attach). The reference points at the recording Studio really produced (id, size,
+// duration, content hash); Toasty does not store the media file itself, so the reference says so. Idempotent per recording.
+async function peepsRegisterStudioRecording({ manifest, organizationId, source, output }) {
+  if (!manifest.sessionId || !SAFE_ID.test(manifest.sessionId)) return null;
+  const jam = (await db("jam_get_by_studio_session", { sessionId: manifest.sessionId })).jam;
+  if (!jam || !organizationId || jam.organizationId !== organizationId) return null;
+  const reference = `studio-master-recording:${safeFileName(manifest.recordingId)}`;
+  const existing = ((await db("jam_artifact_list", { jamId: jam.id })).artifacts || []).find((a) => a.storageReference === reference);
+  if (existing) return existing;
+  const created = await db("jam_artifact_create", { id: newId("jart"), jamId: jam.id, studioSessionId: manifest.sessionId, artifactType: "recording", storageReference: reference, status: "ready" });
+  await db("jam_event_create", {
+    id: newId("jev"), jamId: jam.id, jamParticipantId: null, type: "recording.finalized", actor: "studio",
+    detail: { recordingId: safeFileName(manifest.recordingId), durationSeconds: Number(manifest.durationSeconds || 0), sourceBytes: source.size, masterBytes: output.length, sha256: createHash("sha256").update(output).digest("hex"), storedByToasty: false }
+  });
+  await peepsFinalizeJam(jam.id, "recording_finalized").catch(() => null);
+  return created.artifact;
+}
+
 async function handleRecordingFinalize(req, res, authSession) {
   let workDir;
   try {
@@ -2259,6 +2278,7 @@ async function handleRecordingFinalize(req, res, authSession) {
       await db("increment_usage", { organizationId, periodStart: currentPeriodStart("day"), deltas });
       await db("increment_usage", { organizationId, periodStart: currentPeriodStart("month"), deltas });
     }
+    await peepsRegisterStudioRecording({ manifest, organizationId, source, output }).catch((error) => console.error("[Toasty Peeps] recording evidence registration failed", error));
     setCors(req, res);
     res.writeHead(200, {
       "Content-Type": "video/mp4",
@@ -10320,6 +10340,10 @@ async function peepsReceiptView(request) {
       check("consent", "Consent captured", attended.length > 0 && attended.every((p) => p.consentCapturedAt), `${attended.filter((p) => p.consentCapturedAt).length} of ${attended.length || participants.length} consented`),
       check("attendance", "Participant attended", attended.length > 0, attended.length ? "From participant join events" : "No join event recorded"),
       check("evidence", "Evidence generated", transcripts.length > 0 || artifacts.some((a) => a.status === "ready"), `${transcripts.length} transcript(s)`),
+      check("outcome", "Outcome verified", completion?.outcome?.state === "outcome_verified",
+        completion?.outcome?.state === "outcome_verified" ? "All required evidence criteria are met"
+          : completion ? `The session happened, but these required criteria are not met yet: ${(completion.outcome?.criteria || []).filter((c) => c.required && !c.met).map((c) => `${c.label} (${c.evidence})`).join("; ") || "evaluating"}. Nothing is invented: it verifies when the evidence exists.`
+          : "Waiting for the Jam to complete"),
       check("breadcrumb", "Breadcrumb created", proposed.length > 0, `${proposed.length} derived from the stored transcript`),
       check("payment", "Introduction payment", Boolean(authEvent), authEvent ? peepsEconomicEventView(authEvent).label : "Not authorized yet"),
       check("settlement", "Compensation settled", settlementStatus === "settled", settlementStatus === "none_due" ? "No compensation was part of this request" : settlementStatus === "settled" ? (owed.every((p) => zecPaidIds.has(p.id)) ? "Settled via VERIFIED CONFIDENTIAL ZEC settlement (not the Dough ledger)" : owed.some((p) => zecPaidIds.has(p.id)) ? "Settled: part via Dough ledger, part via VERIFIED CONFIDENTIAL ZEC" : "Settled in Dough") : "Pending: requester funding or outcome verification", settlementStatus === "none_due"),

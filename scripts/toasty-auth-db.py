@@ -8355,6 +8355,12 @@ def main():
         print(json.dumps({"claimed": won, "dub": public_dub(row)}))
         return
 
+    # The Jam that owns a Studio session via jams.studio_session_id (how Peeps links a booked Jam to its room).
+    if action == "jam_get_by_studio_session":
+        row = conn.execute("SELECT * FROM jams WHERE studio_session_id = ?", (payload["sessionId"],)).fetchone()
+        print(json.dumps({"jam": public_jam(row)}))
+        return
+
     if action == "jam_get_by_session":
         # Internal lookup used by Studio's own read-only GET /api/sessions/:id/jam — resolves the jam a
         # session was launched from via live_sessions.jam_id, never trusting a client-supplied jamId.

@@ -189,6 +189,6 @@ Reproduce a genuine shielded transfer end to end on a disposable **regtest** cha
 - Outreach email is recorded, not sent, unless you configure `RESEND_API_KEY`.
 - Studio (the live room, built on VDO.Ninja) needs camera/microphone and is not part of the offline demo; the demo simulates it.
 - Guest compensation settles in the **Dough ledger (off-chain)**; it reaches a chain only through the withdrawal path, which needs a funded server keypair.
-- Transcripts are uploaded by the organizer (Studio does not store them), so Breadcrumbs derive from an organizer upload and are labelled as such.
+- Studio recordings are registered on the Jam automatically when the host's recording is finalized (tested with a real WebM; a live camera session has not been exercised by us end to end). Transcripts are not automatic: Studio does not store them and a mixed recording has no speaker separation, so the organizer uploads the transcript and Breadcrumbs derive from that labelled upload.
 - **Zcash:** confidential settlement is implemented and proven on a local **regtest** chain with real shielded Orchard transfers. It has **not** been run on public testnet (no automated faucet) or mainnet, and it is disabled by default in production. "Zcash · shielded" text on the static demo pages is labelled SIMULATED.
 - Solana verification is proven on devnet and against captured mainnet transaction structure; production is configured for devnet unless you change the environment.

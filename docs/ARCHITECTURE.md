@@ -1,232 +1,61 @@
-# Toasty Media Architecture
+# Toasty Peeps architecture
 
-## Brand Structure
+Zero-dependency stack: static HTML/JS (no build step), one Node server file, one Python SQLite helper.
 
-Toasty Media is the public umbrella brand for shows, editorial packages, and production workflows. Toasty Studio is a product descriptor under Toasty Media for browser-based interview and podcast production. Toasty Talks remains available as a show or series name, not the parent brand.
-
-Canonical brand assets live in `shared/brand/`:
-
-- `shared/brand/toasty-media/` for primary Toasty Media logos, cheatsheets, colors, and approved imagery.
-- `shared/brand/toasty-talks/` for legacy or series-level Toasty Talks assets.
-
-The shared assets are referenced by both the public site and Studio. They should not be copied into each surface unless a build system later requires generated derivatives.
-
-## Public Site
-
-The public website foundation is static and dependency-light:
-
-- `site/index.html` is the first maintainable homepage for `toasty.media`.
-- `site/ricardo/index.html` is the canonical redesigned Ricardo profile.
-- `ricardo/index.html` preserves the legacy `/ricardo/` production path as a redirect.
-- `articles/`, `eloquencebonus/`, root PDFs, and `thank-you.html` preserve useful production URLs under Git management.
-- `css/brand.css` contains shared brand tokens and base UI primitives.
-- `css/site.css` contains public website layout.
-- The repository root `index.html` redirects to `site/` for simple static hosting compatibility.
-
-The homepage currently establishes identity, concise media positioning, featured series slots, a future-proof workflow section, and a public link into Toasty Studio. Future pages can be added under `site/` without changing the Studio internals.
-
-## Studio
-
-Toasty Studio is a static browser app:
-
-- `studio/director.html` is the host/director console.
-- `studio/guest.html` is the no-account guest onboarding flow.
-- `css/studio.css` contains Studio-specific layout and responsive styling.
-- `js/director.js` owns director page state and UI bindings.
-- `js/guest.js` owns guest device preview, setup, and join state.
-- `js/video-engine.js` isolates VDO.Ninja-specific URL and iframe API logic.
-- `js/soundboard.js` isolates sound cue behavior.
-- `js/recording.js` owns browser-local isolated recording behavior.
-
-The Studio is designed so Toasty Media owns the workflow and replaceable engines sit behind adapters.
-
-## Video Engine Adapter
-
-Current real-time transport is hosted VDO.Ninja, embedded through iframes. VDO.Ninja is not forked or self-hosted in this phase.
-
-Authoritative references checked during implementation:
-
-- VDO.Ninja iframe embedding and `postMessage` API: https://docs.vdo.ninja/guides/iframe-api-documentation
-- VDO.Ninja iframe API basics and commands such as `mic`, `camera`, `mute`, `volume`, and `getDetailedState`: https://docs.vdo.ninja/guides/iframe-api-documentation/iframe-api-basics
-- Director permissions through `director=roomname`: https://docs.vdo.ninja/guides/iframe-api-documentation/iframe-api-for-directors
-- Background/effects parameters: https://docs.vdo.ninja/advanced-settings/video-parameters/effects
-- Virtual background image lists: https://docs.vdo.ninja/advanced-settings/video-parameters/and-imagelist
-
-Other Studio code calls internal methods such as `setMicrophone`, `setCamera`, `setScreenShare`, `setGuestMicrophone`, `setGuestCamera`, `setGuestScreenShare`, and `mountGuestFrame`. It should not construct VDO.Ninja URLs directly.
-
-The current two-person call path uses hosted VDO.Ninja room participant iframes:
-
-- Host: generated alphanumeric room ID plus a host `push` stream.
-- Guest: invite URL with the same room ID plus a generated guest `push` stream.
-- Host and guest use the native VDO.Ninja room UI inside the iframe for WebRTC transport, echo handling, and cross-browser device negotiation.
-- Toasty Studio controls send `postMessage` commands to the relevant iframe for mic, camera, screen share, state checks, and hangup.
-- The director screen separates host self-preview from program output. Host self-preview is the VDO.Ninja publishing iframe with the minimum source setup: `room`, `push`, `label`, `showlabels`, and `api`. Program output is a VDO.Ninja `room` + `scene=0` iframe; VDO documents `scene=0` as auto-adding all room videos.
-- Room IDs and stream IDs are generated as alphanumeric strings because VDO.Ninja documents room IDs as alphanumeric and stream IDs as safest when alphanumeric.
-
-## Background System
-
-Guest onboarding supports:
-
-- No background
-- Background blur
-- Warm newsroom preset
-- Research library preset
-- Fireside stage preset
-
-The guest page provides a local visual preview before joining. VDO.Ninja blur maps to `effects=3` and is requested when the guest joins. Toasty Media preset backgrounds are preview-only in the hosted VDO.Ninja MVP because production-grade virtual background replacement requires hosted image URLs through VDO.Ninja `imagelist`, browser/device support, and realistic cross-browser QA. Custom uploaded backgrounds should later be staged through validated temporary object storage before being passed to the video engine.
-
-## Soundboard
-
-The MVP soundboard is modular and intentionally small:
-
-- Intro
-- Outro
-- Short stinger
-- Applause/reaction
-- Custom slot placeholder
-- Volume control
-
-`js/soundboard.js` currently synthesizes simple cues with the Web Audio API so the foundation works without bundled audio assets. It can later load approved audio files from `assets/audio/` without touching director page logic.
-
-The soundboard is local to the host browser in this phase. Hosted VDO.Ninja iframes do not expose a simple parent-page path for injecting Web Audio output into the live WebRTC mix. For now, cues are useful for host monitoring and can be incorporated into recording/post-production later through FFmpeg or through a future virtual audio device / WebRTC-owned mixer path.
-
-## Recording
-
-Phase 1 now implements the first reliable recording proof possible without owning the WebRTC stack: browser-local isolated recording for each participant.
-
-Prepared recording model:
-
-- Host audio and video, recorded locally in the host browser.
-- Guest audio and video, recorded locally in the guest browser.
-- Session metadata written with each participant package.
-- Future upload and reconciliation metadata for Google Drive.
-
-Implementation:
-
-- `js/recording.js` uses `navigator.mediaDevices.getUserMedia` and `MediaRecorder`.
-- It records separate audio-only and video-only streams where the browser supports it.
-- In Chromium browsers with File System Access API support, stopping a recording prompts for a directory and writes:
-
-```text
-session/
-  session.json
-  host/
-    audio.webm
-    video.webm
+```
+                         ┌───────────────────────────── Browser (static) ─────────────────────────────┐
+                         │ /peeps/demo/ (seeded, offline)   /peeps/app/* (real UI)   /peeps/waitlist/ │
+                         │ /peeps/respond.html + /peeps/zec.html (candidate, token-gated, no account)  │
+                         └───────────────┬───────────────────────────────────────────────────────────┘
+                                         │ cookie session + CSRF header (candidates: private response token)
+                          ┌──────────────▼───────────────┐        ┌───────────────────────────────┐
+                          │ scripts/render-production-   │  JSON  │ scripts/toasty-auth-db.py     │
+                          │ server.mjs  (HTTP API)       ├───────►│ SQLite: requests, candidates, │
+                          │  · agent discovery/ranking   │        │ introductions, Jams, Dough    │
+                          │  · Jam/Studio lifecycle      │        │ ledger, economic events,      │
+                          │  · Dough ledger + settlement │        │ Breadcrumbs, waitlist, ZEC    │
+                          │  · Solana verification       │        │ obligations (all atomic,      │
+                          │  · ZEC settlement state      │        │ unique-indexed, idempotent)   │
+                          └───┬───────────────┬──────────┘        └───────────────────────────────┘
+                              │ read-only     │ (none: never sees a shielded chain)
+                   ┌──────────▼───────┐   ┌───▼──────────────────────────────────────────┐
+                   │ Solana RPC       │   │ Requester's OWN wallet pays; recipient's OWN  │
+                   │ getTransaction   │   │ wallet confirms. Toasty holds no keys.        │
+                   └──────────────────┘   └──────────────────────────────────────────────┘
 ```
 
-or:
+## One lifecycle
 
-```text
-session/
-  session.json
-  guest-1/
-    audio.webm
-    video.webm
-```
+1. **Outcome request** → agent ranks candidates (internal history, network Dubs with approved Breadcrumbs, labelled demo directory).
+2. **Introduction fee** (0.25) paid from **Dough** or as a **USDC transaction verified on Solana** (recipient, mint, amount, success, request-bound reference, signature never reused). Stored as an idempotent *economic event*.
+3. **Requester authorizes** → Jam created → outreach → candidate accepts on a private, hashed, expiring link → both sides' availability → first mutual slot booked → Studio session linked to the same Jam.
+4. **Consent** is captured from the participant (never claimed by the requester). **Attendance** is emitted by the room (`participant.joined`) when the participant actually joins.
+5. **Evidence**: when Studio finalizes the host's recording, it is registered on the Jam automatically; the transcript is stored with its source; **Breadcrumbs** are derived only from attributed transcript segments and reach the person's **Dub** only after they approve them.
+6. **Settlement** of the participant's compensation, once, on exactly one rail:
+   - **Dough ledger** (off-chain, atomic debit + credit), or
+   - **Confidential shielded ZEC** (optional, below).
+7. **Receipt** (`GET /api/peeps/requests/:id/receipt`) reads stored state and labels every money line: ONCHAIN VERIFIED, OFFCHAIN, SIMULATED or PENDING; ZEC shows VERIFIED CONFIDENTIAL SETTLEMENT with the network.
 
-- In browsers without File System Access API support, it falls back to downloading separate JSON/audio/video files.
+## Confidential settlement state machine
 
-Limitations:
+`PENDING` (recipient hasn't opted in) → `AWAITING_APPROVAL` (shielded address + consent given) → requester **explicitly approves** (instructions released) → `SUBMITTED` (payer's claim) → `AWAITING_RECIPIENT_CONFIRMATION` → `VERIFIED` | `FAILED` (never settles Dough; retryable; expires).
 
-- Hosted cross-origin VDO.Ninja iframes do not give Toasty Studio direct access to isolated remote tracks.
-- Each participant must start and stop their own local recording in this proof.
-- Browser camera/microphone exclusivity varies. Some browsers/devices may not allow VDO.Ninja and the parent page recorder to capture the same camera/microphone at the same time.
-- Safari MediaRecorder and File System Access support are less reliable than current Chrome.
-- Local files are not automatically uploaded or reconciled yet.
+Confirmation is authenticated by the recipient's private token and bound to the obligation (opaque reference + one-time code + memo + amount + the transaction the payer reported); single-shot; one transaction can settle one obligation (partial unique index). Verified means the recipient's own wallet attested it, because the chain is deliberately opaque to Toasty.
 
-## Google Drive Storage
+## Trust boundaries
 
-Automatic Google Drive storage is planned around verified uploads, not permanent local media storage.
+- Client claims (payment, consent, attendance, settlement) are never authoritative; the server verifies or derives them.
+- No private keys anywhere in the browser or repo; the server only reads Solana and holds no Zcash keys.
+- Waitlist rows are not accounts and grant nothing; invitation tokens are hashed, expiring, single-use. `/api/peeps/*` is gated by waitlist state (`PEEPS_BETA_REQUIRE_INVITE=1` makes the beta fully closed).
+- Receipts never expose addresses, memos, ZEC amounts or transaction ids.
 
-Folder model:
+## Where the code is
 
-```text
-Toasty Media/
-Global AI Leadership Series/
-Episode 001 - Guest Name/
-Raw/
-Processed/
-Clips/
-Audio/
-Transcript/
-Artwork/
-```
-
-Intended workflow:
-
-1. Record locally.
-2. Upload safely to Google Drive.
-3. Verify upload integrity.
-4. Treat local recordings as temporary.
-5. Allow local cleanup only after verified upload.
-
-OAuth and upload are not implemented in Phase 1.
-
-## FFmpeg Layer
-
-Future post-production should use FFmpeg as a replaceable processing engine, not browser timeline editing.
-
-The eventual automated recipe:
-
-- Sync isolated tracks.
-- Normalize audio.
-- Combine layout.
-- Add intro and outro.
-- Add branding or logo treatment when selected.
-- Export full video.
-- Export audio-only podcast.
-- Prepare social clips.
-
-The user-facing target is one explicit `Process Episode` action.
-
-## Whisper Layer
-
-Future transcription should use a locally runnable or open-source Whisper implementation.
-
-Planned outputs:
-
-- Full transcript
-- Speaker-attributed transcript where practical
-- Subtitle file
-- Plain text transcript
-- Markdown transcript
-
-Transcription is not a dependency for basic call or recording reliability.
-
-## AI Media Pipeline
-
-Future AI outputs belong to the Toasty Media workflow layer, not the video engine:
-
-- Episode summary
-- Key quotes
-- Book or research excerpts
-- Article draft
-- LinkedIn content
-- Short-form social copy
-- Clip suggestions
-- Titles
-- Show notes
-
-These should run after recording, upload verification, and transcript availability.
-
-## Publishing
-
-YouTube and podcast publishing are not implemented yet. Future publishing should support approval-based or one-click workflows for:
-
-- Full episode to YouTube
-- Podcast audio
-- Social clips
-
-Publishing must require explicit user approval initially.
-
-## Replaceable Engines
-
-External engines are infrastructure, not the product architecture:
-
-- VDO.Ninja: real-time video transport for now.
-- FFmpeg: future media processing.
-- Whisper: future transcription.
-- Google Drive: future storage target.
-
-Adapters should keep these assumptions from spreading through Toasty Studio.
+| Concern | Location |
+|---|---|
+| API, lifecycle, verification, settlement | `scripts/render-production-server.mjs` (sections: Solana billing, PEEPS AGENT-TO-HUMAN TRANSACTION LIFECYCLE, PEEPS PUBLIC WAITLIST, PEEPS CONFIDENTIAL SETTLEMENT) |
+| Schema and atomic operations | `scripts/toasty-auth-db.py` |
+| Demo (DOM-free engine + seeds) | `peeps/demo/` |
+| Judge UI | `peeps/app/golden-path.html`, `js/peeps-golden-path-page.js` |
+| Tests | `scripts/peeps-*-test.mjs`, `scripts/solana-real-transaction-verification-test.mjs`, `scripts/dough-*-test.mjs` |
+| Zcash regtest harness and real e2e | `scripts/zcash/`, `scripts/zcash-regtest-e2e.mjs` |
