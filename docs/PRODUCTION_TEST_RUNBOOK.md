@@ -2,6 +2,11 @@
 
 Nothing here injects data. Every PASS comes from real evidence stored by the production system. Until this has been run with an authorized account, the production journey is **unverified**.
 
+## Production configuration found on 2026-10-11 (read-only check of the render host)
+
+- Not configured: `RESEND_API_KEY` (no email is delivered), `SVM_PAY_TO` (Solana payments are simulated), `PEEPS_BETA_REQUIRE_INVITE`, `ZCASH_SETTLEMENT_ENABLED`. Configured: whisper binary + model, ffmpeg, a dedicated session secret. The exposed render token has been rotated.
+- To test on production you must therefore: install an email key (so the guest link is emailed) and, for the on-chain path, set `SVM_PAY_TO`, `TOASTY_USDC_MINT`, `TOASTY_SOLANA_NETWORK` in `/etc/toasty-render.env` and `systemctl restart toasty-render`. Public devnet values: mint `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`, network `solana-devnet`.
+
 ## One-time setup (Ricardo)
 
 1. **Create the test account through the invitation flow.** Open `https://toasty.media/studio/platform-admin.html` (sign in as the platform admin) → left nav **Peeps waitlist**. Register the tester at `https://toasty.media/peeps/waitlist/` (name, email you control, interest, tick consent), refresh the panel, find the row, click **Invite**. The email (or, if `RESEND_API_KEY` is not configured, the link shown in the admin message bar) opens `https://toasty.media/peeps/join/?token=…`: set a password. The account is now ACTIVE.

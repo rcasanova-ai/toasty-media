@@ -48,9 +48,9 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md). Static HTML/JS front end; one Node API
 | Seeded demo `/peeps/demo/` | Yes, verified | Yes | n/a (simulated) | n/a (simulated) | No | No |
 | Waitlist form and admin panel | Deployed; persistence/email not confirmed by us | Yes | n/a | n/a | Admin panel only | No |
 | Request, discovery, evidence-based evaluation, authorization, guest page, booking, consent, Breadcrumbs, Dough, receipt | Deployed, **not exercised by us with an authorized account** | **Yes, verified end to end** | n/a | n/a | Yes (invitation on production; local sandbox login) | No (attendance needs it) |
-| On-chain introduction payment | Code deployed; devnet configuration not confirmed | Yes, with config | **Verified (2 real txs)** | n/a | Yes | No |
+| On-chain introduction payment | Code deployed; **no recipient configured on the host, so simulated** | Yes, with config | **Verified (2 real txs)** | n/a | Yes | No |
 | Studio room, attendance, recording registration | Deployed; **live-device test not run** | Server paths tested | n/a | n/a | Yes | **Yes** |
-| Automatic transcript | Only if whisper is configured on the host (unconfirmed); never attributes speakers | Stub-tested | n/a | n/a | Yes | Yes (needs a real recording) |
+| Automatic transcript | Whisper binary and model are configured on the host (confirmed); real transcription not yet verified; never attributes speakers | Stub-tested | n/a | n/a | Yes | Yes (needs a real recording) |
 | Confidential Zcash settlement | Deployed but **disabled** | Yes with a regtest chain | n/a | **Verified (real shielded transfer)** | Yes | No |
 
 ### On-chain evidence
@@ -75,6 +75,8 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md). Static HTML/JS front end; one Node API
 - **The agent's candidate interview is an evidence interview**, deterministic and evidence-only. It is not a live or AI-driven Dub-to-Dub conversation; the scripted demo's conversation is simulated.
 - **Dough ledger payouts are off-chain** and labelled so. The receipt never shows a ledger entry as a blockchain payout.
 - **Zcash is regtest-proven only.** It has not run on public testnet (there is no automated faucet) or mainnet, and it is disabled by default in production. "Verified" means the recipient's wallet attested receipt, since the chain is opaque to Toasty.
-- **Solana** is proven on devnet and against captured mainnet transaction structure; production is configured for devnet.
+- **Solana** is proven on devnet and against captured mainnet transaction structure; **production has no Solana recipient configured yet** (verified on the render host), so it currently uses the labelled simulated payment provider; the on-chain path is verified on devnet through a local instance of the same code.
+- **Production email is not configured** (`RESEND_API_KEY` unset on the host): waitlist confirmations and candidate outreach emails are recorded, not delivered, until a key is installed. Without it, the real-services journey on production cannot reach the candidate by email.
+- Security, verified on the host on 2026-10-11: the render token that was exposed in git history **was still valid and has been rotated**; a separate session secret already existed and was also replaced. Automatic transcription: a whisper binary and model are configured on the host (real transcription still unverified).
 - Candidate discovery outside the network uses a labelled demo directory. Outreach email is recorded rather than sent unless a provider key is configured.
 - Waitlist: deployed and tested; production persistence and email delivery status still need an admin to confirm in the live admin panel.
