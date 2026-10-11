@@ -7359,7 +7359,9 @@ async function peepsEvaluateCandidate(request, candidate, dubEntries) {
   const claims = [];
   for (const e of dubEntries || []) {
     if (e.visibility !== "public" || e.kind === "participation") continue;
-    claims.push({ text: `${e.statement} ${(e.topics || []).join(" ")}`, quote: e.statement, source: "Participant-approved Breadcrumb", evidenceClass: e.evidenceClass, weight: PEEPS_EVAL_WEIGHT[e.evidenceClass] ?? 0.7, fromDub: true });
+    // The statement is used to MATCH but never repeated: approved Breadcrumbs reach other requesters only as evidence
+    // summaries, never as quotes from the private conversation (same rule as candidate matching).
+    claims.push({ text: `${e.statement} ${(e.topics || []).join(" ")}`, quote: `Covered by a participant-approved Breadcrumb (${PEEPS_BREADCRUMB_KINDS[e.kind] || e.kind}, ${String(e.evidenceClass).replace(/_/g, " ")}). The statement itself stays private to the Dub.`, source: "Participant-approved Breadcrumb", evidenceClass: e.evidenceClass, weight: PEEPS_EVAL_WEIGHT[e.evidenceClass] ?? 0.7, fromDub: true });
   }
   for (const e of candidate.evidence || []) {
     if (e.sourceType === "peeps_breadcrumbs" || e.sourceType === "internal_breadcrumb") continue;
@@ -7401,7 +7403,9 @@ async function peepsWithEvaluations(requestId, candidates) {
     const va = ea?.verdict === "qualified" ? 0 : 1, vb = eb?.verdict === "qualified" ? 0 : 1;
     return va - vb || (eb?.score || 0) - (ea?.score || 0) || a.rank - b.rank;
   });
-  return order.map((c, i) => ({ ...c, evaluation: evals.has(c.id) ? { ...evals.get(c.id), evaluationRank: i + 1 } : null }));
+  const rankOf = new Map(order.map((c, i) => [c.id, i + 1]));
+  // The array keeps its original order (existing clients and tests index into it); evaluationRank carries the new ranking.
+  return candidates.map((c) => ({ ...c, evaluation: evals.has(c.id) ? { ...evals.get(c.id), evaluationRank: rankOf.get(c.id) } : null }));
 }
 
 async function runPeepsResolver(request) {

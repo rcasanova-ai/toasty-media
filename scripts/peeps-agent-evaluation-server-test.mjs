@@ -70,7 +70,8 @@ async function main() {
   const dana1 = c1.find((c) => c.dubId === "dub_eval_dana");
   assert(dana1 && dana1.evaluation.mode === "dub_evidence_interview" && dana1.evaluation.verdict === "qualified", "the network member's Dub is evaluated by a Dub evidence interview and qualifies");
   const answered = dana1.evaluation.findings.criteria.filter((f) => f.answered);
-  assert(answered.length >= 3 && answered.every((f) => f.answer === STORED && f.source === "Participant-approved Breadcrumb" && f.evidenceClass === "verified"), "its answers are verbatim quotes of its stored, approved claim with provenance (nothing paraphrased or invented)");
+  assert(answered.length >= 3 && answered.every((f) => /participant-approved Breadcrumb/.test(f.answer) && f.source === "Participant-approved Breadcrumb" && f.evidenceClass === "verified" && !f.answer.includes("QR rollout")), "its answers cite its stored, approved claim with provenance and class, WITHOUT repeating the private statement");
+  assert(!JSON.stringify(r1.data).includes("QR rollout") && !JSON.stringify(r1.data).includes("twelve years"), "no stored statement text reaches the requester");
   assert(dana1.evaluation.findings.criteria.filter((f) => !f.answered).every((f) => /^Unknown/.test(f.answer)), "where it has no evidence the Dub says Unknown");
   assert(!JSON.stringify(r1.data).includes("PRIVATE: secretly"), "a private Dub entry is never read or exposed");
   assert(dana1.evaluation.findings.notAnA2AConversation === true && /evidence/i.test(dana1.evaluation.findings.modeLabel), "the method is labelled: evidence-only, not an A2A conversation");
