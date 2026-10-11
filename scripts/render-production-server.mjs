@@ -39,6 +39,7 @@ const PORT = Number(process.env.TOASTY_RENDER_PORT || 4174);
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
 const API_TOKEN = process.env.TOASTY_RENDER_TOKEN || "";
 const SESSION_SECRET = process.env.TOASTY_SESSION_SECRET || API_TOKEN || "";
+if (!process.env.TOASTY_SESSION_SECRET && API_TOKEN) console.warn("[Toasty security] TOASTY_SESSION_SECRET is not set: sessions are signed with TOASTY_RENDER_TOKEN. Set a separate TOASTY_SESSION_SECRET (changing it signs everyone out).");
 const AUTH_DB_PATH = process.env.TOASTY_AUTH_DB || "/var/lib/toasty/toasty.sqlite";
 const AUTH_DB_HELPER = process.env.TOASTY_AUTH_DB_HELPER || join(SCRIPT_DIR, "toasty-auth-db.py");
 const SESSION_SECONDS = Number(process.env.TOASTY_SESSION_SECONDS || 7 * 24 * 60 * 60);

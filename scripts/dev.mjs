@@ -94,6 +94,8 @@ if (!staticOnly) {
   console.log(`  App + API sandbox:         ${base}/peeps/app/   (API on 127.0.0.1:${API_PORT}, database ${dbPath})`);
   console.log(`  Judge path:                ${base}/peeps/app/golden-path.html`);
   console.log(`  Payments:                  ${paymentsReal ? "REAL Solana verification is ON (a recipient is configured in your environment)" : "simulated (demo provider). Set SVM_PAY_TO etc. for devnet, see peeps/README.md"}`);
+  const zec = env.ZCASH_SETTLEMENT_ENABLED === "1" && env.ZCASH_NETWORK;
+  console.log(`  Confidential ZEC:          ${zec ? `ON (${env.ZCASH_NETWORK}${env.ZCASH_NETWORK === "mainnet" ? "" : ", test network, no value"})` : "off (set ZCASH_SETTLEMENT_ENABLED=1 ZCASH_NETWORK=regtest, see scripts/zcash/README.md)"}`);
   if (seed) {
     const email = "judge@peeps.local";
     const password = randomBytes(9).toString("base64url");

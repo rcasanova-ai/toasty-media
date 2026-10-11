@@ -122,7 +122,9 @@ function stepAuthorize() {
   const needsEmail = external.some((c) => selected.has(c.id) && !c.contactEmail && c.reachability !== "claimed_member");
   const solana = requirement && !requirement.demo ? requirement.accepts?.[0] : null;
   return `<section class="card"><span class="eyebrow">2 · Authorize introductions</span><h3>The agent found ${external.length} candidate${external.length === 1 ? "" : "s"}. Nobody has been contacted.</h3>
-    ${external.map((c) => `<label class="row" style="grid-template-columns:auto 1fr auto;gap:12px;cursor:pointer"><input type="checkbox" data-pick="${esc(c.id)}" ${selected.has(c.id) ? "checked" : ""}><span><strong>${esc(c.displayName)}</strong><br><span class="muted">${esc(c.headline || "")} · ${esc(c.matchReason || "")}</span></span><i class="tag">${esc(String(c.matchScore))}% fit · ${esc(String(c.reachability || "").replace(/_/g, " "))}</i></label>`).join("") || `<p class="muted">No candidates yet.</p>`}
+    <p class="muted">Candidates are ranked from stored evidence (open "Evidence the agent used"). The scripted demo also shows an agent interviewing each Dub; that interview is demo-only and is not simulated here.</p>
+    ${external.map((c) => `<label class="row" style="grid-template-columns:auto 1fr auto;gap:12px;cursor:pointer"><input type="checkbox" data-pick="${esc(c.id)}" ${selected.has(c.id) ? "checked" : ""}><span><strong>${esc(c.displayName)}</strong><br><span class="muted">${esc(c.headline || "")} · ${esc(c.matchReason || "")}</span></span><i class="tag">${esc(String(c.matchScore))}% fit · ${esc(String(c.reachability || "").replace(/_/g, " "))}</i></label>
+      <details class="muted" style="margin:-4px 0 10px 34px"><summary>Evidence the agent used</summary><ul style="margin:6px 0">${(c.evidence || []).map((e) => `<li>${esc(e.claim)} <i>(${esc(e.sourceTitle || e.sourceType)}, confidence ${esc(e.confidence)})</i></li>`).join("") || "<li>No stored evidence beyond the match itself.</li>"}</ul><p style="margin:4px 0">Anything not listed is <b>unknown</b>: the agent doesn't assume it.</p></details>`).join("") || `<p class="muted">No candidates yet.</p>`}
     ${needsEmail ? `<label class="muted" for="gp-email" style="display:block;margin-top:12px">The guest's email — Peeps never guesses one. Use a second inbox of your own to play the guest.</label><input class="field" id="gp-email" type="email" value="${esc(draft.email)}" placeholder="guest@example.com">` : ""}
     <label class="muted" for="gp-comp" style="display:block;margin-top:12px">Pay each guest who joins (Dough, settled after the session)</label><input class="field" id="gp-comp" type="number" min="0" step="0.01" value="${esc(draft.compensation)}" style="max-width:200px">
     <div style="margin-top:14px"><b>Pay the $0.25 introduction fee with</b>
@@ -161,7 +163,7 @@ function stepEvidence() {
   return `<section class="card"><span class="eyebrow">After the session</span><h3>Capture evidence, then settle</h3>
     <p class="muted">Attendance comes from the guest's own join event in Studio; consent from their consent step. Studio doesn't store a transcript itself, so paste what was said (or leave it blank to complete without one).</p>
     <textarea class="field" id="gp-transcript" placeholder="${esc("Host: Welcome…\nGuest: Thanks for having me…")}" ${done ? "disabled" : ""}></textarea>
-    <div class="actions" style="margin-top:12px"><button class="btn" id="gp-complete" ${done && receipt.evidence.transcripts.length ? "disabled" : ""}>${done ? "Re-check evidence" : "Complete Jam & generate Breadcrumbs"}</button>
+    <div class="actions" style="margin-top:12px"><button class="btn secondary" id="gp-sample" ${done ? "disabled" : ""}>Insert a sample transcript (demo text)</button> <button class="btn" id="gp-complete" ${done && receipt.evidence.transcripts.length ? "disabled" : ""}>${done ? "Re-check evidence" : "Complete Jam & generate Breadcrumbs"}</button>
     <button class="btn secondary" id="gp-settle" ${done && !settled ? "" : "disabled"}>Settle Dough</button></div></section>${done ? stepZec() : ""}`;
 }
 
@@ -264,6 +266,11 @@ function wire() {
     if (!result.introductions?.length) throw new Error("No introduction could be started: Peeps needs a real email for each guest it can't already reach. The fee is paid once per request, so retrying with an email won't charge you twice.");
     await setPeepsRequesterAvailability(requestId, localAvailability());
   }, "Introductions authorized. Peeps is contacting your guest."); });
+  on("#gp-sample", () => {
+    const guest = receipt.participants[0]?.name || "Guest";
+    document.getElementById("gp-transcript").value = `Host: Welcome. Tell me about your work in offline payments.\n${guest}: I have spent twelve years building offline payment systems for merchants across Southeast Asia. I led our QR rollout in Indonesia. We reduced failed transactions by 40 percent after launch.\n${guest}: Offline payments and digital wallets across Southeast Asia work best when merchants can settle without connectivity and wallet operators interoperate.`;
+    setMessage("Sample text inserted. It is demo content: review or replace it, then submit. It will be stored and labelled as an organizer upload.");
+  });
   on("#gp-complete", () => { act(async () => {
     const jamId = receipt.jam.id;
     const text = document.getElementById("gp-transcript")?.value.trim();
