@@ -2225,7 +2225,37 @@ async function peepsRegisterStudioRecording({ manifest, organizationId, source, 
     detail: { recordingId: safeFileName(manifest.recordingId), durationSeconds: Number(manifest.durationSeconds || 0), sourceBytes: source.size, masterBytes: output.length, sha256: createHash("sha256").update(output).digest("hex"), storedByToasty: false }
   });
   await peepsFinalizeJam(jam.id, "recording_finalized").catch(() => null);
+  peepsAutoTranscribe({ jam, manifest, output }).catch((error) => console.error("[Toasty Peeps] automatic transcription failed", error));
   return created.artifact;
+}
+
+// Automatic transcription of the finalized recording, only when the server has a configured whisper.cpp install
+// (the same WHISPER_CLI_PATH/WHISPER_MODEL_PATH the creator tools use). A finalized Studio master is ONE mixed audio
+// track: whisper cannot say who spoke, so every segment is stored as "Unattributed" and the transcript is labelled
+// studio_auto_unattributed. Person-specific Breadcrumbs are never derived from unattributed speech (the extractor
+// only credits speakers it can match to a participant), so this adds evidence that a conversation was transcribed
+// without ever putting words in a named person's mouth. Runs in the background; failures never affect finalization.
+async function peepsAutoTranscribe({ jam, manifest, output }) {
+  if (!WHISPER_CLI_PATH || !WHISPER_MODEL_PATH) return null;
+  const workDir = await mkdtemp(join(tmpdir(), "toasty-peeps-transcribe-"));
+  try {
+    const inputPath = join(workDir, "master.mp4"), wavPath = join(workDir, "audio.wav"), textBase = join(workDir, "transcript");
+    await writeFile(inputPath, output);
+    await execFileAsync(FFMPEG, ["-y", "-i", inputPath, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wavPath], { timeout: 60000 });
+    const text = await withTranscribeSlot(async () => {
+      await execFileAsync(WHISPER_CLI_PATH, ["-m", WHISPER_MODEL_PATH, "-f", wavPath, "-t", "2", "-otxt", "-of", textBase, "-nt"], { timeout: RECORDING_FFMPEG_TIMEOUT_MS });
+      return (await readFile(`${textBase}.txt`, "utf8")).trim();
+    });
+    const segments = text.split(/\r?\n/).map((line) => sessionText(line, 2000)).filter(Boolean).slice(0, PEEPS_MAX_TRANSCRIPT_SEGMENTS).map((line) => ({ speaker: "Unattributed", text: line, startMs: null }));
+    if (!segments.length) return null;
+    const contentHash = createHash("sha256").update(JSON.stringify(segments)).digest("hex");
+    const created = await db("peeps_transcript_create", { id: newId("ptr"), jamId: jam.id, studioSessionId: jam.studioSessionId, source: "studio_auto_unattributed", contentHash, segments, submittedBy: "studio" });
+    await db("jam_event_create", { id: newId("jev"), jamId: jam.id, jamParticipantId: null, type: "transcript.auto_created", actor: "studio", detail: { recordingId: safeFileName(manifest.recordingId), segments: segments.length, speakerAttribution: "none" } });
+    await peepsFinalizeJam(jam.id, "auto_transcript").catch(() => null);
+    return created.transcript;
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
 }
 
 async function handleRecordingFinalize(req, res, authSession) {
@@ -7285,6 +7315,12 @@ function resolveDemoDirectoryCandidates(requestTerms) {
         sourceUrl: "",
         sourceTitle: "Toasty Peeps demo candidate directory — replace with a live provider adapter",
         confidence: matched.length >= 2 ? "Medium" : "Low"
+      }, {
+        claim: `Listed topics: ${candidate.topics.join(", ")}`,
+        sourceType: "demo_directory",
+        sourceUrl: "",
+        sourceTitle: "Directory listing (provider-asserted, not verified)",
+        confidence: "Low"
       }],
       matchReason: matched.length ? `Matched: ${matched.slice(0, 4).join(", ")}` : "General category fit",
       matchScore: score,
@@ -7292,6 +7328,84 @@ function resolveDemoDirectoryCandidates(requestTerms) {
       contactEmail: null
     };
   }).filter((candidate) => candidate.matchScore > 30);
+}
+
+// ---- Agent evaluation of candidates (persisted) ----
+// For each candidate the requester's agent checks the request's criteria against the candidate's STORED evidence:
+//  - dub_evidence_interview: the candidate has a Dub with public, participant-approved entries. Each criterion becomes a
+//    question; the Dub answers ONLY by quoting a stored claim (with its evidence class), or says "Unknown".
+//  - directory_evidence_match: the candidate has no Dub content, so only the directory listing is checked. This is NOT a
+//    Dub interview and is labelled so.
+// Both are deterministic and evidence-only: no language model, no live conversation, no invented answers. Results are
+// persisted, candidates below the bar are EXCLUDED with the exact unevidenced criteria, the rest are ranked by coverage.
+const PEEPS_EVAL_METHOD = "evidence_interview_v1";
+const PEEPS_EVAL_SKIP = new Set(["understand", "executives", "executive", "want", "needs", "someone", "person", "looking", "find", "help", "helps", "interesting", "three", "guests", "talk", "accomplish", "interested", "knows", "know"]);
+const PEEPS_EVAL_WEIGHT = Object.freeze({ verified: 1, observed: 0.9, participant_claim: 0.8, High: 1, Medium: 0.8, Low: 0.6 });
+const PEEPS_EVAL_QUALIFY_AT = 0.4;
+
+function peepsRequestCriteria(request) {
+  const seen = new Set(); const out = [];
+  for (const term of tokenizePeepsText(`${request.whoText} ${request.outcomeText}`)) {
+    if (term.length < 4 || PEEPS_GENERIC_TOPICS.has(term) || PEEPS_EVAL_SKIP.has(term) || /^\d+$/.test(term)) continue;
+    const stem = peepsStem(term);
+    if (seen.has(stem)) continue;
+    seen.add(stem); out.push({ term, stem });
+  }
+  return out.slice(0, 8);
+}
+
+async function peepsEvaluateCandidate(request, candidate, dubEntries) {
+  const criteria = peepsRequestCriteria(request);
+  const claims = [];
+  for (const e of dubEntries || []) {
+    if (e.visibility !== "public" || e.kind === "participation") continue;
+    // The statement is used to MATCH but never repeated: approved Breadcrumbs reach other requesters only as evidence
+    // summaries, never as quotes from the private conversation (same rule as candidate matching).
+    claims.push({ text: `${e.statement} ${(e.topics || []).join(" ")}`, quote: `Covered by a participant-approved Breadcrumb (${PEEPS_BREADCRUMB_KINDS[e.kind] || e.kind}, ${String(e.evidenceClass).replace(/_/g, " ")}). The statement itself stays private to the Dub.`, source: "Participant-approved Breadcrumb", evidenceClass: e.evidenceClass, weight: PEEPS_EVAL_WEIGHT[e.evidenceClass] ?? 0.7, fromDub: true });
+  }
+  for (const e of candidate.evidence || []) {
+    if (e.sourceType === "peeps_breadcrumbs" || e.sourceType === "internal_breadcrumb") continue;
+    claims.push({ text: e.claim, quote: e.claim, source: e.sourceTitle || e.sourceType, evidenceClass: `listing, confidence ${e.confidence}`, weight: PEEPS_EVAL_WEIGHT[e.confidence] ?? 0.5, fromDub: false });
+  }
+  const mode = claims.some((c) => c.fromDub) ? "dub_evidence_interview" : "directory_evidence_match";
+  const matches = (claim, c) => [...tokenizePeepsText(claim.text)].some((t) => peepsStem(t) === c.stem || (c.stem.length > 5 && peepsStem(t).startsWith(c.stem.slice(0, 5))));
+  const findings = criteria.map((c) => {
+    const hit = claims.filter((claim) => matches(claim, c)).sort((a, b) => b.weight - a.weight)[0];
+    return hit
+      ? { criterion: c.term, question: `What stored evidence is there of "${c.term}"?`, answer: hit.quote, answered: true, source: hit.source, evidenceClass: hit.evidenceClass, weight: hit.weight }
+      : { criterion: c.term, question: `What stored evidence is there of "${c.term}"?`, answer: "Unknown: no stored claim covers this.", answered: false, source: null, evidenceClass: null, weight: 0 };
+  });
+  const answered = findings.filter((f) => f.answered);
+  const score = criteria.length ? Number((findings.reduce((sum, f) => sum + f.weight, 0) / criteria.length).toFixed(3)) : 0;
+  const verdict = !criteria.length ? "needs_more_detail" : (score >= PEEPS_EVAL_QUALIFY_AT && answered.length >= 2 ? "qualified" : "excluded");
+  const missing = findings.filter((f) => !f.answered).map((f) => f.criterion);
+  const explanation = verdict === "qualified"
+    ? `Evidence covers ${answered.length} of ${criteria.length} criteria${missing.length ? `; unknown: ${missing.join(", ")}` : ""}.`
+    : verdict === "excluded" ? `Not enough stored evidence: only ${answered.length} of ${criteria.length} criteria are evidenced. Unknown: ${missing.join(", ") || "none"}.`
+    : "The request has no specific criteria to check. Add detail (who, what, where).";
+  return { mode, verdict, score, findings: { criteria: findings, explanation, modeLabel: mode === "dub_evidence_interview" ? "Dub evidence interview: the Dub answers only from its own stored, approved claims" : "Directory evidence match: no Dub content exists for this person, so this is NOT a Dub interview", notAnA2AConversation: true } };
+}
+
+async function peepsEvaluateAndStore(request, candidates) {
+  const dubIds = [...new Set(candidates.map((c) => c.dubId).filter(Boolean))];
+  const entries = dubIds.length ? ((await db("dub_entry_list", { dubIds })).entries || []) : [];
+  for (const candidate of candidates) {
+    const result = await peepsEvaluateCandidate(request, candidate, entries.filter((e) => e.dubId === candidate.dubId));
+    await db("peeps_evaluation_upsert", { candidateId: candidate.id, requestId: request.id, mode: result.mode, verdict: result.verdict, score: result.score, findings: result.findings, method: PEEPS_EVAL_METHOD });
+  }
+}
+
+// Attaches persisted evaluations and an evaluation rank (qualified first, then by coverage) without mutating stored candidates.
+async function peepsWithEvaluations(requestId, candidates) {
+  const evals = new Map(((await db("peeps_evaluation_list", { requestId })).evaluations || []).map((e) => [e.candidateId, e]));
+  const order = [...candidates].sort((a, b) => {
+    const ea = evals.get(a.id), eb = evals.get(b.id);
+    const va = ea?.verdict === "qualified" ? 0 : 1, vb = eb?.verdict === "qualified" ? 0 : 1;
+    return va - vb || (eb?.score || 0) - (ea?.score || 0) || a.rank - b.rank;
+  });
+  const rankOf = new Map(order.map((c, i) => [c.id, i + 1]));
+  // The array keeps its original order (existing clients and tests index into it); evaluationRank carries the new ranking.
+  return candidates.map((c) => ({ ...c, evaluation: evals.has(c.id) ? { ...evals.get(c.id), evaluationRank: rankOf.get(c.id) } : null }));
 }
 
 async function runPeepsResolver(request) {
@@ -7310,6 +7424,7 @@ async function runPeepsResolver(request) {
     .slice(0, Math.max(desiredCount, 3) + 2)
     .map((candidate, index) => ({ ...candidate, id: newId("pcand"), rank: index + 1 }));
   const result = await db("peeps_candidates_replace", { requestId: request.id, candidates: merged });
+  await peepsEvaluateAndStore(request, result.candidates || []);
   return result.candidates || [];
 }
 
@@ -7334,7 +7449,7 @@ async function handlePeepsRequestCreate(req, res, authSession) {
   const candidates = await runPeepsResolver(createResult.request);
   await db("peeps_request_update", { id: createResult.request.id, fields: { status: "candidates_ready" } });
   const updated = await db("peeps_request_get", { id: createResult.request.id, organizationId });
-  sendJson(req, res, 201, { request: updated.request, candidates: candidates.map(peepsCandidateForClient) });
+  sendJson(req, res, 201, { request: updated.request, candidates: (await peepsWithEvaluations(createResult.request.id, candidates)).map(peepsCandidateForClient) });
 }
 
 function peepsRequestIdFromUrl(req, suffix = "") {
@@ -7362,7 +7477,7 @@ async function handlePeepsRequestGet(req, res, authSession) {
   ]);
   sendJson(req, res, 200, {
     request,
-    candidates: (candidatesResult.candidates || []).map(peepsCandidateForClient),
+    candidates: (await peepsWithEvaluations(id, candidatesResult.candidates || [])).map(peepsCandidateForClient),
     introductions: introductionsResult.introductions || []
   });
 }
@@ -7406,7 +7521,8 @@ async function handlePeepsRequestReplaceCandidate(req, res, authSession) {
   const additions = fresh.slice(0, needed).map((c) => ({ ...c, id: newId("pcand") }));
   const proposedPayload = [...stillProposed, ...additions].map((c, index) => ({ ...c, rank: settledCount + index + 1 }));
   const result = await db("peeps_candidates_replace", { requestId: id, candidates: proposedPayload });
-  sendJson(req, res, 200, { candidates: (result.candidates || []).map(peepsCandidateForClient) });
+  await peepsEvaluateAndStore(request, result.candidates || []);
+  sendJson(req, res, 200, { candidates: (await peepsWithEvaluations(id, result.candidates || [])).map(peepsCandidateForClient) });
 }
 
 // x402 discovery-style requirement, but for the INTRODUCTION workflow itself (section 9's explicit
@@ -10285,6 +10401,7 @@ async function peepsReceiptView(request) {
     jamId ? db("peeps_settlement_list", { jamId }).then((r) => r.settlements || []) : []
   ]);
   const candidateById = new Map((candidatesResult.candidates || []).map((c) => [c.id, c]));
+  const evalByCandidate = new Map(((await db("peeps_evaluation_list", { requestId: request.id })).evaluations || []).map((e) => [e.candidateId, e]));
   const intros = (introsResult.introductions || []).filter((i) => !["declined", "cancelled"].includes(i.status));
   const dubIds = [...new Set(participants.map((p) => p.dubId))];
   const dubEntries = dubIds.length ? ((await db("dub_entry_list", { dubIds })).entries || []) : [];
@@ -10305,7 +10422,9 @@ async function peepsReceiptView(request) {
     outcomeRequest: { who: request.whoText, outcome: request.outcomeText },
     candidates: intros.map((i) => {
       const c = candidateById.get(i.candidateId);
-      return { introductionId: i.id, name: c?.displayName || "Candidate", headline: c?.headline || "", source: c?.source || "", dubId: i.dubId, status: i.status };
+      const ev = evalByCandidate.get(i.candidateId);
+      return { introductionId: i.id, name: c?.displayName || "Candidate", headline: c?.headline || "", source: c?.source || "", dubId: i.dubId, status: i.status,
+        evaluation: ev ? { verdict: ev.verdict, score: ev.score, mode: ev.mode, modeLabel: ev.findings?.modeLabel, explanation: ev.findings?.explanation, evidenced: (ev.findings?.criteria || []).filter((f) => f.answered).length, criteria: (ev.findings?.criteria || []).length } : null };
     }),
     jam: jam ? { id: jam.id, title: jam.title, status: jam.status, studioSessionId: jam.studioSessionId || null, scheduledAt: jam.scheduledAt || null, studioUrl: jam.studioSessionId ? `/studio/director.html?session=${encodeURIComponent(jam.studioSessionId)}` : null } : null,
     participants: participants.map((p) => ({ participantId: p.id, name: p.displayName || "Guest", status: p.status, consentCapturedAt: p.consentCapturedAt || null, attendedAt: p.attendedAt || null, completedAt: p.completedAt || null })),

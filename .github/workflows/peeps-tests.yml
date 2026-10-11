@@ -37,6 +37,7 @@ jobs:
             peeps-waitlist-server-test \
             peeps-zcash-settlement-server-test \
             peeps-recording-ingest-server-test \
+            peeps-agent-evaluation-server-test \
             solana-real-transaction-verification-test \
             peeps-agent-lifecycle-server-test \
             peeps-introduction-execution-server-test \

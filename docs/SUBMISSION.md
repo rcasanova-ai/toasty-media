@@ -34,6 +34,7 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md). Static HTML/JS front end; one Node API
 |---|---|
 | Outcome request, discovery, ranking, authorization, outreach, booking, Jam ↔ Studio session linkage, consent, attendance events, transcript → Breadcrumbs → Dub, Dough ledger settlement | Integration tests against the real server (`npm test`, 17 suites) |
 | Solana USDC introduction payment with on-chain verification | Real devnet transactions, below. Also tests against two genuine mainnet USDC transfers captured as fixtures |
+| Persisted candidate evaluation: a Dub evidence interview (the Dub answers only by quoting its own approved claims, else Unknown), exclusion with an explanation, ranking | `scripts/peeps-agent-evaluation-server-test.mjs` |
 | Studio recording registered automatically as the Jam's evidence | `scripts/peeps-recording-ingest-server-test.mjs` with a real WebM through the real transcode path |
 | Confidential Zcash settlement | Server-side rules in `scripts/peeps-zcash-settlement-server-test.mjs`; a genuine shielded Orchard transfer on a local regtest chain via `scripts/zcash-regtest-e2e.mjs` |
 | Receipt that labels ONCHAIN VERIFIED / OFFCHAIN / SIMULATED / PENDING, and explains *why* an outcome is pending | Receipt assertions in the tests above |
@@ -58,7 +59,8 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md). Static HTML/JS front end; one Node API
 
 - **The demo is scripted and seeded by design.** Nothing in it is a real transaction.
 - **Live Studio room:** attendance is emitted by the room page when a participant joins, and recording is registered when the host's recording finalizes. We have not exercised a live camera/microphone session end to end ourselves (it needs real devices in a browser); the server-side paths are tested, the live-media path is not.
-- **Transcripts are not automatic.** Studio does not store transcripts, and a mixed recording has no speaker separation, so we do not auto-transcribe into Breadcrumbs (they need attributed speakers). The organizer uploads the transcript, and it is labelled as an organizer upload.
+- **Transcripts with speakers are manual.** A finalized Studio recording is one mixed track with no speaker separation. If the server has whisper configured it stores an automatic transcript labelled `studio_auto_unattributed` (wiring tested with a stub; real transcription not verified), and no person-specific Breadcrumbs are derived from it. Breadcrumbs come from a transcript the organizer uploads with named speakers, labelled as an organizer upload.
+- **The agent's candidate interview is an evidence interview**, deterministic and evidence-only. It is not a live or AI-driven Dub-to-Dub conversation; the scripted demo's conversation is simulated.
 - **Dough ledger payouts are off-chain** and labelled so. The receipt never shows a ledger entry as a blockchain payout.
 - **Zcash is regtest-proven only.** It has not run on public testnet (there is no automated faucet) or mainnet, and it is disabled by default in production. "Verified" means the recipient's wallet attested receipt, since the chain is opaque to Toasty.
 - **Solana** is proven on devnet and against captured mainnet transaction structure; production is configured for devnet.

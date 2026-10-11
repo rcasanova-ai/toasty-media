@@ -2027,6 +2027,25 @@ def migrate(conn):
     )
     ensure_columns(conn, "peeps_settlements", {"rail": "TEXT NOT NULL DEFAULT 'dough'"})
 
+    # Persisted agent evaluation of each candidate against the request's criteria (see peepsEvaluateCandidate).
+    # `mode` says honestly how it was done: dub_evidence_interview (the candidate's Dub answered from its own stored,
+    # approved claims) or directory_evidence_match (no Dub content exists; evaluated from the listing only).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS peeps_candidate_evaluations (
+          candidate_id TEXT PRIMARY KEY,
+          request_id TEXT NOT NULL,
+          mode TEXT NOT NULL,
+          verdict TEXT NOT NULL CHECK(verdict IN ('qualified','excluded','needs_more_detail')),
+          score REAL NOT NULL,
+          findings_json TEXT NOT NULL,
+          method TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_candidate_evaluations_request ON peeps_candidate_evaluations(request_id)")
     bootstrap_stablecorp_brand_lock(conn)
 
     conn.commit()
@@ -7154,6 +7173,21 @@ def main():
             (payload["requestId"],),
         ).fetchall()
         print(json.dumps({"candidates": [public_peeps_candidate(row) for row in rows]}))
+        return
+
+    if action == "peeps_evaluation_upsert":
+        now = utc_now()
+        conn.execute(
+            "INSERT INTO peeps_candidate_evaluations (candidate_id, request_id, mode, verdict, score, findings_json, method, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(candidate_id) DO UPDATE SET mode = excluded.mode, verdict = excluded.verdict, score = excluded.score, findings_json = excluded.findings_json, method = excluded.method, updated_at = excluded.updated_at",
+            (payload["candidateId"], payload["requestId"], payload["mode"], payload["verdict"], payload["score"], json.dumps(payload["findings"]), payload["method"], now, now),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "peeps_evaluation_list":
+        rows = conn.execute("SELECT * FROM peeps_candidate_evaluations WHERE request_id = ?", (payload["requestId"],)).fetchall()
+        print(json.dumps({"evaluations": [{"candidateId": r["candidate_id"], "mode": r["mode"], "verdict": r["verdict"], "score": r["score"], "findings": _json_or(r["findings_json"], {}), "method": r["method"], "evaluatedAt": r["updated_at"]} for r in rows]}))
         return
 
     if action == "peeps_candidate_get":
