@@ -1,0 +1,87 @@
+name: Render host security (manual)
+
+# Manual only. Uses the same SSH access the render deploy already uses. Never prints secret values: inspect mode prints
+# only booleans and lengths; rotate mode writes new random values directly into /etc/toasty-render.env on the host.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "inspect = read-only report. rotate = replace TOASTY_SESSION_SECRET and TOASTY_RENDER_TOKEN, restart, verify (signs everyone out)."
+        required: true
+        default: inspect
+        type: choice
+        options: [inspect, rotate]
+
+concurrency:
+  group: toasty-render-helper
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.TOASTY_RENDER_SSH_PRIVATE_KEY || secrets.TOASTY_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/toasty_render_deploy
+          chmod 600 ~/.ssh/toasty_render_deploy
+          ssh-keyscan -p 22 -H 165.22.57.61 >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Inspect (booleans and lengths only)
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          ENVF=/etc/toasty-render.env
+          LEAKED_SHA256="3f28ee307c7708523810b4829786dc6e40ae2fd7b4a288e15c44cb998757c61d"
+          val() { grep -E "^$1=" "$ENVF" 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d "\"'" || true; }
+          S="$(val TOASTY_SESSION_SECRET)"; T="$(val TOASTY_RENDER_TOKEN)"
+          echo "env file present: $([[ -f $ENVF ]] && echo yes || echo no) (mode $(stat -c %a $ENVF 2>/dev/null || echo ?))"
+          echo "TOASTY_SESSION_SECRET set: $([[ -n "$S" ]] && echo yes || echo NO) (length ${#S})"
+          echo "TOASTY_RENDER_TOKEN set: $([[ -n "$T" ]] && echo yes || echo no) (length ${#T})"
+          echo "session secret equals render token: $([[ -n "$S" && "$S" == "$T" ]] && echo YES || echo no)"
+          echo "render token is the one leaked in public git history: $([[ -n "$T" && "$(printf %s "$T" | sha256sum | cut -d' ' -f1)" == "$LEAKED_SHA256" ]] && echo YES-STILL-VALID || echo no)"
+          echo "session secret is the leaked token: $([[ -n "$S" && "$(printf %s "$S" | sha256sum | cut -d' ' -f1)" == "$LEAKED_SHA256" ]] && echo YES-STILL-VALID || echo no)"
+          echo "PEEPS_BETA_REQUIRE_INVITE set: $(grep -qE '^PEEPS_BETA_REQUIRE_INVITE=' $ENVF && echo yes || echo no)"
+          echo "ZCASH_SETTLEMENT_ENABLED set: $(grep -qE '^ZCASH_SETTLEMENT_ENABLED=' $ENVF && echo yes || echo no)"
+          echo "RESEND_API_KEY set: $(grep -qE '^RESEND_API_KEY=.+' $ENVF && echo yes || echo no)"
+          echo "SVM_PAY_TO set: $(grep -qE '^(SVM_PAY_TO|TOASTY_EXPERTS_X402_RECIPIENT)=.+' $ENVF && echo yes || echo no)"
+          echo "WHISPER_CLI_PATH set: $(grep -qE '^WHISPER_CLI_PATH=.+' $ENVF && echo yes || echo no); WHISPER_MODEL_PATH set: $(grep -qE '^WHISPER_MODEL_PATH=.+' $ENVF && echo yes || echo no)"
+          W="$(val WHISPER_CLI_PATH)"; echo "whisper binary executable: $([[ -n "$W" && -x "$W" ]] && echo yes || echo no); on PATH: $(command -v whisper-cli >/dev/null && echo yes || echo no)"
+          echo "ffmpeg installed: $(command -v ffmpeg >/dev/null && echo yes || echo no)"
+          echo "startup warning 'TOASTY_SESSION_SECRET is not set' in current journal: $(journalctl -u toasty-render.service --since '-3 days' --no-pager 2>/dev/null | grep -c 'TOASTY_SESSION_SECRET is not set' || true) occurrence(s)"
+          REMOTE
+
+      - name: Rotate (only when mode=rotate)
+        if: ${{ inputs.mode == 'rotate' }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          ENVF=/etc/toasty-render.env
+          STAMP="$(date -u +%Y%m%d-%H%M%S)"
+          cp -p "$ENVF" "$ENVF.bak-$STAMP"
+          NEW_SESSION="$(openssl rand -base64 48 | tr -d '\n=+/')"
+          NEW_TOKEN="$(openssl rand -hex 32)"
+          TMP="$(mktemp)"
+          grep -vE '^(TOASTY_SESSION_SECRET|TOASTY_RENDER_TOKEN)=' "$ENVF" > "$TMP" || true
+          { cat "$TMP"; echo "TOASTY_SESSION_SECRET=$NEW_SESSION"; echo "TOASTY_RENDER_TOKEN=$NEW_TOKEN"; } > "$ENVF"
+          rm -f "$TMP"; unset NEW_SESSION NEW_TOKEN
+          systemctl restart toasty-render.service
+          for i in 1 2 3 4 5 6 7 8 9 10; do systemctl is-active --quiet toasty-render.service && break; sleep 2; done
+          echo "service: $(systemctl is-active toasty-render.service)"
+          echo "backup kept at $ENVF.bak-$STAMP (root-only); delete it once verified, it contains the OLD values"
+          REMOTE
+
+      - name: Verify service health and that authentication still responds
+        run: |
+          set -euo pipefail
+          for i in 1 2 3 4 5; do curl --fail --silent --show-error https://render.toasty.media/health && break; sleep 3; done
+          echo
+          curl --fail --silent --show-error https://render.toasty.media/auth/session | grep -q '"authenticated":false' && echo "auth endpoint OK (anonymous session)"
