@@ -152,3 +152,5 @@ __pycache__/
 
 # Zcash regtest harness data (binaries, chain, throwaway wallets)
 .zcash-regtest/
+
+.prod-journey.json

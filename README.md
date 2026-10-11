@@ -20,6 +20,7 @@ npm test            # full Peeps suite, no network or secrets (Python 3 required
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Architecture and lifecycle diagram, state machines, trust boundaries |
 | [`docs/SUBMISSION.md`](docs/SUBMISSION.md) | Colosseum submission write-up, with a precise real-vs-simulated disclosure |
 | [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) | Three-minute demonstration script |
+| [`docs/PRODUCTION_TEST_RUNBOOK.md`](docs/PRODUCTION_TEST_RUNBOOK.md) | How to run and verify the real journey on production with an authorized account (`scripts/production-journey-check.mjs`) |
 | [`docs/JUDGE_WALKTHROUGH.md`](docs/JUDGE_WALKTHROUGH.md) | Click-by-click walkthrough of the demo and the real-services path, with what is simulated |
 | [`.env.example`](.env.example) | Configuration placeholders only |
 

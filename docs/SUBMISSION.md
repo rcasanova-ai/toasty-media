@@ -41,6 +41,18 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md). Static HTML/JS front end; one Node API
 | Public waitlist with invitations and a beta gate | `scripts/peeps-waitlist-server-test.mjs`; deployed |
 | One-command local demo with seeded data and simulated payments | `npm run demo`; verified from fresh clones |
 
+## 6a. What works where (read this first)
+
+| Capability | Production (toasty.media) | Local clone | Solana devnet | Zcash regtest | Needs login | Needs camera/mic |
+|---|---|---|---|---|---|---|
+| Seeded demo `/peeps/demo/` | Yes, verified | Yes | n/a (simulated) | n/a (simulated) | No | No |
+| Waitlist form and admin panel | Deployed; persistence/email not confirmed by us | Yes | n/a | n/a | Admin panel only | No |
+| Request, discovery, evidence-based evaluation, authorization, guest page, booking, consent, Breadcrumbs, Dough, receipt | Deployed, **not exercised by us with an authorized account** | **Yes, verified end to end** | n/a | n/a | Yes (invitation on production; local sandbox login) | No (attendance needs it) |
+| On-chain introduction payment | Code deployed; devnet configuration not confirmed | Yes, with config | **Verified (2 real txs)** | n/a | Yes | No |
+| Studio room, attendance, recording registration | Deployed; **live-device test not run** | Server paths tested | n/a | n/a | Yes | **Yes** |
+| Automatic transcript | Only if whisper is configured on the host (unconfirmed); never attributes speakers | Stub-tested | n/a | n/a | Yes | Yes (needs a real recording) |
+| Confidential Zcash settlement | Deployed but **disabled** | Yes with a regtest chain | n/a | **Verified (real shielded transfer)** | Yes | No |
+
 ### On-chain evidence
 
 - **Solana devnet (two real transactions, verified by the Peeps verification code):**
