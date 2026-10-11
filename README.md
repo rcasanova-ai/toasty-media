@@ -29,6 +29,7 @@ npm test            # full Peeps suite, no network or secrets (Python 3 required
 |---|---|
 | Outcome request, discovery, ranking, authorization, outreach, booking, Jam ↔ Studio session, consent, attendance events, transcript → Breadcrumbs → Dub, Dough ledger settlement | **Real production code**, covered by integration tests |
 | Solana USDC introduction payment (recipient, mint, amount, success, request-bound reference, replay and idempotency, Explorer link) | **Real on-chain verification**, proven on devnet |
+| Candidate evaluation: persisted Dub evidence interview / directory match, exclusion with explanation, ranking (deterministic, evidence-only; not a live or AI conversation) | **Real**, tested |
 | Studio recording is registered automatically as the Jam's evidence when the host's recording is finalized | **Real**, tested with a real WebM; not yet exercised with live cameras in a browser by us |
 | Confidential Zcash settlement (opt-in, explicit approval, recipient-wallet confirmation, privacy-preserving receipt) | **Real, proven with a genuine shielded Orchard transfer on a local regtest chain.** Disabled by default; not run on public testnet or mainnet |
 | `/peeps/demo/` | **Seeded and simulated by design**, labelled as such |

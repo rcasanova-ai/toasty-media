@@ -119,12 +119,13 @@ function stepAsk() {
 // ---- Step 2 ----
 function stepAuthorize() {
   const external = candidates.filter((c) => c.status === "proposed");
+  const ranked = [...external].sort((x, y) => (x.evaluation?.evaluationRank ?? 99) - (y.evaluation?.evaluationRank ?? 99));
   const needsEmail = external.some((c) => selected.has(c.id) && !c.contactEmail && c.reachability !== "claimed_member");
   const solana = requirement && !requirement.demo ? requirement.accepts?.[0] : null;
-  return `<section class="card"><span class="eyebrow">2 · Authorize introductions</span><h3>The agent found ${external.length} candidate${external.length === 1 ? "" : "s"}. Nobody has been contacted.</h3>
-    <p class="muted">Candidates are ranked from stored evidence (open "Evidence the agent used"). The scripted demo also shows an agent interviewing each Dub; that interview is demo-only and is not simulated here.</p>
-    ${external.map((c) => `<label class="row" style="grid-template-columns:auto 1fr auto;gap:12px;cursor:pointer"><input type="checkbox" data-pick="${esc(c.id)}" ${selected.has(c.id) ? "checked" : ""}><span><strong>${esc(c.displayName)}</strong><br><span class="muted">${esc(c.headline || "")} · ${esc(c.matchReason || "")}</span></span><i class="tag">${esc(String(c.matchScore))}% fit · ${esc(String(c.reachability || "").replace(/_/g, " "))}</i></label>
-      <details class="muted" style="margin:-4px 0 10px 34px"><summary>Evidence the agent used</summary><ul style="margin:6px 0">${(c.evidence || []).map((e) => `<li>${esc(e.claim)} <i>(${esc(e.sourceTitle || e.sourceType)}, confidence ${esc(e.confidence)})</i></li>`).join("") || "<li>No stored evidence beyond the match itself.</li>"}</ul><p style="margin:4px 0">Anything not listed is <b>unknown</b>: the agent doesn't assume it.</p></details>`).join("") || `<p class="muted">No candidates yet.</p>`}
+  return `<section class="card"><span class="eyebrow">2 · Authorize introductions</span><h3>The agent evaluated ${external.length} candidate${external.length === 1 ? "" : "s"}. Nobody has been contacted.</h3>
+    <p class="muted">Each candidate was checked against your request using stored evidence. Qualified people are ranked first; excluded people show exactly what is not evidenced (you can still override). Where a person has a Dub, it answers only from its own approved claims. Nothing is invented.</p>
+    ${ranked.map((c) => { const ev = c.evaluation; const q = ev?.verdict === "qualified"; return `<label class="row" style="grid-template-columns:auto 1fr auto;gap:12px;cursor:pointer;${q ? "" : "opacity:.8"}"><input type="checkbox" data-pick="${esc(c.id)}" ${selected.has(c.id) ? "checked" : ""}><span><strong>${ev ? `#${esc(ev.evaluationRank)} ` : ""}${esc(c.displayName)}</strong><br><span class="muted">${esc(c.headline || "")}</span>${ev ? `<br><span class="muted">${q ? "" : "<b>Excluded:</b> "}${esc(ev.findings.explanation)}</span>` : ""}</span><i class="tag ${q ? "good" : ""}">${ev ? (q ? `QUALIFIED · ${Math.round(ev.score * 100)}% evidence` : `EXCLUDED · ${Math.round(ev.score * 100)}%`) : `${esc(String(c.matchScore))}% fit`} · ${esc(String(c.reachability || "").replace(/_/g, " "))}</i></label>
+      <details class="muted" style="margin:-4px 0 10px 34px"><summary>${ev ? esc(ev.findings.modeLabel.split(":")[0]) : "Evidence"}: questions and answers</summary>${ev ? `<p style="margin:6px 0"><b>${ev.mode === "dub_evidence_interview" ? "Dub evidence interview" : "Directory evidence match (not a Dub interview)"}</b>. Questions come from your request; answers are only quotes of stored claims, otherwise <b>Unknown</b>. This is not an AI or live conversation.</p><ul style="margin:6px 0">${ev.findings.criteria.map((f) => `<li><b>${esc(f.criterion)}</b>: ${esc(f.answer)} ${f.answered ? `<i>(${esc(f.source)}; ${esc(f.evidenceClass)})</i>` : ""}</li>`).join("")}</ul>` : ""}<ul style="margin:6px 0">${(c.evidence || []).map((e) => `<li>Stored: ${esc(e.claim)} <i>(${esc(e.sourceTitle || e.sourceType)}, confidence ${esc(e.confidence)})</i></li>`).join("")}</ul></details>`; }).join("") || `<p class="muted">No candidates yet.</p>`}
     ${needsEmail ? `<label class="muted" for="gp-email" style="display:block;margin-top:12px">The guest's email — Peeps never guesses one. Use a second inbox of your own to play the guest.</label><input class="field" id="gp-email" type="email" value="${esc(draft.email)}" placeholder="guest@example.com">` : ""}
     <label class="muted" for="gp-comp" style="display:block;margin-top:12px">Pay each guest who joins (Dough, settled after the session)</label><input class="field" id="gp-comp" type="number" min="0" step="0.01" value="${esc(draft.compensation)}" style="max-width:200px">
     <div style="margin-top:14px"><b>Pay the $0.25 introduction fee with</b>
@@ -247,7 +248,9 @@ function wire() {
     requestId = result.request.id;
     history.replaceState(null, "", `?request=${encodeURIComponent(requestId)}`);
     candidates = result.candidates || [];
-    selected = new Set(candidates.slice(0, Math.max(1, result.request.workingRepresentation?.desiredCandidateCount || 1)).map((c) => c.id));
+    const byRank = [...candidates].sort((x, y) => (x.evaluation?.evaluationRank ?? 99) - (y.evaluation?.evaluationRank ?? 99));
+    const qualified = byRank.filter((c) => c.evaluation?.verdict === "qualified");
+    selected = new Set((qualified.length ? qualified : byRank).slice(0, Math.max(1, result.request.workingRepresentation?.desiredCandidateCount || 1)).map((c) => c.id));
     requirement = (await getPeepsPaymentRequirement(requestId)).requirement;
     startPolling();
   }, "The agent searched and ranked candidates. Review them and authorize."); });

@@ -36,7 +36,7 @@ It prints a **local-only login** (`judge@peeps.local` plus a generated password)
 
 1. Open `http://127.0.0.1:4173/peeps/`. Click **Sign in** (top right), enter the printed email and password, click **Sign in**. Expected: the Peeps app opens (`/peeps/app/`).
 2. In the left sidebar click **Judge path**. Expected: "Intent → human interaction → verified evidence", a request box pre-filled with *Fintech/payment executives in Southeast Asia…*.
-3. Click **Find my Peeps →** (action 1). Expected: *"The agent found 5 candidates. Nobody has been contacted."* Open **Evidence the agent used** under a candidate to see the stored claims, their source and confidence. (The demo's scripted Dub interview is demo-only; here the agent ranks from stored evidence.)
+3. Click **Find my Peeps →** (action 1). Expected: *"The agent evaluated 5 candidates. Nobody has been contacted."* Each candidate shows `#rank`, **QUALIFIED · n% evidence** or **EXCLUDED** with the exact criteria that are not evidenced. Open **questions and answers** under a candidate: each criterion from your request is a question, and the answer is a quote of a stored claim with its source, or **Unknown**. This is a deterministic *evidence interview*, not an AI or live conversation: candidates with a Dub are interviewed through their own approved claims; others get a directory match explicitly labelled "not a Dub interview". Results are saved.
 4. Type an email address you control in **The guest's email** (use a second inbox, or any address: in this sandbox outreach is recorded, not sent). Leave **Dough** selected, compensation **25**.
 5. Click **Authorize introductions →** (action 2). Expected: *"Introductions authorized. Peeps is contacting your guest."* and an **Agent progress** card: ✓ Authorized, ✓ Guest contacted. A link *"open the guest page"* tagged **simulated outbox · test mode** appears (the sandbox's stand-in for the email).
 
@@ -82,11 +82,12 @@ Requires the local regtest chain ([`scripts/zcash/README.md`](../scripts/zcash/R
 |---|---|
 | Request, discovery, ranking, authorization, guest page, scheduling, booking, Jam ↔ Studio linkage, consent, transcript → Breadcrumbs → Dub, Dough ledger, receipt, state persistence | Real application code, real persisted state |
 | Outreach email | Simulated outbox (recorded, not sent) unless `RESEND_API_KEY` is set |
+| Candidate evaluation | Real, persisted, evidence-only. Not a live or AI conversation (labelled) |
 | Candidate directory outside the network | Labelled demo directory |
 | Dough funding in the sandbox | Seeded ledger credit, not real money |
 | Guest attendance | Emitted by the room when a real participant joins; **simulated** if you use the curl fallback |
 | Recording | Registered automatically on real Studio finalization; absent unless a live session ran |
-| Transcript | Text you upload or the clearly labelled sample; not automatic |
+| Transcript | Text you upload (or the labelled sample) with named speakers. When the server has whisper configured, finalizing a real recording also stores an automatic transcript labelled `studio_auto_unattributed`; it creates no person-specific Breadcrumbs |
 | Solana | Real devnet verification when configured; otherwise disabled |
 | Zcash | Real shielded transfers on a local **regtest** chain only (no value; not public testnet, not mainnet) |
 | `/peeps/demo/` | Fully simulated |

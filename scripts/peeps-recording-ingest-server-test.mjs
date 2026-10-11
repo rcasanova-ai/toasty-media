@@ -48,6 +48,31 @@ function zoned(ms, tz) { const p = {}; for (const x of new Intl.DateTimeFormat("
 function dayUtc(d, h) { const t = new Date(Date.now() + d * 86400000); return Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate(), h, 0); }
 
 
+
+async function session(api, db, tag, withTranscript) {
+  const requester = await api("/auth/register", { method: "POST", body: { name: `Auto Requester ${tag}`, email: `auto-req-${tag}@example.com`, password: "password10chars" } });
+  const cookie = requester.cookie;
+  db("dough_post", { id: `dle_seed_${tag}`, subjectType: "user", subjectId: requester.data.user.id, bucket: "spend", direction: "credit", amount: 50, kind: "funding", referenceId: `seed-${tag}` });
+  const created = await api("/api/peeps/requests", { method: "POST", cookie, body: { whoText: "Fintech payment executives in Southeast Asia offline payments", outcomeText: "I want 1 person for a recorded podcast about offline payments." } });
+  const request = created.data.request;
+  const cand = created.data.candidates.find((c) => c.source === "demo_directory_provider");
+  const auth = await api(`/api/peeps/requests/${request.id}/authorize`, { method: "POST", cookie, body: { candidates: [{ candidateId: cand.id, outreachEmail: `auto.guest.${tag}@example.com` }], compensationAmount: 25 } });
+  const intro = auth.data.introductions[0];
+  const msgs = (await api(`/api/peeps/test-outbox?requestId=${request.id}`, { cookie })).data.messages;
+  const token = msgs.find((m) => m.introductionId === intro.id && m.purpose === "outreach").testPayload.url.split("token=")[1];
+  await api(`/api/peeps/respond/${token}/interested`, { method: "POST", body: {} });
+  await api(`/api/peeps/respond/${token}/answers`, { method: "POST", body: { recordingPreference: "ok", durationMinutes: 45, timezone: "Asia/Bangkok", windows: [{ start: zoned(dayUtc(9, 2), "Asia/Bangkok"), end: zoned(dayUtc(9, 5), "Asia/Bangkok") }] } });
+  await api(`/api/peeps/requests/${request.id}/availability`, { method: "POST", cookie, body: { timezone: "America/New_York", windows: [{ start: zoned(dayUtc(8, 20), "America/New_York"), end: zoned(dayUtc(9, 8), "America/New_York") }] } });
+  const book = await api(`/api/peeps/introductions/${intro.id}/book`, { method: "POST", cookie, body: {} });
+  const jamId = book.data.booking.jamId, sessionId = book.data.booking.studioSessionId;
+  await api(`/api/peeps/respond/${token}/consent`, { method: "POST", body: { acceptances: ["terms_of_service", "recording"] } });
+  const joinRes = await api(`/api/peeps/respond/${token}/join`, { method: "POST", body: {} });
+  await api(`/api/jams/${jamId}/events`, { method: "POST", body: { invite: joinRes.data.joinUrl.split("token=")[1], type: "participant.joined" } });
+  if (withTranscript) await api(`/api/jams/${jamId}/transcript`, { method: "POST", cookie, body: { segments: [{ speaker: "Auto Requester", text: "Welcome." }, { speaker: cand.displayName, text: "I have spent twelve years building offline payment systems across Southeast Asia." }] } });
+  await api(`/api/jams/${jamId}/complete`, { method: "POST", cookie, body: {} });
+  return { request, jamId, sessionId, cookie, guest: cand.displayName };
+}
+
 const ffmpegOk = spawnSync("ffmpeg", ["-version"]).status === 0;
 if (!ffmpegOk) { console.log("SKIPPED: ffmpeg is not installed, so a real WebM cannot be produced."); process.exit(0); }
 
@@ -116,6 +141,36 @@ async function main() {
   const r4 = await finalize("rec_other", "ls_does_not_exist");
   await r4.arrayBuffer();
   assert(r4.status === 200 && sql("SELECT COUNT(*) FROM jam_artifacts WHERE artifact_type = 'recording'")[0][0] === 1, "a recording for a session that isn't a Peeps Jam registers nothing");
+
+  console.log("\nAutomatic transcription (a STUB whisper binary: this proves the wiring, not real speech recognition)");
+  const { writeFileSync, chmodSync } = await import("node:fs");
+  const stub = join(scratch, "whisper-stub.sh");
+  writeFileSync(stub, `#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = "-of" ] && of="$2"; shift; done\nprintf 'we talked about offline payments\\nand how settlement works\\n' > "$of.txt"\n`);
+  chmodSync(stub, 0o755);
+  const srv2 = start(4249, { WHISPER_CLI_PATH: stub, WHISPER_MODEL_PATH: stub });
+  await ready(srv2.base);
+  const m2 = make(srv2);
+  const S = await session(m2.api, m2.db, "w", false);
+  const form = new FormData();
+  form.append("manifest", JSON.stringify({ recordingId: "rec_auto_1", kind: "master-program", sessionId: S.sessionId, durationSeconds: 2 }));
+  form.append("source", new Blob([readFileSync(webm)], { type: "video/webm" }), "source.webm");
+  const fr = await fetch(`${srv2.base}/api/recordings/finalize`, { method: "POST", headers: { "x-toasty-csrf": "1", cookie: S.cookie }, body: form });
+  await fr.arrayBuffer();
+  let tr = [];
+  for (let i = 0; i < 40 && !tr.length; i++) { tr = m2.sql("SELECT source, segments_json FROM peeps_transcripts WHERE jam_id = ?", [S.jamId]); if (!tr.length) await new Promise((r) => setTimeout(r, 500)); }
+  assert(fr.status === 200 && tr.length === 1 && tr[0][0] === "studio_auto_unattributed", "after the recording is finalized a transcript is stored automatically, labelled studio_auto_unattributed");
+  const segs = JSON.parse(tr[0][1]);
+  assert(segs.length === 2 && segs.every((x) => x.speaker === "Unattributed"), "every segment is Unattributed: a mixed recording has no speaker separation");
+  assert(m2.sql("SELECT COUNT(*) FROM peeps_breadcrumbs WHERE jam_id = ? AND kind != 'participation'", [S.jamId])[0][0] === 0, "NO person-specific Breadcrumb is generated from unattributed speech");
+  assert(m2.sql("SELECT COUNT(*) FROM jam_events WHERE jam_id = ? AND type = 'transcript.auto_created'", [S.jamId])[0][0] === 1, "a transcript.auto_created event records that no speaker attribution exists");
+  const rcpt = (await m2.api(`/api/peeps/requests/${S.request.id}/receipt`, { cookie: S.cookie })).data;
+  assert(rcpt.evidence.transcripts.length === 1 && rcpt.evidence.transcripts[0].source === "studio_auto_unattributed" && rcpt.breadcrumbs.total === 0, "the receipt shows the auto transcript's source and zero derived Breadcrumbs");
+  const fr2 = await fetch(`${srv2.base}/api/recordings/finalize`, { method: "POST", headers: { "x-toasty-csrf": "1", cookie: S.cookie }, body: (() => { const f = new FormData(); f.append("manifest", JSON.stringify({ recordingId: "rec_auto_1", kind: "master-program", sessionId: S.sessionId, durationSeconds: 2 })); f.append("source", new Blob([readFileSync(webm)], { type: "video/webm" }), "source.webm"); return f; })() });
+  await fr2.arrayBuffer();
+  await new Promise((r) => setTimeout(r, 3000));
+  assert(m2.sql("SELECT COUNT(*) FROM peeps_transcripts WHERE jam_id = ?", [S.jamId])[0][0] === 1, "finalizing the same recording again doesn't duplicate the transcript");
+  const srv3Plain = m2.sql("SELECT COUNT(*) FROM jam_artifacts WHERE jam_id = ? AND artifact_type = 'recording'", [S.jamId])[0][0];
+  assert(srv3Plain === 1, "and still exactly one recording artifact");
 
   console.log("\nAll Peeps recording-ingestion tests passed.");
 }
