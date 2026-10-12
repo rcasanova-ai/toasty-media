@@ -818,7 +818,7 @@ export class ProducerView {
     }
     this.elements.recordNote.textContent = this.session.programOutput?.readyToRecord
       ? "Click Record, select the Program Output tab, and turn Share tab audio ON. Record and Go Live share that one pick."
-      : "Record is ready. Clicking it opens Program Output and then the browser capture picker.";
+      : (this.session.canCaptureProgramCanvas?.() ? "Record is ready. It records the Program (screen + camera + mic) directly." : "Record is ready. With guests connected, clicking it opens Program Output and then the browser capture picker.");
   }
 
   // ROOT CAUSE of "recording only starts when Share tab audio enabled" landing as a confusing,
@@ -831,9 +831,10 @@ export class ProducerView {
   // failed attempt obviously retryable rather than a silent/confusing dead end.
   async toggleRecording() {
     if (!this.session.recording.active) {
-      this.elements.recordNote.textContent = PROGRAM_OUTPUT_PICKER_INSTRUCTION;
+      // Canvas recording needs no picker and no Program Output window; the guest fallback prints its own
+      // instructions and opens that window from inside _captureProgramOutput.
+      this.elements.recordNote.textContent = this.session.canCaptureProgramCanvas?.() ? "Starting recording…" : PROGRAM_OUTPUT_PICKER_INSTRUCTION;
       this.elements.recordNote.dataset.error = "false";
-      if (!this.session.programOutput?.readyToRecord) this.session.ensureProgramOutputWindow?.();
     }
     try {
       this.elements.recordToggle.disabled = true;
