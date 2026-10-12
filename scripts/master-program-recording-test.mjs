@@ -446,7 +446,7 @@ console.log("\nProducer controls are Producer-only; Program Output has no REC ch
   assert(director.includes("id=\"lvTopHealth\""), "Producer top bar shows connection/session health");
   assert(director.includes("id=\"lvTopHost\""), "Producer top bar shows Host identity");
   assert(director.includes("id=\"lvTopProducer\""), "Producer top bar shows Producer identity");
-  assert(director.includes("id=\"lvBottomProgramOutput\""), "Program Output is a visible primary control in the bottom bar");
+  assert(director.includes("id=\"lvOpenProgramOutput\"") && !director.includes("lvBottomProgramOutput"), "Program Output opens from the production panel, not duplicated in the bottom bar");
   assert(director.includes("id=\"lvTopSettings\""), "Producer top bar has Settings action");
   assert(director.includes("id=\"lvTopEndSession\""), "Producer top bar has End Session action");
   assert(director.includes("class=\"lv-bottom-bar\""), "persistent bottom control bar exists");

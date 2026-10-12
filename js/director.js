@@ -311,9 +311,7 @@ function bindProducerChrome() {
       window.alert(String(error?.message || "Screen share could not start."));
     }
   });
-  const openProgramOutput = () => document.querySelector("#lvOpenProgramOutput")?.click();
-  elements.topProgramOutput?.addEventListener("click", openProgramOutput);
-  document.querySelector("#lvBottomProgramOutput")?.addEventListener("click", openProgramOutput);
+  elements.topProgramOutput?.addEventListener("click", () => document.querySelector("#lvOpenProgramOutput")?.click());
   elements.topSettings?.addEventListener("click", () => {
     window.open("./dashboard.html", "_blank", "noopener");
   });
