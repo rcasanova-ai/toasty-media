@@ -311,7 +311,9 @@ function bindProducerChrome() {
       window.alert(String(error?.message || "Screen share could not start."));
     }
   });
-  elements.topProgramOutput?.addEventListener("click", () => document.querySelector("#lvOpenProgramOutput")?.click());
+  const openProgramOutput = () => document.querySelector("#lvOpenProgramOutput")?.click();
+  elements.topProgramOutput?.addEventListener("click", openProgramOutput);
+  document.querySelector("#lvBottomProgramOutput")?.addEventListener("click", openProgramOutput);
   elements.topSettings?.addEventListener("click", () => {
     window.open("./dashboard.html", "_blank", "noopener");
   });
@@ -431,10 +433,10 @@ function bindRailControls() {
       const connecting = state === "binding" || state === "expected";
       const active = Boolean(s?.active);
       elements.toggleScreenQuick.setAttribute("aria-pressed", String(active));
-      elements.toggleScreenQuick.disabled = connecting;
+      elements.toggleScreenQuick.disabled = false;
       elements.toggleScreenQuick.dataset.shareState = state;
       const label = elements.toggleScreenQuick.querySelector(".dock-label");
-      if (label) label.textContent = connecting ? "Connecting…" : (active ? "Stop Sharing" : "Share Screen");
+      if (label) label.textContent = connecting ? "Cancel" : (active ? "Stop Sharing" : "Share Screen");
     }
   });
 }

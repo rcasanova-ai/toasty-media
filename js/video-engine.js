@@ -204,14 +204,16 @@ export class VideoEngine {
   // Separate screen publisher. Never call this against the Host/Guest camera iframe — VDO's
   // {screenshare:true} on that frame replaces the camera. This mounts a second push id so Program
   // Composition can treat ScreenShareSource as its own source without destroying the camera publisher.
-  mountScreenPublisher(container, { roomId, streamId, label = "Screen" }) {
+  // interactive:true leaves out autostart/cleanoutput so VDO shows its own "share screen" button: the
+  // click lands INSIDE the cross-origin frame, which is the only way that frame gets the user activation
+  // getDisplayMedia requires. A hidden autostart frame never gets one, so the picker never opens.
+  mountScreenPublisher(container, { roomId, streamId, label = "Screen", interactive = false }) {
     return this.mountFrame(container, "screen-push", {
       room: roomId,
       push: streamId,
       screenshare: "1",
       webcam: "0",
-      cleanoutput: "1",
-      autostart: "1",
+      ...(interactive ? {} : { cleanoutput: "1", autostart: "1" }),
       cover: "1",
       label
     });

@@ -62,11 +62,11 @@ console.log("\nSemantic color tokens are declared at the correct cascade level (
   assert(programOutputBlock.includes("var(--studio-cream)"), "--po-text-primary aliases the existing brand-flipping --studio-cream, not a new hardcoded color (would break white-label skins)");
 }
 
-console.log("\nSolo (1-participant) composition is a centered ~4:3 frame, not full-bleed");
+console.log("\nSolo (1-participant) composition is a centered 16:9 frame, not full-bleed");
 {
   const css = readFileSync(join(ROOT, "css/program-output.css"), "utf8");
   const soloBlock = css.slice(css.indexOf('.po-stage[data-layout="1"] .po-tile {'), css.indexOf('.po-stage[data-layout="1"] .po-tile {') + 200);
-  assert(soloBlock.includes("aspect-ratio: 4 / 3"), "solo tile has an explicit 4:3 aspect-ratio");
+  assert(soloBlock.includes("aspect-ratio: 16 / 9"), "solo tile has an explicit 16:9 aspect-ratio");
   assert(soloBlock.includes("max-width: 100%"), "solo tile is still capped at 100% width (cannot overflow the containing flex row even at an unusual viewport)");
 }
 

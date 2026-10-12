@@ -131,7 +131,9 @@ const GUEST_SEAT_COUNT = 3;
 // up. Covers the case a real device test surfaced: the user cancels the OS display picker or the publish
 // silently never connects, and VDO never sends ANY message back — with no timeout that left the share
 // reading as active/BINDING forever.
-const SCREEN_SHARE_CONNECT_TIMEOUT_MS = 15000;
+// The user has to pick a screen in the browser's own picker, so this is a human-speed wait, not a network
+// timeout. It only fires if nothing was ever chosen.
+const SCREEN_SHARE_CONNECT_TIMEOUT_MS = 120000;
 const PROGRAM_OUTPUT_STALE_MS = 22000;
 
 function idleProgramOutputState() {
@@ -173,6 +175,14 @@ const SESSION_STATUS_POLL_MS = 20000;
 // emits. Neither view owns its own VideoEngine, guest list, program state, or ProgramSync — there is
 // exactly one of each, here, so Host/Producer can never drift out of sync with each other or with what
 // Program Output is actually showing.
+// The timeout only means "nothing was ever chosen". Say that, plus the real VDO error if one was posted.
+export function screenShareTimeoutReason(lastMessage) {
+  const detail = lastMessage && (lastMessage.error || lastMessage.failed || lastMessage.reason);
+  const base = "No screen was chosen within 2 minutes, so nothing is being shared.";
+  const hint = " If the browser never showed a picker: allow screen sharing for toasty.media, and on macOS enable your browser under System Settings → Privacy & Security → Screen & System Audio Recording, then restart the browser.";
+  return detail ? `${base} The screen source reported: ${String(detail).slice(0, 160)}.${hint}` : base + hint;
+}
+
 export class LiveSession {
   constructor() {
     this.roomId = getOrCreateRoomId();
@@ -1673,7 +1683,7 @@ export class LiveSession {
   }
 
   async toggleScreenShare() {
-    if (this.screenShare?.active) {
+    if (this.screenShare?.active || this.screenShare?.state === ScreenShareState.BINDING) {
       await this.stopScreenShare();
       return;
     }
@@ -1691,10 +1701,13 @@ export class LiveSession {
       layout: this.program.layout,
       shareLayout: this.program.shareLayout
     };
+    this._lastScreenFrameMessage = null;
+    this._openScreenSharePanel(container);
     this.engine.mountScreenPublisher(container, {
       roomId: this.roomId,
       streamId: screenId,
-      label: `${this.hostProfile?.displayName || "Host"} screen`
+      label: `${this.hostProfile?.displayName || "Host"} screen`,
+      interactive: true
     });
     // Pending, NOT active yet: VDO.Ninja/getDisplayMedia haven't confirmed anything at this point — the
     // iframe was just told to ask the browser for a display picker. Program composition, presence, and
@@ -1719,7 +1732,7 @@ export class LiveSession {
     clearTimeout(this._screenShareConnectTimer);
     this._screenShareConnectTimer = setTimeout(() => {
       if (this.screenShare?.state === ScreenShareState.BINDING) {
-        this._failScreenShare("No response from the screen source — the share may have been cancelled or blocked.");
+        this._failScreenShare(screenShareTimeoutReason(this._lastScreenFrameMessage));
       }
     }, SCREEN_SHARE_CONNECT_TIMEOUT_MS);
     this.emit("screenshare", this.screenShare);
@@ -1741,6 +1754,7 @@ export class LiveSession {
   _confirmScreenShare() {
     if (!this.screenShare || this.screenShare.state !== ScreenShareState.BINDING) return;
     clearTimeout(this._screenShareConnectTimer);
+    this._closeScreenSharePanel();
     const camera = this._hostPreviewStream;
     const cameraFrame = this.engine.frames.get("host");
     this.screenShare = createScreenShareSource({
@@ -1775,6 +1789,7 @@ export class LiveSession {
   // silently going back to the share button's resting state.
   _failScreenShare(reason) {
     clearTimeout(this._screenShareConnectTimer);
+    this._closeScreenSharePanel();
     const ownerParticipantId = this.screenShare?.ownerParticipantId || "host";
     if (ownerParticipantId === "host") {
       this.engine.send("screen-push", { hangup: true });
@@ -1792,6 +1807,7 @@ export class LiveSession {
 
   async stopScreenShare() {
     clearTimeout(this._screenShareConnectTimer);
+    this._closeScreenSharePanel();
     const previousShare = this.screenShare;
     const ownerParticipantId = previousShare?.ownerParticipantId || previousShare?.participantId || "host";
     const isHostShare = ownerParticipantId === "host";
@@ -1820,6 +1836,34 @@ export class LiveSession {
     this.emit("screenshare", this.screenShare);
     this.emit("program", this.program);
     this._syncProgramPreview();
+  }
+
+  // The screen-push frame is shown as a small modal while the user picks a screen, then goes back off-screen
+  // in the SAME element (re-parenting an iframe would reload it and drop the capture).
+  _openScreenSharePanel(container) {
+    if (!container || typeof document === "undefined") return;
+    container.dataset.sharePanel = "open";
+    container.removeAttribute("aria-hidden");
+    if (!container.querySelector(".lv-share-panel-bar")) {
+      const bar = document.createElement("div");
+      bar.className = "lv-share-panel-bar";
+      const text = document.createElement("span");
+      text.textContent = "Click the button below, then choose a screen, window or tab to share.";
+      const cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.textContent = "Cancel";
+      cancel.addEventListener("click", () => { if (this.screenShare?.state === ScreenShareState.BINDING) this.stopScreenShare(); });
+      bar.append(text, cancel);
+      container.prepend(bar);
+    }
+  }
+
+  _closeScreenSharePanel() {
+    const container = this._containers?.hostScreenTransport;
+    if (!container) return;
+    delete container.dataset.sharePanel;
+    container.setAttribute("aria-hidden", "true");
+    container.querySelector(".lv-share-panel-bar")?.remove();
   }
 
   _ensureHostScreenTransport() {
@@ -2416,6 +2460,11 @@ export class LiveSession {
   _handleVdoMessage(message, source) {
     if (!message) return;
     const fromScreen = Boolean(source && source === this.engine.getFrameWindow("screen-push"));
+    if (fromScreen) this._lastScreenFrameMessage = message;
+    if (fromScreen && this.screenShare?.state === ScreenShareState.BINDING && (message.error || message.failed)) {
+      this._failScreenShare(`The screen source reported an error: ${String(message.error || message.failed).slice(0, 200)}`);
+      return;
+    }
     if (fromScreen && this.screenShare?.state === ScreenShareState.BINDING && screenPublisherEndedMessage(message)) {
       // Failed/declined before ever confirming — e.g. VDO reports push-connection:false because the
       // display picker was cancelled. Distinct from the "was live, now ended" case below: this never
