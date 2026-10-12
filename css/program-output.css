@@ -54,11 +54,15 @@ html, body {
   display: grid;
   grid-template-columns: 1fr;
   grid-template-rows: auto 1fr auto;
-  height: 100vh;
-  inset: 0;
+  /* Fixed 16:9 program canvas, letterboxed in whatever window it is captured from, so the recording
+     has the same proportions for camera-only, screen-only and screen+camera. */
+  height: min(100vh, calc(100vw * 9 / 16));
+  left: 50%;
   overflow: hidden;
   position: fixed;
-  width: 100vw;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(100vw, calc(100vh * 16 / 9));
 }
 .po-canvas::before {
   background: var(--studio-watermark-image, none) 3% 94% / min(36vw, 380px) auto no-repeat;
@@ -318,7 +322,7 @@ html, body {
   justify-content: center;
 }
 .po-stage[data-layout="1"] .po-tile {
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 16 / 9;
   height: calc(100% * var(--po-frame-scale, 1));
   max-width: 100%;
   width: auto;
