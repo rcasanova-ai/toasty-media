@@ -1392,3 +1392,59 @@ body.studio-public-shell[data-brand-theme] {
   .live-console .lv-topbar { align-items: flex-start; flex-wrap: wrap; }
   .live-console .lv-topbar-status { margin-left: auto; }
 }
+
+/* ---- Bottom toolbar (final layout): [Mic Camera Present Leave] | [Record Go Live] | [People Chat Tools] ----
+   Three fixed groups on one grid so nothing can overlap; wraps to stacked rows on narrow windows. Declared
+   last (this sheet loads after studio.css / studio-chassis.css) with doubled specificity to settle the older
+   competing .lv-bottom-* rules. Layout only: no behaviour or media handling lives here. */
+.live-console .lv-bottom-bar.lv-bottom-bar {
+  align-items: center;
+  column-gap: 1rem;
+  display: grid;
+  grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr);
+  row-gap: 0.5rem;
+}
+.live-console .lv-bottom-bar .lv-host-controls,
+.live-console .lv-bottom-bar .lv-bottom-actions,
+.live-console .lv-bottom-bar .lv-bottom-nav {
+  align-items: center;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+  margin: 0;
+  min-width: 0;
+}
+.live-console .lv-bottom-bar .lv-host-controls { justify-content: flex-start; }
+.live-console .lv-bottom-bar .lv-bottom-actions { justify-content: center; }
+.live-console .lv-bottom-bar .lv-bottom-nav { justify-content: flex-end; }
+.live-console .lv-bottom-bar .lv-icon-btn,
+.live-console .lv-bottom-bar .rec-toggle,
+.live-console .lv-bottom-bar .lv-bottom-nav-btn {
+  align-items: center;
+  box-sizing: border-box;
+  display: inline-flex;
+  font-size: 0.78rem;
+  height: 40px;
+  justify-content: center;
+  margin: 0;
+  min-height: 40px;
+  min-width: 4.25rem;
+  padding: 0 0.8rem;
+  white-space: nowrap;
+}
+.live-console .lv-bottom-bar .lv-icon-btn-danger { margin-left: 0; }
+.live-console .lv-bottom-bar .lv-bottom-nav-btn { min-width: 4.5rem; }
+@media (max-width: 960px) {
+  .live-console .lv-bottom-bar.lv-bottom-bar { grid-template-columns: 1fr; }
+  .live-console .lv-bottom-bar .lv-host-controls,
+  .live-console .lv-bottom-bar .lv-bottom-actions,
+  .live-console .lv-bottom-bar .lv-bottom-nav { flex-wrap: wrap; }
+  .live-console .lv-bottom-bar .lv-host-controls,
+  .live-console .lv-bottom-bar .lv-bottom-actions,
+  .live-console .lv-bottom-bar .lv-bottom-nav { justify-content: center; }
+}
+@media (max-width: 520px) {
+  .live-console .lv-bottom-bar .lv-icon-btn,
+  .live-console .lv-bottom-bar .rec-toggle,
+  .live-console .lv-bottom-bar .lv-bottom-nav-btn { flex: 1 1 auto; min-width: 0; padding: 0 0.7rem; }
+}
