@@ -52,6 +52,7 @@ import { AssetCatalogue } from "./asset-catalogue.js";
 import { ProgramAudioBus, serializeProgramAudio } from "./program-audio.js";
 import { ProgramAudioMixer } from "./program-audio-mixer.js";
 import { MasterRecorder } from "./master-recorder.js";
+import { createProgramCanvasCapture } from "./program-canvas-capture.js";
 import { ProductionTimeline, ProductionEventType } from "./production-timeline.js";
 import { SessionArtifactStore } from "./session-artifact.js";
 import { ProgramDestinationRouter } from "./program-destination.js";
@@ -2019,12 +2020,30 @@ export class LiveSession {
   startRecording() { return this.studio.startRecording(); }
   stopRecording() { return this.studio.stopRecording(); }
 
-  // The ONLY place Program Output is captured with the browser's picker. Called by ProgramFeed when the
+  canCaptureProgramCanvas() {
+    if (typeof document === "undefined" || typeof HTMLCanvasElement === "undefined" || !HTMLCanvasElement.prototype.captureStream) return false;
+    const camera = this._hostPreviewStream;
+    if (!camera?.getVideoTracks?.().length || !camera.getAudioTracks?.().length) return false;
+    return !this.participants.list().some((p) => p.role === ParticipantRole.GUEST && p.connectionStatus !== ConnectionStatus.IDLE && p.connectionStatus !== ConnectionStatus.DISCONNECTED);
+  }
+
+  // Program Output captured with the browser's picker (only used when remote guests must be in the picture). Called by ProgramFeed when the
   // first consumer (Record or Go Live) needs Program and nothing holds it yet.
   async _captureProgramOutput() {
     if (!this.policy.canRecord()) throw new Error("Recording is disabled by this session's capture policy.");
     if (!MasterProgramRecorder.isSupported()) {
       throw new Error("This browser cannot capture Program Output (getDisplayMedia + MediaRecorder).");
+    }
+    // Preferred: compose the screen share + camera (+ mic) on a first-party 16:9 canvas. No picker, no Program
+    // Output tab, nothing to select. Remote guests can't be drawn (cross-origin VDO iframes), so with guests
+    // connected we keep the Program Output tab capture below.
+    if (this.canCaptureProgramCanvas()) {
+      this.emit("recording-status", "Recording the Program canvas…");
+      return createProgramCanvasCapture({
+        getCamera: () => this._hostPreviewStream,
+        getScreen: () => (this.screenShare?.active ? this.screenShare.stream : null),
+        getMicTrack: () => this._hostPreviewStream?.getAudioTracks?.()[0] || null
+      });
     }
     // Open/refresh Program Output from the same producer gesture if it is not already ready.
     // The browser's native capture picker remains the final source-selection boundary.
