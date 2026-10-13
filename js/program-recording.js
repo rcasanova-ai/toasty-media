@@ -54,10 +54,12 @@ export const MARKER_FROM_ACTION = Object.freeze({
   "focus-group": MarkerType.FOCUS_GROUP
 });
 
+// Only an EXPLICIT H.264 + AAC request counts. Plain "video/mp4" lets the browser pick any codec (VP9/AV1 + Opus on
+// some builds), which is an MP4 file most editors and players cannot open — not a deliverable. If H.264 is not
+// available the recorder uses WebM and the optional server conversion produces the H.264 MP4.
 const MASTER_MIME_MP4 = [
   "video/mp4;codecs=avc1.640028,mp4a.40.2",
-  "video/mp4;codecs=avc1,mp4a.40.2",
-  "video/mp4"
+  "video/mp4;codecs=avc1,mp4a.40.2"
 ];
 const MASTER_MIME_WEBM = [
   "video/webm;codecs=vp9,opus",
