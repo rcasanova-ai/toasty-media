@@ -10587,7 +10587,7 @@ async function peepsReceiptView(request) {
     },
     checks: [
       check("interaction", "Interaction occurred", Boolean(completion) && attended.length > 0, completion ? `${attended.length} participant(s) attended` : "The Jam has not been completed"),
-      check("consent", "Consent captured", attended.length > 0 && attended.every((p) => p.consentCapturedAt), `${attended.filter((p) => p.consentCapturedAt).length} of ${attended.length || participants.length} consented`),
+      check("consent", "Consent captured", attended.length > 0 && attended.every((p) => p.consentCapturedAt), `${(attended.length ? attended : participants).filter((p) => p.consentCapturedAt).length} of ${(attended.length ? attended : participants).length} consented${attended.length ? "" : " (before anyone has attended)"}`),
       check("attendance", "Participant attended", attended.length > 0, attended.length ? "From participant join events" : "No join event recorded"),
       check("evidence", "Evidence generated", transcripts.length > 0 || artifacts.some((a) => a.status === "ready"), `${transcripts.length} transcript(s)`),
       check("outcome", "Outcome verified", completion?.outcome?.state === "outcome_verified",
