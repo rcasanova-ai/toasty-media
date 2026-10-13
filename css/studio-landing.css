@@ -1,0 +1,13 @@
+/* Studio landing page — page-specific refinements on top of css/toasty-site.css */
+.studio-landing .moxie-note { margin-top: var(--s-4); font-size: .92rem; max-width: 38rem; }
+.studio-landing .moxie-shot { margin-top: var(--s-5); }
+.studio-landing .live-note { font-size: .88rem; margin-top: var(--s-4); }
+.studio-landing .ts-split > .ts-figure .ts-frame { transform: perspective(1600px) rotateY(-2.5deg); transition: transform .6s var(--ease); }
+.studio-landing .ts-split--flip > .ts-figure .ts-frame { transform: perspective(1600px) rotateY(2.5deg); }
+.studio-landing .ts-split > .ts-figure:hover .ts-frame { transform: none; }
+@media (max-width: 900px), (prefers-reduced-motion: reduce) { .studio-landing .ts-split > .ts-figure .ts-frame, .studio-landing .ts-split--flip > .ts-figure .ts-frame { transform: none; } }
+.studio-landing .ts-hero .ts-frame { box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.85), 0 0 80px -30px rgba(139, 124, 246, 0.45); }
+.studio-landing #status .ts-cap__row p { font-size: .96rem; color: var(--text-2); }
+.studio-landing #status .ts-card { padding-block: var(--s-3); }
+.studio-landing #waitlist .ts-card { max-width: 34rem; justify-self: end; width: 100%; }
+@media (max-width: 900px) { .studio-landing #waitlist .ts-card { justify-self: stretch; } }

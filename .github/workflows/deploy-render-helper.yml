@@ -16,6 +16,7 @@ on:
       - "scripts/studio-mode-model-test.mjs"
       - "scripts/recording-jobs-server-test.mjs"
       - "scripts/recording-recovery-test.mjs"
+      - "scripts/studio-waitlist-server-test.mjs"
       - ".github/workflows/deploy-render-helper.yml"
 
 concurrency:
@@ -58,6 +59,7 @@ jobs:
           node scripts/recording-finalization-mp4-test.mjs
           node scripts/recording-jobs-server-test.mjs
           node scripts/recording-recovery-test.mjs
+          node scripts/studio-waitlist-server-test.mjs
 
       - name: Validate live Studio stability
         run: |
