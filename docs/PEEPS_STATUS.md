@@ -50,7 +50,7 @@ Last updated with the PR that introduced this file. Statements marked **verified
 - [ ] Production: sign-in, full journey and persistence verified by an authenticated account (**not done**: needs a real account; see below)
 - [ ] Production: Solana devnet recipient configured and one verified payment through the website
 - [ ] Production: email provider configured; real outreach delivery verified
-- [ ] Base x402 and Avalanche: evaluate (see `docs/NETWORK_EVALUATION.md` once written)
+- [x] Base x402 and Avalanche evaluated (desk research, nothing built): see `NETWORK_EVALUATION.md`. Recommendation: Base x402 later as an agent rail; keep Zcash for confidentiality; do not build eERC.
 
 ## Production verification
 
