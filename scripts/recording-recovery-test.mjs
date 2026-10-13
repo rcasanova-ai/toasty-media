@@ -39,6 +39,7 @@ ok(/retryRecordingFinalization/.test(pv), "Retry MP4 is wired in Producer");
 const prSrc = readFileSync(new URL("../js/program-recording.js", import.meta.url), "utf8");
 const ms = readFileSync(new URL("../js/media-store.js", import.meta.url), "utf8");
 ok(/videoBitsPerSecond: 6000000/.test(prSrc) && /audioBitsPerSecond: 160000/.test(prSrc), "local recording quality is 6 Mbps video / 160 kbps audio — never reduced to fit a server limit");
+ok(!/"video\/mp4"\s*\n\];/.test(prSrc.slice(prSrc.indexOf("const MASTER_MIME_MP4"), prSrc.indexOf("const MASTER_MIME_WEBM"))), "plain video/mp4 (any codec) is never accepted as the MP4 format — H.264/AAC only");
 ok(/pickMasterMime/.test(prSrc) && /MASTER_MIME_MP4/.test(prSrc) && /pickMasterMime\(Rec\)/.test(prSrc), "the recorder prefers browser-encoded MP4 (H.264/AAC) and falls back to WebM");
 ok(/const direct = isMp4Mime\(captureResult\.mimeType\)/.test(live) && /recordedAs: direct \? "browser-mp4"/.test(live), "a browser-encoded MP4 is the finished recording at stop — no upload, no conversion");
 ok(/_convertOnServerIfAllowed/.test(live) && /too-large/.test(live), "WebM server conversion is optional and a recording the server would refuse is never uploaded");
