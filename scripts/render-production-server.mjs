@@ -331,6 +331,19 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // ---- Toasty Studio public waitlist (no session; CSRF header + origin allowlist + rate limits + bot traps) ----
+  // Lives under /api/organizations/ on purpose: that prefix is already proxied by the live nginx config, so no nginx change.
+  if (req.method === "POST" && req.url === "/api/organizations/studio-waitlist") {
+    if (!requireCsrf(req, res) || !limit(req, res, "studio-waitlist-join", 20, 60 * 60 * 1000) || !limit(req, res, "studio-waitlist-join-burst", 6, 60 * 1000)) return;
+    await handleStudioWaitlistJoin(req, res);
+    return;
+  }
+  if (req.method === "GET" && String(req.url || "").startsWith("/api/organizations/studio-waitlist/unsubscribe")) {
+    if (!limit(req, res, "studio-waitlist-unsub", 20, 15 * 60 * 1000)) return;
+    await handleStudioWaitlistUnsubscribe(req, res);
+    return;
+  }
+
   // ---- Studio broadcast (Program -> external destinations): authenticated by the Studio session ----
   // Destination credentials (RTMP(S) URL + stream key) are saved ONCE server-side, encrypted, scoped to the
   // caller's organization, and never returned to the browser. The browser only names destinations to
@@ -436,6 +449,23 @@ const server = createServer(async (req, res) => {
     if (!session) return;
     await handlePeepsEvaluationAccounts(req, res, session);
     return;
+  }
+  if (req.method === "GET" && String(req.url || "").split("?")[0] === "/api/organizations/platform-admin/studio-waitlist") {
+    if (!limit(req, res, "platform-admin-read", 120, 15 * 60 * 1000)) return;
+    const session = await requirePlatformAdmin(req, res);
+    if (!session) return;
+    await handleStudioWaitlistAdminList(req, res);
+    return;
+  }
+  {
+    const swMatch = String(req.url || "").match(/^\/api\/organizations\/platform-admin\/studio-waitlist\/([^/]+)\/status$/);
+    if (req.method === "POST" && swMatch) {
+      if (!requireCsrf(req, res) || !limit(req, res, "platform-admin-write", 60, 15 * 60 * 1000)) return;
+      const session = await requirePlatformAdmin(req, res);
+      if (!session) return;
+      await handleStudioWaitlistAdminStatus(req, res, decodeURIComponent(swMatch[1]));
+      return;
+    }
   }
   if (req.method === "GET" && req.url === "/api/organizations/platform-admin/peeps-waitlist") {
     if (!limit(req, res, "platform-admin-read", 120, 15 * 60 * 1000)) return;
@@ -11255,6 +11285,97 @@ async function handleJamSettle(req, res, authSession) {
 // Email honesty: every send records what really happened — sent (provider accepted it), simulated (no
 // RESEND_API_KEY: console only, NOT delivered) or failed — and the admin view shows it.
 // ====================================================================================================
+// ---- Toasty Studio public waitlist ----
+// Interest registration from the public Studio page. Same trust model as the Peeps waitlist: no account, no access,
+// uniform success responses (a bot learns nothing), a hidden-field trap, a minimum fill time, rate limits, explicit
+// consent recorded with its text version, one row per email, and a signed one-click unsubscribe.
+const STUDIO_WAITLIST_CONSENT_VERSION = "studio-waitlist-2026-10-v1";
+const STUDIO_WAITLIST_INTERESTS = Object.freeze({
+  podcast: "Podcasts", interviews: "Interviews", live: "Live shows", focus_groups: "Focus groups & research", other: "Something else"
+});
+const STUDIO_WAITLIST_STATUSES = new Set(["WAITLISTED", "CONTACTED", "INVITED", "ARCHIVED"]);
+
+function studioWaitlistUnsubscribeToken(id) {
+  return `${id}.${createHmac("sha256", SESSION_SECRET || "toasty-studio").update(`studio-waitlist-unsubscribe:${id}`).digest("base64url")}`;
+}
+
+function studioWaitlistFooter(entry) {
+  const apiBase = (process.env.TOASTY_PUBLIC_API_BASE || "https://render.toasty.media").replace(/\/$/, "");
+  const url = `${apiBase}/api/organizations/studio-waitlist/unsubscribe?t=${encodeURIComponent(studioWaitlistUnsubscribeToken(entry.id))}`;
+  return `<hr><p style="color:#777;font-size:12px">You're receiving this because you asked to join the Toasty Studio waitlist. <a href="${url}">Unsubscribe from Studio launch and invitation emails</a>.</p>`;
+}
+
+async function studioWaitlistSendConfirmation(entry) {
+  let status = "failed";
+  try {
+    const result = await sendEmail({
+      to: entry.email,
+      subject: "You're on the Toasty Studio waitlist",
+      html: `<p>Hi ${escapeHtml(entry.name)},</p><p>You're on the <b>Toasty Studio</b> waitlist. Thank you.</p>
+<p>Studio is a browser-based production studio for podcasts, interviews and live shows. We'll email you when we open access to more people; nothing more is needed from you now.</p>
+<p>Your interest: ${escapeHtml(STUDIO_WAITLIST_INTERESTS[entry.interest] || "Something else")}. Joining is free.</p>${studioWaitlistFooter(entry)}`
+    });
+    status = result.ok ? (result.transport === "resend" ? "sent" : "simulated") : "failed";
+  } catch (error) {
+    console.error("[Toasty Studio] waitlist confirmation email failed", error);
+  }
+  await db("studio_waitlist_set_email_status", { id: entry.id, status });
+  return status;
+}
+
+async function handleStudioWaitlistJoin(req, res) {
+  const body = await readJson(req);
+  const uniform = () => sendJson(req, res, 200, { ok: true, message: "You're on the Studio waitlist. We'll email you when access opens." });
+  if (peepsWaitlistCleanText(body.website, 200) || (Number.isFinite(Number(body.elapsedMs)) && Number(body.elapsedMs) < PEEPS_WAITLIST_MIN_FILL_MS)) return uniform();
+  const name = cleanName(peepsWaitlistCleanText(body.name, 120));
+  const email = normalizeEmail(body.email);
+  if (!name) return sendJson(req, res, 400, { error: "Please tell us your name." });
+  if (!email || email.length > 254 || !EMAIL_PATTERN.test(email) || /[\s,;<>"]/.test(email)) return sendJson(req, res, 400, { error: "Enter a valid email address." });
+  const interest = String(body.interest || "");
+  if (!Object.hasOwn(STUDIO_WAITLIST_INTERESTS, interest)) return sendJson(req, res, 400, { error: "Choose what you want to produce." });
+  if (body.consent !== true) return sendJson(req, res, 400, { error: "Please agree to receive Studio launch and invitation emails to join the waitlist." });
+  const joined = await db("studio_waitlist_join", {
+    id: newId("swl"), email, name, interest, consentVersion: STUDIO_WAITLIST_CONSENT_VERSION,
+    company: peepsWaitlistCleanText(body.company, 120), notes: peepsWaitlistCleanText(body.notes, 500), source: "studio-landing"
+  });
+  if (joined.created || joined.reconsented) await studioWaitlistSendConfirmation(joined.entry);
+  return uniform();
+}
+
+async function handleStudioWaitlistUnsubscribe(req, res) {
+  const raw = new URL(req.url, "http://x").searchParams.get("t") || "";
+  const [id] = raw.split(".");
+  const html = (status, text) => { setCors(req, res); res.writeHead(status, { "Content-Type": "text/html; charset=utf-8" }); res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Toasty Studio</title><body style="font-family:system-ui;max-width:32rem;margin:15vh auto;padding:0 1rem"><h1>Toasty Studio</h1><p>${text}</p>`); };
+  if (!SAFE_ID.test(id || "") || !safeStringEqual(raw, studioWaitlistUnsubscribeToken(id))) return html(400, "That unsubscribe link isn't valid.");
+  await db("studio_waitlist_withdraw_consent", { id });
+  html(200, "You've been unsubscribed. You won't receive Studio launch or invitation emails.");
+}
+
+async function handleStudioWaitlistAdminList(req, res) {
+  const result = await db("studio_waitlist_list", { limit: 5000 });
+  const entries = (result.entries || []).map((entry) => ({ ...entry, interestLabel: STUDIO_WAITLIST_INTERESTS[entry.interest] || entry.interest }));
+  if (new URL(req.url, "http://x").searchParams.get("format") === "csv") {
+    const cell = (v) => `"${String(v ?? "").replace(/"/g, '""').replace(/^([=+\-@])/, "'$1")}"`;
+    const head = ["registered", "name", "email", "company", "interest", "notes", "status", "consent_at", "consent_version", "unsubscribed_at"];
+    const lines = [head.join(","), ...entries.map((e) => [e.createdAt, e.name, e.email, e.company, e.interestLabel, e.notes, e.status, e.consentAt, e.consentVersion, e.consentWithdrawnAt].map(cell).join(","))];
+    setCors(req, res);
+    res.writeHead(200, { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": 'attachment; filename="studio-waitlist.csv"', "Cache-Control": "no-store" });
+    res.end(lines.join("\n"));
+    return;
+  }
+  sendJson(req, res, 200, { total: result.total, byInterest: result.byInterest, byStatus: result.byStatus, consentVersion: STUDIO_WAITLIST_CONSENT_VERSION, emailTransport: RESEND_API_KEY ? "resend" : "dev_not_delivered", entries });
+}
+
+async function handleStudioWaitlistAdminStatus(req, res, id) {
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid waitlist entry.");
+  const body = await readJson(req, 4 * 1024);
+  const status = String(body.status || "");
+  if (!STUDIO_WAITLIST_STATUSES.has(status)) throw httpError(400, "Unknown status.");
+  const result = await db("studio_waitlist_set_status", { id, status, adminNote: body.adminNote == null ? null : peepsWaitlistCleanText(body.adminNote, 500) });
+  if (result.error === "not_found") throw httpError(404, "Waitlist entry not found.");
+  sendJson(req, res, 200, { entry: result.entry });
+}
+
 const PEEPS_WAITLIST_CONSENT_VERSION = "peeps-waitlist-2026-10-v1";
 const PEEPS_WAITLIST_INTERESTS = Object.freeze({
   community_services: "Community Services", professional_networking: "Professional Networking", mentorship: "Mentorship", consulting: "Consulting", other: "Other"

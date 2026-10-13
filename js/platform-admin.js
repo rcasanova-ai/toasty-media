@@ -1,4 +1,4 @@
-import { studioRequest } from "./studio-api.js";
+import { studioRequest, studioApiEndpoint } from "./studio-api.js";
 
 const state={session:null,status:null,organizations:[],organizationId:null,detail:null,panel:"overview"};
 const $=(id)=>document.getElementById(id);
@@ -62,6 +62,8 @@ function bindStatic(){
   $("paOrgSearch")?.addEventListener("input",renderOrganizationDirectory);
   $("paEvalCreate")?.addEventListener("click",createEvaluationAccounts);
   $("paWaitlistSearch")?.addEventListener("input",renderWaitlist);$("paWaitlistRefresh")?.addEventListener("click",loadWaitlist);
+  $("paStudioWaitlistSearch")?.addEventListener("input",renderStudioWaitlist);$("paStudioWaitlistRefresh")?.addEventListener("click",loadStudioWaitlist);
+  $("paStudioWaitlistCsv")?.addEventListener("click",downloadStudioWaitlistCsv);
 }
 
 function selectPanel(panel){
@@ -69,6 +71,38 @@ function selectPanel(panel){
   document.querySelectorAll(".platform-nav-btn").forEach(b=>b.classList.toggle("is-active",b.dataset.panel===panel));
   document.querySelectorAll(".platform-panel").forEach(p=>p.classList.toggle("is-active",p.dataset.panelView===panel));
   if(panel==="waitlist")loadWaitlist();
+  if(panel==="studiowaitlist")loadStudioWaitlist();
+}
+
+// ---- Studio waitlist (platform-wide) ----
+const swl={data:null};
+async function loadStudioWaitlist(){
+  try{swl.data=await studioRequest("/api/organizations/platform-admin/studio-waitlist");renderStudioWaitlist();}
+  catch(error){setMessage(error.message,true);}
+}
+function renderStudioWaitlist(){
+  const d=swl.data;if(!d)return;
+  $("paStudioWaitlistEmail").textContent=d.emailTransport==="resend"?"Confirmation email: real delivery via Resend.":"Confirmation email: NOT configured (RESEND_API_KEY missing) — messages are logged on the server, not delivered.";
+  $("paStudioWaitlistSummary").innerHTML=[["Total",d.total],["Waitlisted",d.byStatus.WAITLISTED||0],["Contacted",d.byStatus.CONTACTED||0],["Invited",d.byStatus.INVITED||0],["Archived",d.byStatus.ARCHIVED||0]].map(x=>'<div class="usage-metric"><span>'+esc(x[0])+'</span><strong>'+esc(x[1])+'</strong></div>').join("");
+  $("paStudioWaitlistBreakdown").innerHTML='<p><b>Interest</b> — '+(Object.entries(d.byInterest).map(([k,v])=>esc(human(k))+': <b>'+esc(v)+'</b>').join(" · ")||"—")+'</p>';
+  const q=($("paStudioWaitlistSearch").value||"").trim().toLowerCase();
+  const list=d.entries.filter(e=>!q||[e.name,e.email,e.company,e.interestLabel].some(v=>String(v||"").toLowerCase().includes(q)));
+  $("paStudioWaitlistTable").querySelector("tbody").innerHTML=list.map(e=>
+    '<tr><td>'+esc(shortDate(e.createdAt))+'</td><td><strong>'+esc(e.name)+'</strong><br><small>'+esc(e.email)+'</small>'+(e.notes?'<br><small>'+esc(e.notes)+'</small>':'')+'</td><td>'+esc(e.company||"—")+'</td><td>'+esc(e.interestLabel)+'</td>'
+    +'<td><select data-swl-status="'+esc(e.id)+'" aria-label="Status for '+esc(e.email)+'">'+["WAITLISTED","CONTACTED","INVITED","ARCHIVED"].map(s=>'<option value="'+s+'"'+(s===e.status?" selected":"")+'>'+human(s.toLowerCase())+'</option>').join("")+'</select></td>'
+    +'<td><small>'+esc(shortDate(e.consentAt))+'<br>'+esc(e.consentVersion)+(e.consentWithdrawnAt?'<br><b>Unsubscribed '+esc(shortDate(e.consentWithdrawnAt))+'</b>':'')+'</small></td><td>'+esc(human(e.confirmationEmailStatus))+'</td></tr>'
+  ).join("")||'<tr><td colspan="7" class="hint">No registrations yet.</td></tr>';
+  $("paStudioWaitlistTable").querySelectorAll("[data-swl-status]").forEach(sel=>sel.onchange=async()=>{
+    try{await post("/api/organizations/platform-admin/studio-waitlist/"+encodeURIComponent(sel.dataset.swlStatus)+"/status",{status:sel.value});setMessage("Updated.");await loadStudioWaitlist();}catch(error){setMessage(error.message,true);}
+  });
+}
+async function downloadStudioWaitlistCsv(event){
+  event.preventDefault();
+  try{
+    const response=await fetch(studioApiEndpoint()+"/api/organizations/platform-admin/studio-waitlist?format=csv",{credentials:"include"});
+    if(!response.ok)throw new Error("Could not export the waitlist.");
+    const url=URL.createObjectURL(await response.blob());const a=document.createElement("a");a.href=url;a.download="studio-waitlist.csv";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
+  }catch(error){setMessage(error.message,true);}
 }
 
 // ---- Peeps waitlist (platform-wide, not per organization) ----

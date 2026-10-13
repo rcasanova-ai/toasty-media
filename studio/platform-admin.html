@@ -30,6 +30,7 @@
       <button class="platform-nav-btn" data-panel="billing">Billing</button>
       <button class="platform-nav-btn" data-panel="integrations">Integrations</button>
       <button class="platform-nav-btn" data-panel="waitlist">Peeps waitlist</button>
+      <button class="platform-nav-btn" data-panel="studiowaitlist">Studio waitlist</button>
     </aside>
 
     <section class="platform-admin-main">
@@ -204,6 +205,19 @@
           </div>
         </section>
 
+
+        <section class="platform-panel" data-panel-view="studiowaitlist">
+          <div class="settings-card">
+            <div class="panel-heading"><div><h2>Studio waitlist</h2><p class="hint">Private. Visible only to platform administrators. People who registered interest from the public Studio page, each with the consent they gave and when. A waitlist entry is not an account.</p></div><div><button id="paStudioWaitlistRefresh" class="btn" type="button">Refresh</button> <a id="paStudioWaitlistCsv" class="btn" href="#" download="studio-waitlist.csv">Export CSV</a></div></div>
+            <p id="paStudioWaitlistEmail" class="hint"></p>
+            <div id="paStudioWaitlistSummary" class="usage-grid"></div>
+            <div id="paStudioWaitlistBreakdown" class="hint"></div>
+          </div>
+          <div class="settings-card">
+            <div class="panel-heading"><h3>Registrations</h3><input id="paStudioWaitlistSearch" type="search" placeholder="Search name, email, company…" aria-label="Search Studio waitlist"></div>
+            <div style="overflow-x:auto"><table class="settings-table" id="paStudioWaitlistTable"><thead><tr><th>Registered</th><th>Name / email</th><th>Company</th><th>Interest</th><th>Status</th><th>Consent</th><th>Confirmation email</th></tr></thead><tbody></tbody></table></div>
+          </div>
+        </section>
 
         <section class="platform-panel" data-panel-view="waitlist">
           <div class="settings-card">

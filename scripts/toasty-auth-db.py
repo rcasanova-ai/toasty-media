@@ -1954,6 +1954,34 @@ def migrate(conn):
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_waitlist_invites_wl ON peeps_waitlist_invites(waitlist_id)")
 
+    # ---- Toasty Studio public waitlist ----
+    # Interest registration from the public Studio page. A row is NOT an account and grants nothing. `email` is stored
+    # normalized (lower-case) and is UNIQUE, so a duplicate registration can never create a second row. Consent is
+    # recorded with a timestamp and the exact consent-text version; withdrawing it (unsubscribe link) is recorded, not deleted.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS studio_waitlist (
+          id TEXT PRIMARY KEY,
+          email TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL,
+          company TEXT NOT NULL DEFAULT '',
+          interest TEXT NOT NULL CHECK(interest IN ('podcast','interviews','live','focus_groups','other')),
+          notes TEXT NOT NULL DEFAULT '',
+          source TEXT NOT NULL DEFAULT 'studio-landing',
+          status TEXT NOT NULL DEFAULT 'WAITLISTED' CHECK(status IN ('WAITLISTED','CONTACTED','INVITED','ARCHIVED')),
+          admin_note TEXT NOT NULL DEFAULT '',
+          consent_at TEXT NOT NULL,
+          consent_version TEXT NOT NULL,
+          consent_withdrawn_at TEXT,
+          confirmation_email_status TEXT NOT NULL DEFAULT 'pending',
+          confirmation_email_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_studio_waitlist_status ON studio_waitlist(status, created_at)")
+
     # Peeps economic events — one row per economic event in a request's lifecycle (today: the
     # introduction authorization payment). `status` says exactly what is true: onchain_verified (a Solana
     # transaction the SERVER confirmed against the RPC), ledger_posted (internal Dough ledger, no chain)
@@ -3458,6 +3486,18 @@ def public_peeps_waitlist(row, conn=None):
         else:
             entry["invite"] = None
     return entry
+
+
+def public_studio_waitlist(row):
+    if not row:
+        return None
+    return {
+        "id": row["id"], "email": row["email"], "name": row["name"], "company": row["company"], "interest": row["interest"],
+        "notes": row["notes"], "source": row["source"], "status": row["status"], "adminNote": row["admin_note"],
+        "consentAt": row["consent_at"], "consentVersion": row["consent_version"], "consentWithdrawnAt": row["consent_withdrawn_at"],
+        "confirmationEmailStatus": row["confirmation_email_status"], "confirmationEmailAt": row["confirmation_email_at"],
+        "createdAt": row["created_at"], "updatedAt": row["updated_at"],
+    }
 
 
 def public_peeps_zec(row):
@@ -7931,6 +7971,61 @@ def main():
             (payload["userId"], int(payload.get("limit") or 5)),
         ).fetchall()
         print(json.dumps({"intents": [{**public_dough_funding_intent(r), "paidAt": r["paid_at"]} for r in rows]}))
+        return
+
+    # ---- Studio waitlist actions ----
+    if action == "studio_waitlist_join":
+        now = utc_now()
+        try:
+            conn.execute(
+                "INSERT INTO studio_waitlist (id, email, name, company, interest, notes, source, status, consent_at, consent_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'WAITLISTED', ?, ?, ?, ?)",
+                (payload["id"], payload["email"], payload["name"], payload.get("company") or "", payload["interest"], payload.get("notes") or "", payload.get("source") or "studio-landing", now, payload["consentVersion"], now, now),
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            row = conn.execute("SELECT * FROM studio_waitlist WHERE email = ?", (payload["email"],)).fetchone()
+            # A person who unsubscribed and signs up again is re-consenting: record the new consent, keep the one row.
+            if row and row["consent_withdrawn_at"]:
+                conn.execute("UPDATE studio_waitlist SET consent_withdrawn_at = NULL, consent_at = ?, consent_version = ?, updated_at = ? WHERE id = ?", (now, payload["consentVersion"], now, row["id"]))
+                conn.commit()
+                row = conn.execute("SELECT * FROM studio_waitlist WHERE id = ?", (row["id"],)).fetchone()
+                print(json.dumps({"duplicate": True, "reconsented": True, "entry": public_studio_waitlist(row)}))
+                return
+            print(json.dumps({"duplicate": True, "entry": public_studio_waitlist(row)}))
+            return
+        print(json.dumps({"created": True, "entry": public_studio_waitlist(conn.execute("SELECT * FROM studio_waitlist WHERE id = ?", (payload["id"],)).fetchone())}))
+        return
+
+    if action == "studio_waitlist_set_email_status":
+        conn.execute("UPDATE studio_waitlist SET confirmation_email_status = ?, confirmation_email_at = ?, updated_at = ? WHERE id = ?", (payload["status"], utc_now(), utc_now(), payload["id"]))
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "studio_waitlist_withdraw_consent":
+        conn.execute("UPDATE studio_waitlist SET consent_withdrawn_at = COALESCE(consent_withdrawn_at, ?), updated_at = ? WHERE id = ?", (utc_now(), utc_now(), payload["id"]))
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "studio_waitlist_set_status":
+        row = conn.execute("SELECT * FROM studio_waitlist WHERE id = ?", (payload["id"],)).fetchone()
+        if not row:
+            print(json.dumps({"error": "not_found"}))
+            return
+        conn.execute("UPDATE studio_waitlist SET status = ?, admin_note = COALESCE(?, admin_note), updated_at = ? WHERE id = ?", (payload["status"], payload.get("adminNote"), utc_now(), payload["id"]))
+        conn.commit()
+        print(json.dumps({"entry": public_studio_waitlist(conn.execute("SELECT * FROM studio_waitlist WHERE id = ?", (payload["id"],)).fetchone())}))
+        return
+
+    if action == "studio_waitlist_list":
+        limit_n = max(1, min(5000, int(payload.get("limit") or 1000)))
+        rows = conn.execute("SELECT * FROM studio_waitlist ORDER BY created_at DESC LIMIT ?", (limit_n,)).fetchall()
+        def tally(col):
+            return {r[0]: r[1] for r in conn.execute(f"SELECT {col}, COUNT(*) FROM studio_waitlist GROUP BY {col} ORDER BY COUNT(*) DESC").fetchall()}
+        total = conn.execute("SELECT COUNT(*) FROM studio_waitlist").fetchone()[0]
+        print(json.dumps({"total": total, "byInterest": tally("interest"), "byStatus": tally("status"), "entries": [public_studio_waitlist(r) for r in rows]}))
         return
 
     # ---- Peeps waitlist actions ----

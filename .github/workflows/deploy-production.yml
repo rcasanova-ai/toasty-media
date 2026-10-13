@@ -35,6 +35,7 @@ jobs:
           node scripts/studio-shell-cleanup-test.mjs
           node scripts/studio-screen-share-regression-test.mjs
           node scripts/studio-record-canvas-regression-test.mjs
+          node scripts/site-pages-test.mjs
 
       - name: Install ffmpeg for broadcast and MP4 tests
         run: |
@@ -49,6 +50,7 @@ jobs:
           node scripts/recording-finalization-mp4-test.mjs
           node scripts/recording-jobs-server-test.mjs
           node scripts/recording-recovery-test.mjs
+          node scripts/studio-waitlist-server-test.mjs
 
       - name: Real-browser Studio regression (record, present, Program Output, MP4, downloads, recovery)
         run: |
@@ -201,4 +203,10 @@ jobs:
           curl --fail --silent --show-error --location https://toasty.media/css/golive.css -o /tmp/golive.css
           grep -Fq 'golive-dialog' /tmp/golive.css
           grep -Fq 'Who do you want to talk to?' /tmp/guest.html
+          curl --fail --silent --show-error --location https://toasty.media/studio/ -o /tmp/studio-landing.html
+          grep -Fq 'studioWaitlistForm' /tmp/studio-landing.html
+          curl --fail --silent --show-error --location https://toasty.media/about/ -o /tmp/about.html
+          grep -Fq 'Ricardo Casanova' /tmp/about.html
+          curl --fail --silent --show-error --location https://toasty.media/css/toasty-site.css -o /tmp/toasty-site.css
+          grep -Fq -- '--violet' /tmp/toasty-site.css
           echo 'Production verification passed.'
