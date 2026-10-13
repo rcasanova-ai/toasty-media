@@ -54,11 +54,33 @@ export const MARKER_FROM_ACTION = Object.freeze({
   "focus-group": MarkerType.FOCUS_GROUP
 });
 
-const MASTER_MIME = [
+const MASTER_MIME_MP4 = [
+  "video/mp4;codecs=avc1.640028,mp4a.40.2",
+  "video/mp4;codecs=avc1,mp4a.40.2",
+  "video/mp4"
+];
+const MASTER_MIME_WEBM = [
   "video/webm;codecs=vp9,opus",
   "video/webm;codecs=vp8,opus",
   "video/webm"
 ];
+
+// Local-first recording format. Where the browser can encode H.264/AAC MP4 itself (Chrome/Edge 126+, Safari)
+// the recording IS the MP4: complete on the producer's machine at stop, downloadable immediately, no upload and
+// no server conversion. Everywhere else it is WebM, with optional server conversion as a fallback. Override with
+// localStorage["toasty.recording.format"] = "webm" | "mp4" (or window.TOASTY_RECORDING_FORMAT).
+export function recordingFormatPreference() {
+  try { return globalThis.TOASTY_RECORDING_FORMAT || globalThis.localStorage?.getItem("toasty.recording.format") || "auto"; } catch (_) { return "auto"; }
+}
+
+export function pickMasterMime(Rec, preference = recordingFormatPreference()) {
+  const supported = (type) => Boolean(Rec?.isTypeSupported?.(type));
+  const order = preference === "webm" ? [...MASTER_MIME_WEBM] : [...MASTER_MIME_MP4, ...MASTER_MIME_WEBM];
+  return order.find(supported) || "";
+}
+
+export function isMp4Mime(mime) { return /^video\/mp4/i.test(String(mime || "")); }
+export function recordingExtension(mime) { return isMp4Mime(mime) ? "mp4" : "webm"; }
 
 let recordingSeq = 0;
 export function nextRecordingId() {
@@ -329,9 +351,9 @@ export function startMasterMediaRecorder(Rec, stream, mimeType, { onRecorder } =
   const attempts = [
     {
       id: "mime-bitrate-timeslice",
-      // 2.5 Mbps video + 128 kbps audio ≈ 0.33 MB/s: a 15-minute recording stays ~300MB and always fits the plan
-      // upload caps (6 Mbps made a 3-minute recording exceed them, so MP4 conversion was refused).
-      options: mimeType ? { mimeType, audioBitsPerSecond: 128000, videoBitsPerSecond: 2500000 } : undefined,
+      // 6 Mbps video + 160 kbps audio: local recording quality is never reduced to fit a server limit. Recording and
+      // download are entirely local; only the OPTIONAL server MP4 conversion has a size cap (see the limits endpoint).
+      options: mimeType ? { mimeType, audioBitsPerSecond: 160000, videoBitsPerSecond: 6000000 } : undefined,
       timeslice: 1000
     },
     { id: "mime-timeslice", options: mimeType ? { mimeType } : undefined, timeslice: 1000 },
@@ -523,7 +545,7 @@ export function assembleMasterPackage({
     brandTheme,
     participants,
     source: {
-      filename: `session/source/${recordingId}.webm`,
+      filename: `session/source/${recordingId}.${recordingExtension(captureResult.mimeType)}`,
       mediaId: sourceMediaId(recordingId),
       mimeType: captureResult.mimeType || "video/webm",
       bytes: captureResult.bytes || captureResult.blob?.size || 0
@@ -677,10 +699,12 @@ export function finalizedMasterManifest(manifest, { masterBlob, sourceBlob, erro
   };
 }
 
-export async function persistMasterRecording({ recordingId, sourceBlob, masterBlob = null, manifest }) {
+export async function persistMasterRecording({ recordingId, sourceBlob, masterBlob = null, manifest, masterIsSource = false }) {
   const source = sourceBlob || null;
-  if (!source) throw new Error("Source WebM recording is required.");
-  await saveMediaBlob({
+  if (!source) throw new Error("Source recording is required.");
+  // A recording the browser already encoded as MP4 is stored ONCE (as the master): a 30-minute 6 Mbps file is
+  // ~1.4GB and must not be duplicated in the browser's storage quota.
+  if (!masterIsSource) await saveMediaBlob({
     id: sourceMediaId(recordingId),
     blob: source,
     metadata: { kind: `${RecordingKind.MASTER}:source`, recordingId, mimeType: source.type || "video/webm" }
@@ -790,7 +814,7 @@ export class MasterProgramRecorder {
     capture.getVideoTracks()[0]?.addEventListener?.("ended", () => {
       if (this.recorder?.state === "recording") this.stop().catch(() => {});
     });
-    this.mimeType = MASTER_MIME.find((type) => Rec.isTypeSupported?.(type)) || "";
+    this.mimeType = pickMasterMime(Rec);
     const started = startMasterMediaRecorder(Rec, this.masterStream, this.mimeType, {
       onRecorder: (recorder) => {
         recorder.addEventListener("dataavailable", (event) => {

@@ -192,7 +192,7 @@ server {
     # multi-hundred-MB body to its own disk first) and Node writes it to disk, so memory never holds a recording.
     # Conversion runs as a queued job that the browser polls (a few small GETs), so no HTTP request has to
     # outlive the transcode. toasty_presence (300r/m) covers the 2s status polling.
-    location ~ ^/api/recordings/jobs {
+    location ~ ^/api/recordings/(jobs|limits) {
         limit_req zone=toasty_presence burst=40 nodelay;
         client_max_body_size 1600m;
 

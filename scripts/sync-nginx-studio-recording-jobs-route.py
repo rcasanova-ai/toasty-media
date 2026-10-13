@@ -25,9 +25,21 @@ def main():
         return 1
     block = example[start:end + len(BLOCK_END)] + "\n"
     if BLOCK_START in live:
-        print("NOOP: Studio recording jobs block already present in the live config", file=sys.stderr)
-        sys.stdout.write(live)
+        # Already installed: bring it up to date with the .example (idempotent — identical text is a no-op).
+        live_start = live.find(BLOCK_START)
+        live_end = live.find(BLOCK_END, live_start)
+        if live_end == -1:
+            print("FAIL: the live Studio recording jobs block has no end marker", file=sys.stderr)
+            return 1
+        current = live[live_start:live_end + len(BLOCK_END)] + "\n"
+        if current == block:
+            print("NOOP: Studio recording jobs block already up to date in the live config", file=sys.stderr)
+            sys.stdout.write(live)
+            return 0
+        sys.stdout.write(live[:live_start] + block + live[live_end + len(BLOCK_END) + 1:])
+        print("OK: Studio recording jobs block updated in place.", file=sys.stderr)
         return 0
+
     if live.count(GENERIC_ANCHOR) != 1:
         print(f"FAIL: expected exactly 1 /api/recordings/finalize location in the live config, found {live.count(GENERIC_ANCHOR)}", file=sys.stderr)
         return 1

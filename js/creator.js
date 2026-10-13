@@ -3,7 +3,7 @@ import { ProgramFeed } from "./program-feed.js";
 import { ProgramOrchestrator } from "./program-orchestrator.js";
 import { MasterProgramRecorder, nextRecordingId } from "./program-recording.js";
 import { GoLivePanel } from "./go-live-panel.js";
-import { finalizeMasterRecordingMp4 } from "./render-client.js";
+import { finalizeMasterRecordingMp4, recordingConversionLimits } from "./render-client.js";
 import { studioApiEndpoint } from "./studio-api.js";
 import { createDisposableRoomId, getGuestInviteUrl } from "./video-engine.js";
 const $=s=>document.querySelector(s); let screen=null,cam=null,mic=null,rec=null,chunks=[],started=0,marks=[],lastRecording=null,currentScene="game",programCanvas=null,programCtx=null,programRaf=0;
@@ -218,12 +218,20 @@ const studio=new ProgramOrchestrator({
 });
 function onRecordingStopped(result){
   const objectUrl=URL.createObjectURL(result.blob);
-  lastRecording={blob:result.blob,recordingId:result.recordingId,objectUrl,mp4:null,mp4State:"preparing",durationSeconds:Math.max(1,Math.round((result.stoppedAt-result.startedAt)/1000))};
+  const direct=/^video\/mp4/i.test(result.blob.type||"");
+  lastRecording={blob:result.blob,recordingId:result.recordingId,objectUrl,direct,mp4:direct?result.blob:null,mp4State:direct?"ready":"preparing",durationSeconds:Math.max(1,Math.round((result.stoppedAt-result.startedAt)/1000))};
   $("#recordingPreview").src=objectUrl;
   $("#recordingResult").hidden=false;
   setStatus("Recording ready.");
-  void finalizeMp4();
+  // The browser encoded MP4 itself (nothing to upload). Otherwise convert on the server — only if it will accept the size.
+  if(!direct)void convertOnServer();
   renderRecordingResult();
+}
+async function convertOnServer(){
+  const rec=lastRecording;if(!rec)return;
+  const limits=await recordingConversionLimits();
+  if(limits&&rec.blob.size>limits.maxBytes){rec.mp4State="too-large";rec.mp4Error="This recording is larger than server MP4 conversion allows — download the WebM (it is complete).";renderRecordingResult();return}
+  return finalizeMp4();
 }
 async function finalizeMp4(){
   const rec=lastRecording;if(!rec)return;
@@ -234,16 +242,16 @@ async function finalizeMp4(){
   }catch(e){rec.mp4State="failed";rec.mp4Error=e.message}
   if(lastRecording===rec)renderRecordingResult();
 }
-// Truthful recording actions: "Download MP4" only ever downloads an MP4. Until it exists the button says
-// "Preparing MP4…"; on failure there is "Retry MP4". The source WebM lives under Advanced.
 function renderRecordingResult(){
   const rec=lastRecording;if(!rec)return;
-  const mp4=$("#downloadMp4Btn"),retry=$("#retryMp4Btn"),s=$("#recordingResultStatus");
-  mp4.disabled=rec.mp4State!=="ready";
-  mp4.textContent=rec.mp4State==="preparing"?"Preparing MP4…":"Download MP4";
+  const mp4=$("#downloadMp4Btn"),retry=$("#retryMp4Btn"),s=$("#recordingResultStatus"),webm=$("#downloadWebmBtn");
+  const big=rec.mp4State==="too-large";
+  mp4.disabled=!(rec.mp4State==="ready"||big);
+  mp4.textContent=big?"Download WebM":rec.mp4State==="preparing"?"Preparing MP4…":"Download MP4";
   mp4.hidden=rec.mp4State==="failed";
   retry.hidden=rec.mp4State!=="failed";
-  s.textContent=rec.mp4State==="ready"?"MP4 ready.":rec.mp4State==="preparing"?"Recording saved. Preparing MP4… you can already play it.":"MP4 could not be prepared ("+(rec.mp4Error||"error")+"). Retry MP4 — your recording is safe under Advanced → Download source WebM.";
+  webm.hidden=Boolean(rec.direct)||big;
+  s.textContent=rec.mp4State==="ready"?(rec.direct?"MP4 recorded and saved on this device — nothing was uploaded.":"MP4 ready."):rec.mp4State==="preparing"?"Recording saved. Preparing MP4… you can already play it.":big?rec.mp4Error:"MP4 could not be prepared ("+(rec.mp4Error||"error")+"). Retry MP4 — your recording is safe under Advanced → Download source WebM.";
 }
 $("#recordBtn").onclick=async()=>{
   const btn=$("#recordBtn");
@@ -297,6 +305,6 @@ $("#inviteFriendBtn").onclick=async()=>{
 
 function downloadBlob(blob,name){const a=document.createElement("a");const url=URL.createObjectURL(blob);a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
 $("#downloadWebmBtn").onclick=()=>{if(!lastRecording)return;downloadBlob(lastRecording.blob,lastRecording.recordingId+"-source.webm");};
-$("#downloadMp4Btn").onclick=()=>{if(!lastRecording||lastRecording.mp4State!=="ready")return;downloadBlob(lastRecording.mp4,lastRecording.recordingId+".mp4");};
+$("#downloadMp4Btn").onclick=()=>{if(!lastRecording)return;if(lastRecording.mp4State==="too-large")return downloadBlob(lastRecording.blob,lastRecording.recordingId+".webm");if(lastRecording.mp4State!=="ready")return;downloadBlob(lastRecording.mp4,lastRecording.recordingId+".mp4");};
 $("#retryMp4Btn").onclick=()=>finalizeMp4();
-$("#downloadTranscriptBtn").onclick=async()=>{if(!lastRecording)return;const b=$("#downloadTranscriptBtn"),s=$("#recordingResultStatus");b.disabled=true;s.textContent="Transcribing recording…";try{const form=new FormData();form.append("source",lastRecording.blob,lastRecording.recordingId+".webm");const r=await fetch(studioApiEndpoint()+"/api/creator/recordings/transcribe",{method:"POST",credentials:"include",headers:{"X-Toasty-CSRF":"1"},body:form});const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not transcribe recording.");downloadBlob(new Blob([d.transcript||""],{type:"text/plain;charset=utf-8"}),lastRecording.recordingId+"-transcript.txt");s.textContent="Transcript ready and downloaded.";}catch(e){s.textContent=e.message;}finally{b.disabled=false;}};
+$("#downloadTranscriptBtn").onclick=async()=>{if(!lastRecording)return;const b=$("#downloadTranscriptBtn"),s=$("#recordingResultStatus");b.disabled=true;s.textContent="Transcribing recording…";try{const form=new FormData();form.append("source",lastRecording.blob,lastRecording.recordingId+(lastRecording.direct?".mp4":".webm"));const r=await fetch(studioApiEndpoint()+"/api/creator/recordings/transcribe",{method:"POST",credentials:"include",headers:{"X-Toasty-CSRF":"1"},body:form});const d=await r.json();if(!r.ok)throw new Error(d.error||"Could not transcribe recording.");downloadBlob(new Blob([d.transcript||""],{type:"text/plain;charset=utf-8"}),lastRecording.recordingId+"-transcript.txt");s.textContent="Transcript ready and downloaded.";}catch(e){s.textContent=e.message;}finally{b.disabled=false;}};

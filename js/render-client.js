@@ -168,6 +168,18 @@ export async function finalizeMasterRecordingMp4({ sourceBlob, manifest, onProgr
   return { blob, fileName: `${manifest.recordingId}.mp4`, mimeType: blob.type || "video/mp4", bytes: blob.size };
 }
 
+// What the SERVER will convert for this account (an optional fallback — local recording and download never depend
+// on it). Returns null when the server can't be asked.
+export async function recordingConversionLimits({ fetchImpl = (...a) => fetch(...a) } = {}) {
+  try {
+    const base = getRecordingFinalizeEndpoint().replace(/\/finalize$/, "/limits");
+    const response = await fetchImpl(base, { credentials: "include" });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    return Number.isFinite(payload?.maxBytes) ? payload : null;
+  } catch { return null; }
+}
+
 async function readJsonError(response, fallback) {
   let payload = {};
   try { payload = await response.json(); } catch { /* keep fallback */ }

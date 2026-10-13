@@ -36,4 +36,11 @@ ok(/recoverInterruptedRecording\(\)/.test(live) && /await this\.recoverInterrupt
 ok(/clearRecoverySegments\(this\.roomId\)/.test(live), "recovery slices are cleared after a clean save");
 ok(/A guest joined, but this recording only captures you/.test(live), "a guest joining a canvas recording is told the file will not include them");
 ok(/retryRecordingFinalization/.test(pv), "Retry MP4 is wired in Producer");
+const prSrc = readFileSync(new URL("../js/program-recording.js", import.meta.url), "utf8");
+const ms = readFileSync(new URL("../js/media-store.js", import.meta.url), "utf8");
+ok(/videoBitsPerSecond: 6000000/.test(prSrc) && /audioBitsPerSecond: 160000/.test(prSrc), "local recording quality is 6 Mbps video / 160 kbps audio — never reduced to fit a server limit");
+ok(/pickMasterMime/.test(prSrc) && /MASTER_MIME_MP4/.test(prSrc) && /pickMasterMime\(Rec\)/.test(prSrc), "the recorder prefers browser-encoded MP4 (H.264/AAC) and falls back to WebM");
+ok(/const direct = isMp4Mime\(captureResult\.mimeType\)/.test(live) && /recordedAs: direct \? "browser-mp4"/.test(live), "a browser-encoded MP4 is the finished recording at stop — no upload, no conversion");
+ok(/_convertOnServerIfAllowed/.test(live) && /too-large/.test(live), "WebM server conversion is optional and a recording the server would refuse is never uploaded");
+ok(/tx\.oncomplete/.test(ms) && /tx\.onabort/.test(ms), "recordings are only reported saved once the browser storage transaction COMMITS (quota failures surface)");
 console.log("ALL PASSED — recordings checkpoint while running and survive interruption.");
