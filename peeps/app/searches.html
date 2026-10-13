@@ -12,10 +12,20 @@ function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-const STATUS_LABEL = {
-  researching: "Researching", candidates_ready: "Candidates ready", introductions_authorized: "Introductions sent",
-  booked: "Booked", completed: "Completed"
+// Every state says what it means and what to do next.
+const STATUS = {
+  researching: ["Researching", "Peeps is looking for people.", "request"],
+  candidates_ready: ["Choose people", "Pick who you want to meet and get introductions.", "request"],
+  introductions_authorized: ["Waiting for replies", "Waiting for them to respond (or for you to send their link).", "request"],
+  booked: ["Booked", "Open it to see the time and join the Jam.", "request"],
+  session_completed: ["Session finished", "Review what happened.", "outcome"],
+  outcome_pending: ["Outcome pending", "Something is still missing; open it to see what.", "outcome"],
+  outcome_verified: ["Outcome verified", "Settle any payment owed.", "outcome"],
+  payment_pending: ["Payment due", "Settle the guest's payment.", "outcome"],
+  completed: ["Done", "Everything is complete.", "outcome"],
+  paid: ["Done and paid", "Everything is complete and settled.", "outcome"]
 };
+const DONE = new Set(["introductions_authorized", "booked", "outcome_verified", "completed", "paid"]);
 
 function renderRequests(requests) {
   const table = document.getElementById("requestsTable");
@@ -28,8 +38,8 @@ function renderRequests(requests) {
     <div class="row">
       <strong>${escapeHtml((r.whoText || "").slice(0, 60))}</strong>
       <span class="muted">${escapeHtml((r.outcomeText || "").slice(0, 60))}</span>
-      <span><i class="tag${["introductions_authorized", "booked", "completed"].includes(r.status) ? " good" : ""}">${STATUS_LABEL[r.status] || r.status}</i></span>
-      <span><a class="link" href="./request.html?id=${encodeURIComponent(r.id)}">Open →</a></span>
+      <span><i class="tag${DONE.has(r.status) ? " good" : ""}">${escapeHtml((STATUS[r.status] || [r.status])[0])}</i><br><span class="muted">${escapeHtml((STATUS[r.status] || [])[1] || "")}</span></span>
+      <span><a class="link" href="${(STATUS[r.status] || [])[2] === "outcome" ? "./outcome.html?request=" : "./request.html?id="}${encodeURIComponent(r.id)}">Open →</a></span>
     </div>`).join("");
   table.innerHTML = head + rows;
 }
