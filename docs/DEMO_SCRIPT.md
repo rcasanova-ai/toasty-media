@@ -22,7 +22,7 @@ Click **Authorize introduction · $25** (click 2). > "Nobody has been contacted 
 Click **Join Jam** (click 3). > "Consent from both sides, recording, a context panel showing what Sarah will and won't disclose. The requester stays confidential until both approve."
 
 ## 1:50 – 2:25 Evidence and Solana (switch to the real path)
-Show the results: Breadcrumb, Dub gets richer. Then open `/peeps/app/golden-path.html` receipt (local or production).
+Show the results: Breadcrumb, Dub gets richer. Then open `/peeps/app/` receipt (local or production).
 > "Here's the real path. The introduction fee was a genuine devnet USDC transaction. The server read it from Solana: right mint, right recipient, right amount, and this request's own reference, so nobody else can claim it. Replay it and it's refused. Click the Explorer link."
 
 Open the Explorer link for `5uu962Ua…` (devnet). > "Receipt labels say ONCHAIN VERIFIED, OFFCHAIN ledger, or SIMULATED. It never pretends."

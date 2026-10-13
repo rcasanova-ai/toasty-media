@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // OPTIONAL helper for the Solana DEVNET walkthrough in peeps/README.md. Sends a real devnet USDC transfer that
-// carries a Peeps request's payment reference, then prints the signature to paste into /peeps/app/golden-path.html.
+// carries a Peeps request's payment reference, then prints the signature to paste into /peeps/app/.
 // The server never trusts the signature: it re-reads the transaction from Solana and verifies it.
 //
 //   npm install --no-save @solana/web3.js @solana/spl-token

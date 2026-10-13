@@ -341,7 +341,7 @@ async function endCurrentSession(button) {
     const ended = await session.endDurableSession();
     // A Peeps Jam goes straight to its receipt (completion, Breadcrumbs, settlement); anything else to the dashboard.
     const url = ended?.peepsRequestId
-      ? new URL(`../peeps/app/golden-path.html?request=${encodeURIComponent(ended.peepsRequestId)}`, window.location.href)
+      ? new URL(`../peeps/app/outcome.html?request=${encodeURIComponent(ended.peepsRequestId)}`, window.location.href)
       : new URL("./dashboard.html", window.location.href);
     if (ended?.postJam && ended.postJam.completed === false && ended.postJam.error) window.alert(ended.postJam.error);
     window.location.href = url.toString();

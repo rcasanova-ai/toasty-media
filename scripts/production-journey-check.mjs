@@ -83,7 +83,7 @@ async function status() {
   line(st(checks.outcome?.state === "done"), "Outcome verified", checks.outcome?.detail);
   line(st(r.dough.status === "settled"), "Compensation settled", `${r.dough.status}; rail: ${r.dough.items[0]?.rail || "n/a"}`);
   line(st(r.zcash?.settlements?.some((z) => z.verified)), "Optional Zcash confidential settlement", r.zcash ? r.zcash.settlements.map((z) => `${z.label} [${z.networkLabel}]`).join("; ") || "enabled, not used" : "not enabled on this deployment");
-  console.log(`\nLifecycle state: ${life.data.state}. Receipt: ${ORIGIN}/peeps/app/golden-path.html?request=${requestId}`);
+  console.log(`\nLifecycle state: ${life.data.state}. Receipt: ${ORIGIN}/peeps/app/outcome.html?request=${requestId}`);
 }
 
 if (cmd === "start") await start(); else if (cmd === "status") await status(); else { console.error("usage: production-journey-check.mjs start --guest-email <addr> | status"); process.exit(2); }

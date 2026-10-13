@@ -3,7 +3,7 @@
 **Peeps helps people find, trust and compensate other people.** You describe an outcome; an agent finds and qualifies the right person from evidence, pays for context, asks permission before interrupting anyone, and connects two humans in a real, consented conversation. The conversation produces evidence, the evidence improves the person's profile, and they get paid: transparently through **Solana**, or confidentially through **Zcash**.
 
 - Production: https://toasty.media/peeps/ · seeded fallback demo: https://toasty.media/peeps/demo/
-- Real-services judge path (sign-in required): https://toasty.media/peeps/app/golden-path.html
+- Real Peeps app (sign-in required): https://toasty.media/peeps/app/
 - **Run it yourself in 60 seconds, no accounts, no wallet, no secrets:** see [`peeps/README.md`](peeps/README.md)
 
 ```bash

@@ -284,7 +284,7 @@ const server = createServer(async (req, res) => {
     sendJson(req, res, 200, {
       authenticated: Boolean(session),
       user: session ? publicSessionUser(session) : null,
-      ...(session ? { peepsAccess: (await peepsBetaAllowed(session)) ? "active" : "blocked" } : {})
+      ...(session ? { peepsAccess: (await peepsBetaAllowed(session)) ? "active" : "blocked", peepsEvaluation: await isPeepsEvaluationUser(session.id) } : {})
     });
     return;
   }
@@ -426,6 +426,14 @@ const server = createServer(async (req, res) => {
     const session = await requirePlatformAdmin(req, res);
     if (!session) return;
     await handlePlatformOrganizations(req, res, session);
+    return;
+  }
+  if (req.url === "/api/organizations/platform-admin/peeps-evaluation-accounts" && (req.method === "GET" || req.method === "POST")) {
+    if (req.method === "POST" && !requireCsrf(req, res)) return;
+    if (!limit(req, res, "platform-admin-write", 60, 15 * 60 * 1000)) return;
+    const session = await requirePlatformAdmin(req, res);
+    if (!session) return;
+    await handlePeepsEvaluationAccounts(req, res, session);
     return;
   }
   if (req.method === "GET" && req.url === "/api/organizations/platform-admin/peeps-waitlist") {
@@ -7679,10 +7687,21 @@ async function demoCreditClaimed(userId) {
 async function handleDoughGet(req, res, authSession) {
   const result = await db("dough_get", { subjectType: "user", subjectId: authSession.id });
   const claimed = (result.entries || []).some((e) => e.kind === "demo_credit");
+  // Evaluation accounts are reusable: when the balance runs low they may top back up to the demo amount.
+  const evaluation = PEEPS_DEMO_CREDIT_USD > 0 && await isPeepsEvaluationUser(authSession.id);
+  const balance = Number(result.account?.spendBalance || 0);
+  if (evaluation) return sendJson(req, res, 200, { ...result, demoCredit: { amount: Math.round((PEEPS_DEMO_CREDIT_USD - balance) * 100) / 100, available: balance < 1, claimed, evaluation: true } });
   sendJson(req, res, 200, { ...result, demoCredit: { amount: PEEPS_DEMO_CREDIT_USD, available: PEEPS_DEMO_CREDIT_USD > 0 && !claimed, claimed } });
 }
 async function handleDoughDemoCredit(req, res, authSession) {
   if (!PEEPS_DEMO_CREDIT_USD) throw httpError(404, "Demo credit is not enabled on this server.");
+  if (await isPeepsEvaluationUser(authSession.id)) {
+    const balance = Number((await db("dough_get", { subjectType: "user", subjectId: authSession.id })).account?.spendBalance || 0);
+    if (balance >= 1) return sendJson(req, res, 200, { alreadyClaimed: true, amount: 0 });
+    const topUp = Math.round((PEEPS_DEMO_CREDIT_USD - balance) * 100) / 100;
+    const posted = await db("dough_post", { id: newId("dle"), subjectType: "user", subjectId: authSession.id, bucket: "spend", direction: "credit", amount: topUp, kind: "demo_credit", referenceId: `demo-credit-topup:${authSession.id}:${Date.now()}`, metadata: { note: "Evaluation account demo credit top-up, not real money" } });
+    return sendJson(req, res, 200, { claimed: true, amount: topUp, account: posted.account });
+  }
   if (await demoCreditClaimed(authSession.id)) return sendJson(req, res, 200, { alreadyClaimed: true, amount: PEEPS_DEMO_CREDIT_USD });
   const posted = await db("dough_post", { id: newId("dle"), subjectType: "user", subjectId: authSession.id, bucket: "spend", direction: "credit", amount: PEEPS_DEMO_CREDIT_USD, kind: "demo_credit", referenceId: demoCreditRef(authSession.id), metadata: { note: "Beta demo credit, not real money" } });
   sendJson(req, res, 200, { claimed: true, amount: PEEPS_DEMO_CREDIT_USD, account: posted.account });
@@ -10917,6 +10936,48 @@ async function handlePeepsWaitlistJoin(req, res) {
 function peepsWaitlistMaskEmail(email) {
   const [local, domain = ""] = String(email).split("@");
   return `${local.slice(0, 1)}${"*".repeat(Math.max(1, Math.min(6, local.length - 1)))}@${domain}`;
+}
+
+// ---- Colosseum evaluation accounts ----
+// Ordinary, isolated users: no platform role, never admin. Each judge can have their own account so sessions never mix.
+// Provisioned only by a platform admin; the generated password is returned once in the response and is never stored in
+// plaintext, logged, or committed.
+const peepsEvaluationEmail = (n) => (n === 1 ? "colosseum@toasty.media" : `colosseum${n}@toasty.media`);
+async function isPeepsEvaluationUser(userId) {
+  if (!userId) return false;
+  try { return Boolean((await db("peeps_eval_account_is", { userId })).evaluation); } catch { return false; }
+}
+async function handlePeepsEvaluationAccounts(req, res, adminSession) {
+  res.setHeader("Cache-Control", "no-store");
+  if (req.method === "GET") return sendJson(req, res, 200, { accounts: (await db("peeps_eval_account_list", {})).accounts || [] });
+  const body = await readJson(req);
+  const count = Math.max(1, Math.min(10, Math.floor(Number(body.count) || 1)));
+  const reset = body.reset === true;
+  const results = [];
+  for (let n = 1; n <= count; n += 1) {
+    const email = peepsEvaluationEmail(n);
+    const existing = (await db("get_user_by_email", { email })).user;
+    if (existing && !(await isPeepsEvaluationUser(existing.id))) { results.push({ email, status: "refused", note: "An account with this email already exists and is not an evaluation account." }); continue; }
+    if (existing && !reset) { results.push({ email, status: "exists", password: null }); continue; }
+    const password = randomBytes(18).toString("base64url");
+    let user = existing;
+    if (!user) {
+      user = (await db("create_user", { id: randomUUID(), name: n === 1 ? "Colosseum Evaluation" : `Colosseum Evaluation ${n}`, email, passwordHash: await hashPassword(password) })).user;
+      if (!user) { results.push({ email, status: "failed" }); continue; }
+      await createDefaultOrganizationForUser(user);
+    } else {
+      await db("platform_set_user_password", { userId: user.id, passwordHash: await hashPassword(password) });
+    }
+    let entry = (await db("peeps_waitlist_get", { email })).entry;
+    if (!entry) entry = (await db("peeps_waitlist_join", { id: newId("pwl"), email, name: user.name, interest: "other", consentVersion: "evaluation-account", country: "", city: "", description: "Colosseum evaluation account" })).entry;
+    await db("peeps_waitlist_set_status", { id: entry.id, status: "ACTIVE", userId: user.id, markVerified: true });
+    await db("peeps_eval_account_mark", { userId: user.id, label: "colosseum" });
+    // Starts with the $5 beta demo credit already in place (test money, labelled demo_credit in the ledger). Idempotent.
+    if (PEEPS_DEMO_CREDIT_USD > 0) await db("dough_post", { id: newId("dle"), subjectType: "user", subjectId: user.id, bucket: "spend", direction: "credit", amount: PEEPS_DEMO_CREDIT_USD, kind: "demo_credit", referenceId: demoCreditRef(user.id), metadata: { note: "Evaluation account starting demo credit, not real money" } });
+    results.push({ email, status: existing ? "password_reset" : "created", password });
+  }
+  peepsBetaCache.clear();
+  sendJson(req, res, 200, { accounts: results, note: "Passwords are shown once and are not stored in readable form." });
 }
 
 async function handlePeepsWaitlistInviteGet(req, res, token) {

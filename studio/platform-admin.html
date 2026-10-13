@@ -219,6 +219,13 @@
             <div class="panel-heading"><h3>Registrations</h3><input id="paWaitlistSearch" type="search" placeholder="Search name, email, country…" aria-label="Search waitlist"></div>
             <div style="overflow-x:auto"><table class="settings-table" id="paWaitlistTable"><thead><tr><th>Registered</th><th>Name / email</th><th>Country · city</th><th>Interest</th><th>Access</th><th>Invitation</th><th>Confirmation email</th><th></th></tr></thead><tbody></tbody></table></div>
           </div>
+          <div class="settings-card">
+            <div class="panel-heading"><div><h3>Colosseum evaluation accounts</h3><p class="hint">Ordinary Peeps accounts with no admin access, one per judge so sessions never mix. Passwords are shown once below; copy them now, they are not stored in readable form.</p></div></div>
+            <label class="hint">How many accounts (colosseum@, colosseum2@ … @toasty.media) <input id="paEvalCount" type="number" min="1" max="10" value="1" style="width:5rem"></label>
+            <label class="hint"><input id="paEvalReset" type="checkbox"> Reset passwords of existing evaluation accounts</label>
+            <button class="btn" id="paEvalCreate" type="button">Create evaluation accounts</button>
+            <pre id="paEvalOut" class="hint" style="white-space:pre-wrap;user-select:all"></pre>
+          </div>
         </section>
 
         <section class="platform-panel" data-panel-view="economics">

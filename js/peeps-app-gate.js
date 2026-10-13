@@ -45,7 +45,7 @@ export async function gatePeepsApp({
       return { authenticated: true, user: session.user || null, blocked: true };
     }
     reveal();
-    return { authenticated: true, user: session.user || null };
+    return { authenticated: true, user: session.user || null, evaluation: session.peepsEvaluation === true };
   } catch {
     if (destination) redirect(publicPath);
     return { authenticated: false, user: null, error: true };
@@ -91,6 +91,34 @@ function ensureLogoutButton(parent, extraClass = "") {
   });
 }
 
+// Shown only to evaluation accounts (the server decides: /auth/session peepsEvaluation), only on the app home, dismissible.
+export const PEEPS_HOW_IT_WORKS_URL = "https://github.com/rcasanova-ai/toasty-media/blob/main/peeps/README.md";
+export function renderEvaluationIntro(user, doc = document, storage = (() => { try { return window.localStorage; } catch { return null; } })()) {
+  if (!/\/peeps\/app\/(?:index\.html)?$/.test(doc.defaultView?.location?.pathname || "")) return null;
+  const key = `peeps-eval-intro-dismissed:${user?.id || ""}`;
+  try { if (storage?.getItem(key)) return null; } catch { /* storage blocked: show it */ }
+  const host = doc.querySelector("main.workspace");
+  if (!host || doc.getElementById("peeps-eval-intro")) return null;
+  const box = doc.createElement("section");
+  box.id = "peeps-eval-intro";
+  box.className = "card";
+  box.setAttribute("aria-label", "Welcome to Toasty Peeps");
+  box.innerHTML = '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start"><h2 style="margin:0">Welcome to Toasty Peeps</h2><button type="button" class="btn secondary" data-eval-dismiss aria-label="Dismiss introduction">Dismiss</button></div>'
+    + '<p>Toasty Peeps connects people through AI agents that discover expertise, evaluate compatibility, coordinate introductions, and arrange conversations.</p>'
+    + '<p>Your Dub helps you find the right people, while Dough manages payments and receipts. Breadcrumbs preserve evidence of what happened.</p>'
+    + '<p><b>Try Peeps</b></p><ol><li>Describe who you\'re looking for and your desired outcome.</li><li>Let your Dub discover and evaluate candidates.</li><li>Authorize introductions and complete the consent process.</li><li>Book and join a Jam.</li><li>Complete the conversation and review settlement and receipts.</li></ol>'
+    + `<p class="muted"><a class="link" href="${PEEPS_HOW_IT_WORKS_URL}" target="_blank" rel="noopener noreferrer">How it works</a></p>`;
+  box.querySelector("[data-eval-dismiss]").addEventListener("click", () => { try { storage?.setItem(key, "1"); } catch { /* ignore */ } box.remove(); });
+  host.prepend(box);
+  return box;
+}
+
+// Owner-only pages (the pitch roast) are not even linked for anyone else. Purely cosmetic: the API itself is admin-only (403).
+function hideAdminOnlyLinks(user, doc = document) {
+  if (user?.isPlatformAdmin) return;
+  doc.querySelectorAll('a[href$="roast.html"]').forEach((a) => a.remove());
+}
+
 function personalize(user) {
   if (!user?.name) return;
   document.querySelectorAll("[data-peeps-user-name]").forEach((el) => {
@@ -117,6 +145,7 @@ if (isGatedDocument) {
       window.location.replace(url);
     }
   }).then((result) => {
-    if (result.authenticated) personalize(result.user);
+    if (result.authenticated) { personalize(result.user); hideAdminOnlyLinks(result.user); }
+    if (result.authenticated && result.evaluation) renderEvaluationIntro(result.user);
   });
 }

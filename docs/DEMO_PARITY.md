@@ -1,6 +1,6 @@
 # Demo versus production parity
 
-The scripted demo (`/peeps/demo/`) and the real-services path (`/peeps/app/golden-path.html`) tell one story. Status of each target step, verified in a browser against the local sandbox unless noted.
+The scripted demo (`/peeps/demo/`) and the real-services path (`/peeps/app/`) tell one story. Status of each target step, verified in a browser against the local sandbox unless noted.
 
 | # | Target step | Demo | Production path | Parity |
 |---|---|---|---|---|
