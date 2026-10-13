@@ -34,7 +34,13 @@ process.on("exit", () => { try { server.kill("SIGKILL"); } catch (_) {} });
 
 async function api(path, { method = "GET", cookie, body, headers = {} } = {}) {
   const h = { "x-toasty-csrf": "1", ...headers }; if (cookie) h.cookie = cookie;
-  const r = await fetch(`${BASE}${path}`, { method, headers: h, body, duplex: body && typeof body !== "string" && !(body instanceof Uint8Array) ? "half" : undefined });
+  // One retry on a connection-level failure: Node's fetch can reuse a socket the server's keep-alive timer is
+  // closing at that very moment (a harness race, not a server fault — real status codes are never retried).
+  let r;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try { r = await fetch(`${BASE}${path}`, { method, headers: h, body, duplex: body && typeof body !== "string" && !(body instanceof Uint8Array) ? "half" : undefined }); break; }
+    catch (error) { if (attempt === 1) throw error; await sleep(200); }
+  }
   const ct = r.headers.get("content-type") || "";
   return { status: r.status, data: ct.includes("json") ? await r.json().catch(() => ({})) : null, res: r, cookie: (r.headers.get("set-cookie") || "").split(";")[0] || cookie };
 }
