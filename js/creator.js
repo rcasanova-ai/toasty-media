@@ -3,6 +3,7 @@ import { ProgramFeed } from "./program-feed.js";
 import { ProgramOrchestrator } from "./program-orchestrator.js";
 import { MasterProgramRecorder, nextRecordingId } from "./program-recording.js";
 import { GoLivePanel } from "./go-live-panel.js";
+import { finalizeMasterRecordingMp4 } from "./render-client.js";
 import { studioApiEndpoint } from "./studio-api.js";
 import { createDisposableRoomId, getGuestInviteUrl } from "./video-engine.js";
 const $=s=>document.querySelector(s); let screen=null,cam=null,mic=null,rec=null,chunks=[],started=0,marks=[],lastRecording=null,currentScene="game",programCanvas=null,programCtx=null,programRaf=0;
@@ -228,12 +229,8 @@ async function finalizeMp4(){
   const rec=lastRecording;if(!rec)return;
   rec.mp4State="preparing";renderRecordingResult();
   try{
-    const form=new FormData();
-    form.append("manifest",JSON.stringify({kind:"master-program",recordingId:rec.recordingId,durationSeconds:rec.durationSeconds,title:"Toasty Creator"}));
-    form.append("source",rec.blob,rec.recordingId+".webm");
-    const r=await fetch(studioApiEndpoint()+"/api/recordings/finalize",{method:"POST",credentials:"include",headers:{"X-Toasty-CSRF":"1"},body:form});
-    if(!r.ok){let e={};try{e=await r.json()}catch{}throw new Error(e.error||"Could not create MP4.");}
-    rec.mp4=await r.blob();rec.mp4State="ready";
+    const out=await finalizeMasterRecordingMp4({sourceBlob:rec.blob,manifest:{kind:"master-program",recordingId:rec.recordingId,durationSeconds:rec.durationSeconds},onProgress:m=>{if(lastRecording===rec)$("#recordingResultStatus").textContent=m}});
+    rec.mp4=out.blob;rec.mp4State="ready";
   }catch(e){rec.mp4State="failed";rec.mp4Error=e.message}
   if(lastRecording===rec)renderRecordingResult();
 }

@@ -32,6 +32,9 @@ jobs:
           set -euo pipefail
           node scripts/studio-mode-model-test.mjs
           node scripts/master-program-recording-test.mjs
+          node scripts/studio-shell-cleanup-test.mjs
+          node scripts/studio-screen-share-regression-test.mjs
+          node scripts/studio-record-canvas-regression-test.mjs
 
       - name: Install ffmpeg for broadcast and MP4 tests
         run: |
@@ -44,6 +47,14 @@ jobs:
           set -euo pipefail
           node scripts/studio-broadcast-server-test.mjs
           node scripts/recording-finalization-mp4-test.mjs
+          node scripts/recording-jobs-server-test.mjs
+          node scripts/recording-recovery-test.mjs
+
+      - name: Real-browser Studio regression (record, present, Program Output, MP4, downloads, recovery)
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-audit --no-fund playwright-core
+          HEADLESS=1 STUDIO_RECORD_SECONDS=45 CHROME_PATH="$(command -v google-chrome || command -v chromium || true)" node scripts/studio-browser-regression.mjs
 
       - name: Validate consolidated product surfaces
         run: |

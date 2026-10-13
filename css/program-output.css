@@ -345,8 +345,9 @@ html, body {
 .po-stage[data-layout="4"] { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
 .po-stage[data-layout="spotlight"],
 .po-stage[data-layout="active-speaker"],
-.po-stage[data-layout="screen-speaker"],
 .po-stage[data-layout="asset-speaker"] { grid-template-columns: minmax(0, 3.2fr) minmax(0, 1fr); }
+/* Presenting: the shared screen fills the whole stage, the host camera is a picture-in-picture. */
+.po-stage[data-layout="screen-speaker"],
 .po-stage[data-layout="screen-only"],
 .po-stage[data-layout="screen-dominant"],
 .po-stage[data-layout="asset-full"] { grid-template-columns: minmax(0, 1fr); }
@@ -361,6 +362,8 @@ html, body {
 .po-stage { transition: grid-template-columns 280ms ease, grid-template-rows 280ms ease; }
 .po-tile { transition: opacity 220ms ease, transform 280ms ease; }
 
+.po-stage[data-layout="screen-speaker"] .po-tile[data-role="featured"],
+.po-stage[data-layout="screen-speaker"] .po-tile[data-role="speaker"],
 .po-stage[data-layout="screen-dominant"] .po-tile[data-role="speaker"],
 .po-stage[data-layout="asset-speaker-pip"] .po-tile[data-role="speaker"] {
   bottom: clamp(0.6rem, 1.6vw, 1.1rem);
@@ -574,7 +577,9 @@ body {
   display: flex;
   gap: 0;
   left: 2.5%;
-  max-width: min(35%, calc(100% - 5%));
+  /* wide tiles keep the badge compact (35%), narrow tiles (PiP, 3-4 up) get at least 12rem or the whole tile —
+     a fixed 35% of a small tile used to cut the name down to "SOA…". */
+  max-width: min(max(35%, 12rem), calc(100% - 5%));
   overflow: hidden;
   padding: 0;
   pointer-events: none;
@@ -718,7 +723,7 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
 .po-stage[data-layout="3"] .lv-lower-third,
 .po-stage[data-layout="4"] .lv-lower-third,
 .po-stage[data-layout="screen-strip"] .lv-lower-third {
-  max-width: min(35%, calc(100% - 12px));
+  max-width: min(max(35%, 10rem), calc(100% - 12px));
 }
 
 /* Holding / ending full-canvas scene screens */
@@ -1289,3 +1294,21 @@ body.program-output[data-scene="ending"] .po-scene-screen {
     font-size: clamp(0.48rem, 1.9vw, 0.66rem);
   }
 }
+
+/* Picture-in-picture tiles are small: show the whole name, compactly, never a clipped "SOA…". */
+.po-stage[data-layout="screen-speaker"] .po-tile[data-role="featured"] .lv-lower-third,
+.po-stage[data-layout="screen-dominant"] .po-tile[data-role="speaker"] .lv-lower-third,
+.po-stage[data-layout="asset-speaker-pip"] .po-tile[data-role="speaker"] .lv-lower-third,
+.lv-program-preview[data-layout="screen-speaker"] .po-tile[data-role="featured"] .lv-lower-third {
+  bottom: 4%;
+  left: 3%;
+  max-width: calc(100% - 6%);
+}
+.po-stage[data-layout="screen-speaker"] .po-tile[data-role="featured"] .lv-lower-third-mark,
+.po-stage[data-layout="screen-dominant"] .po-tile[data-role="speaker"] .lv-lower-third-mark,
+.po-stage[data-layout="asset-speaker-pip"] .po-tile[data-role="speaker"] .lv-lower-third-mark,
+.lv-program-preview[data-layout="screen-speaker"] .po-tile[data-role="featured"] .lv-lower-third-mark { display: none; }
+.po-stage[data-layout="screen-speaker"] .po-tile[data-role="featured"] .lv-lower-third-name,
+.lv-program-preview[data-layout="screen-speaker"] .po-tile[data-role="featured"] .lv-lower-third-name { font-size: 0.6rem; padding: 0.15rem 0.45rem 0.12rem 0.3rem; }
+.po-stage[data-layout="screen-speaker"] .po-tile[data-role="featured"] .lv-lower-third-role,
+.lv-program-preview[data-layout="screen-speaker"] .po-tile[data-role="featured"] .lv-lower-third-role { display: none; }

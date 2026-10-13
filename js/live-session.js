@@ -26,6 +26,9 @@ import {
   activeRecordingState,
   markerTypeFromProduction,
   rememberLastMasterRecording,
+  saveRecoverySegment,
+  clearRecoverySegments,
+  loadInterruptedRecording,
   recalledMasterRecordingId,
   PROGRAM_OUTPUT_PICKER_INSTRUCTION,
   programOutputDisplayConstraints,
@@ -1471,6 +1474,12 @@ export class LiveSession {
     this._applyRosterAudioActivity(roster);
     this._applyRosterTranscript(roster);
     this.emit("guests", this.guestCount());
+    // The canvas recording can only contain the host and the shared screen (guest video lives in cross-origin
+    // iframes). A guest joining mid-recording must never be silently missing from the file.
+    if (this.recording.active && this._programCaptureKind === "canvas" && this.guestCount() > 0 && !this._guestWarned) {
+      this._guestWarned = true;
+      this.emit("recording-status", "A guest joined, but this recording only captures you and your shared screen. Stop and start Record again to include guests.");
+    }
   }
 
   // THE actual production regression this pass exists to fix: setScene()/setTicker()/etc. mutate
@@ -1738,6 +1747,10 @@ export class LiveSession {
     this.program.layout = this.program.shareLayout;
     this.exposeProgramSources();
     this.timeline.record(ProductionEventType.SHARE_STARTED, { native: true }, { participantId: "host" });
+    // Presenting must put the content on Program Output without a second click. Backstage defaults to the
+    // "Starting Soon" slate, which hides every participant and the shared screen — so a presenter whose Program
+    // Output (and any recording/broadcast of it) stayed on the slate was presenting to nobody.
+    if (normalizeScene(this.program.scene) === SceneId.HOLDING) { this.program.scene = SceneId.LIVE; this.program.live = true; }
     this._publishControlNow();
     this.emit("screenshare", this.screenShare);
     this.emit("program", this.program);
@@ -2039,6 +2052,8 @@ export class LiveSession {
     // Output tab, nothing to select. Remote guests can't be drawn (cross-origin VDO iframes), so with guests
     // connected we keep the Program Output tab capture below.
     if (this.canCaptureProgramCanvas()) {
+      this._programCaptureKind = "canvas";
+      this._guestWarned = false;
       this.emit("recording-status", "Recording the Program canvas…");
       return createProgramCanvasCapture({
         getCamera: () => this._hostPreviewStream,
@@ -2048,6 +2063,7 @@ export class LiveSession {
     }
     // Open/refresh Program Output from the same producer gesture if it is not already ready.
     // The browser's native capture picker remains the final source-selection boundary.
+    this._programCaptureKind = "program-output";
     if (!this.programOutput?.readyToRecord) this.ensureProgramOutputWindow();
     this.emit("recording-status", PROGRAM_OUTPUT_PICKER_INSTRUCTION);
     const capture = await navigator.mediaDevices.getDisplayMedia(programOutputDisplayConstraints());
@@ -2072,7 +2088,7 @@ export class LiveSession {
     this._sceneLiveFromMode = live;
     // Leaving Live while a (manual) recording keeps running must not yank the picture to the
     // Starting Soon slate mid-recording.
-    if (!live && snapshot.recording.active) return;
+    if (!live && (snapshot.recording.active || this.screenShare?.active)) return;
     this.setLive(live);
   }
 
@@ -2081,7 +2097,10 @@ export class LiveSession {
     if (this.recording.active) return this.recording;
     const recordingId = nextRecordingId();
     this._masterRecorder = new MasterRecorder({
-      status: (message) => this.emit("recording-status", message)
+      status: (message) => this.emit("recording-status", message),
+      // Every ~10s slice is written to IndexedDB while recording, so a crash/reload/power loss mid-session
+      // leaves a recoverable file instead of nothing (see hydrateLastMaster).
+      onCheckpoint: (segment) => saveRecoverySegment({ roomId: this.roomId, startedAt: this.recording.startedAt, ...segment }).catch(() => {})
     });
     try {
       // `stream` is the shared Program capture — the recorder consumes it, it does not capture again.
@@ -2162,6 +2181,7 @@ export class LiveSession {
         manifest
       });
       rememberLastMasterRecording(this.roomId, captureResult.recordingId);
+      await clearRecoverySegments(this.roomId);
     } catch (error) {
       console.error("[LiveSession] recording source persist failed", error);
       this.emit("recording-status", "Recording saved in this tab only. Download it before leaving.");
@@ -2317,7 +2337,36 @@ export class LiveSession {
     return this.noteProductionMarker("manual", label || `Marker ${count}`, "producer");
   }
 
+  // A recording that never reached a clean stop (tab crash, reload, power loss) is rebuilt from its
+  // checkpoint slices and offered as the last recording — source WebM kept, MP4 retryable.
+  async recoverInterruptedRecording() {
+    if (this.recording.active) return null;
+    const interrupted = await loadInterruptedRecording(this.roomId).catch(() => null);
+    if (!interrupted?.blob?.size) return null;
+    const { recordingId, blob } = interrupted;
+    const stoppedAt = Date.now();
+    const startedAt = interrupted.startedAt || stoppedAt;
+    const manifest = {
+      kind: "master-program", recordingId, sessionId: this.durableSession?.id || this.roomId, roomId: this.roomId,
+      startedAt: new Date(startedAt).toISOString(), stoppedAt: new Date(stoppedAt).toISOString(),
+      durationSeconds: Math.max(1, Math.round((stoppedAt - startedAt) / 1000)),
+      media: { finalizationStatus: "failed", finalizationError: "Recovered after the recording was interrupted.", sourceMimeType: blob.type }
+    };
+    try { await persistMasterRecording({ recordingId, sourceBlob: blob, manifest }); rememberLastMasterRecording(this.roomId, recordingId); } catch (_) {}
+    await clearRecoverySegments(this.roomId);
+    const last = {
+      kind: RecordingKind.MASTER, recordingId, startedAt, stoppedAt, durationSeconds: manifest.durationSeconds,
+      blob, masterBlob: null, sourceBlob: blob, objectUrl: URL.createObjectURL(blob), sourceObjectUrl: URL.createObjectURL(blob),
+      mimeType: blob.type, sourceMimeType: blob.type, bytes: blob.size, sourceBytes: blob.size, manifest, persisted: true,
+      finalizationStatus: "failed", finalizationError: "Recovered after the recording was interrupted.", recovered: true
+    };
+    this._setRecording(idleRecordingState(last));
+    this.emit("recording-status", "Recovered an interrupted recording. Retry MP4 to convert it.");
+    return last;
+  }
+
   async hydrateLastMaster() {
+    if (await this.recoverInterruptedRecording()) return this.recording.last;
     const recordingId = recalledMasterRecordingId(this.roomId);
     if (!recordingId || this.recording.active) return null;
     try {

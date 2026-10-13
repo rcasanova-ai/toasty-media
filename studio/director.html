@@ -162,22 +162,6 @@
           <div class="lv-guest-context" id="lvGuestContext"></div>
         </section>
 
-        <nav class="quick-actions" aria-label="Quick actions">
-          <p class="rail-eyebrow">Quick Actions</p>
-          <button id="toggleScreenQuick" type="button" class="quick-action-row" aria-pressed="false">
-            <span class="quick-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg></span>
-            <span class="dock-label">Share Screen</span>
-          </button>
-          <button type="button" class="quick-action-row" disabled>
-            <span class="quick-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"></polyline><line x1="12" y1="12" x2="12" y2="21"></line><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"></path></svg></span>
-            Upload Media
-            <span class="soon-badge">Soon</span>
-          </button>
-          <button id="openSettingsQuick" type="button" class="quick-action-row">
-            <span class="quick-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg></span>
-            Dashboard
-          </button>
-        </nav>
       </aside>
 
       <section class="stage-main" aria-labelledby="stageTitle">
@@ -425,9 +409,10 @@
             </nav>
             <div class="lv-topbar-status">
               <span class="lv-policy-chip" id="lvPolicyChip" hidden></span>
-              <button type="button" class="lv-mini-btn" id="lvTopMore" aria-expanded="false" aria-controls="lvTopMoreMenu">•••</button>
+              <button type="button" class="lv-mini-btn lv-top-settings" id="lvTopSettings" title="Open Settings in a new tab">Settings</button>
+              <button type="button" class="lv-mini-btn" id="lvTopMore" aria-expanded="false" aria-controls="lvTopMoreMenu" aria-label="More">•••</button>
               <div class="lv-top-more-menu" id="lvTopMoreMenu" hidden>
-                                <button type="button" class="lv-mini-btn" id="lvTopSettings">Dashboard</button>
+                <button id="lvLeaveStudio" class="lv-mini-btn lv-mini-btn-danger" type="button" title="Leave Studio (guests keep talking)" hidden>Leave Studio</button>
                 <button type="button" class="lv-mini-btn lv-mini-btn-danger" id="lvTopEndSession">End Session</button>
               </div>
               <span id="lvTopHealth" hidden>Offline</span>
@@ -849,8 +834,7 @@
             <div class="lv-host-controls">
               <button id="lvToggleMic" class="lv-icon-btn" type="button" aria-pressed="false" title="Mute mic">Mic</button>
               <button id="lvToggleCamera" class="lv-icon-btn" type="button" aria-pressed="false" title="Camera off">Camera</button>
-              <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Present a screen, window, tab or game into Program">＋ Present</button>
-              <button id="lvLeaveStudio" class="lv-icon-btn lv-icon-btn-danger" type="button" title="Leave Studio" hidden>Leave</button>
+              <button id="lvToggleScreen" class="lv-icon-btn" type="button" aria-pressed="false" title="Present a screen, window, tab or game into Program"><span class="lv-icon-label">Present</span></button>
             </div>
             <div class="lv-bottom-actions">
               <button id="lvRecordToggle" class="rec-toggle lv-bottom-record" type="button" aria-pressed="false" disabled>RECORD</button>

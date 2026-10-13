@@ -3998,8 +3998,9 @@
 .lv-program-preview[data-layout="asset-full"] { grid-template-columns: 1fr; }
 .lv-program-preview[data-layout="asset-speaker"] { grid-template-columns: 3fr 1fr; }
 .lv-program-preview[data-layout="spotlight"],
-.lv-program-preview[data-layout="active-speaker"],
-.lv-program-preview[data-layout="screen-speaker"] { grid-template-columns: 3.2fr 1fr; }
+.lv-program-preview[data-layout="active-speaker"] { grid-template-columns: 3.2fr 1fr; }
+/* Presenting: the shared screen fills the stage, the host camera is a picture-in-picture. */
+.lv-program-preview[data-layout="screen-speaker"],
 .lv-program-preview[data-layout="screen-only"],
 .lv-program-preview[data-layout="screen-dominant"] { grid-template-columns: 1fr; }
 .lv-program-preview[data-layout="screen-strip"] {
@@ -4009,11 +4010,13 @@
 .lv-program-preview[data-layout="screen-strip"] .po-tile[data-role="screen"] {
   grid-column: 1 / -1;
 }
-.lv-program-preview { transition: grid-template-columns 280ms ease, grid-template-rows 280ms ease; }
+.lv-program-preview { position: relative; transition: grid-template-columns 280ms ease, grid-template-rows 280ms ease; }
 .lv-program-preview .po-tile { cursor: pointer; transition: opacity 220ms ease, transform 280ms ease; }
 .lv-program-preview .po-tile[data-role="screen"],
 .lv-program-preview .po-tile[data-role="asset"] { cursor: default; }
 .lv-program-preview[data-layout="asset-speaker-pip"] { grid-template-columns: 1fr; }
+.lv-program-preview[data-layout="screen-speaker"] .po-tile[data-role="featured"],
+.lv-program-preview[data-layout="screen-speaker"] .po-tile[data-role="speaker"],
 .lv-program-preview[data-layout="asset-speaker-pip"] .po-tile[data-role="speaker"] {
   bottom: 0.55rem;
   height: 32%;
@@ -6101,3 +6104,9 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
 .lv-share-panel-bar { align-items: center; color: #fff; display: flex; font-size: 0.85rem; gap: 0.75rem; justify-content: space-between; padding: 0.6rem 0.8rem; }
 .lv-share-panel-bar button { background: transparent; border: 1px solid rgba(255,255,255,0.4); border-radius: 6px; color: #fff; cursor: pointer; padding: 0.3rem 0.7rem; }
 
+
+/* Picture-in-picture tiles are small: show the whole name, compactly, never a clipped "SOA…". */
+.lv-program-preview[data-layout="screen-speaker"] .po-tile[data-role="featured"] .lv-lower-third { bottom: 4%; left: 3%; max-width: calc(100% - 6%); }
+.lv-program-preview[data-layout="screen-speaker"] .po-tile[data-role="featured"] .lv-lower-third-mark,
+.lv-program-preview[data-layout="screen-speaker"] .po-tile[data-role="featured"] .lv-lower-third-role { display: none; }
+.lv-program-preview[data-layout="screen-speaker"] .po-tile[data-role="featured"] .lv-lower-third-name { font-size: 0.6rem; padding: 0.15rem 0.45rem 0.12rem 0.3rem; }

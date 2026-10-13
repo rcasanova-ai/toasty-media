@@ -1448,3 +1448,35 @@ body.studio-public-shell[data-brand-theme] {
   .live-console .lv-bottom-bar .rec-toggle,
   .live-console .lv-bottom-bar .lv-bottom-nav-btn { flex: 1 1 auto; min-width: 0; padding: 0 0.7rem; }
 }
+
+/* ---- Stable controls: nothing moves between idle, recording, presenting, hosting guests or live ----
+   Every control that changes its label owns a FIXED-width slot, so a label swap (Record -> Stop recording,
+   Present -> Stop presenting, Go Live -> End Live) can never push its neighbours around. The Leave button
+   lives in the header menu (it appears only once the host has joined, which used to shift the toolbar). */
+.live-console .lv-bottom-bar.lv-bottom-bar { grid-template-columns: auto auto minmax(0, 1fr); column-gap: 0.75rem; }
+.live-console .lv-bottom-bar .lv-bottom-nav { justify-content: flex-end; }
+.live-console .lv-bottom-bar .lv-icon-btn,
+.live-console .lv-bottom-bar .rec-toggle,
+.live-console .lv-bottom-bar .lv-bottom-nav-btn { font-size: 0.75rem; padding: 0 0.6rem; min-width: 0; }
+.live-console .lv-bottom-bar #lvToggleMic,
+.live-console .lv-bottom-bar #lvToggleCamera { width: 4.25rem; }
+.live-console .lv-bottom-bar #lvToggleScreen { width: 8rem; }
+.live-console .lv-bottom-bar #lvRecordToggle { width: 9.75rem; }
+.live-console .lv-bottom-bar #lvBottomGoLive { width: 6.5rem; }
+.live-console .lv-bottom-bar .lv-bottom-nav-btn { width: 4rem; padding: 0 0.3rem; }
+.live-console .lv-bottom-bar .rec-toggle::before { flex: 0 0 auto; margin-right: 0.4rem; position: static; }
+.live-console .lv-bottom-bar .rec-toggle { gap: 0; }
+.live-console .lv-topbar-status { align-items: center; display: flex; gap: 0.4rem; }
+.live-console .lv-top-settings { min-height: 36px; padding-inline: 0.9rem; }
+.live-console .lv-topbar-status .lv-mini-btn { min-height: 36px; }
+@media (max-width: 960px) {
+  .live-console .lv-bottom-bar.lv-bottom-bar { grid-template-columns: 1fr; }
+}
+@media (max-width: 520px) {
+  .live-console .lv-bottom-bar #lvToggleMic,
+  .live-console .lv-bottom-bar #lvToggleCamera,
+  .live-console .lv-bottom-bar #lvToggleScreen,
+  .live-console .lv-bottom-bar #lvRecordToggle,
+  .live-console .lv-bottom-bar #lvBottomGoLive,
+  .live-console .lv-bottom-bar .lv-bottom-nav-btn { flex: 1 1 auto; width: auto; }
+}
