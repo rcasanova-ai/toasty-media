@@ -64,6 +64,13 @@ function contactCard() {
   </section>`;
 }
 
+// Toasty-run demo participants have no inbox: nothing is emailed. The requester opens the private guest link as that person.
+function demoLinkCard() {
+  const url = data.contact?.demoGuestUrl;
+  if (!url) return "";
+  return `<section class="card"><h3>Demo participant</h3><p class="muted">${esc(data.candidate.displayName)} is a Toasty-run demo participant with no inbox, so no email was sent. Open their private guest link to answer as them: accept, give consent and share availability.</p><div class="actions"><a class="btn" href="${esc(url)}" target="_blank" rel="noopener">Open the demo guest link →</a></div></section>`;
+}
+
 function messagesCard() {
   if (!data.messages.length) return "";
   return `<section class="card"><h3>Messages</h3>${data.messages.map((m) => `<div class="row" style="grid-template-columns:1fr auto"><span><strong>${esc(m.purpose.replace(/_/g, " "))}</strong> → ${esc(m.audience)} · attempt ${m.attempt}<br><span class="muted">${esc(m.delivery)}${m.error ? ` — ${esc(m.error)}` : ""}</span></span><span>${["failed", "skipped_unavailable"].includes(m.status) ? `<button class="btn secondary" data-retry-msg="${esc(m.id)}">Retry</button>` : `<i class="tag ${m.providerKind === "test_demo" ? "" : "good"}">${esc(m.providerKind === "test_demo" ? "test/demo" : m.status)}</i>`}</span></div>`).join("")}</section>`;
@@ -166,7 +173,7 @@ function render() {
     ${replacementCard()}${planEditor()}${prepCard()}
     ${responseCard()}${["scheduling", "accepted"].includes(intro.status) || (data.booking && ["reschedule_requested"].includes(data.booking.status)) ? schedulingCard() : ""}
     ${bookingView && bookingView.booking.status === "booked" ? `<section class="card"><h3>Change of plans</h3><div class="actions"><button class="btn secondary" id="cancelBooking">Cancel this session</button></div><p class="muted">Cancellation window: ${bookingView.booking.cancellationPolicy.lateCancellationHours}h. Peeps records whether it was late; no penalty is applied automatically. To move the time, ask the guest for new availability — the schedule panel then offers new times.</p></section>` : ""}
-    ${contactCard()}${messagesCard()}`;
+    ${demoLinkCard()}${contactCard()}${messagesCard()}`;
   wire();
 }
 

@@ -3,7 +3,7 @@
 **Tagline:** Peeps helps people find, trust and compensate other people. Solana powers agent-mediated transactions. Zcash enables confidential human compensation.
 
 - Repository: https://github.com/rcasanova-ai/toasty-media (public)
-- Production: https://toasty.media/peeps/ · seeded demo: https://toasty.media/peeps/demo/ · judge path (sign-in): https://toasty.media/peeps/app/golden-path.html
+- Production: https://toasty.media/peeps/ · seeded demo: https://toasty.media/peeps/demo/ · Peeps app (sign-in): https://toasty.media/peeps/app/
 - Run it locally in a minute: [`peeps/README.md`](../peeps/README.md) · three-minute demo script: [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md) · architecture: [`ARCHITECTURE.md`](ARCHITECTURE.md)
 
 ## 1. Project description
@@ -64,7 +64,7 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md). Static HTML/JS front end; one Node API
 ## 7. Reproducible demo instructions
 
 1. `git clone` (fast sparse clone in the README), `npm run demo`, open http://127.0.0.1:4173/peeps/demo/ and click **Find my Peeps**, **Authorize introduction · $25**, **Join Jam**.
-2. `npm run start:seeded` for the real-services path at `/peeps/app/golden-path.html` (local sandbox, simulated payments).
+2. `npm run start:seeded` for the real-services path at `/peeps/app/` (local sandbox, simulated payments).
 3. Solana devnet and Zcash regtest instructions: [`peeps/README.md`](../peeps/README.md) and [`scripts/zcash/README.md`](../scripts/zcash/README.md).
 
 ## 8. Known limitations (read these)

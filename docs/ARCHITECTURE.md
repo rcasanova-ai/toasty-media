@@ -56,6 +56,6 @@ Confirmation is authenticated by the recipient's private token and bound to the 
 | API, lifecycle, verification, settlement | `scripts/render-production-server.mjs` (sections: Solana billing, PEEPS AGENT-TO-HUMAN TRANSACTION LIFECYCLE, PEEPS PUBLIC WAITLIST, PEEPS CONFIDENTIAL SETTLEMENT) |
 | Schema and atomic operations | `scripts/toasty-auth-db.py` |
 | Demo (DOM-free engine + seeds) | `peeps/demo/` |
-| Judge UI | `peeps/app/golden-path.html`, `js/peeps-golden-path-page.js` |
+| Receipt UI | `peeps/app/outcome.html`, `js/peeps-outcome-page.js`, `js/peeps-receipt.js` |
 | Tests | `scripts/peeps-*-test.mjs`, `scripts/solana-real-transaction-verification-test.mjs`, `scripts/dough-*-test.mjs` |
 | Zcash regtest harness and real e2e | `scripts/zcash/`, `scripts/zcash-regtest-e2e.mjs` |

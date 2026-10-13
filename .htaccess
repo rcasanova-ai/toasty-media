@@ -30,6 +30,10 @@
 </IfModule>
 
 RewriteEngine On
+# The separate walkthrough page was removed; old links land in the real Peeps app (request id preserved).
+RewriteCond %{QUERY_STRING} (?:^|&)request=([A-Za-z0-9_]+)
+RewriteRule ^peeps/app/golden-path\.html$ /peeps/app/outcome.html?request=%1 [R=302,L]
+RewriteRule ^peeps/app/golden-path\.html$ /peeps/app/ [R=302,L]
 
 RewriteRule ^studio$ /studio/director.html [L]
 

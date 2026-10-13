@@ -60,6 +60,7 @@ function bindStatic(){
   $("paSaveDefaults").onclick=saveDefaults;$("paSaveBilling").onclick=saveBilling;$("paNewBrand").onclick=()=>renderBrandEditor(null,true);
   $("paInviteMember").onclick=inviteMember;$("paCreateMember").onclick=createMember;$("paSaveAiKey").onclick=saveAiKey;
   $("paOrgSearch")?.addEventListener("input",renderOrganizationDirectory);
+  $("paEvalCreate")?.addEventListener("click",createEvaluationAccounts);
   $("paWaitlistSearch")?.addEventListener("input",renderWaitlist);$("paWaitlistRefresh")?.addEventListener("click",loadWaitlist);
 }
 
@@ -93,6 +94,13 @@ function renderWaitlist(){
       +(e.status!=="SUSPENDED"?'<button class="btn" data-wl="suspend" data-id="'+esc(e.id)+'" type="button">Suspend</button>':'<button class="btn" data-wl="activate" data-id="'+esc(e.id)+'" type="button">Reinstate</button>')+'</td></tr>';
   }).join("")||'<tr><td colspan="8" class="hint">No registrations yet.</td></tr>';
   $("paWaitlistTable").querySelectorAll("[data-wl]").forEach(btn=>btn.onclick=()=>waitlistAction(btn.dataset.id,btn.dataset.wl));
+}
+async function createEvaluationAccounts(){
+  try{
+    const r=await post("/api/organizations/platform-admin/peeps-evaluation-accounts",{count:Number($("paEvalCount").value)||1,reset:$("paEvalReset").checked});
+    $("paEvalOut").textContent=r.accounts.map(a=>a.email+" — "+a.status+(a.password?"\n  password: "+a.password:"")+(a.note?"\n  "+a.note:"")).join("\n");
+    setMessage("Evaluation accounts processed. Copy any password now; it is not shown again.");
+  }catch(error){setMessage(error.message,true);}
 }
 async function waitlistAction(id,action){
   try{

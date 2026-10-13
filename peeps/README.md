@@ -39,7 +39,7 @@ What is verified on-chain today (devnet-tested, same code path for mainnet): the
  /peeps/demo/        seeded, deterministic        scripts/render-production-server.mjs   HTTP API, auth, Peeps lifecycle,
                      engine.js (DOM-free)                                                Dough ledger, Solana verification
  /peeps/app/         real product UI  ───────────▶ scripts/toasty-auth-db.py            SQLite schema + atomic ledger/idempotency
- /peeps/app/golden-path.html  judge path          Solana RPC (read-only getTransaction)   only when a recipient is configured
+ /peeps/app/  judge path          Solana RPC (read-only getTransaction)   only when a recipient is configured
  /peeps/waitlist/    public waitlist
 ```
 
@@ -82,7 +82,7 @@ It prints a local-only login and then serves:
 | URL | What |
 |---|---|
 | http://127.0.0.1:4173/peeps/demo/ | Seeded David/Sarah demo |
-| http://127.0.0.1:4173/peeps/app/golden-path.html | The same lifecycle on the real services (sign in with the printed login) |
+| http://127.0.0.1:4173/peeps/app/ | The same lifecycle on the real services (sign in with the printed login) |
 | http://127.0.0.1:4173/peeps/waitlist/ | Public waitlist form |
 
 ## Environment configuration
@@ -123,7 +123,7 @@ The requester is a confidential Solana payments startup: *"someone who can open 
 
 **No transaction shown in the demo is a real Solana transaction.** Real, verifiable transactions only exist in the production UI/API (`/peeps/app/`), where every payment line is labelled **ONCHAIN VERIFIED**, **OFFCHAIN** (ledger), **SIMULATED** or **PENDING**, and a transaction signature or Explorer link is only ever shown for a payment the server verified on-chain.
 
-The same lifecycle on the real services (request → discovery → authorization/payment → guest accepts → booking → Jam + Studio session → consent → attendance → transcript → Breadcrumbs → Dough settlement → Dub update → receipt) is `/peeps/app/golden-path.html`, exercised end to end by `scripts/peeps-colosseum-golden-path-test.mjs`.
+The same lifecycle on the real services (request → discovery → authorization/payment → guest accepts → booking → Jam + Studio session → consent → attendance → transcript → Breadcrumbs → Dough settlement → Dub update → receipt) is `/peeps/app/`, exercised end to end by `scripts/peeps-colosseum-golden-path-test.mjs`.
 
 ## Testing
 
@@ -147,7 +147,7 @@ Use a throwaway devnet wallet. Never use a mainnet key.
    TOASTY_SOLANA_NETWORK=solana-devnet
    TOASTY_USDC_MINT=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
    ```
-3. `npm run start:seeded`, open `/peeps/app/golden-path.html`, run **Find my Peeps**, choose **USDC on Solana**. The page shows the recipient, mint, amount and this request's `reference`.
+3. `npm run start:seeded`, open `/peeps/app/`, run **Find my Peeps**, choose **USDC on Solana**. The page shows the recipient, mint, amount and this request's `reference`.
 4. Send the payment (includes the reference as a read-only account):
    ```bash
    npm install --no-save @solana/web3.js @solana/spl-token

@@ -2,7 +2,8 @@
 // Booked → Session → Completed → Outcome → Settlement. Everything shown is read from the server's
 // deterministic lifecycle; nothing here is inferred client-side. Crypto/rail details are deliberately
 // absent: money is shown as Dough with plain-language status.
-import { getPeepsLifecycle, reconcilePeepsRequest, evaluatePeepsOutcome, settlePeepsRequest, corroboratePeepsBreadcrumb, submitJamTranscript, completeJam, addJamArtifact } from "./peeps-jam-api.js";
+import { getPeepsLifecycle, reconcilePeepsRequest, evaluatePeepsOutcome, settlePeepsRequest, corroboratePeepsBreadcrumb, submitJamTranscript, completeJam, addJamArtifact, getPeepsReceipt, createZecSettlement, approveZecSettlement, submitZecSettlement, failZecSettlement } from "./peeps-jam-api.js";
+import { receiptCard, zecCard } from "./peeps-receipt.js";
 
 const id = new URLSearchParams(location.search).get("request") || "";
 const root = document.getElementById("outcome-root");
@@ -10,10 +11,12 @@ const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const STATE = { booked: "Booked", session_completed: "Session completed", outcome_pending: "Outcome pending", outcome_verified: "Outcome verified", completed: "Completed", payment_pending: "Payment pending", paid: "Paid" };
 const CLASS = { observed: "Observed", participant_claim: "Participant claim", verified: "Verified", ai_suggested: "AI suggestion" };
 let data = null;
+let receipt = null;
+let zecInstructions = {};
 let message = "";
 
 async function load() {
-  try { data = await getPeepsLifecycle(id); render(); }
+  try { data = await getPeepsLifecycle(id); receipt = await getPeepsReceipt(id).catch(() => receipt); render(); }
   catch (error) { root.innerHTML = `<section class="card"><h3>Couldn't load this request</h3><p class="muted">${esc(error.message)}</p><a class="btn" href="./searches.html">Back</a></section>`; }
 }
 
@@ -50,6 +53,7 @@ function render() {
     ${st.status !== "paid" ? `<div class="actions"><button class="btn" id="settleBtn">Settle now</button></div>` : ""}`}</section>` : ""}
   ${data.breadcrumbs.length ? `<section class="card"><h3>Breadcrumbs proposed from this session</h3><p class="muted">Each is a proposal the guest reviews; nothing reaches a Dub until they approve it. Corroborating one that a guest confirmed marks it verified.</p>
     ${data.breadcrumbs.map((b) => `<div class="row" style="grid-template-columns:1fr auto"><span><strong>${esc(b.guest)}</strong> · ${esc(b.kindLabel)}<br>${esc(b.statement)}<br><span class="muted">${esc(CLASS[b.evidenceClass] || b.evidenceClass)} · ${esc(b.status)} · ${esc(b.provenance.method || "")}${b.provenance.segmentIndex !== undefined ? ` · segment ${Number(b.provenance.segmentIndex) + 1}` : ""}</span></span>${["rejected"].includes(b.status) || b.corroborated ? `<i class="tag">${b.corroborated ? "corroborated" : "rejected"}</i>` : `<button class="btn secondary" data-corroborate="${esc(b.id)}">Corroborate</button>`}</div>`).join("")}</section>` : ""}`;
+  root.insertAdjacentHTML("beforeend", `${zecCard(receipt, zecInstructions)}${receiptCard(receipt)}`);
   wire();
 }
 
@@ -61,6 +65,10 @@ function wire() {
   on("#addTranscript", () => run(() => submitJamTranscript(data.jamId, { text: document.getElementById("tText").value }), "Transcript attached."));
   on("#acceptPartial", () => run(() => evaluatePeepsOutcome(id, { acceptPartial: true }), "Outcome re-evaluated."));
   on("#settleBtn", () => run(() => settlePeepsRequest(id), "Settlement attempted."));
+  on("#gp-zec-create", (el) => run(() => createZecSettlement(id, el.dataset.pid, Number(document.getElementById("gp-zat").value)), "Obligation created."));
+  on("#gp-zec-approve", (el) => run(async () => { const r = await approveZecSettlement(id, el.dataset.ref); zecInstructions[el.dataset.ref] = r.instructions; }, "Approved. Pay from your own wallet."));
+  on("#gp-zec-submit", (el) => run(() => submitZecSettlement(id, el.dataset.ref, document.getElementById("gp-ztx").value.trim()), "Recorded as submitted."));
+  on("#gp-zec-fail", (el) => run(() => failZecSettlement(id, el.dataset.ref, "payer_reported_failure"), "Marked failed. Nothing was settled."));
   on("[data-corroborate]", (el) => run(() => corroboratePeepsBreadcrumb(el.dataset.corroborate), "Corroborated."));
 }
 

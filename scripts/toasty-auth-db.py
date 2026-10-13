@@ -1548,6 +1548,12 @@ def migrate(conn):
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_candidates_request ON peeps_candidates(request_id, rank)")
+
+    # Colosseum evaluation accounts: ordinary users (no platform role, no admin access) flagged so the Peeps app can show a
+    # one-time intro and top up the demo credit. The flag grants nothing by itself; all permissions are the normal ones.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS peeps_evaluation_accounts (user_id TEXT PRIMARY KEY, label TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)"
+    )
     # Candidates persisted before the Toasty-run demo participants existed kept reachability 'external_indirect'.
     # Reclassify exactly those three demo-directory personas (idempotent; touches nothing else) so requests that were
     # created earlier can still be authorized through their demo link. No contact info is added or invented.
@@ -8038,6 +8044,22 @@ def main():
         return
 
     # Admin/accept transitions. ACTIVE requires a linked user account; SUSPENDED revokes open invitations.
+    if action == "peeps_eval_account_mark":
+        conn.execute("INSERT OR IGNORE INTO peeps_evaluation_accounts (user_id, label, created_at) VALUES (?, ?, ?)", (payload["userId"], payload.get("label") or "", utc_now()))
+        conn.commit()
+        print(json.dumps({"marked": True}))
+        return
+
+    if action == "peeps_eval_account_is":
+        row = conn.execute("SELECT 1 FROM peeps_evaluation_accounts WHERE user_id = ?", (payload["userId"],)).fetchone()
+        print(json.dumps({"evaluation": bool(row)}))
+        return
+
+    if action == "peeps_eval_account_list":
+        rows = conn.execute("SELECT a.user_id, a.label, a.created_at, u.email FROM peeps_evaluation_accounts a JOIN users u ON u.id = a.user_id ORDER BY a.created_at").fetchall()
+        print(json.dumps({"accounts": [{"userId": r["user_id"], "label": r["label"], "email": r["email"], "createdAt": r["created_at"]} for r in rows]}))
+        return
+
     if action == "peeps_waitlist_set_status":
         now = utc_now()
         row = conn.execute("SELECT * FROM peeps_waitlist WHERE id = ?", (payload["id"],)).fetchone()

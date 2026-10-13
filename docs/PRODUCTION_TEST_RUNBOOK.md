@@ -25,7 +25,7 @@ It signs in, creates a real request, shows the persisted evidence-based evaluati
 
 ## The human steps (cannot be automated)
 
-1. Candidate inbox: open the email, click the link, **I'm interested**, recording **Yes**, **45 minutes**, availability, **Share my availability**. (If email isn't configured on production, the guest link is not delivered: configure `RESEND_API_KEY` or take the guest link from the request on `https://toasty.media/peeps/app/golden-path.html?request=<id>`.)
+1. Candidate inbox: open the email, click the link, **I'm interested**, recording **Yes**, **45 minutes**, availability, **Share my availability**. (If email isn't configured on production, the guest link is not delivered: configure `RESEND_API_KEY` or take the guest link from the request on `https://toasty.media/peeps/app/?request=<id>`.)
 2. Requester: open the golden-path page for the request; it books the first mutual time automatically.
 3. Guest: reload the guest link, tick consent, **Save my consent**, **Join the session**; in the lobby allow camera/microphone, **Join Jam**.
 4. Requester: **3 · Join Jam →**. Follow `docs/LIVE_DEVICE_TEST.md` (talk 30-60 s, start/stop the Studio recording).
