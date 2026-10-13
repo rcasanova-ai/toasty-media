@@ -116,7 +116,7 @@ async function main() {
   assert(candidates.every((c) => c.contactEmail === null), "the demo provider never fabricates a contact email for anyone in it");
   assert(candidates.slice(0, 3).every((c) => /southeast asia|fintech|offline payments|payment/i.test(`${c.displayName} ${c.headline} ${c.matchReason}`)), "the top 3 candidates are genuinely on-topic for the request, not arbitrary");
   assert(candidates.every((c) => c.evidence.length > 0 && c.evidence[0].sourceTitle), "every candidate carries evidence with a labeled source, never a bare claim");
-  assert(candidates.every((c) => ["claimed_member", "unclaimed_dub", "external_direct", "external_indirect", "unreachable"].includes(c.reachability)), "every candidate has an explicit reachability classification, separate from match score");
+  assert(candidates.every((c) => ["claimed_member", "unclaimed_dub", "external_direct", "external_indirect", "demo_participant", "unreachable"].includes(c.reachability)), "every candidate has an explicit reachability classification, separate from match score");
 
   console.log("\nPhase 3 — 'keep searching' replaces one candidate without disturbing the rest");
   const rejectId = candidates[candidates.length - 1].id;
@@ -127,8 +127,9 @@ async function main() {
 
   console.log("\nPhase 4 — human authorizes introductions: payment-gated, never fabricates a contact channel");
   const top3 = candidates.slice(0, 3);
-  const unreachableAttempt = await payAndAuthorize(request.id, organizer.cookie, [{ candidateId: top3[0].id }]);
-  assert(unreachableAttempt.status === 200 && unreachableAttempt.data.introductions.length === 0, "authorizing a demo-directory candidate with NO organizer-supplied contact produces zero introductions");
+  const uncontactable = candidates.find((c) => c.reachability === "external_indirect");
+  const unreachableAttempt = await jsonFetch(`/api/peeps/requests/${request.id}/authorize`, { method: "POST", cookie: organizer.cookie, body: { candidates: [{ candidateId: uncontactable.id }] } });
+  assert(unreachableAttempt.status === 409 && !unreachableAttempt.data.introductions, "authorizing only a candidate with NO contact path is refused before payment: zero introductions");
   assert(unreachableAttempt.data.skipped[0]?.reason === "no_verified_contact_path", "...and says exactly why, rather than silently pretending an introduction happened");
 
   const authorize = await payAndAuthorize(request.id, organizer.cookie, [

@@ -32,7 +32,7 @@
 
 </main></div>
 <script type="module">
-import { getPrimaryOrganizationId, createPeepsRequest, getPeepsRequest, replacePeepsCandidate, authorizePeepsIntroductions } from "../../js/peeps-jam-api.js";
+import { getPrimaryOrganizationId, createPeepsRequest, getPeepsRequest, replacePeepsCandidate, authorizePeepsIntroductions, getPeepsIntroduction } from "../../js/peeps-jam-api.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -50,7 +50,19 @@ const INTRO_STATUS = {
 };
 function introLine(i) {
   const name = (candidates.find((c) => c.id === i.candidateId) || {}).displayName || "Guest";
-  return `<li><a class="link" href="./introduction.html?id=${encodeURIComponent(i.id)}">${escapeHtml(name)}</a> — ${escapeHtml(INTRO_STATUS[i.status] || i.status)}</li>`;
+  return `<li><a class="link" href="./introduction.html?id=${encodeURIComponent(i.id)}">${escapeHtml(name)}</a> — ${escapeHtml(INTRO_STATUS[i.status] || i.status)} <span data-demo-link="${escapeHtml(i.id)}"></span></li>`;
+}
+
+// Demo participants have no inbox: nothing is emailed. The requester gets the private guest link to open as that person.
+async function showDemoGuestLinks(list) {
+  for (const i of list) {
+    try {
+      const detail = await getPeepsIntroduction(i.id);
+      const url = detail?.contact?.demoGuestUrl;
+      const slot = document.querySelector(`[data-demo-link="${CSS.escape(i.id)}"]`);
+      if (url && slot) slot.innerHTML = `<br><span class="muted">Demo participant: no email was sent.</span> <a class="link" href="${escapeHtml(url)}" target="_blank" rel="noopener">Open the demo guest link →</a>`;
+    } catch (_) { /* detail unavailable: the introduction page still has it */ }
+  }
 }
 
 function showStep(id) {
@@ -61,12 +73,13 @@ const REACHABILITY_LABEL = {
   claimed_member: "Toasty Peeps member",
   unclaimed_dub: "Known from a past Jam",
   external_direct: "Verified contact found",
+  demo_participant: "Demo participant — private demo link (no email is sent)",
   external_indirect: "No verified contact yet",
   unreachable: "No known way to reach them"
 };
 
 function candidateRow(candidate) {
-  const needsEmail = !["claimed_member", "unclaimed_dub"].includes(candidate.reachability) && !candidate.contactEmail;
+  const needsEmail = !["claimed_member", "unclaimed_dub", "demo_participant"].includes(candidate.reachability) && !candidate.contactEmail;
   const disabled = candidate.status !== "proposed";
   return `
     <div class="row" data-candidate="${candidate.id}" style="grid-template-columns:auto 1fr auto">
@@ -75,7 +88,7 @@ function candidateRow(candidate) {
         <span>
           <strong>${escapeHtml(candidate.displayName)}</strong> — <span class="muted">${escapeHtml(candidate.headline)}</span><br>
           <span class="muted">${escapeHtml(candidate.matchReason)}</span><br>
-          <i class="tag${candidate.reachability === "claimed_member" || candidate.reachability === "unclaimed_dub" ? " good" : ""}">${REACHABILITY_LABEL[candidate.reachability] || candidate.reachability}</i>
+          <i class="tag${["claimed_member", "unclaimed_dub", "demo_participant"].includes(candidate.reachability) ? " good" : ""}">${REACHABILITY_LABEL[candidate.reachability] || candidate.reachability}</i>
           ${candidate.status !== "proposed" ? `<i class="tag good">${escapeHtml(candidate.status)}</i>` : ""}
           ${needsEmail && !disabled ? `<input class="field candidate-email" data-id="${candidate.id}" placeholder="Their email (you supply this — Peeps never guesses it)" style="margin-top:6px;max-width:320px">` : ""}
         </span>
@@ -147,8 +160,13 @@ $("authorizeBtn").addEventListener("click", async () => {
       <p><strong>${introductions.length}</strong> introduction${introductions.length === 1 ? "" : "s"} authorized.</p>
       ${skipped.length ? `<p class="muted">${skipped.length} skipped — no verified contact path was available for them.</p>` : ""}
       <ul>${introductions.map(introLine).join("")}</ul>`;
+    const none = introductions.length === 0;
+    document.querySelector("#stepResult h2").textContent = none ? "Nothing was authorized" : "Peeps is reaching out";
+    document.querySelector("#stepResult .eyebrow").textContent = none ? "No introductions" : "Introductions authorized";
+    $("openJamLink").hidden = none;
     $("openJamLink").href = `./jam.html?id=${encodeURIComponent(result.jamId)}`;
     showStep("stepResult");
+    showDemoGuestLinks(introductions);
   } catch (error) {
     $("authorizeStatus").textContent = error.message || "Could not authorize introductions.";
     if (error.doughShortfall) $("doughShortfallPrompt").hidden = false;
@@ -165,8 +183,10 @@ async function resume(id) {
     const authorized = introductions.length;
     $("resultSummary").innerHTML = `<p><strong>${authorized}</strong> introduction${authorized === 1 ? "" : "s"} so far.</p><ul>${introductions.map(introLine).join("")}</ul>
       ${request.jamId ? `<p><a class="btn secondary" href="./outcome.html?request=${encodeURIComponent(request.id)}">Session, outcome &amp; settlement →</a></p>` : ""}`;
+    $("openJamLink").hidden = !authorized || !request.jamId;
     if (request.jamId) $("openJamLink").href = `./jam.html?id=${encodeURIComponent(request.jamId)}`;
     showStep("stepResult");
+    showDemoGuestLinks(introductions);
   } else {
     renderCandidates();
   }

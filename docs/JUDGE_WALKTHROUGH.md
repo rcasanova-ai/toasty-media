@@ -76,6 +76,10 @@ Requires the local regtest chain ([`scripts/zcash/README.md`](../scripts/zcash/R
 17. Guest: reload `/peeps/zec.html`, enter the transaction id, amount and memo **from the recipient wallet's own record**, click **Confirm my wallet received it**. Expected: **VERIFIED CONFIDENTIAL SETTLEMENT**.
 18. Requester: reload. The receipt shows **ZCASH: CONFIDENTIAL SETTLEMENT VERIFIED by the recipient's own wallet · REGTEST (test network, no value)**, an opaque reference, and *"PAID VIA ZEC"* for the compensation. The receipt never contains the address, memo, ZEC amount or transaction id.
 
+## Demo participants (no email needed)
+
+In the request's candidate list, **Anong Srisuk, Budi Hartono and Mei Lin Tan** are Toasty-run **demo participants**: fictional personas with a private demo guest link instead of an inbox. Authorizing them needs no email: Peeps records the contact as a *demo link* (never as sent mail) and shows you **Open the demo guest link** on the introduction. Open it, accept, share availability, and the requester can proceed to the Jam. Other candidates have no contact path: select only those and Peeps refuses before charging anything ("None of the people you selected has a verified way to be contacted"), unless you enter an email you hold.
+
 ## Real versus simulated
 
 | Item | Status |

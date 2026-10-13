@@ -422,7 +422,7 @@ async function main() {
   const manualOrg = await api("/auth/register", { method: "POST", body: { name: "Manual Org", email: "manual-org@example.com", password: "password10chars" } });
   const create4 = await api("/api/peeps/requests", { method: "POST", cookie: manualOrg.cookie, body: { whoText: "Cybersecurity incident response leads", outcomeText: "I want a research interview about incident response." } });
   assert(create4.status === 201, "a request about a different topic is created");
-  const c4 = create4.data.candidates.find((c) => c.source === "demo_directory_provider" && c.status === "proposed");
+  const c4 = create4.data.candidates.find((c) => c.source === "demo_directory_provider" && c.status === "proposed" && c.reachability !== "demo_participant");
   assert(c4, "the demo directory yields a proposed candidate for the new topic");
   db("peeps_candidate_set_contact_paths", { id: c4.id, contactPaths: [{ type: "linkedin", url: "https://www.linkedin.com/in/example-person", source: "public_profile", confidence: "Medium" }] });
   const auth4 = await payAndAuthorize(create4.data.request.id, manualOrg.cookie, [{ candidateId: c4.id }]);
@@ -491,7 +491,7 @@ async function productionLikeCheck() {
     const authorized = await call(`/api/peeps/requests/${created.data.request.id}/authorize`, {
       method: "POST", cookie: user.cookie,
       headers: { "x-payment-signature": pay.data.paymentSignature, "x-solana-transaction-signature": pay.data.transactionSignature, "x-payment-asset": "USDC", "x-payment-amount": "0.25", "x-payer-wallet": pay.data.payerWallet, "x-approval-source": pay.data.approvalSource },
-      body: { candidates: [{ candidateId: created.data.candidates[0].id, outreachEmail: "someone@example.com" }] }
+      body: { candidates: [{ candidateId: created.data.candidates.find((c) => c.reachability !== "demo_participant").id, outreachEmail: "someone@example.com" }] }
     });
     const intro = authorized.data.introductions[0];
     assert(intro.status === "ready_for_outreach" && !intro.outreachSentAt, "with no provider the introduction waits at ready_for_outreach — nothing is claimed as sent");

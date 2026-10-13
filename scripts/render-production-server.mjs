@@ -7306,6 +7306,11 @@ async function resolveInternalCandidates(organizationId, requestTerms) {
 // provider has no real, verified contact channel for anyone in it (see the directory's own comment), so
 // it never claims "external_direct" and contactEmail is always null. A real provider adapter (public web
 // search with an explicit mailto, a paid x402 data provider, ...) is the only thing allowed to set either.
+// The three payments-in-Southeast-Asia personas are Toasty-run DEMO PARTICIPANTS: fictional, operated by us, with a real
+// but non-email contact path (a private guest link the requester opens themselves). That path is verified as what it is
+// (a demo link) and never as a real person's inbox: no email is sent, nothing is claimed delivered. Every other directory
+// entry stays "external_indirect" (no contact path), so the real skip behaviour is still exercised.
+const PEEPS_DEMO_PARTICIPANT_NAMES = new Set(["Anong Srisuk", "Budi Hartono", "Mei Lin Tan"]);
 function resolveDemoDirectoryCandidates(requestTerms) {
   return PEEPS_DEMO_DIRECTORY.map((candidate) => {
     const candidateTerms = tokenizePeepsText([candidate.name, candidate.headline, candidate.location, ...candidate.languages, ...candidate.topics].join(" "));
@@ -7330,7 +7335,7 @@ function resolveDemoDirectoryCandidates(requestTerms) {
       }],
       matchReason: matched.length ? `Matched: ${matched.slice(0, 4).join(", ")}` : "General category fit",
       matchScore: score,
-      reachability: "external_indirect",
+      reachability: PEEPS_DEMO_PARTICIPANT_NAMES.has(candidate.name) ? "demo_participant" : "external_indirect",
       contactEmail: null
     };
   }).filter((candidate) => candidate.matchScore > 30);
@@ -7421,7 +7426,7 @@ async function runPeepsResolver(request) {
     Promise.resolve(resolveDemoDirectoryCandidates(requestTerms))
   ]);
   const desiredCount = request.workingRepresentation?.desiredCandidateCount || 3;
-  const reachabilityRank = { claimed_member: 0, unclaimed_dub: 1, external_direct: 1, external_indirect: 2, unreachable: 3 };
+  const reachabilityRank = { claimed_member: 0, unclaimed_dub: 1, external_direct: 1, demo_participant: 1, external_indirect: 2, unreachable: 3 };
   const merged = [...internal, ...demo]
     .sort((a, b) => {
       const rankDiff = (reachabilityRank[a.reachability] ?? 3) - (reachabilityRank[b.reachability] ?? 3);
@@ -7826,6 +7831,26 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
   const body = await readJson(req);
   const selections = Array.isArray(body.candidates) ? body.candidates : [];
   if (!selections.length) throw httpError(400, "Select at least one candidate to introduce.");
+
+  // Never charge, create a Jam, or mark the request authorized when NOTHING selected can actually be contacted. Each
+  // candidate needs a legitimate path (member/past-Jam account, a provider path, a Toasty-run demo link, or an email the
+  // requester supplies). Checked BEFORE payment so a refusal costs nothing.
+  {
+    const preCandidates = new Map(((await db("peeps_candidate_list", { requestId: id })).candidates || []).map((c) => [c.id, c]));
+    const verdicts = selections.map((sel) => {
+      const c = preCandidates.get(sessionText(sel.candidateId, 80));
+      if (!c || c.status !== "proposed") return "not_available";
+      const hasPath = Boolean(c.contactEmail) || (c.contactPaths || []).length > 0 || ["claimed_member", "unclaimed_dub", "demo_participant"].includes(c.reachability);
+      return hasPath || EMAIL_PATTERN.test(sessionText(sel.outreachEmail, 200).toLowerCase()) ? "ok" : "no_verified_contact_path";
+    });
+    if (verdicts.every((v) => v === "no_verified_contact_path")) {
+      return sendJson(req, res, 409, {
+        error: "no_contactable_candidates",
+        message: "None of the people you selected has a verified way to be contacted, so nothing was authorized and you were not charged. Enter an email you hold for each person, or choose people marked as having a contact path.",
+        skipped: selections.map((sel) => ({ candidateId: sel.candidateId, reason: "no_verified_contact_path" }))
+      });
+    }
+  }
 
   // Dough is the human-facing payment abstraction. Spend it first; only fall back to a direct x402
   // proof for crypto-native callers or deployments that have not funded Dough yet. Insufficient Dough
@@ -8377,6 +8402,10 @@ async function peepsResolveContact(ctx, { requesterSuppliedEmail = "", authorize
   if (candidate.contactEmail) addEmail("public_professional_email", candidate.contactEmail, candidate.source || "provider", "provider_reported", candidate.evidence?.[0]?.confidence || "Low");
   if (requesterSuppliedEmail) addEmail("requester_supplied_email", requesterSuppliedEmail, "requester_supplied", "unverified_supplied_by_requester", "Low");
 
+  if (candidate.reachability === "demo_participant") {
+    descriptors.push({ channel: "demo_link", destination: "toasty-demo-participant", source: "toasty_demo_directory", verification: "toasty_run_demo_participant", confidence: "High", automatable: false });
+  }
+
   // Non-email public paths are recorded truthfully but never claimed as automated.
   const pathTypes = { social: "public_social_profile", linkedin: "public_social_profile", profile: "public_social_profile", company: "company_contact", website: "website_contact", other: "other_provider_channel" };
   for (const path of Array.isArray(candidate.contactPaths) ? candidate.contactPaths.slice(0, 8) : []) {
@@ -8567,6 +8596,20 @@ async function peepsRunOutreach(ctx, { purpose = "outreach", openingContext = nu
   const automatable = ctx.channels.filter((c) => c.automatable && c.status !== "failed");
   const manual = ctx.channels.filter((c) => !c.automatable).map((c) => ({ channel: c.channel, reference: c.publicReference, source: c.source }));
 
+  // Toasty-run demo participant: there is no inbox to email, so the requester is handed a private guest link to open
+  // themselves. This is recorded as a "demo_link" message (status simulated, nothing delivered) and never as sent mail.
+  if (ctx.candidate.reachability === "demo_participant" && (!automatable.length || !adapter)) {
+    const demoUrl = peepsResponseUrl(await peepsMintResponseToken(ctx.intro.id));
+    const template = await peepsTemplateFor(ctx, openingContext ? { startsAt: openingContext.startsAt, displayTimezone: openingContext.displayTimezone } : {});
+    await db("peeps_message_create", { id: newId("pmsg"), introductionId: ctx.intro.id, purpose: openingContext ? "opening" : purpose, audience: "candidate", adapter: "demo_link", providerKind: "demo_link", status: "simulated", threadRef: `peeps-intro-${ctx.intro.id}`, template: { ...template, needsLink: true } });
+    const result = await peepsSetIntroStatus(ctx.intro.id, "outreach_sent", {
+      outreachSentAt: new Date().toISOString(), outreachExpiresAt: inviteExpiry(PEEPS_OUTREACH_TTL_DAYS),
+      contactState: { ...ctx.intro.contactState, blocked: null, manualOptions: manual, lastOutreachProviderKind: "demo_link", demoGuestUrl: demoUrl }
+    });
+    await db("jam_event_create", { id: newId("jev"), jamId: ctx.intro.jamId, jamParticipantId: ctx.intro.jamParticipantId, type: "outreach.demo_link", actor: "system", detail: { introductionId: ctx.intro.id, note: "Demo participant: no email sent; private guest link given to the requester." } });
+    ctx.intro = result.introduction;
+    return ctx;
+  }
   if (!automatable.length) {
     const result = await peepsSetIntroStatus(ctx.intro.id, "unreachable", { contactState: { ...ctx.intro.contactState, reason: manual.length ? "manual_only" : "no_contact_path", manualOptions: manual, checkedAt: new Date().toISOString() } });
     ctx.intro = result.introduction;
@@ -9531,7 +9574,7 @@ async function peepsCreateOpening(ctx, booking) {
 
 async function peepsQualifiedReplacements(request, excludeCandidateId) {
   const listed = await db("peeps_candidate_list", { requestId: request.id });
-  const usable = (listed.candidates || []).filter((c) => c.status === "proposed" && c.id !== excludeCandidateId && (["claimed_member", "unclaimed_dub"].includes(c.reachability) || c.contactEmail || (c.contactPaths || []).length || c.reachability === "external_indirect"));
+  const usable = (listed.candidates || []).filter((c) => c.status === "proposed" && c.id !== excludeCandidateId && (["claimed_member", "unclaimed_dub", "demo_participant"].includes(c.reachability) || c.contactEmail || (c.contactPaths || []).length || c.reachability === "external_indirect"));
   return usable.sort((a, b) => b.matchScore - a.matchScore);
 }
 
@@ -9593,7 +9636,7 @@ async function peepsApproveReplacement(ctx, opening, authSession, body) {
 // ---- Authorization -> Introduction (shared by /authorize and replacement approval) ----
 async function peepsAuthorizeCandidate({ request, jam, jamId, candidate, authSession, compensationAmount, outreachEmail, replaces = null, paymentRef, openingId = null }) {
   let dubId = candidate.dubId;
-  const hasProviderPath = Boolean(candidate.contactEmail) || (candidate.contactPaths || []).length > 0 || ["claimed_member", "unclaimed_dub"].includes(candidate.reachability);
+  const hasProviderPath = Boolean(candidate.contactEmail) || (candidate.contactPaths || []).length > 0 || ["claimed_member", "unclaimed_dub", "demo_participant"].includes(candidate.reachability);
   const supplied = EMAIL_PATTERN.test(outreachEmail || "") ? outreachEmail : "";
   if (!hasProviderPath && !supplied) return { skipped: { candidateId: candidate.id, reason: "no_verified_contact_path" } };
   if (!dubId) {
@@ -9646,7 +9689,8 @@ function peepsChannelView(channel) {
 }
 
 function peepsMessageView(message) {
-  const label = message.providerKind === "test_demo" && message.status === "simulated" ? "Simulated by the test provider — nothing was delivered."
+  const label = message.providerKind === "demo_link" ? "Demo participant: no email was sent. Use the private demo guest link."
+    : message.providerKind === "test_demo" && message.status === "simulated" ? "Simulated by the test provider — nothing was delivered."
     : message.status === "sent" ? "Handed to the email provider. Delivery isn't confirmed until they respond."
     : message.status === "failed" ? "Delivery failed." : message.status === "skipped_unavailable" ? "Not sent: no provider available." : message.status;
   return { id: message.id, purpose: message.purpose, audience: message.audience, adapter: message.adapter, providerKind: message.providerKind, status: message.status, attempt: message.attempt, error: message.error || null, threadRef: message.threadRef, createdAt: message.createdAt, delivery: label };
@@ -9671,7 +9715,7 @@ async function peepsIntroductionView(ctx) {
   const view = {
     introduction: { id: intro.id, status, requestId: intro.requestId, jamId: intro.jamId, authorizedAt: intro.authorizedAt, outreachSentAt: intro.outreachSentAt, outreachExpiresAt: intro.outreachExpiresAt, respondedAt: intro.respondedAt, firstViewedAt: intro.firstViewedAt, declineReason: intro.declineReason, paymentRef: intro.paymentRef ? "preserved" : null, replacesIntroductionId: intro.replacesIntroductionId },
     candidate: { id: ctx.candidate.id, displayName: ctx.candidate.displayName, headline: ctx.candidate.headline, matchReason: ctx.candidate.matchReason, source: ctx.candidate.source },
-    contact: { channels: ctx.channels.map(peepsChannelView), activeChannelId: intro.contactState?.activeChannelId || null, blocked: intro.contactState?.blocked || null, reason: intro.contactState?.reason || null, manualOptions: intro.contactState?.manualOptions || [] },
+    contact: { channels: ctx.channels.map(peepsChannelView), activeChannelId: intro.contactState?.activeChannelId || null, blocked: intro.contactState?.blocked || null, demoGuestUrl: intro.contactState?.demoGuestUrl || null, reason: intro.contactState?.reason || null, manualOptions: intro.contactState?.manualOptions || [] },
     adapters: peepsAdapterCatalog(),
     messages: messages.map(peepsMessageView),
     response: { decision: intro.response?.decision || null, reason: intro.response?.reason || null, messages: intro.response?.messages || [], preferences: { recordingPreference: prefs.recordingPreference || null, durationMinutes: prefs.durationMinutes || null, compensation: prefs.compensation || null, formatConstraints: prefs.formatConstraints || null, timezone: prefs.timezone || null, notes: prefs.notes || null } },
@@ -10746,7 +10790,7 @@ async function handleJamReplaceParticipant(req, res, authSession) {
   let suggestedReplacement = null;
   if (request) {
     const candidatesResult = await db("peeps_candidate_list", { requestId: request.id });
-    suggestedReplacement = (candidatesResult.candidates || []).find((c) => c.status === "proposed" && (c.reachability === "claimed_member" || c.reachability === "unclaimed_dub" || c.contactEmail)) || null;
+    suggestedReplacement = (candidatesResult.candidates || []).find((c) => c.status === "proposed" && (c.reachability === "claimed_member" || c.reachability === "unclaimed_dub" || c.reachability === "demo_participant" || c.contactEmail)) || null;
   }
   const updated = await db("jam_get", { id: jam.id, organizationId: jam.organizationId });
   sendJson(req, res, 200, { jam: updated.jam, suggestedReplacement, requestId: request?.id || null });
