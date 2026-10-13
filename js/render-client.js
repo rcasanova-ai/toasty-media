@@ -123,12 +123,22 @@ export async function finalizeMasterRecordingMp4({ sourceBlob, manifest, onProgr
   const base = getRecordingFinalizeEndpoint().replace(/\/finalize$/, "/jobs");
   const meta = { recordingId: manifest.recordingId, sessionId: manifest.sessionId || null, durationSeconds: manifest.durationSeconds || 0 };
   onProgress("Uploading recording...");
-  const created = await fetchImpl(base, {
-    method: "POST",
-    headers: { "X-Toasty-CSRF": "1", "X-Toasty-Recording": btoa(JSON.stringify(meta)), "Content-Type": "video/webm" },
-    credentials: "include",
-    body: sourceBlob
-  });
+  let created;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      created = await fetchImpl(base, {
+        method: "POST",
+        headers: { "X-Toasty-CSRF": "1", "X-Toasty-Recording": btoa(JSON.stringify(meta)), "Content-Type": "video/webm" },
+        credentials: "include",
+        body: sourceBlob
+      });
+      break;
+    } catch (error) {
+      // A dropped connection before any response (wifi blip, stale keep-alive socket): the Blob is re-sendable.
+      if (attempt === 2) throw new Error("MP4 upload failed — check your connection. Your source WebM is saved; Retry MP4.");
+      await sleep(1000 * (attempt + 1));
+    }
+  }
   const job = await readJsonError(created, "MP4 upload failed. Your source WebM is saved.");
   const startedAt = Date.now();
   let status = job;
