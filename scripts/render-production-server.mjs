@@ -1454,10 +1454,11 @@ const server = createServer(async (req, res) => {
     }
   }
 
-  // Public provenance-backed pitch roast. This is explicitly a simulation based on documented
-  // public feedback patterns, not impersonation or endorsement. No submitted pitch is persisted here.
+  // Private owner/admin provenance-backed pitch roast. This is explicitly a simulation based on
+  // documented feedback patterns, not impersonation or endorsement. No submitted pitch is persisted here.
   if (req.method === "POST" && req.url === "/api/peeps/josip-roast") {
     if (!requireCsrf(req, res) || !limit(req, res, "peeps-josip-roast", 3, 60 * 60 * 1000)) return;
+    const session = await requirePlatformAdmin(req, res); if (!session) return;
     await handlePeepsJosipRoast(req, res);
     return;
   }

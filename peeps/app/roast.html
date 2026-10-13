@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <script>document.documentElement.classList.add("peeps-app-gated");</script>
+  <style>html.peeps-app-gated body{visibility:hidden}</style>
+  <noscript><meta http-equiv="refresh" content="0;url=/peeps/"></noscript>
+  <script type="module" src="../../js/peeps-app-gate.js"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Roast My Pitch · Toasty Peeps</title>
+  <link rel="icon" href="../../shared/brand/toasty-media/ToastyTransparent.png">
+  <link rel="stylesheet" href="../peeps.css?v=20261003m1">
+  <link rel="stylesheet" href="../roast/roast.css?v=20261013a">
+  <script type="module" src="../roast/roast.js?v=20261013a"></script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="side">
+    <a class="side-brand" href="./"><img src="../../shared/brand/toasty-media/ToastyTransparent.png" alt="Toasty"><span class="wordmark"><b>TOASTY</b><em>Peeps</em></span></a>
+    <nav><a href="./">Find Peeps</a><a href="./golden-path.html">Judge path</a><a href="./searches.html">My Searches</a><a href="./jams.html">My Jams</a><a href="./calendar.html">Calendar</a><a href="./demand.html">Demand</a><a href="./dub.html">My Dub</a><a href="./profile.html">My Profile</a><a href="./dough.html">Dough</a><a class="active" href="./roast.html">Roast Pitch</a></nav>
+    <div class="side-foot">Private owner/admin tool.<br>Account · Settings · Sign out</div>
+  </aside>
+  <main class="workspace roast-main">
+    <section class="roast-hero">
+      <small>PEEPS · PRIVATE OWNER TOOL</small>
+      <h1>Roast my pitch.</h1>
+      <p>Paste the pitch you would give a Colosseum judge. This simulated Dub applies recurring patterns from Josip Volarevic's documented public startup feedback: clarity, proof, execution, founder credibility, real demand, and obvious rejection risks.</p>
+      <div class="provenance-pill">SIMULATION · NOT JOSIP · NOT ENDORSED BY JOSIP</div>
+    </section>
+
+    <section class="roast-layout">
+      <form id="roastForm" class="card roast-form">
+        <label><span>STARTUP / PROJECT</span><input id="startup" maxlength="120" placeholder="Toasty Peeps"></label>
+        <label><span>YOUR ONE-LINER</span><input id="oneLiner" maxlength="300" placeholder="What do you say when someone asks what you do?"></label>
+        <label><span>UPLOAD YOUR DECK</span><input id="deckFile" class="deck-file" type="file" accept=".pdf,.pptx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain"><small id="deckStatus" class="deck-status">PDF, PPTX or TXT · extracted in your browser · max 15 MB</small></label>
+        <label><span>BLURB / WHAT YOU WOULD SAY ON STAGE</span><textarea id="pitch" maxlength="12000" placeholder="Paste your 3-minute pitch, application answer, context for the deck, or anything you want the Dub to know."></textarea></label>
+        <div class="form-foot">
+          <span id="count">0 / 12,000</span>
+          <button type="submit" id="roastButton">Roast my pitch</button>
+        </div>
+        <p class="privacy-note">Your deck file is parsed locally in your browser and is not uploaded to Toasty. Only extracted deck text plus your blurb is sent to the configured AI provider to generate the roast. Nothing is persisted by this feature.</p>
+        <p id="status" class="roast-status" role="status"></p>
+      </form>
+
+      <section id="result" class="card roast-result" hidden>
+        <div class="result-head"><small>JOSIP DUB · SIMULATED ROAST</small><button type="button" id="copyRoast" class="secondary">Copy</button></div>
+        <h2 id="opening"></h2>
+        <div class="roast-block"><small>I DON'T UNDERSTAND</small><p id="understand"></p></div>
+        <div class="roast-block"><small>YOUR STRONGEST PROOF</small><p id="strongestProof"></p></div>
+        <div class="roast-block danger"><small>RED FLAG</small><p id="redFlag"></p></div>
+        <div class="roast-block"><small>CUT</small><p id="cut"></p></div>
+        <div class="roast-block rewrite"><small>REWRITE THE ONE-LINER</small><p id="rewrite"></p></div>
+        <div class="roast-block"><small>THE QUESTION A JUDGE WILL ASK</small><p id="judgeQuestion"></p></div>
+        <div class="roast-block"><small>FIX BEFORE YOU PITCH AGAIN</small><ol id="changes"></ol></div>
+      </section>
+    </section>
+
+    <section class="card evidence-card">
+      <small>WHY THIS DUB TALKS THIS WAY</small>
+      <h2>Evidence, not impersonation.</h2>
+      <p>The prompt is grounded in recurring, attributable feedback patterns. It does not claim to predict Josip's private opinion or speak on his behalf.</p>
+      <div class="evidence-grid">
+        <a href="https://www.linkedin.com/posts/superteam-balkan_pitch-decks-are-harder-than-most-founders-activity-7452015150573797376-kQsO" target="_blank" rel="noopener"><b>Pitch decks that win</b><span>Structure, story, rejection red flags, Colosseum experience.</span></a>
+        <a href="https://www.linkedin.com/posts/superteam-balkan_if-you-cant-explain-your-startup-in-5-words-activity-7457423780076814336-6D7z" target="_blank" rel="noopener"><b>One-line clarity</b><span>Explain the startup fast or lose attention.</span></a>
+        <a href="https://incrypted.com/en/highlights-stream-josip-volarevic/" target="_blank" rel="noopener"><b>Founder + execution</b><span>Execution, real demand, team quality, judge outreach and chain fit.</span></a>
+      </div>
+      <p class="session-source">Also informed by Ricardo Casanova's Oct. 1, 2026 pitch-roast notes covering Josip's feedback to multiple founders.</p>
+    </section>
+  </main>
+</div>
+</body>
+</html>
