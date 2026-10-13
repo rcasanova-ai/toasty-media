@@ -1480,3 +1480,14 @@ body.studio-public-shell[data-brand-theme] {
   .live-console .lv-bottom-bar #lvBottomGoLive,
   .live-console .lv-bottom-bar .lv-bottom-nav-btn { flex: 1 1 auto; width: auto; }
 }
+
+/* ---- Moxie's private feed must be visible ----
+   The desktop Host layout capped the AI Producer panel at 8rem (max-height !important). That is shorter than its own
+   header + Talk to Moxie row + text field, so the feed list above them collapsed to 0px: Moxie's private reminders,
+   research cards and run-of-show nudges were being produced but never shown. Give the panel room and let the feed scroll. */
+.live-console[data-lv-view="host"] .lv-ai-producer,
+.studio-chassis.live-console[data-lv-view="host"] .lv-ai-producer {
+  max-height: 26rem !important;
+  min-height: 17rem;
+}
+.live-console[data-lv-view="host"] .lv-ai-producer .lv-feed-list { flex: 1 1 auto; max-height: none; min-height: 8rem; overflow-y: auto; }
