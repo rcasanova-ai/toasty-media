@@ -708,7 +708,7 @@ export class ProducerView {
       if (mp4Ready) this.elements.masterManifestNote.textContent = `${duration} · MP4 ready. Play to confirm Host, Guest, lower thirds, speech and soundboard.`;
       else if (preparing) this.elements.masterManifestNote.textContent = `${duration} · Recording saved. Preparing MP4… you can already play it; the MP4 download unlocks when it's ready.`;
       else if (status === "local-only") this.elements.masterManifestNote.textContent = `${duration} · Recording is only in this tab and MP4 could not be prepared. Retry MP4, or keep this page open and use Advanced → Download Source WebM.`;
-      else if (failed) this.elements.masterManifestNote.textContent = `${duration} · MP4 could not be prepared. Retry MP4 — your recording is safe (Advanced → Download Source WebM).`;
+      else if (failed) this.elements.masterManifestNote.textContent = `${duration} · MP4 could not be prepared${last.finalizationError ? ` (${String(last.finalizationError).slice(0, 200)})` : ""}. Retry MP4 — your recording is safe: use Download Source WebM.`;
       else this.elements.masterManifestNote.textContent = `${duration} · Recording saved.`;
     }
   }
