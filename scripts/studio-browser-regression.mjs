@@ -83,7 +83,8 @@ try {
   await frame.waitForFunction(() => window.__toastyLiveSession.recording.active, null, { timeout: 15000 });
   assert(await frame.evaluate(() => window.__toastyLiveSession.studio.mode) === "record", "Record shows RECORDING");
   const rec1 = await geometry(frame);
-  const browserMp4 = await page.evaluate(() => MediaRecorder.isTypeSupported("video/mp4;codecs=avc1.640028,mp4a.40.2"));
+  // Same candidates, same order as pickMasterMime(): CI Chrome may support plain video/mp4 but not the High-profile codec string.
+  const browserMp4 = await page.evaluate(() => ["video/mp4;codecs=avc1.640028,mp4a.40.2", "video/mp4;codecs=avc1,mp4a.40.2", "video/mp4"].some((t) => MediaRecorder.isTypeSupported(t)));
   const expectDirect = browserMp4 && process.env.RECORD_FORMAT !== "webm";
   const recOpts = await frame.evaluate(() => { const r = window.__toastyLiveSession._masterRecorder?.fallback?.recorder; return { mime: r?.mimeType, video: r?.videoBitsPerSecond, audio: r?.audioBitsPerSecond }; });
   assert(recOpts.video === 6000000 && recOpts.audio === 160000, `local recording quality is 6 Mbps video / 160 kbps audio (recorder reports ${recOpts.video}/${recOpts.audio})`);
