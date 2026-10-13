@@ -327,6 +327,7 @@ async function main() {
   const solEvent = receipt.solana.events[0];
   assert(receipt.solana.events.length === 1 && solEvent.status === "onchain_verified" && solEvent.signature === paySignature && solEvent.explorerUrl === `https://explorer.solana.com/tx/${paySignature}?cluster=devnet`, "the receipt exposes the verified introduction-payment signature and its Explorer link");
   assert(receipt.solana.doughFunding.length === 1 && receipt.solana.doughFunding[0].signature === fundSignature && receipt.solana.doughFunding[0].explorerUrl.includes(fundSignature), "it also exposes the on-chain deposit that funded the Dough");
+  assert(receipt.dough.fundingSources.demoFunded === false && receipt.dough.fundingSources.depositedUsd > 0, "a Dough balance funded by a verified deposit is NOT labelled as demo credit");
   assert(!JSON.stringify(receipt).includes("demo-") && !JSON.stringify(receipt).includes("ClientClaimedWallet"), "no fake/demo hash and no client-claimed wallet appears anywhere");
   assert(!/@/.test(JSON.stringify(receipt.candidates)) && !JSON.stringify(receipt).includes(GUEST_EMAIL), "the receipt never leaks the guest's email");
 
