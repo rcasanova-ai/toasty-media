@@ -1468,6 +1468,11 @@ const server = createServer(async (req, res) => {
     const session = await requireSession(req, res); if (!session) return;
     await handleDoughGet(req, res, session); return;
   }
+  if (req.method === "POST" && req.url === "/api/peeps/dough/demo-credit") {
+    if (!requireCsrf(req, res) || !limit(req, res, "dough-demo-credit", 10, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res); if (!session) return;
+    await handleDoughDemoCredit(req, res, session); return;
+  }
   if (req.method === "POST" && req.url === "/api/peeps/dough/funding-intents") {
     if (!requireCsrf(req, res) || !limit(req, res, "dough-fund", 10, 15 * 60 * 1000)) return;
     const session = await requireSession(req, res); if (!session) return;
@@ -7643,9 +7648,25 @@ async function handlePeepsDemoPaymentAuthorize(req, res, authSession) {
 // (not per candidate) — the introduction workflow itself is what's being paid for. Never fabricates a
 // contact channel: a candidate with no verified email (claimed_member/unclaimed_dub already have one;
 // everyone else needs the organizer to explicitly supply one) is skipped, not silently "introduced."
+// Beta/demo credit: a one-time, clearly labelled credit so a signed-in beta account (judges included) can try the
+// paid steps without real money. Recorded in the ledger as kind "demo_credit"; it is NOT a deposit and the Peeps UI
+// says so. Idempotent per account (one reference id), capped by config, and switched off with PEEPS_DEMO_CREDIT_USD=0.
+const PEEPS_DEMO_CREDIT_USD = Math.max(0, Math.min(25, Number(process.env.PEEPS_DEMO_CREDIT_USD ?? 5) || 0));
+const demoCreditRef = (userId) => `demo-credit:${userId}`;
+async function demoCreditClaimed(userId) {
+  const entries = (await db("dough_get", { subjectType: "user", subjectId: userId })).entries || [];
+  return entries.some((e) => e.kind === "demo_credit");
+}
 async function handleDoughGet(req, res, authSession) {
   const result = await db("dough_get", { subjectType: "user", subjectId: authSession.id });
-  sendJson(req, res, 200, result);
+  const claimed = (result.entries || []).some((e) => e.kind === "demo_credit");
+  sendJson(req, res, 200, { ...result, demoCredit: { amount: PEEPS_DEMO_CREDIT_USD, available: PEEPS_DEMO_CREDIT_USD > 0 && !claimed, claimed } });
+}
+async function handleDoughDemoCredit(req, res, authSession) {
+  if (!PEEPS_DEMO_CREDIT_USD) throw httpError(404, "Demo credit is not enabled on this server.");
+  if (await demoCreditClaimed(authSession.id)) return sendJson(req, res, 200, { alreadyClaimed: true, amount: PEEPS_DEMO_CREDIT_USD });
+  const posted = await db("dough_post", { id: newId("dle"), subjectType: "user", subjectId: authSession.id, bucket: "spend", direction: "credit", amount: PEEPS_DEMO_CREDIT_USD, kind: "demo_credit", referenceId: demoCreditRef(authSession.id), metadata: { note: "Beta demo credit, not real money" } });
+  sendJson(req, res, 200, { claimed: true, amount: PEEPS_DEMO_CREDIT_USD, account: posted.account });
 }
 
 // Fiat funding reuses the SAME Stripe adapter as organization billing (stripeRequest/stripeConfigured),
@@ -7868,7 +7889,7 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
       sendJson(req, res, 402, {
         ...requirement,
         error: "Not enough Dough.",
-        message: `This introduction costs $${PEEPS_INTRODUCTION_PRICE.toFixed(2)} Dough. You have $${Number(doughCharge.available || 0).toFixed(2)} available to spend.`,
+        message: `This introduction costs $${PEEPS_INTRODUCTION_PRICE.toFixed(2)} Dough. You have $${Number(doughCharge.available || 0).toFixed(2)} available to spend.${PEEPS_DEMO_CREDIT_USD ? " On the Dough page you can claim a one-time beta demo credit (test money, not a deposit)." : ""}`,
         doughShortfall: { required: PEEPS_INTRODUCTION_PRICE, available: Number(doughCharge.available || 0) },
         fundUrl: "/peeps/app/dough.html"
       });
@@ -11434,8 +11455,8 @@ async function transcodeWebmMasterToMp4({ sourcePath, outputPath }) {
     "-y",
     "-i", sourcePath,
     "-c:v", "libx264",
-    "-preset", "medium",
-    "-crf", "18",
+    "-preset", "veryfast",
+    "-crf", "20",
     "-c:a", "aac",
     "-b:a", "192k",
     "-pix_fmt", "yuv420p",
