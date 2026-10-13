@@ -52,6 +52,7 @@ export const settleJam = (jamId) => studioRequest(`/api/jams/${encodeURIComponen
 
 // ---- Dough ----
 export const getDough = () => studioRequest("/api/peeps/dough");
+export const claimDemoCredit = () => studioRequest("/api/peeps/dough/demo-credit", { method: "POST", body: JSON.stringify({}) });
 export const createDoughFundingIntent = (amount, method) =>
   studioRequest("/api/peeps/dough/funding-intents", { method: "POST", body: JSON.stringify({ amount, method }) });
 export const confirmDoughFunding = (intentId, transactionSignature) =>
