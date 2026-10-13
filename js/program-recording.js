@@ -22,7 +22,7 @@
 //   PLAY_AUDIO timeline, plus a frame-accurate Program video encode. Same manifest schema.
 //   In-progress recordings survive tab close via chunked/resumable upload of MediaRecorder timeslices.
 
-import { saveMediaBlob, getMediaBlob } from "./media-store.js";
+import { saveMediaBlob, getMediaBlob, deleteMediaBlob } from "./media-store.js";
 import { serializeProgramAsset } from "./program-asset.js";
 
 export const RecordingKind = Object.freeze({
@@ -329,7 +329,9 @@ export function startMasterMediaRecorder(Rec, stream, mimeType, { onRecorder } =
   const attempts = [
     {
       id: "mime-bitrate-timeslice",
-      options: mimeType ? { mimeType, audioBitsPerSecond: 160000, videoBitsPerSecond: 6000000 } : undefined,
+      // 2.5 Mbps video + 128 kbps audio ≈ 0.33 MB/s: a 15-minute recording stays ~300MB and always fits the plan
+      // upload caps (6 Mbps made a 3-minute recording exceed them, so MP4 conversion was refused).
+      options: mimeType ? { mimeType, audioBitsPerSecond: 128000, videoBitsPerSecond: 2500000 } : undefined,
       timeslice: 1000
     },
     { id: "mime-timeslice", options: mimeType ? { mimeType } : undefined, timeslice: 1000 },
@@ -423,6 +425,36 @@ export function activeRecordingState({ recordingId, startedAt, last = null, orig
 
 export function lastMasterRecordingKey(roomId) {
   return `toastyMasterRecording:${roomId}`;
+}
+
+const recoveryKey = (roomId) => `toasty.master.recovery.${roomId}`;
+const recoverySegmentId = (recordingId, seq) => `master-recovery:${recordingId}:${seq}`;
+
+// Persist one slice of an in-progress recording (IndexedDB) and remember how many exist (localStorage).
+export async function saveRecoverySegment({ roomId, recordingId, seq, blob, mimeType, startedAt }) {
+  await saveMediaBlob({ id: recoverySegmentId(recordingId, seq), blob, metadata: { kind: "master-recovery", recordingId, seq } });
+  try { globalThis.localStorage?.setItem(recoveryKey(roomId), JSON.stringify({ recordingId, segments: seq + 1, mimeType: mimeType || "video/webm", startedAt })); } catch (_) {}
+}
+
+export async function clearRecoverySegments(roomId) {
+  let entry = null;
+  try { entry = JSON.parse(globalThis.localStorage?.getItem(recoveryKey(roomId)) || "null"); globalThis.localStorage?.removeItem(recoveryKey(roomId)); } catch (_) {}
+  for (let seq = 0; entry && seq < (entry.segments || 0); seq += 1) await deleteMediaBlob(recoverySegmentId(entry.recordingId, seq)).catch(() => {});
+}
+
+// An unfinished recording left behind by a crash/reload: stitch its slices back into one WebM.
+export async function loadInterruptedRecording(roomId) {
+  let entry = null;
+  try { entry = JSON.parse(globalThis.localStorage?.getItem(recoveryKey(roomId)) || "null"); } catch (_) {}
+  if (!entry?.recordingId || !entry.segments) return null;
+  const parts = [];
+  for (let seq = 0; seq < entry.segments; seq += 1) {
+    const part = await getMediaBlob(recoverySegmentId(entry.recordingId, seq));
+    if (!part) break;
+    parts.push(part);
+  }
+  if (!parts.length) return null;
+  return { recordingId: entry.recordingId, startedAt: entry.startedAt || null, blob: new Blob(parts, { type: entry.mimeType || "video/webm" }) };
 }
 
 export function rememberLastMasterRecording(roomId, recordingId) {
@@ -688,8 +720,12 @@ export async function loadMasterRecording(recordingId) {
 }
 
 export class MasterProgramRecorder {
-  constructor({ status, displayMedia, MediaRecorderImpl } = {}) {
+  constructor({ status, displayMedia, MediaRecorderImpl, onCheckpoint, checkpointMs = 10000 } = {}) {
     this.status = status;
+    // onCheckpoint({ recordingId, seq, blob, mimeType }) receives each new ~10s slice so the caller can persist
+    // it while recording; an interrupted recording (crash, reload, power loss) is then still recoverable.
+    this.onCheckpoint = onCheckpoint;
+    this.checkpointMs = checkpointMs;
     this.displayMedia = displayMedia;
     this.MediaRecorderImpl = MediaRecorderImpl || globalThis.MediaRecorder;
     this.captureStream = null;
@@ -767,6 +803,7 @@ export class MasterProgramRecorder {
     this.startAttempt = started.attempt;
     this.startedAt = Date.now();
     this.status?.("RECORDING");
+    this._startCheckpointing();
     return {
       recordingId: this.recordingId,
       startedAt: this.startedAt,
@@ -779,6 +816,23 @@ export class MasterProgramRecorder {
         attempt: started.attempt
       })
     };
+  }
+
+  _startCheckpointing() {
+    clearInterval(this._checkpointTimer);
+    this._checkpointIndex = 0;
+    this._checkpointSeq = 0;
+    if (!this.onCheckpoint) return;
+    this._checkpointTimer = setInterval(() => this._checkpoint(), this.checkpointMs);
+  }
+
+  _checkpoint() {
+    const fresh = this.chunks.slice(this._checkpointIndex);
+    if (!fresh.length) return;
+    this._checkpointIndex = this.chunks.length;
+    try {
+      this.onCheckpoint({ recordingId: this.recordingId, seq: this._checkpointSeq++, blob: new Blob(fresh, { type: this.mimeType || "video/webm" }), mimeType: this.mimeType });
+    } catch (_) { /* a failed checkpoint must never interrupt the recording itself */ }
   }
 
   async stop() {
@@ -794,6 +848,7 @@ export class MasterProgramRecorder {
   _finalizeStop() {
     return new Promise((resolve, reject) => {
       const finish = () => {
+        clearInterval(this._checkpointTimer);
         this.stoppedAt = Date.now();
         if (this.ownsCapture) this.captureStream?.getTracks().forEach((track) => track.stop());
         const blob = new Blob(this.chunks, { type: this.recorder.mimeType || this.mimeType || "video/webm" });

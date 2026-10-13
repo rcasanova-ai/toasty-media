@@ -118,8 +118,8 @@ export class HostView {
   renderScreenShare(screenShare) {
     const state = screenShare?.state || "inactive";
     const connecting = state === "binding" || state === "expected";
-    const label = connecting ? "Cancel sharing" : (screenShare?.active ? "Stop sharing" : "Share screen");
-    updatePressed(this.elements.toggleScreen, Boolean(screenShare?.active), "Share screen", label);
+    const label = connecting ? "Cancel" : (screenShare?.active ? "Stop presenting" : "Present");
+    updatePressed(this.elements.toggleScreen, Boolean(screenShare?.active), "Present", label);
     this.elements.toggleScreen.dataset.shareState = state;
     this.elements.toggleScreen.disabled = false; // stays clickable while connecting: it cancels
     if (state === "failed" && this._lastScreenShareReason !== screenShare.reason) {

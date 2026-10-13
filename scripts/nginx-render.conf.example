@@ -187,6 +187,38 @@ server {
         proxy_send_timeout 20s;
     }
 
+    # ---- Studio recording jobs (WebM -> MP4) ----
+    # The raw WebM is streamed straight through to Node (proxy_request_buffering off: nginx must NOT spool a
+    # multi-hundred-MB body to its own disk first) and Node writes it to disk, so memory never holds a recording.
+    # Conversion runs as a queued job that the browser polls (a few small GETs), so no HTTP request has to
+    # outlive the transcode. toasty_presence (300r/m) covers the 2s status polling.
+    location ~ ^/api/recordings/jobs {
+        limit_req zone=toasty_presence burst=40 nodelay;
+        client_max_body_size 1600m;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF, X-Toasty-Recording" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_request_buffering off;
+        proxy_read_timeout 900s;
+        proxy_send_timeout 900s;
+    }
+    # ---- end Studio recording jobs ----
+
     location = /api/recordings/finalize {
         limit_req zone=toasty_render burst=8 nodelay;
 

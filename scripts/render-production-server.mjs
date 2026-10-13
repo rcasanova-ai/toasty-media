@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
-import { Readable } from "node:stream";
-import { createReadStream, existsSync, readFileSync } from "node:fs";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { Readable, Transform } from "node:stream";
+import { createReadStream, createWriteStream, existsSync, readFileSync } from "node:fs";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
 import { dirname, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { execFile, spawn } from "node:child_process";
@@ -844,6 +845,32 @@ const server = createServer(async (req, res) => {
     if (!session) return;
     await handleCreatorRecordingTranscribe(req, res);
     return;
+  }
+
+  // ---- Studio recording finalization jobs (WebM -> MP4): streamed to disk, queued, polled ----
+  if (req.url?.startsWith("/api/recordings/jobs") && req.method !== "OPTIONS") {
+    if (!COST_SAFETY_SWITCHES.recordingFinalize) return sendJson(req, res, 503, { error: "Recording finalization is temporarily disabled by the platform safety switch." });
+    const jobPath = req.url.split("?")[0];
+    const session = await requireSession(req, res);
+    if (!session) return;
+    if (req.method === "POST" && jobPath === "/api/recordings/jobs") {
+      if (!requireCsrf(req, res) || !limit(req, res, "recording-job-create", 30, 15 * 60 * 1000)) return;
+      await handleRecordingJobCreate(req, res, session);
+      return;
+    }
+    const jobMatch = jobPath.match(/^\/api\/recordings\/jobs\/([a-f0-9-]{36})(\/mp4|\/discard)?$/i);
+    if (jobMatch) {
+      const job = recordingJobs.get(jobMatch[1]);
+      if (!job || job.userId !== session.id) return sendJson(req, res, 404, { error: "Finalization job not found (it may have expired). Retry MP4 from the saved source." });
+      if (req.method === "GET" && !jobMatch[2]) return sendJson(req, res, 200, recordingJobPublic(job));
+      if (req.method === "GET" && jobMatch[2] === "/mp4") return void await streamRecordingJobMp4(req, res, job);
+      if (req.method === "POST" && jobMatch[2] === "/discard") {
+        if (!requireCsrf(req, res)) return;
+        await discardRecordingJob(job);
+        return sendJson(req, res, 200, { ok: true });
+      }
+    }
+    return sendJson(req, res, 404, { error: "Not found." });
   }
 
   if (req.method === "POST" && req.url === "/api/recordings/finalize") {
@@ -2236,7 +2263,7 @@ async function peepsRegisterStudioRecording({ manifest, organizationId, source, 
   const created = await db("jam_artifact_create", { id: newId("jart"), jamId: jam.id, studioSessionId: manifest.sessionId, artifactType: "recording", storageReference: reference, status: "ready" });
   await db("jam_event_create", {
     id: newId("jev"), jamId: jam.id, jamParticipantId: null, type: "recording.finalized", actor: "studio",
-    detail: { recordingId: safeFileName(manifest.recordingId), durationSeconds: Number(manifest.durationSeconds || 0), sourceBytes: source.size, masterBytes: output.length, sha256: createHash("sha256").update(output).digest("hex"), storedByToasty: false }
+    detail: { recordingId: safeFileName(manifest.recordingId), durationSeconds: Number(manifest.durationSeconds || 0), sourceBytes: source.size, masterBytes: output.length, sha256: output.sha256 || createHash("sha256").update(output).digest("hex"), storedByToasty: false }
   });
   await peepsFinalizeJam(jam.id, "recording_finalized").catch(() => null);
   peepsAutoTranscribe({ jam, manifest, output }).catch((error) => console.error("[Toasty Peeps] automatic transcription failed", error));
@@ -2254,7 +2281,8 @@ async function peepsAutoTranscribe({ jam, manifest, output }) {
   const workDir = await mkdtemp(join(tmpdir(), "toasty-peeps-transcribe-"));
   try {
     const inputPath = join(workDir, "master.mp4"), wavPath = join(workDir, "audio.wav"), textBase = join(workDir, "transcript");
-    await writeFile(inputPath, output);
+    if (output.path) await copyFile(output.path, inputPath);
+    else await writeFile(inputPath, output);
     await execFileAsync(FFMPEG, ["-y", "-i", inputPath, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wavPath], { timeout: 60000 });
     const text = await withTranscribeSlot(async () => {
       await execFileAsync(WHISPER_CLI_PATH, ["-m", WHISPER_MODEL_PATH, "-f", wavPath, "-t", "2", "-otxt", "-of", textBase, "-nt"], { timeout: RECORDING_FFMPEG_TIMEOUT_MS });
@@ -2271,6 +2299,196 @@ async function peepsAutoTranscribe({ jam, manifest, output }) {
     await rm(workDir, { recursive: true, force: true });
   }
 }
+
+// ---- Recording finalization jobs ----
+// The old POST /api/recordings/finalize parsed the whole multipart upload into memory (formData() + arrayBuffer()
+// + the MP4 read back into RAM) and held ONE HTTP request open for the whole transcode — so a long recording
+// either exhausted memory or outlived the proxy timeout, and N concurrent finalizations ran N libx264 encodes at
+// once. Jobs fix all three: the raw WebM is streamed straight to disk (never held in memory), transcodes run
+// through a small queue (default 1 at a time, niced), the client polls a cheap status endpoint, and the MP4 is
+// streamed back from disk. The browser keeps the source WebM until it has the MP4, so a failed job loses nothing.
+const RECORDING_JOBS_DIR = process.env.TOASTY_RECORDING_JOBS_DIR || join(tmpdir(), "toasty-recording-jobs");
+const RECORDING_JOB_CONCURRENCY = Math.max(1, Number(process.env.TOASTY_RECORDING_JOB_CONCURRENCY || 1));
+const RECORDING_JOB_TTL_MS = Number(process.env.TOASTY_RECORDING_JOB_TTL_MS || 60 * 60 * 1000);
+const RECORDING_HARD_MAX_BYTES = Number(process.env.TOASTY_RECORDING_MAX_BYTES || 1.5 * 1024 * 1024 * 1024);
+const RECORDING_MAX_ACTIVE_PER_USER = 3;
+// ~3.2 Mbps worst case per minute of recorded Program: a plan that allows N minutes must allow N minutes of bytes.
+const RECORDING_BYTES_PER_SECOND_BUDGET = 400 * 1000;
+const recordingJobs = new Map();
+const recordingJobQueue = [];
+let recordingJobsRunning = 0;
+
+function recordingByteCap(limits) {
+  return Math.min(RECORDING_HARD_MAX_BYTES, Math.max(limits.maxSourceFileBytes, limits.maxRecordingMinutes * 60 * RECORDING_BYTES_PER_SECOND_BUDGET));
+}
+
+function recordingJobPublic(job) {
+  const position = job.status === "queued" ? recordingJobQueue.indexOf(job.id) + 1 : 0;
+  return { id: job.id, status: job.status, position, error: job.error || "", sourceBytes: job.sourceBytes, outputBytes: job.outputBytes || 0, createdAt: job.createdAt, finishedAt: job.finishedAt || null };
+}
+
+async function handleRecordingJobCreate(req, res, authSession) {
+  let meta;
+  try {
+    meta = JSON.parse(Buffer.from(String(req.headers["x-toasty-recording"] || ""), "base64").toString("utf8"));
+  } catch { throw httpError(400, "Recording details are missing."); }
+  const manifest = { kind: "master-program", recordingId: meta?.recordingId, sessionId: meta?.sessionId || null, durationSeconds: Number(meta?.durationSeconds) || 0 };
+  validateRecordingFinalizeManifest(manifest);
+  let organizationId = null;
+  if (manifest.sessionId && SAFE_ID.test(manifest.sessionId)) {
+    const sessionRecord = await db("session_get", { id: manifest.sessionId, ownerUserId: authSession.id });
+    organizationId = sessionRecord.session?.organizationId || null;
+  }
+  if (!organizationId) organizationId = await resolveOrganizationForSession(authSession, null);
+  const org = organizationId ? await db("get_organization", { id: organizationId }) : { organization: null };
+  const limits = planLimitsFor(org.organization?.plan);
+  if (manifest.durationSeconds > limits.maxRecordingMinutes * 60) throw httpError(402, `Your plan allows recordings up to ${limits.maxRecordingMinutes} minutes.`);
+  const cap = recordingByteCap(limits);
+  const declared = Number(req.headers["content-length"] || 0);
+  if (declared > cap) throw httpError(413, "This recording is larger than your plan allows to convert. Your source WebM is saved — download it from Advanced.");
+  if ([...recordingJobs.values()].filter((j) => j.userId === authSession.id && (j.status === "queued" || j.status === "processing")).length >= RECORDING_MAX_ACTIVE_PER_USER) {
+    throw httpError(429, "Several recordings are already being prepared. Wait for one to finish, then retry.");
+  }
+  if (organizationId) {
+    const monthly = await db("get_usage_counters", { organizationId, periodStart: currentPeriodStart("month") });
+    if ((monthly.usage?.uploadsBytes || 0) + declared > limits.maxUploadsBytesPerMonth) throw httpError(402, "Your monthly upload allowance has been reached.");
+  }
+  const id = randomUUID();
+  const dir = join(RECORDING_JOBS_DIR, id);
+  await mkdir(dir, { recursive: true });
+  const sourcePath = join(dir, "source.webm");
+  const job = { id, userId: authSession.id, organizationId, manifest, dir, sourcePath, outputPath: join(dir, "master.mp4"), status: "uploading", error: "", sourceBytes: 0, createdAt: Date.now(), limits };
+  recordingJobs.set(id, job);
+  let received = 0;
+    const counter = new Transform({
+    transform(chunk, _enc, cb) {
+      received += chunk.length;
+      if (received > cap) return cb(Object.assign(new Error("too large"), { tooLarge: true }));
+      cb(null, chunk);
+    }
+  });
+  try {
+    await pipeline(req, counter, createWriteStream(sourcePath));
+  } catch (error) {
+    await discardRecordingJob(job);
+    if (error?.tooLarge) throw httpError(413, "This recording is larger than your plan allows to convert. Your source WebM is saved — download it from Advanced.");
+    throw httpError(400, "The recording upload was interrupted. Retry MP4 from the saved source.");
+  }
+  if (received < 1024) { await discardRecordingJob(job); throw httpError(400, "Source WebM recording is missing."); }
+  job.sourceBytes = received;
+  job.status = "queued";
+  recordingJobQueue.push(id);
+  pumpRecordingJobs();
+  sendJson(req, res, 202, recordingJobPublic(job));
+}
+
+function pumpRecordingJobs() {
+  while (recordingJobsRunning < RECORDING_JOB_CONCURRENCY && recordingJobQueue.length) {
+    const job = recordingJobs.get(recordingJobQueue.shift());
+    if (!job || job.status !== "queued") continue;
+    recordingJobsRunning += 1;
+    job.status = "processing";
+    runRecordingJob(job).catch((error) => {
+      console.error("[Toasty recording job] failed", job.id, error?.message);
+      job.status = "failed";
+      job.error = recordingJobError(error);
+    }).finally(() => {
+      job.finishedAt = Date.now();
+      recordingJobsRunning -= 1;
+      pumpRecordingJobs();
+    });
+  }
+}
+
+function recordingJobError(error) {
+  const message = String(error?.message || "");
+  if (/timed out/.test(message)) return "MP4 conversion took too long. Retry MP4, or download the source WebM from Advanced.";
+  if (/ENOSPC/.test(message)) return "The server is out of disk space right now. Retry MP4 in a few minutes — your source WebM is safe.";
+  if (/Invalid data|moov atom|EBML|matroska|could not find codec/i.test(message)) return "The recording file could not be read for conversion. Download the source WebM from Advanced.";
+  return "MP4 conversion failed on the server. Retry MP4 — your source WebM is safe.";
+}
+
+async function runRecordingJob(job) {
+  const seconds = Math.max(1, job.manifest.durationSeconds || 1);
+  const timeoutMs = Math.max(RECORDING_FFMPEG_TIMEOUT_MS, seconds * 1000);
+  // Constant 30 fps (browser canvas capture is variable-frame-rate, which players and editors handle badly),
+  // audio resampled against the video clock so a long recording cannot drift out of sync.
+  await runRecordingFfmpeg([
+    "-y", "-hide_banner", "-loglevel", "error",
+    "-fflags", "+genpts", "-i", job.sourcePath,
+    "-map", "0:v:0", "-map", "0:a:0?",
+    "-vf", "fps=30,scale=trunc(iw/2)*2:trunc(ih/2)*2",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-threads", "2",
+    "-af", "aresample=async=1:first_pts=0", "-c:a", "aac", "-b:a", "160k", "-ar", "48000",
+    "-movflags", "+faststart", job.outputPath
+  ], timeoutMs);
+  const info = await stat(job.outputPath);
+  if (info.size < 1024) throw new Error("Invalid data: empty output");
+  job.outputBytes = info.size;
+  if (job.organizationId) {
+    const deltas = { recordingMinutes: seconds / 60, uploadsBytes: job.sourceBytes };
+    await db("increment_usage", { organizationId: job.organizationId, periodStart: currentPeriodStart("day"), deltas }).catch(() => {});
+    await db("increment_usage", { organizationId: job.organizationId, periodStart: currentPeriodStart("month"), deltas }).catch(() => {});
+  }
+  const sha256 = await new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    createReadStream(job.outputPath).on("data", (c) => hash.update(c)).on("end", () => resolve(hash.digest("hex"))).on("error", reject);
+  });
+  await peepsRegisterStudioRecording({ manifest: job.manifest, organizationId: job.organizationId, source: { size: job.sourceBytes }, output: { length: info.size, sha256, path: job.outputPath } })
+    .catch((error) => console.error("[Toasty Peeps] recording evidence registration failed", error));
+  job.status = "done";
+}
+
+function runRecordingFfmpeg(args, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    // Lowest practical priority so a conversion never starves live sessions on the same host.
+    const child = spawn("nice", ["-n", "10", FFMPEG, ...args], { stdio: ["ignore", "ignore", "pipe"] });
+    let stderr = "";
+    const timer = setTimeout(() => { child.kill("SIGKILL"); reject(new Error("ffmpeg timed out")); }, timeoutMs);
+    child.stderr.on("data", (c) => { stderr = (stderr + c.toString()).slice(-4000); });
+    child.on("error", (error) => { clearTimeout(timer); reject(error); });
+    child.on("close", (code) => { clearTimeout(timer); code === 0 ? resolve() : reject(new Error(stderr || `ffmpeg exited with ${code}`)); });
+  });
+}
+
+async function streamRecordingJobMp4(req, res, job) {
+  if (job.status !== "done") return sendJson(req, res, 409, { error: job.status === "failed" ? job.error : "The MP4 is not ready yet." });
+  let info;
+  try { info = await stat(job.outputPath); } catch { return sendJson(req, res, 410, { error: "The MP4 expired. Retry MP4 from the saved source." }); }
+  setCors(req, res);
+  res.writeHead(200, {
+    "Content-Type": "video/mp4",
+    "Content-Length": info.size,
+    "Content-Disposition": `attachment; filename="${safeFileName(job.manifest.recordingId)}.mp4"`,
+    "Cache-Control": "no-store"
+  });
+  await pipeline(createReadStream(job.outputPath), res).catch(() => {});
+}
+
+async function discardRecordingJob(job) {
+  recordingJobs.delete(job.id);
+  const index = recordingJobQueue.indexOf(job.id);
+  if (index >= 0) recordingJobQueue.splice(index, 1);
+  await rm(job.dir, { recursive: true, force: true }).catch(() => {});
+}
+
+// Expired or orphaned job directories (including ones left by a previous process) never accumulate on disk.
+async function sweepRecordingJobs() {
+  const now = Date.now();
+  for (const job of [...recordingJobs.values()]) {
+    if (job.status === "processing" || job.status === "uploading") continue;
+    if (now - (job.finishedAt || job.createdAt) > RECORDING_JOB_TTL_MS) await discardRecordingJob(job);
+  }
+  try {
+    for (const name of await readdir(RECORDING_JOBS_DIR)) {
+      if (recordingJobs.has(name)) continue;
+      const info = await stat(join(RECORDING_JOBS_DIR, name)).catch(() => null);
+      if (info && now - info.mtimeMs > RECORDING_JOB_TTL_MS) await rm(join(RECORDING_JOBS_DIR, name), { recursive: true, force: true });
+    }
+  } catch { /* directory does not exist yet */ }
+}
+setInterval(() => { sweepRecordingJobs().catch(() => {}); }, Number(process.env.TOASTY_RECORDING_SWEEP_MS || 5 * 60 * 1000)).unref?.();
+sweepRecordingJobs().catch(() => {});
 
 async function handleRecordingFinalize(req, res, authSession) {
   let workDir;
@@ -2301,7 +2519,7 @@ async function handleRecordingFinalize(req, res, authSession) {
     if (!source?.name || typeof source.arrayBuffer !== "function" || source.size < 1) {
       throw httpError(400, "Source WebM recording is missing.");
     }
-    if (source.size > Math.min(MAX_FILE_BYTES, limits.maxSourceFileBytes, limits.maxUploadBytes)) {
+    if (source.size > recordingByteCap(limits)) {
       throw httpError(413, "Source WebM recording exceeds your plan limit.");
     }
     if (organizationId) {
@@ -11942,7 +12160,7 @@ function setCors(req, res) {
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Toasty-Render-Token, X-Toasty-CSRF, X-Payment-Signature, X-Solana-Transaction-Signature, X-Payment-Asset, X-Payment-Amount");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Toasty-Render-Token, X-Toasty-CSRF, X-Toasty-Recording, X-Payment-Signature, X-Solana-Transaction-Signature, X-Payment-Asset, X-Payment-Amount");
   res.setHeader("Access-Control-Max-Age", "86400");
   return true;
 }

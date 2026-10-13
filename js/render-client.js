@@ -111,37 +111,58 @@ export async function renderProductionMp4({ project, productionSpec, brandProfil
   };
 }
 
-export async function finalizeMasterRecordingMp4({ sourceBlob, manifest, onProgress = () => {} }) {
+// MP4 finalization runs as a server-side JOB: the raw source WebM is streamed up, converted on a queue, and the
+// MP4 is streamed back — no request has to outlive the transcode, nothing is held in server memory, and the
+// browser keeps the source WebM until it has the MP4, so any failure is retryable and loses nothing.
+const FINALIZE_POLL_MS = 2000;
+const FINALIZE_MAX_WAIT_MS = 90 * 60 * 1000;
+
+export async function finalizeMasterRecordingMp4({ sourceBlob, manifest, onProgress = () => {}, fetchImpl = (...a) => fetch(...a), sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
   if (!sourceBlob?.size) throw new Error("Source WebM recording is missing.");
   if (!manifest?.recordingId) throw new Error("Recording manifest is missing.");
-  onProgress("Finalizing MP4 master...");
-  const form = new FormData();
-  form.set("manifest", JSON.stringify(manifest));
-  form.append("source", sourceBlob, `${manifest.recordingId}.webm`);
-  const response = await fetch(getRecordingFinalizeEndpoint(), {
+  const base = getRecordingFinalizeEndpoint().replace(/\/finalize$/, "/jobs");
+  const meta = { recordingId: manifest.recordingId, sessionId: manifest.sessionId || null, durationSeconds: manifest.durationSeconds || 0 };
+  onProgress("Uploading recording...");
+  const created = await fetchImpl(base, {
     method: "POST",
-    headers: { "X-Toasty-CSRF": "1" },
+    headers: { "X-Toasty-CSRF": "1", "X-Toasty-Recording": btoa(JSON.stringify(meta)), "Content-Type": "video/webm" },
     credentials: "include",
-    body: form
+    body: sourceBlob
   });
-  if (!response.ok) {
-    let message = "MP4 finalization failed. Source WebM is preserved.";
+  const job = await readJsonError(created, "MP4 upload failed. Your source WebM is saved.");
+  const startedAt = Date.now();
+  let status = job;
+  let transient = 0;
+  while (status.status !== "done") {
+    if (status.status === "failed") throw new Error(status.error || "MP4 conversion failed. Your source WebM is saved.");
+    if (Date.now() - startedAt > FINALIZE_MAX_WAIT_MS) throw new Error("MP4 conversion is taking too long. Your source WebM is saved — Retry MP4.");
+    onProgress(status.status === "queued" && status.position > 1 ? `Waiting for ${status.position - 1} other recording(s)...` : "Converting to MP4...");
+    await sleep(FINALIZE_POLL_MS);
     try {
-      const payload = await response.json();
-      if (payload?.error) message = payload.error;
-    } catch {
-      // Keep a retryable recording error short.
+      const poll = await fetchImpl(`${base}/${job.id}`, { credentials: "include" });
+      if (poll.status === 404) throw new Error("The conversion job expired on the server. Retry MP4 — your source WebM is saved.");
+      status = await readJsonError(poll, "Could not check MP4 progress.");
+      transient = 0;
+    } catch (error) {
+      // A dropped poll (wifi blip, laptop sleep) must not abandon a conversion that is still running.
+      if (/expired|failed|too long/i.test(error.message) || ++transient > 8) throw error;
     }
-    throw new Error(message);
   }
-  const blob = await response.blob();
+  onProgress("Downloading MP4...");
+  const download = await fetchImpl(`${base}/${job.id}/mp4`, { credentials: "include" });
+  if (!download.ok) throw new Error("The MP4 could not be downloaded. Retry MP4 — your source WebM is saved.");
+  const blob = await download.blob();
+  if (status.outputBytes && blob.size !== status.outputBytes) throw new Error("The MP4 download was incomplete. Retry MP4 — your source WebM is saved.");
+  fetchImpl(`${base}/${job.id}/discard`, { method: "POST", headers: { "X-Toasty-CSRF": "1" }, credentials: "include", body: "{}" }).catch(() => {});
   onProgress("MP4 master ready.");
-  return {
-    blob,
-    fileName: `${manifest.recordingId}.mp4`,
-    mimeType: blob.type || "video/mp4",
-    bytes: blob.size
-  };
+  return { blob, fileName: `${manifest.recordingId}.mp4`, mimeType: blob.type || "video/mp4", bytes: blob.size };
+}
+
+async function readJsonError(response, fallback) {
+  let payload = {};
+  try { payload = await response.json(); } catch { /* keep fallback */ }
+  if (!response.ok) throw new Error(payload?.error || fallback);
+  return payload;
 }
 
 function getRenderEndpoint() {
