@@ -678,8 +678,15 @@ export class ProducerView {
     const status = last?.finalizationStatus || "";
     const mp4Ready = Boolean(last?.masterBlob) && status === "finalized";
     const preparing = status === "pending-finalization";
+    const tooLarge = status === "too-large";
     const failed = status === "failed" || status === "local-only";
-    if (this.elements.masterDownloadWebm) this.elements.masterDownloadWebm.disabled = !last?.sourceBlob;
+    const direct = last?.recordedAs === "browser-mp4";
+    if (this.elements.masterDownloadWebm) {
+      this.elements.masterDownloadWebm.disabled = !last?.sourceBlob;
+      // A browser-encoded MP4 IS the recording: there is no separate source file to offer.
+      this.elements.masterDownloadWebm.hidden = direct;
+      this.elements.masterDownloadWebm.textContent = `Download Source ${extensionLabel(last?.sourceMimeType)}`;
+    }
     if (this.elements.transcriptDownload) {
       const hasTranscript = (this.session.transcript?.lines || []).length > 0;
       this.elements.transcriptDownload.disabled = !hasTranscript;
@@ -689,9 +696,10 @@ export class ProducerView {
     const playbackUrl = last?.objectUrl || last?.sourceObjectUrl || "";
     this.elements.masterPlayback.hidden = !last;
     if (this.elements.masterDownload) {
-      this.elements.masterDownload.disabled = !mp4Ready;
+      // Too large for server conversion: the complete local recording is the primary download, honestly labelled.
+      this.elements.masterDownload.disabled = tooLarge ? !last?.sourceBlob : !mp4Ready;
       this.elements.masterDownload.hidden = failed;
-      this.elements.masterDownload.textContent = preparing ? "Preparing MP4…" : "Download MP4";
+      this.elements.masterDownload.textContent = tooLarge ? `Download ${extensionLabel(last?.sourceMimeType)}` : preparing ? "Preparing MP4…" : "Download MP4";
     }
     if (this.elements.masterRetry) {
       this.elements.masterRetry.hidden = !failed;
@@ -705,7 +713,9 @@ export class ProducerView {
     }
     if (this.elements.masterManifestNote && last) {
       const duration = formatClock(Math.round(last.durationSeconds || 0));
-      if (mp4Ready) this.elements.masterManifestNote.textContent = `${duration} · MP4 ready. Play to confirm Host, Guest, lower thirds, speech and soundboard.`;
+      if (tooLarge) this.elements.masterManifestNote.textContent = `${duration} · ${last.finalizationError}`;
+      else if (mp4Ready && direct) this.elements.masterManifestNote.textContent = `${duration} · MP4 recorded and saved on this device — nothing was uploaded. Play to confirm Host, Guest, lower thirds, speech and soundboard.`;
+      else if (mp4Ready) this.elements.masterManifestNote.textContent = `${duration} · MP4 ready. Play to confirm Host, Guest, lower thirds, speech and soundboard.`;
       else if (preparing) this.elements.masterManifestNote.textContent = `${duration} · Recording saved. Preparing MP4… you can already play it; the MP4 download unlocks when it's ready.`;
       else if (status === "local-only") this.elements.masterManifestNote.textContent = `${duration} · Recording is only in this tab and MP4 could not be prepared. Retry MP4, or keep this page open and use Advanced → Download Source WebM.`;
       else if (failed) this.elements.masterManifestNote.textContent = `${duration} · MP4 could not be prepared${last.finalizationError ? ` (${String(last.finalizationError).slice(0, 200)})` : ""}. Retry MP4 — your recording is safe: use Download Source WebM.`;
@@ -724,6 +734,7 @@ export class ProducerView {
     const last = this.session.recording.last;
     // Truthful by construction: only a finalized MP4 is ever downloaded here. Anything else is explained,
     // never silently swapped for a WebM and never a silent no-op.
+    if (last?.finalizationStatus === "too-large" && last.sourceBlob) { this.downloadSourceWebm(); return; }
     if (!last?.masterBlob || last.finalizationStatus !== "finalized") {
       this.elements.masterManifestNote.textContent = last?.finalizationStatus === "pending-finalization"
         ? "The MP4 is still being prepared. The download unlocks as soon as it's ready."
@@ -786,7 +797,7 @@ export class ProducerView {
   downloadSourceWebm() {
     const last = this.session.recording.last;
     if (!last?.sourceBlob) return;
-    downloadFile(last.sourceBlob, `${last.recordingId}-source.webm`);
+    downloadFile(last.sourceBlob, `${last.recordingId}-source.${/mp4/i.test(last.sourceMimeType || "") ? "mp4" : "webm"}`);
   }
 
   downloadTranscript() {
@@ -853,6 +864,8 @@ export class ProducerView {
     }
   }
 }
+
+function extensionLabel(mime) { return /mp4/i.test(String(mime || "")) ? "MP4" : "WebM"; }
 
 function formatClock(totalSeconds) {
   const seconds = Math.max(0, Number(totalSeconds) || 0);

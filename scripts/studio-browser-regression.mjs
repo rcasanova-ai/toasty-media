@@ -7,7 +7,8 @@
 //   · download buttons · transcript export · guest-joined warning · crash recovery of an interrupted recording.
 //
 // Needs: `npm i --no-save playwright-core`, Chrome (CHROME_PATH or the usual locations), ffmpeg/ffprobe, python3.
-// Env: STUDIO_RECORD_SECONDS (default 75; use 330 for the 5-minute soak), SKIP_SERVERS=1 to reuse :4173/:4174.
+// Env: RECORD_FORMAT=webm forces the WebM + server-conversion fallback (default: browser-encoded MP4 when supported),
+//      STUDIO_RECORD_SECONDS (default 75; use 330 for the 5-minute soak), SKIP_SERVERS=1 to reuse :4173/:4174.
 import { spawn, execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -37,6 +38,9 @@ const browser = await playwright.chromium.launch({ executablePath: chromePath, h
   args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--auto-select-desktop-capture-source=Entire screen", "--window-size=1440,900", "--autoplay-policy=no-user-gesture-required", ...(process.env.HEADLESS === "1" ? ["--headless=new"] : [])] });
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
 await ctx.grantPermissions(["camera", "microphone"], { origin: BASE });
+if (process.env.RECORD_FORMAT) await ctx.addInitScript((f) => { try { localStorage.setItem("toasty.recording.format", f); } catch (_) {} }, process.env.RECORD_FORMAT);
+const apiCalls = [];
+ctx.on("request", (r) => { if (/\/api\/recordings\//.test(r.url())) apiCalls.push(`${r.method()} ${new URL(r.url()).pathname}`); });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => console.log("[pageerror]", String(e).slice(0, 200)));
 const H = { "Content-Type": "application/json", "X-Toasty-CSRF": "1" };
@@ -79,6 +83,11 @@ try {
   await frame.waitForFunction(() => window.__toastyLiveSession.recording.active, null, { timeout: 15000 });
   assert(await frame.evaluate(() => window.__toastyLiveSession.studio.mode) === "record", "Record shows RECORDING");
   const rec1 = await geometry(frame);
+  const browserMp4 = await page.evaluate(() => MediaRecorder.isTypeSupported("video/mp4;codecs=avc1.640028,mp4a.40.2"));
+  const expectDirect = browserMp4 && process.env.RECORD_FORMAT !== "webm";
+  const recOpts = await frame.evaluate(() => { const r = window.__toastyLiveSession._masterRecorder?.fallback?.recorder; return { mime: r?.mimeType, video: r?.videoBitsPerSecond, audio: r?.audioBitsPerSecond }; });
+  assert(recOpts.video === 6000000 && recOpts.audio === 160000, `local recording quality is 6 Mbps video / 160 kbps audio (recorder reports ${recOpts.video}/${recOpts.audio})`);
+  assert(expectDirect ? /^video\/mp4/.test(recOpts.mime) : /^video\/webm/.test(recOpts.mime), `the browser records ${expectDirect ? "MP4 directly" : "WebM (fallback)"} (${recOpts.mime})`);
 
   console.log("\nPresent while recording: Program Output follows automatically");
   await sleep(4000);
@@ -122,12 +131,19 @@ try {
   }
   assert(!stoppedEarly, `recording never stopped on its own (ran ${Math.round((Date.now() - t0) / 1000)}s until explicitly stopped)`);
 
-  console.log("\nTranscript, stop, MP4 job");
+  console.log(expectDirect ? "\nTranscript, stop — MP4 is complete locally" : "\nTranscript, stop, MP4 job");
   await frame.evaluate(() => { const S = window.__toastyLiveSession; S.transcript.append({ speaker: "Regression Host", text: "Hello and welcome." }); S.transcript.append({ speaker: "Guest", text: "Thanks for having me." }); });
   await frame.evaluate(() => document.querySelector("#lvRecordToggle").click());
-  await frame.waitForFunction(() => ["finalized", "failed", "local-only"].includes(window.__toastyLiveSession.recording.last?.finalizationStatus), null, { timeout: 240000 });
-  const last = await frame.evaluate(() => { const l = window.__toastyLiveSession.recording.last; return { status: l.finalizationStatus, err: l.finalizationError, source: l.sourceBlob?.size, mp4: l.masterBlob?.size, dur: l.durationSeconds }; });
-  assert(last.status === "finalized" && last.mp4 > 10000 && last.source > 10000, `MP4 conversion succeeded and the source WebM is still held (${(last.source / 1048576).toFixed(1)}MB webm → ${(last.mp4 / 1048576).toFixed(1)}MB mp4)`);
+  await frame.waitForFunction(() => ["finalized", "failed", "local-only", "too-large"].includes(window.__toastyLiveSession.recording.last?.finalizationStatus), null, { timeout: 240000 });
+  const last = await frame.evaluate(() => { const l = window.__toastyLiveSession.recording.last; return { status: l.finalizationStatus, err: l.finalizationError, source: l.sourceBlob?.size, mp4: l.masterBlob?.size, dur: l.durationSeconds, as: l.recordedAs }; });
+  if (expectDirect) {
+    assert(last.status === "finalized" && last.as === "browser-mp4" && last.mp4 > 10000, `the MP4 was recorded by the browser itself (${(last.mp4 / 1048576).toFixed(1)}MB), ready the moment recording stopped`);
+    await sleep(2500);
+    assert(apiCalls.length === 0, `NOTHING was uploaded or sent to the recording APIs (${apiCalls.length} calls)`);
+  } else {
+    assert(last.status === "finalized" && last.mp4 > 10000 && last.source > 10000, `MP4 conversion succeeded and the source WebM is still held (${(last.source / 1048576).toFixed(1)}MB webm → ${(last.mp4 / 1048576).toFixed(1)}MB mp4)`);
+    assert(apiCalls.some((c) => c.includes("/limits")) && apiCalls.some((c) => c.includes("/jobs")), "the WebM fallback asked the server what it accepts, then converted via a job");
+  }
 
   console.log("\nDownloads and transcript export");
   await frame.evaluate(() => document.querySelector("[data-lv-view-btn=producer]").click());
@@ -135,10 +151,15 @@ try {
   await frame.evaluate(() => document.querySelector("#lvMasterDownload").click());
   const mp4File = await dlMp4; const mp4Path = join(scratch, "recording.mp4"); await mp4File.saveAs(mp4Path);
   assert(/\.mp4$/.test(mp4File.suggestedFilename()), `Download MP4 delivers an .mp4 (${mp4File.suggestedFilename()})`);
-  const dlWebm = page.waitForEvent("download");
-  await frame.evaluate(() => document.querySelector("#lvMasterDownloadWebm").click());
-  const webmFile = await dlWebm; const webmPath = join(scratch, "source.webm"); await webmFile.saveAs(webmPath);
-  assert(/-source\.webm$/.test(webmFile.suggestedFilename()), "Advanced → Download Source WebM delivers the original WebM");
+  let webmPath = null;
+  if (expectDirect) {
+    assert(await frame.evaluate(() => document.querySelector("#lvMasterDownloadWebm").hidden), "no separate 'source' download is offered — the MP4 is the recording");
+  } else {
+    const dlWebm = page.waitForEvent("download");
+    await frame.evaluate(() => document.querySelector("#lvMasterDownloadWebm").click());
+    const webmFile = await dlWebm; webmPath = join(scratch, "source.webm"); await webmFile.saveAs(webmPath);
+    assert(/-source\.webm$/.test(webmFile.suggestedFilename()), "Advanced → Download Source WebM delivers the original WebM");
+  }
   const downloads = []; page.on("download", (d) => downloads.push(d));
   await frame.evaluate(() => document.querySelector("#lvTranscriptDownload").click()); await sleep(1500);
   assert(downloads.length >= 2 && downloads.some((d) => /transcript\.txt$/.test(d.suggestedFilename())) && downloads.some((d) => /transcript\.json$/.test(d.suggestedFilename())), "Download Transcript delivers TXT and JSON");
@@ -146,17 +167,20 @@ try {
   assert(/Regression Host: Hello and welcome\./.test(execFileSync("cat", [txt]).toString()), "the transcript file contains the spoken lines");
 
   console.log("\nThe downloaded files are really playable media");
-  const probe = (f) => JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type,codec_name,r_frame_rate,width,height", "-of", "json", f]).toString());
+  const probe = (f) => JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type,codec_name,r_frame_rate,avg_frame_rate,width,height", "-of", "json", f]).toString());
   const info = probe(mp4Path); const v = info.streams.find((s) => s.codec_type === "video"), a = info.streams.find((s) => s.codec_type === "audio");
   assert(v?.codec_name === "h264" && a?.codec_name === "aac", "MP4: H.264 video + AAC audio");
-  assert(v.r_frame_rate === "30/1" && v.width === 1280 && v.height === 720, "MP4: constant 30 fps, 1280x720");
+  const [fn, fd] = (v.avg_frame_rate || "0/1").split("/").map(Number);
+  assert(expectDirect ? Math.abs(fn / fd - 30) < 1.5 && v.width === 1280 && v.height === 720 : v.r_frame_rate === "30/1" && v.width === 1280 && v.height === 720, expectDirect ? `MP4: ~30 fps average, 1280x720 (${(fn / fd).toFixed(2)} fps)` : "MP4: constant 30 fps, 1280x720");
   assert(Math.abs(Number(info.format.duration) - last.dur) < 2.5 && Number(info.format.duration) > SECONDS - 6, `MP4 duration matches the recording (${Number(info.format.duration).toFixed(1)}s of ${SECONDS}s)`);
   const vol = execFileSync("sh", ["-c", `ffmpeg -hide_banner -i '${mp4Path}' -af volumedetect -vn -f null - 2>&1 | grep mean_volume || true`]).toString();
   assert(/mean_volume: -\d+(\.\d+)? dB/.test(vol) && !/-9\d\.\d dB/.test(vol), `MP4 audio carries real signal (${vol.trim().split(":").pop().trim()})`);
   const luma = (t) => Number(execFileSync("sh", ["-c", `ffmpeg -hide_banner -loglevel error -ss ${t} -i '${mp4Path}' -frames:v 1 -vf "scale=64:36,format=gray" -f rawvideo - | od -An -tu1 -v | tr -s ' ' '\\n' | awk 'NF{s+=$1;n++} END{print s/n}'`]).toString());
   assert(luma(3) > 12 && luma(Number(info.format.duration) / 2) > 12, "the MP4 picture is not black at the start or middle");
-  const webmInfo = probe(webmPath);
-  assert(webmInfo.streams.some((s) => s.codec_type === "video") && webmInfo.streams.some((s) => s.codec_type === "audio"), "the source WebM also contains video and audio");
+  if (webmPath) {
+    const webmInfo = probe(webmPath);
+    assert(webmInfo.streams.some((s) => s.codec_type === "video") && webmInfo.streams.some((s) => s.codec_type === "audio"), "the source WebM also contains video and audio");
+  }
   writeFileSync(join(scratch, "ok.txt"), "ok");
 
   console.log("\nCrash recovery: an interrupted recording is recoverable");
@@ -170,9 +194,13 @@ try {
   await frame2.waitForFunction(() => window.__toastyLiveSession?.recording?.last?.recovered === true, null, { timeout: 30000 });
   const rec = await frame2.evaluate(() => { const l = window.__toastyLiveSession.recording.last; return { size: l.sourceBlob.size, status: l.finalizationStatus }; });
   assert(rec.size > 100000, `the interrupted recording was recovered from checkpoints (${(rec.size / 1048576).toFixed(2)}MB)`);
-  await frame2.evaluate(() => window.__toastyLiveSession.retryRecordingFinalization());
-  await frame2.waitForFunction(() => window.__toastyLiveSession.recording.last?.finalizationStatus === "finalized", null, { timeout: 120000 });
-  assert(await frame2.evaluate(() => window.__toastyLiveSession.recording.last.masterBlob.size) > 10000, "Retry MP4 converts the recovered recording");
+  if (expectDirect) {
+    assert(rec.status === "finalized" && await frame2.evaluate(() => window.__toastyLiveSession.recording.last.masterBlob?.size) > 10000, "the recovered MP4 is immediately downloadable (no conversion needed)");
+  } else {
+    await frame2.evaluate(() => window.__toastyLiveSession.retryRecordingFinalization());
+    await frame2.waitForFunction(() => window.__toastyLiveSession.recording.last?.finalizationStatus === "finalized", null, { timeout: 120000 });
+    assert(await frame2.evaluate(() => window.__toastyLiveSession.recording.last.masterBlob.size) > 10000, "Retry MP4 converts the recovered recording");
+  }
 
   console.log("\nALL PASSED — Studio records, presents, converts and recovers real media end to end.");
   await browser.close();

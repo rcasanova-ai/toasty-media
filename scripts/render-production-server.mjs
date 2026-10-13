@@ -848,11 +848,17 @@ const server = createServer(async (req, res) => {
   }
 
   // ---- Studio recording finalization jobs (WebM -> MP4): streamed to disk, queued, polled ----
-  if (req.url?.startsWith("/api/recordings/jobs") && req.method !== "OPTIONS") {
+  if ((req.url?.startsWith("/api/recordings/jobs") || req.url?.split("?")[0] === "/api/recordings/limits") && req.method !== "OPTIONS") {
     if (!COST_SAFETY_SWITCHES.recordingFinalize) return sendJson(req, res, 503, { error: "Recording finalization is temporarily disabled by the platform safety switch." });
     const jobPath = req.url.split("?")[0];
     const session = await requireSession(req, res);
     if (!session) return;
+    if (req.method === "GET" && jobPath === "/api/recordings/limits") {
+      const organizationId = await resolveOrganizationForSession(session, null);
+      const org = organizationId ? await db("get_organization", { id: organizationId }) : { organization: null };
+      const limits = planLimitsFor(org.organization?.plan);
+      return sendJson(req, res, 200, { maxBytes: recordingByteCap(limits), maxMinutes: limits.maxRecordingMinutes, concurrent: RECORDING_JOB_CONCURRENCY });
+    }
     if (req.method === "POST" && jobPath === "/api/recordings/jobs") {
       if (!requireCsrf(req, res) || !limit(req, res, "recording-job-create", 30, 15 * 60 * 1000)) return;
       await handleRecordingJobCreate(req, res, session);
@@ -2312,14 +2318,15 @@ const RECORDING_JOB_CONCURRENCY = Math.max(1, Number(process.env.TOASTY_RECORDIN
 const RECORDING_JOB_TTL_MS = Number(process.env.TOASTY_RECORDING_JOB_TTL_MS || 60 * 60 * 1000);
 const RECORDING_HARD_MAX_BYTES = Number(process.env.TOASTY_RECORDING_MAX_BYTES || 1.5 * 1024 * 1024 * 1024);
 const RECORDING_MAX_ACTIVE_PER_USER = 3;
-// ~3.2 Mbps worst case per minute of recorded Program: a plan that allows N minutes must allow N minutes of bytes.
-const RECORDING_BYTES_PER_SECOND_BUDGET = 400 * 1000;
 const recordingJobs = new Map();
 const recordingJobQueue = [];
 let recordingJobsRunning = 0;
 
+// Server-side MP4 conversion is an OPTIONAL fallback (browsers that can't record MP4 themselves). Its size cap is the
+// plan's processing limit, bounded by what the render host can safely hold on disk — it never constrains local
+// recording, which is captured, stored and downloaded entirely in the producer's browser.
 function recordingByteCap(limits) {
-  return Math.min(RECORDING_HARD_MAX_BYTES, Math.max(limits.maxSourceFileBytes, limits.maxRecordingMinutes * 60 * RECORDING_BYTES_PER_SECOND_BUDGET));
+  return Math.min(RECORDING_HARD_MAX_BYTES, limits.maxSourceFileBytes, limits.maxUploadBytes);
 }
 
 function recordingJobPublic(job) {

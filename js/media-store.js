@@ -4,13 +4,20 @@ const STORE_NAME = "media";
 
 export async function saveMediaBlob({ id, blob, metadata = {} }) {
   const db = await openMediaDb();
-  await requestToPromise(db.transaction(STORE_NAME, "readwrite").objectStore(STORE_NAME).put({
-    id,
-    blob,
-    metadata,
-    updatedAt: new Date().toISOString()
-  }));
-  db.close();
+  try {
+    // Resolve only when the transaction has COMMITTED. A request-level success is not durability: a large recording
+    // (a 30-minute 6 Mbps file is ~1.4GB) can still abort at commit when the browser's storage quota is exceeded,
+    // and the caller must find out rather than believe the recording is safely stored.
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, "readwrite");
+      tx.oncomplete = () => resolve();
+      tx.onabort = () => reject(tx.error || new Error("Browser storage rejected the recording (quota or disk full)."));
+      tx.onerror = () => reject(tx.error || new Error("Browser storage error."));
+      tx.objectStore(STORE_NAME).put({ id, blob, metadata, updatedAt: new Date().toISOString() });
+    });
+  } finally {
+    db.close();
+  }
   return { id, ...metadata };
 }
 

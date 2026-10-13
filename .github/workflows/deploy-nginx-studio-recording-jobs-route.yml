@@ -106,6 +106,9 @@ jobs:
           STATUS="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'X-Toasty-CSRF: 1' https://render.toasty.media/api/recordings/jobs)"
           echo "POST recordings/jobs (anonymous) -> $STATUS"
           [[ "$STATUS" == "401" ]] || { echo "Expected 401 from the Node app; got $STATUS." >&2; exit 1; }
+          LIMITS="$(curl -s -o /dev/null -w '%{http_code}' https://render.toasty.media/api/recordings/limits)"
+          echo "GET recordings/limits (anonymous) -> $LIMITS"
+          [[ "$LIMITS" == "401" ]] || { echo "Expected 401 for /api/recordings/limits; got $LIMITS (route not proxied)." >&2; exit 1; }
           HDRS="$(curl -s -D - -o /dev/null -X OPTIONS -H 'Origin: https://toasty.media' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: x-toasty-recording,x-toasty-csrf,content-type' https://render.toasty.media/api/recordings/jobs)"
           echo "$HDRS" | head -1
           echo "$HDRS" | grep -qi 'x-toasty-recording' || { echo "Preflight does not allow X-Toasty-Recording." >&2; exit 1; }

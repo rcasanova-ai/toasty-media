@@ -65,6 +65,12 @@ async function main() {
   const anon = await api("/api/recordings/jobs", { method: "POST", body: "x" });
   assert(anon.status === 401, "creating a job requires a signed-in session");
 
+  console.log("\nServer conversion limits are separate from local recording");
+  const anonLimits = await api("/api/recordings/limits");
+  assert(anonLimits.status === 401, "the limits endpoint requires a signed-in session");
+  const limits = await api("/api/recordings/limits", { cookie });
+  assert(limits.status === 200 && limits.data.maxBytes === 50 * 1024 * 1024 && limits.data.maxMinutes === 15, `the browser can ask what the server will convert (demo plan: ${limits.data.maxBytes / 1048576}MB, ${limits.data.maxMinutes} min) — this never limits local recording or download`);
+
   console.log("\nA real 35s recording converts to a valid MP4");
   const src = join(scratch, "a.webm"); makeWebm(src, 35);
   const srcBefore = readFileSync(src).length;

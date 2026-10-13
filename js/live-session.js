@@ -31,6 +31,7 @@ import {
   loadInterruptedRecording,
   recalledMasterRecordingId,
   PROGRAM_OUTPUT_PICKER_INSTRUCTION,
+  isMp4Mime,
   programOutputDisplayConstraints,
   inspectMasterCapture,
   captureFailureMessage
@@ -38,7 +39,7 @@ import {
 import { ProgramFeed } from "./program-feed.js";
 import { ProgramOrchestrator } from "./program-orchestrator.js";
 import { StudioBroadcastClient } from "./broadcast-client.js";
-import { finalizeMasterRecordingMp4 } from "./render-client.js";
+import { finalizeMasterRecordingMp4, recordingConversionLimits } from "./render-client.js";
 import { ProgramSync } from "./program-sync.js";
 import { normalizeTickerSpeed } from "./program-ticker.js";
 import { studioRequest } from "./studio-api.js";
@@ -2174,10 +2175,19 @@ export class LiveSession {
       isolatedTracks: []
     });
     let manifest = sourceManifest;
+    // Local-first: when the browser encoded MP4 itself, the recording is already the finished MP4 — complete on this
+    // machine, no upload, no server conversion. WebM (other browsers) gets optional server conversion afterwards.
+    const direct = isMp4Mime(captureResult.mimeType);
+    if (direct) {
+      manifest = finalizedMasterManifest(sourceManifest, { masterBlob: captureResult.blob, sourceBlob: captureResult.blob });
+      manifest.media = { ...manifest.media, sourceMimeType: captureResult.mimeType, masterMimeType: captureResult.mimeType, mimeType: captureResult.mimeType, recordedAs: "browser-mp4" };
+    }
     try {
       await persistMasterRecording({
         recordingId: captureResult.recordingId,
         sourceBlob: captureResult.blob,
+        masterBlob: direct ? captureResult.blob : null,
+        masterIsSource: direct,
         manifest
       });
       rememberLastMasterRecording(this.roomId, captureResult.recordingId);
@@ -2197,19 +2207,20 @@ export class LiveSession {
       stoppedAt,
       durationSeconds: manifest.durationSeconds,
       blob: captureResult.blob,
-      masterBlob: null,
+      masterBlob: direct ? captureResult.blob : null,
       sourceBlob: captureResult.blob,
       objectUrl: URL.createObjectURL(captureResult.blob),
       sourceObjectUrl: URL.createObjectURL(captureResult.blob),
       mimeType: captureResult.mimeType,
       sourceMimeType: captureResult.mimeType,
-      masterMimeType: "video/mp4",
+      masterMimeType: direct ? captureResult.mimeType : "video/mp4",
+      recordedAs: direct ? "browser-mp4" : "browser-webm",
       bytes: captureResult.bytes,
       sourceBytes: captureResult.bytes,
       manifest,
       persisted: sourcePersisted,
-      finalizationStatus: sourcePersisted ? (manifest.media?.finalizationStatus || "pending-finalization") : "local-only",
-      finalizationError: sourcePersisted ? null : "Browser storage failed before MP4 processing."
+      finalizationStatus: direct ? "finalized" : (sourcePersisted ? (manifest.media?.finalizationStatus || "pending-finalization") : "local-only"),
+      finalizationError: direct || sourcePersisted ? null : "Browser storage failed before MP4 processing."
     };
     this._setRecording(idleRecordingState(last));
     this.timeline.record(ProductionEventType.RECORDING_STOPPED, {
@@ -2219,11 +2230,28 @@ export class LiveSession {
       persisted: sourcePersisted
     });
     this._publishControlNow();
-    if (sourcePersisted) {
-      this.emit("recording-status", "Recording saved · Preparing MP4...");
-      this._finalizeRecordingInBackground({ sourceManifest, sourceBlob: captureResult.blob });
+    if (direct) {
+      this.emit("recording-status", "Recording ready · MP4 saved on this device");
+    } else if (sourcePersisted) {
+      this._convertOnServerIfAllowed({ sourceManifest, sourceBlob: captureResult.blob });
     }
     return last;
+  }
+
+  // WebM fallback only. Server conversion is optional and costs real CPU/bandwidth, so a recording the server would
+  // refuse is never uploaded: the producer keeps the complete local file and is told plainly.
+  async _convertOnServerIfAllowed({ sourceManifest, sourceBlob }) {
+    this.emit("recording-status", "Recording saved on this device · checking MP4 conversion…");
+    const limits = await recordingConversionLimits();
+    if (limits && sourceBlob.size > limits.maxBytes) {
+      const manifest = finalizedMasterManifest(sourceManifest, { sourceBlob, error: "Larger than server MP4 conversion allows." });
+      const current = this.recording.last?.recordingId === sourceManifest.recordingId ? this.recording.last : null;
+      if (current) this._setRecording(idleRecordingState({ ...current, manifest, finalizationStatus: "too-large", finalizationError: `This ${Math.round(sourceBlob.size / 1048576)}MB recording is larger than server MP4 conversion allows (${Math.round(limits.maxBytes / 1048576)}MB). It is complete on this device — download the WebM.` }));
+      this.emit("recording-status", "Recording saved on this device · too large for server MP4 conversion — download the WebM");
+      return;
+    }
+    this.emit("recording-status", "Recording saved · Preparing MP4...");
+    return this._finalizeRecordingInBackground({ sourceManifest, sourceBlob });
   }
 
   async _finalizeRecordingInBackground({ sourceManifest, sourceBlob }) {
@@ -2302,7 +2330,7 @@ export class LiveSession {
   async retryRecordingFinalization() {
     const last = this.recording.last;
     if (this.recording.active || !last?.sourceBlob || !last.manifest) return null;
-    if (last.finalizationStatus === "pending-finalization" || last.finalizationStatus === "finalized") return last;
+    if (last.finalizationStatus === "pending-finalization" || (last.finalizationStatus === "finalized" && !last.forceServerConvert)) return last;
     this._setRecording(idleRecordingState({ ...last, finalizationStatus: "pending-finalization", finalizationError: null }));
     this.emit("recording-status", "Preparing MP4…");
     await this._finalizeRecordingInBackground({ sourceManifest: last.manifest, sourceBlob: last.sourceBlob });
@@ -2358,10 +2386,13 @@ export class LiveSession {
       kind: RecordingKind.MASTER, recordingId, startedAt, stoppedAt, durationSeconds: manifest.durationSeconds,
       blob, masterBlob: null, sourceBlob: blob, objectUrl: URL.createObjectURL(blob), sourceObjectUrl: URL.createObjectURL(blob),
       mimeType: blob.type, sourceMimeType: blob.type, bytes: blob.size, sourceBytes: blob.size, manifest, persisted: true,
-      finalizationStatus: "failed", finalizationError: "Recovered after the recording was interrupted.", recovered: true
+      finalizationStatus: isMp4Mime(blob.type) ? "finalized" : "failed",
+      masterMimeType: isMp4Mime(blob.type) ? blob.type : "video/mp4",
+      finalizationError: isMp4Mime(blob.type) ? null : "Recovered after the recording was interrupted.", recovered: true
     };
+    if (isMp4Mime(blob.type)) last.masterBlob = blob;
     this._setRecording(idleRecordingState(last));
-    this.emit("recording-status", "Recovered an interrupted recording. Retry MP4 to convert it.");
+    this.emit("recording-status", isMp4Mime(blob.type) ? "Recovered an interrupted recording — it is ready to download." : "Recovered an interrupted recording. Retry MP4 to convert it.");
     return last;
   }
 
