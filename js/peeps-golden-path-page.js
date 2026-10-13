@@ -24,6 +24,8 @@ let intros = [];
 let bookings = {};
 let requirement = null;
 let guestLinks = {};
+let loadedOnce = false;
+let outboxChecked = false;
 let message = "";
 let zecInstructions = {};
 let busy = false;
@@ -65,7 +67,8 @@ async function loadRequestState() {
       if (detail.booking) bookings[intro.id] = await getPeepsBooking(detail.booking.id);
     } catch { /* leave detail empty; the receipt still renders */ }
   }
-  if (intros.length && !Object.keys(guestLinks).length) {
+  if (intros.length && !Object.keys(guestLinks).length && !outboxChecked) {
+    outboxChecked = true;
     try {
       const outbox = await studioRequest(`/api/peeps/test-outbox?requestId=${encodeURIComponent(requestId)}`);
       for (const m of outbox.messages || []) if (m.audience === "candidate" && m.testPayload?.url) guestLinks[m.introductionId] = m.testPayload.url;
@@ -92,14 +95,19 @@ async function refresh({ orchestrate = true } = {}) {
     await loadRequestState();
     if (orchestrate) { await agentOrchestrate(); await loadRequestState(); }
     render();
+    loadedOnce = true;
   } catch (error) {
-    root.innerHTML = `<section class="card"><h3>Couldn't load this request</h3><p class="muted">${esc(error.message)}</p><a class="btn" href="./golden-path.html">Start over</a></section>`;
+    // A transient failure (network blip, a rate-limited poll that nginx answers without CORS headers, a restart) must
+    // never wipe a page that already loaded: keep it, say so, and let the next poll recover.
+    const text = /failed to fetch|networkerror|load failed/i.test(error.message || "") ? "Couldn't reach Peeps just now (the server may be busy). Retrying automatically." : (error.message || "Couldn't refresh.");
+    if (loadedOnce) { setMessage(text); return; }
+    root.innerHTML = `<section class="card"><h3>Couldn't load this request</h3><p class="muted">${esc(text)}</p><a class="btn" href="">Try again</a> <a class="btn secondary" href="./golden-path.html">Start over</a></section>`;
   }
 }
 
 function startPolling() {
   clearInterval(pollTimer);
-  pollTimer = setInterval(() => { if (!document.hidden && !busy && requestId) refresh(); }, 6000);
+  pollTimer = setInterval(() => { if (!document.hidden && !busy && requestId) refresh(); }, 20000);
 }
 
 async function act(fn, done = "") {

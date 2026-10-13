@@ -1548,6 +1548,13 @@ def migrate(conn):
         """
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_peeps_candidates_request ON peeps_candidates(request_id, rank)")
+    # Candidates persisted before the Toasty-run demo participants existed kept reachability 'external_indirect'.
+    # Reclassify exactly those three demo-directory personas (idempotent; touches nothing else) so requests that were
+    # created earlier can still be authorized through their demo link. No contact info is added or invented.
+    conn.execute(
+        "UPDATE peeps_candidates SET reachability = 'demo_participant' WHERE source = 'demo_directory_provider' "
+        "AND reachability = 'external_indirect' AND display_name IN ('Anong Srisuk', 'Budi Hartono', 'Mei Lin Tan')"
+    )
 
     # The durable record of the human decision point (section 10) through outreach/acceptance. Status is
     # partly derived at read time from the linked jam_participant's own status (see public_peeps_introduction
