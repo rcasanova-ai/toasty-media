@@ -150,7 +150,7 @@ async function loadPaymentOptions() {
   try { const d = await getDough(); $("doughBalanceNote").textContent = `(off-chain ledger · you have $${Number(d.account.spendBalance).toFixed(2)}${d.demoCredit?.available ? " · a demo credit is available on the Dough page" : ""})`; } catch (_) { /* leave blank */ }
   try {
     const r = (await getPeepsPaymentRequirement(request.id)).requirement;
-    const a = r && !r.demo ? r.accepts?.[0] : null;
+    const a = (r?.accepts || []).find((x) => x.payTo && x.network && x.network !== "demo" && !String(x.network).startsWith("eip155"));
     if (a?.payTo) { solanaReq = a; $("payWithSolana").disabled = false; $("solanaNote").textContent = "(verified on-chain by the server)"; }
   } catch (_) { /* Solana stays disabled */ }
 }

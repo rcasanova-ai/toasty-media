@@ -12,7 +12,9 @@ Desk research on public documentation, **not** an implementation. Nothing here e
 
 **Risks.** Sources disagree on protocol version (v1 body vs v2 headers); the facilitator is a trust dependency; we must never mark a payment verified from the client's header alone (same rule as Solana).
 
-**Recommendation.** Build it **after** Solana devnet verification is configured and proven in production, as an agent-only rail. Not for human compensation.
+**Status.** Implemented behind `BASE_X402_PAY_TO` (see `PEEPS_STATUS.md`); the integration notes above describe what was built. Facilitator: the public testnet facilitator at x402.org supports `exact` on `eip155:84532`.
+
+**Recommendation (original).** Build it **after** Solana devnet verification is configured and proven in production, as an agent-only rail. Not for human compensation.
 
 ## Avalanche privacy (eERC)
 
