@@ -61,6 +61,7 @@ async function loadRequestState() {
     try {
       const detail = await getPeepsIntroduction(intro.id);
       intro.detail = detail;
+      if (detail?.contact?.demoGuestUrl) guestLinks[intro.id] = detail.contact.demoGuestUrl; // demo participant: no email exists, the requester opens this link
       if (detail.booking) bookings[intro.id] = await getPeepsBooking(detail.booking.id);
     } catch { /* leave detail empty; the receipt still renders */ }
   }
@@ -120,7 +121,7 @@ function stepAsk() {
 function stepAuthorize() {
   const external = candidates.filter((c) => c.status === "proposed");
   const ranked = [...external].sort((x, y) => (x.evaluation?.evaluationRank ?? 99) - (y.evaluation?.evaluationRank ?? 99));
-  const needsEmail = external.some((c) => selected.has(c.id) && !c.contactEmail && c.reachability !== "claimed_member");
+  const needsEmail = external.some((c) => selected.has(c.id) && !c.contactEmail && !["claimed_member", "demo_participant"].includes(c.reachability));
   const solana = requirement && !requirement.demo ? requirement.accepts?.[0] : null;
   return `<section class="card"><span class="eyebrow">2 · Authorize introductions</span><h3>The agent evaluated ${external.length} candidate${external.length === 1 ? "" : "s"}. Nobody has been contacted.</h3>
     <p class="muted">Each candidate was checked against your request using stored evidence. Qualified people are ranked first; excluded people show exactly what is not evidenced (you can still override). Where a person has a Dub, it answers only from its own approved claims. Nothing is invented.</p>
