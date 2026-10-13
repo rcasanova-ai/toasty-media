@@ -54,5 +54,8 @@ try {
   assert(booked.status === 201 && booked.data.booking.jamId === auth.data.jamId && booked.data.booking.studioSessionId, "booking creates the Studio session on the same Jam: the requester can proceed to the Jam");
   const jam = await call(`/api/jams/${auth.data.jamId}`, { cookie });
   assert(jam.data.jam.studioSessionId === booked.data.booking.studioSessionId, "Jam is linked to its Studio session");
+  const cons = await call(`/api/peeps/respond/${token}/consent`, { method: "POST", body: { acceptances: ["terms_of_service", "recording"] } });
+  const early = (await call(`/api/peeps/requests/${rid}/receipt`, { cookie })).data.checks.find((c) => c.key === "consent");
+  assert(cons.status === 200 && early.state === "pending" && /1 of 2 consented \(before anyone has attended\)/.test(early.detail), "before attendance the receipt reports the consent that exists (1 of 2) instead of a misleading '0 of N'");
   console.log("\nPASS");
 } finally { child.kill(); }

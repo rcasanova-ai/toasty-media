@@ -55,5 +55,6 @@ try {
   assert(receipt.dough.onchain === false && receipt.dough.items[0].rail === "dough_ledger" && /off-chain/i.test(receipt.dough.items[0].railLabel) && /demo credit/i.test(receipt.dough.items[0].railLabel), "settlement is labelled off-chain Dough ledger, funded by demo credit");
   assert(receipt.solana.events.length === 1 && receipt.solana.events[0].status === "ledger_posted" && receipt.solana.events[0].signature === null && receipt.solana.events[0].explorerUrl === null && /demo credit/i.test(receipt.solana.events[0].label), "the introduction fee is labelled off-chain/demo and carries NO signature or Explorer link");
   assert(receipt.solana.doughFunding.length === 0 && !JSON.stringify(receipt).includes("onchain_verified"), "nothing on the receipt claims an on-chain verification that did not happen");
+  assert(/1 of 1 consented/.test(receipt.checks.find((c) => c.key === "consent").detail), "consent detail is accurate");
   console.log("\nPASS");
 } finally { child.kill(); }
