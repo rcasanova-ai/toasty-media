@@ -7869,6 +7869,17 @@ def main():
 
     # Single-shot per idempotencyKey. A replay returns the ORIGINAL event with created=false; a signature
     # already spent anywhere else (another request, Dough funding, org billing) is refused outright.
+    if action == "peeps_economic_event_confirm":
+        # Promotes a payment that settled but was not yet confirmed on-chain. Only from onchain_pending, only once.
+        conn.execute(
+            "UPDATE peeps_economic_events SET status = 'onchain_verified', slot = ?, block_time = ?, verified_at = ? WHERE idempotency_key = ? AND status = 'onchain_pending'",
+            (payload.get("slot"), payload.get("blockTime"), utc_now(), payload["idempotencyKey"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM peeps_economic_events WHERE idempotency_key = ?", (payload["idempotencyKey"],)).fetchone()
+        print(json.dumps({"event": public_peeps_economic_event(row) if row else None}))
+        return
+
     if action == "record_peeps_economic_event":
         now = utc_now()
         sig = payload.get("transactionSignature") or None

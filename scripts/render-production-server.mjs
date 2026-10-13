@@ -7579,7 +7579,8 @@ function peepsIntroductionPaymentRequirement(reason = "payment_required", reques
       amount: PEEPS_INTRODUCTION_PRICE.toFixed(3),
       payTo: demo ? "demo-recipient" : TOASTY_EXPERT_DISCOVERY_RECIPIENT,
       ...(demo ? {} : { tokenMint: TOASTY_USDC_MINT, ...(requestId ? { reference: peepsPaymentReference(requestId) } : {}) })
-    }],
+    }, ...(baseX402Configured() ? [baseX402Requirement()] : [])],
+    ...(baseX402Configured() ? { x402Version: 2, resource: { url: requestId ? `/api/peeps/requests/${requestId}/authorize` : "/api/peeps/requests/:id/authorize", description: "Toasty Peeps introduction fee", mimeType: "application/json" } } : {}),
     submitProofTo: demo ? "/api/peeps/demo-payments/authorize" : "/api/agent/payments/proof",
     continueWith: "/api/peeps/requests/:id/authorize"
   };
@@ -7591,6 +7592,105 @@ function peepsIntroductionPaymentRequirement(reason = "payment_required", reques
 // fail, the configured recipient received >= the price in the configured USDC mint, and (Solana Pay style)
 // it carries this request's unguessable reference key — so a stranger can't spend someone else's public
 // transaction as their own payment. The payer is whoever the CHAIN says paid (fee payer), never a header.
+// ---- Base x402 (agent-to-agent payments, USDC, EIP-3009) -------------------------------------------------------
+// An agent signs an EIP-3009 transferWithAuthorization (x402 v2 "exact" scheme) and sends it with the authorize call.
+// Toasty hands it to a facilitator to verify and settle, and then NEVER trusts the facilitator's word: it re-reads the
+// settlement transaction from the Base RPC and checks it succeeded, that USDC moved from the payer to our address for at
+// least the price, and that the payer's authorization nonce was consumed in that very transaction. The authorization is
+// private until we settle it, so there is no public transaction for another request to claim; the settlement tx hash is
+// one-use. Off unless BASE_X402_PAY_TO is set. Testnet (Base Sepolia) by default.
+const BASE_X402_PAY_TO = /^0x[0-9a-fA-F]{40}$/.test(process.env.BASE_X402_PAY_TO || "") ? process.env.BASE_X402_PAY_TO.toLowerCase() : "";
+const BASE_X402_NETWORK = process.env.BASE_X402_NETWORK || "eip155:84532";
+const BASE_X402_USDC = (process.env.BASE_X402_USDC || (BASE_X402_NETWORK === "eip155:8453" ? "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" : "0x036CbD53842c5426634e7929541eC2318f3dCF7e")).toLowerCase();
+const BASE_X402_RPC_URL = process.env.BASE_X402_RPC_URL || (BASE_X402_NETWORK === "eip155:8453" ? "https://mainnet.base.org" : "https://sepolia.base.org");
+const BASE_X402_FACILITATOR_URL = (process.env.BASE_X402_FACILITATOR_URL || "https://x402.org/facilitator").replace(/\/$/, "");
+const BASE_X402_RAIL = "x402-base-usdc";
+const BASE_X402_RECEIPT_ATTEMPTS = Math.max(1, Number(process.env.BASE_X402_RECEIPT_ATTEMPTS) || 6);
+const BASE_X402_RECEIPT_DELAY_MS = Math.max(0, Number(process.env.BASE_X402_RECEIPT_DELAY_MS ?? 1500));
+const ERC20_TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const EIP3009_AUTHORIZATION_USED_TOPIC = "0x98de503528ee59b575ef0c0a2576a82497bfc029a5685b209e9ec333479b10a5";
+const baseX402Configured = () => Boolean(BASE_X402_PAY_TO);
+
+function baseX402Requirement() {
+  return {
+    scheme: "exact", network: BASE_X402_NETWORK, amount: String(Math.round(PEEPS_INTRODUCTION_PRICE * 1e6)), asset: BASE_X402_USDC, payTo: BASE_X402_PAY_TO,
+    maxTimeoutSeconds: 300, extra: { name: "USDC", version: "2", assetTransferMethod: "eip3009" }
+  };
+}
+
+function baseExplorerTxUrl(hash, network = BASE_X402_NETWORK) {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(hash || "")) return null;
+  return `${network === "eip155:8453" ? "https://basescan.org" : "https://sepolia.basescan.org"}/tx/${hash}`;
+}
+
+// Standard x402 clients send PAYMENT-SIGNATURE (v2); X-PAYMENT is the v1 name. Both carry base64(JSON PaymentPayload).
+function readBasePaymentHeader(req) {
+  const raw = req.headers["payment-signature"] || req.headers["x-payment"];
+  if (!raw) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(String(raw), "base64").toString("utf8"));
+    return payload && typeof payload === "object" ? { ok: true, payload } : { ok: false, reason: "malformed_payment" };
+  } catch { return { ok: false, reason: "malformed_payment" }; }
+}
+
+async function baseRpc(method, params) {
+  const response = await fetch(BASE_X402_RPC_URL, { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "toasty-peeps/1.0" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(15000) });
+  if (!response.ok) throw httpError(502, "The Base network node could not be reached.");
+  const body = await response.json();
+  if (body.error) throw httpError(502, "The Base network node returned an error.");
+  return body.result;
+}
+
+// Independent check of a Base settlement. Throws an error with .pending=true when the receipt isn't available yet.
+async function verifyBaseSettlementReceipt({ txHash, payer, nonce = "", minAtomic, attempts = BASE_X402_RECEIPT_ATTEMPTS, delayMs = BASE_X402_RECEIPT_DELAY_MS }) {
+  if (!/^0x[0-9a-fA-F]{64}$/.test(txHash || "")) throw httpError(400, "That is not a valid Base transaction hash.");
+  let receipt = null;
+  for (let i = 0; i < attempts && !receipt; i += 1) {
+    receipt = await baseRpc("eth_getTransactionReceipt", [txHash]);
+    if (!receipt && i < attempts - 1) await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  if (!receipt) throw Object.assign(httpError(409, "The payment was settled but is not confirmed on Base yet. Try again in a moment."), { pending: true });
+  if (receipt.status !== "0x1") throw httpError(402, "The Base transaction failed on-chain, so nothing was paid.");
+  const pad = (address) => `0x${"0".repeat(24)}${String(address).toLowerCase().replace(/^0x/, "")}`;
+  const logs = (receipt.logs || []).filter((log) => String(log.address).toLowerCase() === BASE_X402_USDC);
+  const transfer = logs.find((log) => log.topics?.[0] === ERC20_TRANSFER_TOPIC && String(log.topics[1]).toLowerCase() === pad(payer) && String(log.topics[2]).toLowerCase() === pad(BASE_X402_PAY_TO) && BigInt(log.data || "0x0") >= BigInt(minAtomic));
+  if (!transfer) throw httpError(400, "That Base transaction did not move enough USDC from the payer to Toasty.");
+  if (nonce && !logs.some((log) => log.topics?.[0] === EIP3009_AUTHORIZATION_USED_TOPIC && String(log.topics[1]).toLowerCase() === pad(payer) && String(log.topics[2]).toLowerCase() === String(nonce).toLowerCase())) {
+    throw httpError(400, "That Base transaction did not consume the payer's signed authorization.");
+  }
+  let blockTime = null;
+  try { const block = await baseRpc("eth_getBlockByNumber", [receipt.blockNumber, false]); if (block?.timestamp) blockTime = new Date(parseInt(block.timestamp, 16) * 1000).toISOString(); } catch { /* optional */ }
+  return { blockNumber: parseInt(receipt.blockNumber, 16), blockTime, amountAtomic: BigInt(transfer.data).toString() };
+}
+
+async function baseFacilitator(path, body) {
+  const response = await fetch(`${BASE_X402_FACILITATOR_URL}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
+  if (response.status >= 500) throw httpError(502, "The payment facilitator is unavailable. Nothing was charged; try again.");
+  return response.json().catch(() => ({}));
+}
+
+// Validates the agent's payload against OUR requirement, has the facilitator verify and settle it, returns the tx hash.
+async function settleBaseX402Payment(paymentPayload) {
+  const authorization = paymentPayload?.payload?.authorization;
+  const requirement = baseX402Requirement();
+  const bad = (message) => httpError(402, message);
+  if (Number(paymentPayload?.x402Version) !== 2) throw bad("Only x402 version 2 payments are accepted.");
+  if (!authorization || !paymentPayload.payload.signature) throw bad("The payment has no signed authorization.");
+  if (paymentPayload.accepted?.network && paymentPayload.accepted.network !== requirement.network) throw bad(`This payment is for ${paymentPayload.accepted.network}; Toasty accepts ${requirement.network}.`);
+  if (String(authorization.to || "").toLowerCase() !== BASE_X402_PAY_TO) throw bad("The authorization pays someone other than Toasty.");
+  let value; try { value = BigInt(authorization.value); } catch { throw bad("The authorization amount is not valid."); }
+  if (value < BigInt(requirement.amount)) throw bad("The authorization pays less than the introduction fee.");
+  const now = Math.floor(Date.now() / 1000);
+  if (Number(authorization.validBefore) <= now + 5 || Number(authorization.validAfter) > now) throw bad("The authorization is not valid right now (check validAfter / validBefore).");
+  if (!/^0x[0-9a-fA-F]{64}$/.test(authorization.nonce || "")) throw bad("The authorization nonce is not valid.");
+  const request = { x402Version: 2, paymentPayload, paymentRequirements: requirement };
+  const verified = await baseFacilitator("/verify", request);
+  if (!verified.isValid) throw bad(`The payment was not valid${verified.invalidReason ? `: ${String(verified.invalidReason).slice(0, 120)}` : "."}`);
+  const settled = await baseFacilitator("/settle", request);
+  if (!settled.success || !/^0x[0-9a-fA-F]{64}$/.test(settled.transaction || "")) throw bad(`The payment could not be settled${settled.errorReason ? `: ${String(settled.errorReason).slice(0, 120)}` : "."}`);
+  return { txHash: settled.transaction.toLowerCase(), payer: String(settled.payer || authorization.from).toLowerCase(), nonce: authorization.nonce, minAtomic: requirement.amount };
+}
+
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 function base58Encode(bytes) {
   let n = BigInt(`0x${Buffer.from(bytes).toString("hex") || "0"}`);
@@ -7644,7 +7744,7 @@ function sendPeepsIntroductionPaymentRequirement(req, res, reason, requestId = "
   res.writeHead(402, {
     "Content-Type": "application/json",
     "X402-Payment-Required": "true",
-    "Payment-Required": Buffer.from(JSON.stringify(requirement)).toString("base64url")
+    "Payment-Required": Buffer.from(JSON.stringify(requirement)).toString("base64")
   });
   res.end(JSON.stringify(requirement));
 }
@@ -7900,9 +8000,49 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
   const economicKey = `peeps-intro:${id}`;
   const priorEvent = (await db("peeps_economic_event_get", { idempotencyKey: economicKey })).event;
   const headerProof = req.headers["x-payment-signature"] ? readDiscoveryPaymentProof(req, PEEPS_INTRODUCTION_PRICE) : null;
+  const baseHeader = baseX402Configured() ? readBasePaymentHeader(req) : null;
   let proof;
-  if (priorEvent && (priorEvent.status === "onchain_verified" || (headerProof?.ok && !headerProof.demo))) {
+  if (priorEvent && priorEvent.rail === BASE_X402_RAIL && priorEvent.status === "onchain_pending") {
+    // A Base payment settled earlier but wasn't confirmable yet: only look at the chain again. Never settle twice.
+    try {
+      const chain = await verifyBaseSettlementReceipt({ txHash: priorEvent.transactionSignature, payer: priorEvent.payerWallet, nonce: priorEvent.metadata?.nonce || "", minAtomic: baseX402Requirement().amount, attempts: Math.min(2, BASE_X402_RECEIPT_ATTEMPTS) });
+      const confirmed = (await db("peeps_economic_event_confirm", { idempotencyKey: economicKey, slot: chain.blockNumber, blockTime: chain.blockTime })).event;
+      proof = { ok: true, replay: true, event: confirmed };
+    } catch (error) {
+      if (!(error?.statusCode >= 400 && error.statusCode < 500)) throw error;
+      sendJson(req, res, error.pending ? 202 : 402, { ...peepsIntroductionPaymentRequirement("payment_not_verified", id), error: error.pending ? "Payment pending confirmation." : "Payment could not be verified.", message: error.message, pendingTransaction: error.pending ? priorEvent.transactionSignature : undefined });
+      return;
+    }
+  } else if (priorEvent && (priorEvent.status === "onchain_verified" || (headerProof?.ok && !headerProof.demo) || baseHeader)) {
     proof = { ok: true, replay: true, event: priorEvent };
+  } else if (baseHeader) {
+    if (!baseHeader.ok) { sendPeepsIntroductionPaymentRequirement(req, res, baseHeader.reason, id); return; }
+    let settled;
+    try { settled = await settleBaseX402Payment(baseHeader.payload); }
+    catch (error) {
+      if (!(error?.statusCode >= 400 && error.statusCode < 500)) throw error;
+      sendJson(req, res, 402, { ...peepsIntroductionPaymentRequirement("payment_not_verified", id), error: "Payment could not be verified.", message: error.message });
+      return;
+    }
+    try {
+      const chain = await verifyBaseSettlementReceipt({ txHash: settled.txHash, payer: settled.payer, nonce: settled.nonce, minAtomic: settled.minAtomic });
+      proof = { ok: true, base: true, payerWallet: settled.payer, transactionSignature: settled.txHash, paymentSignature: settled.txHash, slot: chain.blockNumber, blockTime: chain.blockTime, verifiedOnchain: true, approvalSource: "X402_BASE", baseNonce: settled.nonce };
+    } catch (error) {
+      if (!error?.pending) {
+        if (!(error?.statusCode >= 400 && error.statusCode < 500)) throw error;
+        sendJson(req, res, 402, { ...peepsIntroductionPaymentRequirement("payment_not_verified", id), error: "Payment could not be verified.", message: error.message });
+        return;
+      }
+      // Funds moved but the chain can't confirm yet: keep the real tx hash as PENDING (never as verified) and stop here.
+      const pending = await db("record_peeps_economic_event", {
+        id: newId("pev"), requestId: id, jamId: request.jamId || null, kind: "introduction_authorization", idempotencyKey: economicKey, rail: BASE_X402_RAIL, status: "onchain_pending",
+        amount: PEEPS_INTRODUCTION_PRICE, currency: "USDC", network: BASE_X402_NETWORK, tokenMint: BASE_X402_USDC, payerWallet: settled.payer, payeeWallet: BASE_X402_PAY_TO,
+        transactionSignature: settled.txHash, metadata: { candidateIds: selections.map((x) => x.candidateId), approvalSource: "X402_BASE", nonce: settled.nonce }
+      });
+      if (pending.error === "duplicate_signature") throw httpError(409, "This transaction has already been used for a different payment.");
+      sendJson(req, res, 202, { ...peepsIntroductionPaymentRequirement("payment_not_verified", id), error: "Payment pending confirmation.", message: error.message, pendingTransaction: settled.txHash });
+      return;
+    }
   } else if (headerProof) {
     proof = headerProof;
     if (!proof.ok) {
@@ -7959,17 +8099,20 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
   // signature already spent elsewhere) must leave nothing behind.
   let economicEvent = proof.event || null;
   if (!proof.replay) {
-    const rail = proof.dough ? "dough-ledger" : (proof.demo ? "demo-x402-simulated" : "x402-solana-usdc");
+    const rail = proof.dough ? "dough-ledger" : (proof.demo ? "demo-x402-simulated" : (proof.base ? BASE_X402_RAIL : "x402-solana-usdc"));
+    const chainNetwork = proof.base ? BASE_X402_NETWORK : TOASTY_SOLANA_NETWORK;
+    const chainMint = proof.base ? BASE_X402_USDC : TOASTY_USDC_MINT;
+    const chainPayee = proof.base ? BASE_X402_PAY_TO : (TOASTY_EXPERT_DISCOVERY_RECIPIENT || "demo-recipient");
     const recorded = await db("record_peeps_economic_event", {
       id: newId("pev"), requestId: id, jamId: request.jamId || null, kind: "introduction_authorization", idempotencyKey: economicKey, rail,
       status: proof.dough ? "ledger_posted" : (proof.demo ? "simulated" : "onchain_verified"),
       amount: PEEPS_INTRODUCTION_PRICE, currency: proof.dough ? "USD" : "USDC",
-      network: proof.dough ? "internal" : (proof.demo ? "demo" : TOASTY_SOLANA_NETWORK),
-      tokenMint: (proof.demo || proof.dough) ? null : TOASTY_USDC_MINT,
-      payerWallet: proof.payerWallet, payeeWallet: proof.dough ? null : (TOASTY_EXPERT_DISCOVERY_RECIPIENT || "demo-recipient"),
+      network: proof.dough ? "internal" : (proof.demo ? "demo" : chainNetwork),
+      tokenMint: (proof.demo || proof.dough) ? null : chainMint,
+      payerWallet: proof.payerWallet, payeeWallet: proof.dough ? null : chainPayee,
       transactionSignature: proof.transactionSignature, slot: proof.slot ?? null, blockTime: proof.blockTime ?? null,
       verifiedAt: proof.verifiedOnchain ? new Date().toISOString() : null,
-      metadata: { candidateIds: selections.map((s) => s.candidateId), approvalSource: proof.approvalSource }
+      metadata: { candidateIds: selections.map((s) => s.candidateId), approvalSource: proof.approvalSource, ...(proof.baseNonce ? { nonce: proof.baseNonce } : {}) }
     });
     if (recorded.error === "duplicate_signature") throw httpError(409, "This transaction has already been used for a different payment.");
     economicEvent = recorded.event;
@@ -7981,12 +8124,12 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
         provider: "toasty-peeps",
         purpose: "peeps introduction authorization",
         status: "PAYMENT_VERIFIED",
-        network: proof.dough ? "internal" : (proof.demo ? "demo" : TOASTY_SOLANA_NETWORK),
+        network: proof.dough ? "internal" : (proof.demo ? "demo" : chainNetwork),
         payerWallet: proof.payerWallet,
-        payeeWallet: proof.dough ? null : (TOASTY_EXPERT_DISCOVERY_RECIPIENT || "demo-recipient"),
+        payeeWallet: proof.dough ? null : chainPayee,
         amount: PEEPS_INTRODUCTION_PRICE,
         currency: "USDC",
-        tokenMint: (proof.demo || proof.dough) ? null : TOASTY_USDC_MINT,
+        tokenMint: (proof.demo || proof.dough) ? null : chainMint,
         transactionSignature: proof.transactionSignature,
         paymentRequirement: peepsIntroductionPaymentRequirement("payment_required", id),
         paymentSignature: proof.paymentSignature,
@@ -10488,12 +10631,14 @@ async function peepsRequestLifecycleFull(request) {
 // and a transaction signature is only ever shown for a payment the server itself verified on-chain.
 function peepsEconomicEventView(event) {
   const onchain = event.status === "onchain_verified" && Boolean(event.transactionSignature);
+  const isBase = event.rail === BASE_X402_RAIL;
   return {
     id: event.id, kind: event.kind, rail: event.rail, status: event.status, amount: event.amount, currency: event.currency,
     network: event.network, tokenMint: onchain ? event.tokenMint : null, payerWallet: onchain ? event.payerWallet : null, payeeWallet: onchain ? event.payeeWallet : null,
-    signature: onchain ? event.transactionSignature : null, explorerUrl: onchain ? solanaExplorerTxUrl(event.transactionSignature, event.network) : null,
+    signature: onchain ? event.transactionSignature : null, explorerUrl: onchain ? (isBase ? baseExplorerTxUrl(event.transactionSignature, event.network) : solanaExplorerTxUrl(event.transactionSignature, event.network)) : null,
     slot: onchain ? event.slot : null, blockTime: onchain ? event.blockTime : null, verifiedAt: event.verifiedAt || null,
-    label: onchain ? "On-chain: USDC payment confirmed on Solana by the server"
+    label: event.status === "onchain_pending" ? "Pending: the payment was settled on Base but is not confirmed yet. Not verified."
+      : onchain ? `On-chain: USDC payment confirmed on ${isBase ? "Base" : "Solana"} by the server`
       : event.status === "ledger_posted" ? "Off-chain: spent from the requester's Dough ledger"
       : "Simulated: demo provider, no funds moved"
   };

@@ -35,7 +35,7 @@ Last updated with the PR that introduced this file. Statements marked **verified
 |---|---|
 | Solana (devnet) | **Implemented.** Server reads the transaction from the chain and checks success, mint, recipient, amount, a request-bound reference, and one-use signature. Two real devnet transactions verified (see `docs/SUBMISSION.md`). Request page offers "USDC on Solana" with a Solana Pay link when configured. **Production recipient/mint are not configured** (needs `SVM_PAY_TO`, `TOASTY_USDC_MINT` on the render host), so the option shows as not configured there. |
 | Zcash | **Implemented for regtest only** (shielded Orchard transfer, recipient-wallet attestation). Disabled by default in production. Never verified on public testnet or mainnet. |
-| Base (x402) | **Not implemented.** The code uses "x402" only as the HTTP 402 payment-required pattern, settled in Solana USDC. No EVM code exists. |
+| Base (x402) | **Implemented, off by default** (`BASE_X402_PAY_TO`). Agents pay the introduction fee with an x402 v2 `exact` EIP-3009 USDC authorization sent as `PAYMENT-SIGNATURE`; Toasty has a facilitator verify and settle it, then re-reads the settlement from the Base RPC (success, USDC moved payer to Toasty for at least the fee, the payer's authorization nonce consumed) and only then records an on-chain-verified event. A settled-but-unconfirmed payment is stored as pending, never verified. Verified locally against fakes plus a genuine Base Sepolia receipt fixture, and the public facilitator accepted our request shape (rejected a bogus signature). **No real Base payment has been made through Toasty, and it is not configured in production.** |
 | Avalanche | **Not implemented.** No code. |
 
 ## Checklist
