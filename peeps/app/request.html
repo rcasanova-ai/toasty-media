@@ -19,7 +19,11 @@
   <section class="table" id="candidatesTable"></section>
   <label class="muted" for="compensationAmount" style="display:block;margin-top:16px">Pay each person who joins (optional)</label>
   <input class="field" id="compensationAmount" type="number" min="0" step="0.01" placeholder="e.g. 25.00" style="max-width:200px">
-  <div class="actions" style="margin-top:18px"><button class="btn" id="authorizeBtn">Get introductions — $<span id="introCost">0.25</span> Dough</button><span class="muted" id="authorizeHint">Select at least one person above.</span></div>
+  <div id="payBlock" style="margin-top:16px"><b>How do you want to pay the introduction fee?</b>
+    <label style="display:block;margin-top:6px"><input type="radio" name="payWith" value="dough" checked> Dough <span class="muted" id="doughBalanceNote"></span></label>
+    <label style="display:block;margin-top:6px" id="solanaOption"><input type="radio" name="payWith" value="solana" id="payWithSolana" disabled> USDC on Solana <span class="muted" id="solanaNote">(not configured on this server)</span></label>
+    <div class="card" id="solanaPanel" hidden style="margin-top:8px"></div></div>
+  <div class="actions" style="margin-top:18px"><button class="btn" id="authorizeBtn">Get introductions — $<span id="introCost">0.25</span></button><span class="muted" id="authorizeHint">Select at least one person above.</span></div>
   <p class="muted" id="authorizeStatus"></p>
   <p class="muted" id="doughShortfallPrompt" hidden><a class="link" href="./dough.html">Add Dough →</a></p>
 </section>
@@ -32,7 +36,7 @@
 
 </main></div>
 <script type="module">
-import { getPrimaryOrganizationId, createPeepsRequest, getPeepsRequest, replacePeepsCandidate, authorizePeepsIntroductions, getPeepsIntroduction } from "../../js/peeps-jam-api.js";
+import { getPrimaryOrganizationId, createPeepsRequest, getPeepsRequest, replacePeepsCandidate, authorizePeepsIntroductions, getPeepsIntroduction, getPeepsPaymentRequirement, authorizePeepsIntroductionsOnchain, getDough } from "../../js/peeps-jam-api.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -99,6 +103,7 @@ function candidateRow(candidate) {
 }
 
 function renderCandidates() {
+  if (request) loadPaymentOptions();
   $("requestSummary").textContent = `${request.whoText} — ${request.outcomeText}`;
   const rows = candidates.filter((c) => c.status !== "rejected").map(candidateRow).join("");
   $("candidatesTable").innerHTML = rows || `<div class="row"><span class="muted">No candidates yet.</span></div>`;
@@ -140,6 +145,25 @@ $("askForm").addEventListener("submit", async (event) => {
   }
 });
 
+let solanaReq = null;
+async function loadPaymentOptions() {
+  try { const d = await getDough(); $("doughBalanceNote").textContent = `(off-chain ledger · you have $${Number(d.account.spendBalance).toFixed(2)}${d.demoCredit?.available ? " · a demo credit is available on the Dough page" : ""})`; } catch (_) { /* leave blank */ }
+  try {
+    const r = (await getPeepsPaymentRequirement(request.id)).requirement;
+    const a = r && !r.demo ? r.accepts?.[0] : null;
+    if (a?.payTo) { solanaReq = a; $("payWithSolana").disabled = false; $("solanaNote").textContent = "(verified on-chain by the server)"; }
+  } catch (_) { /* Solana stays disabled */ }
+}
+function solanaPanelHtml() {
+  const a = solanaReq; if (!a) return "";
+  const link = `solana:${encodeURIComponent(a.payTo)}?amount=${encodeURIComponent(a.amount)}&spl-token=${encodeURIComponent(a.tokenMint)}&reference=${encodeURIComponent(a.reference)}&label=Toasty%20Peeps`;
+  return `<p class="muted" style="margin:0 0 6px">Send exactly <b>${escapeHtml(a.amount)} USDC</b> on <b>${escapeHtml(a.network)}</b> to <code style="word-break:break-all">${escapeHtml(a.payTo)}</code> (mint <code style="word-break:break-all">${escapeHtml(a.tokenMint)}</code>). Include this request's reference on the transfer: <code style="word-break:break-all">${escapeHtml(a.reference)}</code>. Wallets that support Solana Pay can <a class="link" href="${escapeHtml(link)}">open this payment</a>. Then paste the transaction signature: the server confirms it on-chain before anything happens.</p><input class="field" id="solanaSig" placeholder="Transaction signature">`;
+}
+document.querySelectorAll('input[name="payWith"]').forEach((el) => el.addEventListener("change", () => {
+  const on = document.querySelector('input[name="payWith"]:checked').value === "solana";
+  $("solanaPanel").hidden = !on; if (on) $("solanaPanel").innerHTML = solanaPanelHtml();
+}));
+
 $("authorizeBtn").addEventListener("click", async () => {
   const selected = [...document.querySelectorAll(".candidate-select:checked")].map((box) => {
     const id = box.dataset.id;
@@ -153,7 +177,11 @@ $("authorizeBtn").addEventListener("click", async () => {
   $("authorizeStatus").textContent = "Authorizing introductions…";
   try {
     const compensationAmount = Number($("compensationAmount").value) || 0;
-    const result = await authorizePeepsIntroductions(request.id, selected, { compensationAmount });
+    const viaSolana = document.querySelector('input[name="payWith"]:checked')?.value === "solana";
+    if (viaSolana && !($("solanaSig")?.value || "").trim()) { $("authorizeStatus").textContent = "Paste the Solana transaction signature first."; btn.disabled = false; return; }
+    const result = viaSolana
+      ? await authorizePeepsIntroductionsOnchain(request.id, selected, { compensationAmount, signature: $("solanaSig").value.trim() })
+      : await authorizePeepsIntroductions(request.id, selected, { compensationAmount });
     introductions = result.introductions;
     const skipped = result.skipped || [];
     $("resultSummary").innerHTML = `

@@ -3,7 +3,7 @@
 // ready" state with prep, the editable Session Plan, and Open Studio. Every button maps to one server
 // action; the server is the source of truth (state survives refresh and retries).
 import {
-  getPeepsIntroduction, getPeepsIntroductionSlots, retryPeepsOutreach, findPeepsReplacement, approvePeepsReplacement,
+  getPeepsIntroduction, getPeepsIntroductionSlots, retryPeepsOutreach, confirmPeepsLinkShared, findPeepsReplacement, approvePeepsReplacement,
   bookPeepsIntroduction, setPeepsRequesterAvailability, getPeepsBooking, getPeepsBookingPrep, editPeepsBookingPlan,
   cancelPeepsBooking, rebuildPeepsBooking, retryPeepsMessage
 } from "./peeps-jam-api.js";
@@ -62,6 +62,13 @@ function contactCard() {
     ${c.manualOptions.length ? `<p class="muted">Manual-only paths (Peeps will not pretend to message these): ${c.manualOptions.map((m) => m.reference ? `<a class="link" href="${esc(m.reference)}" target="_blank" rel="noopener noreferrer">${esc(m.channel.replace(/_/g, " "))}</a>` : esc(m.channel)).join(", ")}</p>` : ""}
     <details class="advanced"><summary>What can be automated</summary><ul class="muted">${adapterLine}</ul></details>
   </section>`;
+}
+
+// This deployment can't send email, but the requester holds this contact: they send the private link themselves and tell Peeps.
+function shareLinkCard() {
+  const url = data.contact?.shareUrl;
+  if (!url) return "";
+  return `<section class="card"><h3>Send ${esc(data.candidate.displayName)} their private link</h3><p class="muted">Peeps can't send email from here, so nothing has gone out yet. Copy this link and send it to ${esc(data.candidate.displayName)} yourself (message, email, anything you use). Then confirm below. Only they should open it.</p><input class="field" id="shareUrl" readonly value="${esc(url)}"><div class="actions"><button class="btn secondary" id="copyShare">Copy link</button><button class="btn" id="confirmShared">I've sent it</button></div></section>`;
 }
 
 // Toasty-run demo participants have no inbox: nothing is emailed. The requester opens the private guest link as that person.
@@ -173,12 +180,14 @@ function render() {
     ${replacementCard()}${planEditor()}${prepCard()}
     ${responseCard()}${["scheduling", "accepted"].includes(intro.status) || (data.booking && ["reschedule_requested"].includes(data.booking.status)) ? schedulingCard() : ""}
     ${bookingView && bookingView.booking.status === "booked" ? `<section class="card"><h3>Change of plans</h3><div class="actions"><button class="btn secondary" id="cancelBooking">Cancel this session</button></div><p class="muted">Cancellation window: ${bookingView.booking.cancellationPolicy.lateCancellationHours}h. Peeps records whether it was late; no penalty is applied automatically. To move the time, ask the guest for new availability — the schedule panel then offers new times.</p></section>` : ""}
-    ${demoLinkCard()}${contactCard()}${messagesCard()}`;
+    ${shareLinkCard()}${demoLinkCard()}${contactCard()}${messagesCard()}`;
   wire();
 }
 
 function wire() {
   const on = (sel, fn) => document.querySelectorAll(sel).forEach((el) => el.addEventListener("click", () => fn(el)));
+  on("#copyShare", () => { const el = document.getElementById("shareUrl"); el?.select(); (navigator.clipboard?.writeText(el.value) || Promise.reject()).then(() => (message = "Link copied.", renderMessage()), () => { document.execCommand?.("copy"); (message = "Link selected: copy it.", renderMessage()); }); });
+  on("#confirmShared", () => run(() => confirmPeepsLinkShared(id), "Marked as sent. Peeps will move on when they respond."));
   on("#retryOutreach", () => run(() => retryPeepsOutreach(id), "Outreach attempted."));
   on("#findRep", () => run(async () => { replacement = await findPeepsReplacement(id); }, "Replacement candidates loaded."));
   on("[data-retry-msg]", (el) => run(() => retryPeepsMessage(el.dataset.retryMsg), "Retried."));
