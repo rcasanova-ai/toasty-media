@@ -5454,8 +5454,21 @@ async function handleSessionEnd(req, res, authSession) {
   if (!SAFE_ID.test(id)) throw httpError(400, "Invalid session id.");
   const result = await db("session_end", { id, ownerUserId: authSession.id, endedBy: authSession.id });
   if (!result.session) throw httpError(404, "Session not found.");
-  if (result.session.jamId) await peepsFinalizeJam(result.session.jamId, "studio_session_ended").catch((error) => console.error("[Peeps] completion pipeline failed", error));
-  sendJson(req, res, 200, { session: result.session });
+  // Peeps-linked Jam: run the post-Jam workflow now and tell the Studio where the receipt is, so ending the session
+  // lands the host on it. A failure is reported (postJam.completed=false), never silently swallowed.
+  let peepsRequestId = null, postJam = null;
+  if (result.session.jamId) {
+    try {
+      const finalized = await peepsFinalizeJam(result.session.jamId, "studio_session_ended");
+      peepsRequestId = (await peepsRequestForJam(result.session.jamId))?.id || null;
+      postJam = peepsRequestId ? { completed: Boolean(finalized?.completion) } : null;
+    } catch (error) {
+      console.error("[Peeps] completion pipeline failed", error);
+      peepsRequestId = (await peepsRequestForJam(result.session.jamId).catch(() => null))?.id || null;
+      postJam = peepsRequestId ? { completed: false, error: "The post-Jam workflow hit an error. Open the receipt and use Reconcile to retry." } : null;
+    }
+  }
+  sendJson(req, res, 200, { session: { ...result.session, peepsRequestId, postJam } });
 }
 
 // Host/Producer-only, live, no reconnect: see js/live-session.js's changeBrandTheme — a canonical brand
@@ -10482,6 +10495,20 @@ async function peepsReceiptView(request) {
   const zecPaidIds = new Set(zecRows.filter((z) => z.state === "VERIFIED").map((z) => z.jamParticipantId));
   const settlementStatus = !totalOwed ? "none_due" : paid.length === owed.length ? "settled" : "pending";
   const check = (key, label, done, detail, na = false) => ({ key, label, state: na ? "na" : (done ? "done" : "pending"), detail });
+  // Where the requester's spendable Dough came from, so the receipt can tell test money from deposits: a one-time beta
+  // demo credit is simulated test money, a deposit is a real funding (card or verified on-chain), neither is a chain
+  // transaction by itself.
+  const ledger = (await db("dough_get", { subjectType: "user", subjectId: request.createdByUserId })).entries || [];
+  const sumCredits = (kind) => Math.round(ledger.filter((e) => e.direction === "credit" && e.kind === kind).reduce((t, e) => t + Number(e.amount || 0), 0) * 100) / 100;
+  const demoCreditUsd = sumCredits("demo_credit");
+  const depositedUsd = sumCredits("dough_funding");
+  const demoFunded = demoCreditUsd > 0 && depositedUsd === 0;
+  const fundingSources = {
+    demoCreditUsd, depositedUsd, demoFunded,
+    label: demoFunded ? "Simulated: this Dough is a one-time beta demo credit (test money, not a deposit)."
+      : demoCreditUsd > 0 ? "This Dough includes a one-time beta demo credit (test money) alongside real deposits."
+      : depositedUsd > 0 ? "This Dough was funded by deposits recorded in the ledger." : "No Dough funding recorded for this account."
+  };
   const authEvent = (eventsResult.events || []).find((e) => e.kind === "introduction_authorization");
   return {
     requestId: request.id, generatedAt: new Date().toISOString(), lifecycleState: request.status,
@@ -10506,9 +10533,9 @@ async function peepsReceiptView(request) {
     },
     dub: { entriesFromThisJam: fromThisJam.length, publicEntriesFromThisJam: fromThisJam.filter((e) => e.visibility === "public").length, note: fromThisJam.length ? "This Jam added evidence to the participant's Dub. Only participant-approved entries are public." : "No evidence has reached the Dub yet." },
     dough: {
-      rail: "dough-ledger", onchain: false, compensationOwed: totalOwed, compensationPaid: paid.filter((p) => !zecPaidIds.has(p.id)).reduce((s, p) => s + Number(p.compensationAmount), 0), status: settlementStatus,
+      rail: "dough-ledger", onchain: false, fundingSources, compensationOwed: totalOwed, compensationPaid: paid.filter((p) => !zecPaidIds.has(p.id)).reduce((s, p) => s + Number(p.compensationAmount), 0), status: settlementStatus,
       // Each item names the rail that ACTUALLY settled it. A participant settled in shielded ZEC is never reported as a Dough ledger payout.
-      items: settlements.map((x) => ({ participantId: x.jamParticipantId, amount: x.amount, status: x.status, reason: x.reason || null, paidAt: x.paidAt || null, rail: zecPaidIds.has(x.jamParticipantId) ? "zcash_confidential" : "dough_ledger" })),
+      items: settlements.map((x) => ({ participantId: x.jamParticipantId, amount: x.amount, status: x.status, reason: x.reason || null, paidAt: x.paidAt || null, rail: zecPaidIds.has(x.jamParticipantId) ? "zcash_confidential" : "dough_ledger", railLabel: zecPaidIds.has(x.jamParticipantId) ? "Confidential ZEC settlement" : `Off-chain Dough ledger${demoFunded ? " (funded by demo credit, simulated)" : ""}` })),
       note: "Compensation settled on the Dough ledger moves between ledger accounts (off-chain, atomic debit + credit, idempotent). It reaches Solana when the participant withdraws as USDC."
     },
     zcash: ZCASH_ENABLED || zecRows.length ? {
@@ -10518,7 +10545,7 @@ async function peepsReceiptView(request) {
     } : null,
     solana: {
       network: TOASTY_SOLANA_NETWORK, recipientConfigured: Boolean(TOASTY_EXPERT_DISCOVERY_RECIPIENT),
-      events: (eventsResult.events || []).map(peepsEconomicEventView),
+      events: (eventsResult.events || []).map((e) => { const v = peepsEconomicEventView(e); return v.status === "ledger_posted" && demoFunded ? { ...v, label: "Off-chain: spent from the requester's Dough ledger (funded by a simulated beta demo credit)", fundedByDemoCredit: true } : v; }),
       doughFunding: (fundingResult.intents || []).map((f) => ({ id: f.id, amount: f.amount, asset: f.asset || "USDC", signature: f.transactionSignature, explorerUrl: solanaExplorerTxUrl(f.transactionSignature), paidAt: f.paidAt, status: "onchain_verified", label: "On-chain: USDC deposit verified by the server, credited as Dough" }))
     },
     checks: [
@@ -10531,7 +10558,7 @@ async function peepsReceiptView(request) {
           : completion ? `The session happened, but these required criteria are not met yet: ${(completion.outcome?.criteria || []).filter((c) => c.required && !c.met).map((c) => `${c.label} (${c.evidence})`).join("; ") || "evaluating"}. Nothing is invented: it verifies when the evidence exists.`
           : "Waiting for the Jam to complete"),
       check("breadcrumb", "Breadcrumb created", proposed.length > 0, `${proposed.length} derived from the stored transcript`),
-      check("payment", "Introduction payment", Boolean(authEvent), authEvent ? peepsEconomicEventView(authEvent).label : "Not authorized yet"),
+      check("payment", "Introduction payment", Boolean(authEvent), authEvent ? (peepsEconomicEventView(authEvent).status === "ledger_posted" && demoFunded ? "Off-chain: Dough ledger, funded by a simulated beta demo credit (no blockchain transaction)" : peepsEconomicEventView(authEvent).label) : "Not authorized yet"),
       check("settlement", "Compensation settled", settlementStatus === "settled", settlementStatus === "none_due" ? "No compensation was part of this request" : settlementStatus === "settled" ? (owed.every((p) => zecPaidIds.has(p.id)) ? "Settled via VERIFIED CONFIDENTIAL ZEC settlement (not the Dough ledger)" : owed.some((p) => zecPaidIds.has(p.id)) ? "Settled: part via Dough ledger, part via VERIFIED CONFIDENTIAL ZEC" : "Settled in Dough") : "Pending: requester funding or outcome verification", settlementStatus === "none_due"),
       check("dub", "Dub gained evidence", fromThisJam.length > 0, `${fromThisJam.length} entr${fromThisJam.length === 1 ? "y" : "ies"} from this Jam`)
     ]

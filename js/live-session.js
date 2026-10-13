@@ -1245,7 +1245,8 @@ export class LiveSession {
   // js/guest.js's mirror-image handling of a 410 from presence/announce.
   async endDurableSession() {
     if (!this.durableSession) throw new Error("This room has no durable session record.");
-    await this.persistReusableSetupNow();
+    // Saving the reusable setup is a convenience: its failure must never stop the session from ending.
+    try { await this.persistReusableSetupNow(); } catch (error) { console.warn("[LiveSession] setup persist before end failed; ending anyway", error); }
     const result = await studioRequest(`/api/sessions/${this.durableSession.id}/end`, { method: "POST", body: "{}" });
     if (!result?.session || result.session.status !== "ENDED") {
       throw new Error("The server did not confirm that the session ended.");
