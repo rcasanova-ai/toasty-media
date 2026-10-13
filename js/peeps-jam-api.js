@@ -130,6 +130,7 @@ export const getDubClaim = (token) => inviteRequest(`/api/dub-claims/${encodeURI
 
 // ---- Peeps introduction execution (contact -> outreach -> response -> booking -> ready for session) ----
 const enc = encodeURIComponent;
+export const confirmPeepsLinkShared = (id) => studioRequest(`/api/peeps/introductions/${enc(id)}/shared`, { method: "POST", body: "{}" });
 export const getPeepsIntroduction = (id) => studioRequest(`/api/peeps/introductions/${enc(id)}`);
 export const getPeepsIntroductionSlots = (id) => studioRequest(`/api/peeps/introductions/${enc(id)}/slots`);
 export const retryPeepsOutreach = (id) => studioRequest(`/api/peeps/introductions/${enc(id)}/retry-outreach`, { method: "POST", body: "{}" });

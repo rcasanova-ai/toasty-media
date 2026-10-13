@@ -1,8 +1,14 @@
 const LOCAL_API_ENDPOINT = "http://127.0.0.1:4174";
 const PRODUCTION_API_ENDPOINT = "https://render.toasty.media";
 
+// A network-level failure ("Failed to fetch") is also what the browser reports when the proxy rate-limits or restarts
+// (those responses carry no CORS headers). Reads are safe to repeat, so GETs retry briefly before giving up with a
+// plain-language message. Writes are never retried automatically.
+const RETRY_DELAYS_MS = [700, 1800];
+
 export async function studioRequest(path, options = {}) {
-  const response = await fetch(`${studioApiEndpoint()}${path}`, {
+  const isRead = !options.method || options.method === "GET";
+  const send = () => fetch(`${studioApiEndpoint()}${path}`, {
     ...options,
     credentials: "include",
     headers: {
@@ -10,6 +16,14 @@ export async function studioRequest(path, options = {}) {
       ...(options.headers || {})
     }
   });
+  let response;
+  for (let attempt = 0; ; attempt += 1) {
+    try { response = await send(); break; }
+    catch (error) {
+      if (isRead && attempt < RETRY_DELAYS_MS.length) { await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt])); continue; }
+      throw new Error("Couldn't reach Toasty just now. Check your connection and try again in a moment.");
+    }
+  }
   let payload = {};
   try {
     payload = await response.json();

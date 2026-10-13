@@ -8019,7 +8019,7 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
     });
     jamId = jamResult.jam.id;
   }
-  await db("peeps_request_update", { id, fields: { jamId, status: "introductions_authorized" } });
+  await db("peeps_request_update", { id, fields: { jamId } });
 
   const introductions = [];
   const skipped = [];
@@ -8038,6 +8038,8 @@ async function handlePeepsRequestAuthorize(req, res, authSession) {
     introductions.push(outcome.introduction);
   }
 
+  // The request only becomes "authorized" once at least one introduction really exists.
+  if (introductions.length) await db("peeps_request_update", { id, fields: { status: "introductions_authorized" } });
   sendJson(req, res, 200, { jamId, introductions, skipped, payment: economicEvent ? peepsEconomicEventView(economicEvent) : null });
 }
 
@@ -8650,7 +8652,10 @@ async function peepsRunOutreach(ctx, { purpose = "outreach", openingContext = nu
     return ctx;
   }
   if (!adapter) {
-    const result = await peepsSetIntroStatus(ctx.intro.id, "ready_for_outreach", { contactState: { ...ctx.intro.contactState, blocked: "provider_unavailable", manualOptions: manual, checkedAt: new Date().toISOString() } });
+    // No email provider on this deployment. The requester holds this contact, so hand them the private link to send
+    // themselves; the introduction stays at ready_for_outreach until they confirm they did (never claimed as sent).
+    const shareUrl = peepsResponseUrl(await peepsMintResponseToken(ctx.intro.id));
+    const result = await peepsSetIntroStatus(ctx.intro.id, "ready_for_outreach", { contactState: { ...ctx.intro.contactState, blocked: "provider_unavailable", shareUrl, manualOptions: manual, checkedAt: new Date().toISOString() } });
     ctx.intro = result.introduction;
     return ctx;
   }
@@ -9721,7 +9726,8 @@ function peepsChannelView(channel) {
 }
 
 function peepsMessageView(message) {
-  const label = message.providerKind === "demo_link" ? "Demo participant: no email was sent. Use the private demo guest link."
+  const label = message.providerKind === "manual_share" ? "You shared the private link yourself. Peeps can't confirm delivery; it moves on when the person responds."
+    : message.providerKind === "demo_link" ? "Demo participant: no email was sent. Use the private demo guest link."
     : message.providerKind === "test_demo" && message.status === "simulated" ? "Simulated by the test provider — nothing was delivered."
     : message.status === "sent" ? "Handed to the email provider. Delivery isn't confirmed until they respond."
     : message.status === "failed" ? "Delivery failed." : message.status === "skipped_unavailable" ? "Not sent: no provider available." : message.status;
@@ -9747,7 +9753,7 @@ async function peepsIntroductionView(ctx) {
   const view = {
     introduction: { id: intro.id, status, requestId: intro.requestId, jamId: intro.jamId, authorizedAt: intro.authorizedAt, outreachSentAt: intro.outreachSentAt, outreachExpiresAt: intro.outreachExpiresAt, respondedAt: intro.respondedAt, firstViewedAt: intro.firstViewedAt, declineReason: intro.declineReason, paymentRef: intro.paymentRef ? "preserved" : null, replacesIntroductionId: intro.replacesIntroductionId },
     candidate: { id: ctx.candidate.id, displayName: ctx.candidate.displayName, headline: ctx.candidate.headline, matchReason: ctx.candidate.matchReason, source: ctx.candidate.source },
-    contact: { channels: ctx.channels.map(peepsChannelView), activeChannelId: intro.contactState?.activeChannelId || null, blocked: intro.contactState?.blocked || null, demoGuestUrl: intro.contactState?.demoGuestUrl || null, reason: intro.contactState?.reason || null, manualOptions: intro.contactState?.manualOptions || [] },
+    contact: { channels: ctx.channels.map(peepsChannelView), activeChannelId: intro.contactState?.activeChannelId || null, blocked: intro.contactState?.blocked || null, demoGuestUrl: intro.contactState?.demoGuestUrl || null, shareUrl: intro.contactState?.blocked === "provider_unavailable" ? (intro.contactState?.shareUrl || null) : null, reason: intro.contactState?.reason || null, manualOptions: intro.contactState?.manualOptions || [] },
     adapters: peepsAdapterCatalog(),
     messages: messages.map(peepsMessageView),
     response: { decision: intro.response?.decision || null, reason: intro.response?.reason || null, messages: intro.response?.messages || [], preferences: { recordingPreference: prefs.recordingPreference || null, durationMinutes: prefs.durationMinutes || null, compensation: prefs.compensation || null, formatConstraints: prefs.formatConstraints || null, timezone: prefs.timezone || null, notes: prefs.notes || null } },
@@ -9841,6 +9847,18 @@ async function routePeepsExecution(req, res, authSession) {
         ctx.intro = moved.introduction;
       }
       await peepsRunOutreach(ctx, { purpose: ctx.intro.outreachSentAt ? "reminder" : "outreach" });
+      return sendJson(req, res, 200, await peepsIntroductionView(await peepsLoadIntroduction(ctx.intro.id)));
+    }
+
+    if (action === "shared") {
+      await peepsRefreshIntroduction(ctx);
+      if (ctx.intro.status !== "ready_for_outreach" || !ctx.intro.contactState?.shareUrl) throw httpError(409, "There is no link waiting to be shared for this introduction.");
+      await db("peeps_message_create", { id: newId("pmsg"), introductionId: ctx.intro.id, purpose: "outreach", audience: "candidate", adapter: "manual_share", providerKind: "manual_share", status: "manual", threadRef: `peeps-intro-${ctx.intro.id}`, template: { needsLink: true } });
+      const moved = await peepsSetIntroStatus(ctx.intro.id, "outreach_sent", {
+        outreachSentAt: new Date().toISOString(), outreachExpiresAt: inviteExpiry(PEEPS_OUTREACH_TTL_DAYS),
+        contactState: { ...ctx.intro.contactState, blocked: null, lastOutreachProviderKind: "manual_share" }
+      }, ["ready_for_outreach"]);
+      await db("jam_event_create", { id: newId("jev"), jamId: ctx.intro.jamId, jamParticipantId: ctx.intro.jamParticipantId, type: "outreach.shared_by_requester", actor: authSession.id, detail: { introductionId: ctx.intro.id, note: "Requester confirmed they shared the private link themselves; delivery is not confirmed." } });
       return sendJson(req, res, 200, await peepsIntroductionView(await peepsLoadIntroduction(ctx.intro.id)));
     }
 
