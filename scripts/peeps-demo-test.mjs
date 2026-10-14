@@ -96,3 +96,24 @@ const ui = readFileSync(new URL('../peeps/demo/demo.js', import.meta.url), 'utf8
 assert.ok(!/<textarea[^>]*id="ask"/.test(ui) && !/\$\('#ask'\)/.test(ui), 'request must not be an input or read from the DOM');
 assert.ok(/text: REQUEST_TEXT/.test(ui) && !/S\.request\?\.text/.test(ui), 'flow must use the canonical request');
 console.log('peeps-demo-test: all assertions passed');
+
+// receipt: read from the demo ledger only; every amount is demo credit and nothing is on-chain
+{
+  const r = E.initialState(); E.authorizeIntroductions(r); E.completeJam(r, { actualMin: 60 });
+  r.studio.consent = true;
+  const rc = E.buildReceipt(r);
+  assert.equal(rc.jam.status, 'completed');
+  assert.equal(rc.money.introductionAuthorizedUsd, 25);
+  assert.equal(rc.money.earnedBySarahUsd, 25);
+  assert.equal(rc.money.sarahDoughUsd, 25);
+  assert.equal(rc.money.onchainTransactions, 0);
+  assert.equal(rc.money.mode, 'demo');
+  assert.equal(rc.money.settlement.status, 'ledger_posted');
+  assert.match(rc.money.settlement.id, /^demo_tx_\d+$/);
+  assert.equal(rc.breadcrumbs.length, 1);
+  assert.ok(rc.checks.every((c) => c.state === 'done'), 'all receipt checks are done after a released Jam');
+  const open = E.buildReceipt(E.initialState());
+  assert.equal(open.money.earnedBySarahUsd, 0); assert.equal(open.jam.status, 'scheduled');
+  assert.equal(E.LIFECYCLE[E.railIndex({ phase: 'receipt', post: { stage: 0 } })], 'Receipt');
+}
+console.log('receipt ok');

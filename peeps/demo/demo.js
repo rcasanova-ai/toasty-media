@@ -9,22 +9,25 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const usd = (n) => '$' + (Number.isInteger(n) ? n.toFixed(0) : n.toFixed(2));
 const usd2 = (n) => '$' + n.toFixed(2);
 
-const SPEEDS = { pitch: 0.72, normal: 1.4 }; // deterministic pacing multipliers; pitch run is ~45-60s
-const SPEED_KEY = 'toasty.peeps.demo.speed';
-let speed = 'pitch';
-try { speed = localStorage.getItem(SPEED_KEY) === 'normal' ? 'normal' : 'pitch'; } catch { /* default */ }
-
+// One fixed pace for every run: no random delays, no speed setting. ?record=1 additionally plays the three human
+// actions itself after a fixed dwell, so a screen recording is identical every time (about 2:50 end to end).
+const PACE = 1;
 const params = new URLSearchParams(location.search);
-let S = params.has('reset') ? E.resetState(localStorage) : E.loadState(localStorage);
-if (params.has('reset')) history.replaceState(null, '', location.pathname);
+const RECORD = params.has('record');
+if (RECORD) document.body.classList.add('record');
+const fitZoom = () => document.documentElement.style.setProperty('--z', String(Math.max(1, Math.min(1.45, innerWidth / 1500))));
+fitZoom(); addEventListener('resize', fitZoom);
+// Recording mode always starts from the beginning, so every take is identical.
+let S = params.has('reset') || RECORD ? E.resetState(localStorage) : E.loadState(localStorage);
+if (params.has('reset')) history.replaceState(null, '', location.pathname + (RECORD ? '?record=1' : ''));
 let token = 0; // bumped on every render/reset; cancels in-flight agent runs
 const CANCEL = Symbol('cancel');
 let dubTab = 'identity';
 const persist = () => E.saveState(localStorage, S);
-const mkWait = (t) => async (ms) => { await sleep(ms * SPEEDS[speed]); if (t !== token) throw CANCEL; };
+const mkWait = (t) => async (ms) => { await sleep(ms * PACE); if (t !== token) throw CANCEL; };
 const guarded = async (fn) => { try { await fn(); } catch (e) { if (e !== CANCEL) console.error(e); } };
 
-const PERSONA = { compose: 'You → your agent', understand: 'Agent working', discover: 'Agent working', investigate: 'Agent ↔ Dubs', qualify: 'Agent working', shortlist: 'Agent → you', approach: 'Agent ↔ Dubs', ready: 'Sarah accepted', studio: 'The human layer', wrapup: 'Agent resuming', results: 'Viewing as Sarah', growth: 'Network view' };
+const PERSONA = { compose: 'You → your agent', understand: 'Agent working', discover: 'Agent working', investigate: 'Agent ↔ Dubs', qualify: 'Agent working', shortlist: 'Agent → you', approach: 'Agent ↔ Dubs', ready: 'Sarah accepted', studio: 'The human layer', wrapup: 'Agent resuming', results: 'Viewing as Sarah', jams: 'Viewing as you', receipt: 'Viewing as you', growth: 'Network view' };
 const SHORT_REASON = { david: 'Profile search winner, qualification mismatch' };
 
 const av = (c, cls = '') => `<div class="av ${cls}" style="--h:${c.hue ?? 22}">${esc(c.initials || c.name.split(' ').map((x) => x[0]).join('').slice(0, 2))}</div>`;
@@ -39,7 +42,7 @@ function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = fal
 async function interlude(title, sub, ms = 1700) {
   const o = $('#overlay'); o.hidden = false;
   o.innerHTML = `<div class="box"><div class="eyebrow">${esc(sub)}</div><h2 class="h1" style="font-size:clamp(30px,5vw,54px)">${esc(title)}</h2><div class="spin" style="margin-top:18px"></div></div>`;
-  await sleep(ms * SPEEDS[speed]); o.hidden = true;
+  await sleep(ms * PACE); o.hidden = true;
 }
 
 function renderChrome() {
@@ -47,8 +50,8 @@ function renderChrome() {
   if (persona) persona.textContent = PERSONA[S.phase] || '';
   const ri = E.railIndex(S);
   $('#rail').innerHTML = E.LIFECYCLE.map((l, i) => `<div class="rn ${i < ri ? 'done' : i === ri ? 'now' : ''}">${esc(l)}</div>`).join('');
-  $('#spPitch')?.classList.toggle('on', speed === 'pitch');
-  $('#spNormal')?.classList.toggle('on', speed === 'normal');
+  const pf = $('#progfill'); if (pf) pf.style.width = Math.round(((ri + 1) / E.LIFECYCLE.length) * 100) + '%';
+  const pl = $('#proglabel'); if (pl) pl.textContent = ri < 0 ? 'Start' : `Step ${ri + 1} of ${E.LIFECYCLE.length} · ${E.LIFECYCLE[ri]}`;
 }
 
 function render() {
@@ -59,9 +62,20 @@ function render() {
   if (v.start) { const t = token; guarded(() => v.start(t, mkWait(t))); }
 }
 const VIEWS = {};
+// Recording mode only: perform the human click after a fixed dwell, with a short pressed state so it reads as intentional.
+function autoplay(phase, dwellMs, act, t) {
+  if (!RECORD) return;
+  guarded(async () => {
+    await sleep(dwellMs); if (t !== token || S.phase !== phase) throw CANCEL;
+    const btn = document.querySelector(`[data-act="${act}"]`); if (!btn) return;
+    btn.classList.add('pressed'); await sleep(600); if (t !== token) throw CANCEL;
+    btn.click();
+  });
+}
 
 // ------------------------------------------------------------------ 1. compose (human action #1)
 VIEWS.compose = {
+  start(t) { autoplay('compose', 6000, 'find', t); },
   html: () => `<div class="compose"><div class="eyebrow">Toasty Peeps · Agents change how humans can be discovered</div>
     <h1 class="h1">Tell your agent<br><span style="color:var(--accent2)">who you need.</span></h1>
     <div class="card glow" style="text-align:left"><div class="lbl">Your outcome, in plain language</div><div class="ask ask-locked" id="ask" role="note" aria-readonly="true">${esc(REQUEST_TEXT)}</div>
@@ -97,7 +111,7 @@ const live = (txt, done) => { const el = $('#livechip'); if (el) { el.textConten
 
 function workspaceHtml() {
   const approach = S.phase === 'approach';
-  return `<div class="ws"><aside class="ws-left"><div class="card"><div class="lbl">Goal</div><p style="font-size:15px">${esc(REQUEST_TEXT)}</p><div class="hr"></div><div class="lbl">Understood as</div><div class="crit-l" id="critl"></div><div class="hr"></div><div class="tiny">Requester identity remains confidential until both sides approve disclosure.</div></div>
+  return `<div class="ws"><aside class="ws-left"><div class="card"><div class="rec-hide"><div class="lbl">Goal</div><p style="font-size:15px">${esc(REQUEST_TEXT)}</p><div class="hr"></div></div><div class="lbl">Understood as</div><div class="crit-l" id="critl"></div><div class="hr"></div><div class="tiny">Requester identity remains confidential until both sides approve disclosure.</div></div>
     <div class="card"><div class="lbl">Investigation</div><div class="row sp"><span class="spent" id="spent">${usd2(E.contextSpend(S))}</span><span class="tiny">Budget ${usd2(INVESTIGATION_BUDGET_USD)}</span></div><div class="meter"><i id="meterfill" style="width:${(E.contextSpend(S) / INVESTIGATION_BUDGET_USD) * 100}%"></i></div><div class="tiny">Context bought by your agent · x402 / Solana USDC · DEMO</div></div>
     <div class="card" id="introCard" ${approach ? '' : 'hidden'}><div class="lbl">Introductions authorized</div><div class="row sp"><span class="spent" id="introAmt">${usd2(E.jamReserved(S))}</span><span class="tiny">of ${usd(E.introTotal())} reserved</span></div></div></aside>
   <section class="card" style="padding:16px 16px 6px"><div class="wsh"><span>Peeps Agent</span><span class="tiny">for ${esc(REQUESTER.org)}</span><span class="live" id="livechip" style="margin-left:auto">Working</span></div><div class="hr"></div><div class="feed" id="feed"></div></section>
@@ -120,12 +134,14 @@ function dubBubble(name, r, intent) {
   else body += `<div class="ev"><span class="t">Confidence</span>${prov(r.provenance)}${r.learned ? `<span class="tiny">Source: ${esc(r.source)} · Added: ${esc(r.addedAt)}</span>` : ''}</div>${evChips(r)}`;
   return `<div class="msg dub ${cls}"><small>${esc(name)}</small>${body}</div>`;
 }
-async function say(msgs, who, html, wait, typingMs = 650) {
+// Time to read a message: a fixed base plus a per-character allowance, so long answers stay up longer. No typing dots.
+const plainLen = (html) => String(html).replace(/<[^>]+>/g, '').length;
+const readMs = (html, base = 900, per = 17, max = 4000) => Math.min(max, base + plainLen(html) * per);
+async function say(msgs, who, html, wait, beat) {
   if (!msgs) return;
   const f = $('#feed');
-  if (who !== 'agent') { msgs.insertAdjacentHTML('beforeend', '<div class="typing" id="typ"><i></i><i></i><i></i></div>'); if (f) f.scrollTop = f.scrollHeight; await wait(typingMs); $('#typ')?.remove(); }
   msgs.insertAdjacentHTML('beforeend', html); if (f) f.scrollTop = f.scrollHeight;
-  await wait(who === 'agent' ? 450 : 650);
+  await wait(beat ?? readMs(html, who === 'agent' ? 700 : 900));
 }
 const agentMsg = (text) => `<div class="msg req"><small>Peeps Agent</small>${esc(text)}</div>`;
 const sysNote = (msgs, text) => { msgs?.insertAdjacentHTML('beforeend', `<div class="sysnote">${text}</div>`); const f = $('#feed'); if (f) f.scrollTop = f.scrollHeight; };
@@ -171,13 +187,11 @@ async function investigateSarah(c, wait) {
     const rec = E.askDub(S, it.id); persist();
     await say(msgs, 'dub', dubBubble(name, rec, it), wait);
     if (rec.kind === 'unknown') {
-      sysNote(msgs, '<b>Clarification requested from Sarah.</b> She permits clarification requests. The agent does not guess.'); await wait(500);
-      msgs.insertAdjacentHTML('beforeend', '<div class="typing" id="typ" style="align-self:flex-start;background:rgba(95,211,154,.1)"><i style="background:var(--green)"></i><i style="background:var(--green)"></i><i style="background:var(--green)"></i></div>'); await wait(1300); $('#typ')?.remove();
-      msgs.insertAdjacentHTML('beforeend', `<div class="msg human"><small>Sarah</small>Yes. I’m willing to evaluate the opportunity at the capability level. Please keep the requester anonymous until mutual consent.</div>`); await wait(700);
+      sysNote(msgs, '<b>Clarification requested from Sarah.</b> She permits clarification requests. The agent does not guess.'); await wait(2200);
+      msgs.insertAdjacentHTML('beforeend', `<div class="msg human"><small>Sarah</small>Yes. I’m willing to evaluate the opportunity at the capability level. Please keep the requester anonymous until mutual consent.</div>`); $('#feed').scrollTop = $('#feed').scrollHeight; await wait(3000);
       E.clarify(S, it.id, 'yes'); persist();
       const upd = S.interview.log.at(-1);
-      await say(msgs, 'dub', `<div class="msg dub learned"><small>${name}</small><div><b>Context updated.</b></div><div>${esc(upd.text)}</div><div class="ev"><span class="t">Provenance</span>${prov('self')}<span class="tiny">Added: ${esc(upd.addedAt)}</span></div></div>`, wait, 400);
-      await wait(400);
+      await say(msgs, 'dub', `<div class="msg dub learned"><small>${name}</small><div><b>Context updated.</b></div><div>${esc(upd.text)}</div><div class="ev"><span class="t">Provenance</span>${prov('self')}<span class="tiny">Added: ${esc(upd.addedAt)}</span></div></div>`, wait, 2600);
     }
   }
   msgs.insertAdjacentHTML('beforeend', verdictHtml(true, c, `<b>Illustrative qualification score: ${c.contextual}%</b><div class="tiny">Banking partnerships · payment-sector experience · procurement/compliance fluency · $${S.dub.pricing.jam60}/hour</div>`));
@@ -208,11 +222,11 @@ VIEWS.understand = VIEWS.discover = VIEWS.investigate = VIEWS.qualify = {
     await wait(450);
     // 3. discover
     setPhase('discover'); live('Searching');
-    addLine('Searching the Peeps network…', 'head'); addHtml('<div class="scan"><i id="scanbar" style="width:100%;transition-duration:' + (0.9 * SPEEDS[speed]) + 's"></i></div>');
+    addLine('Searching the Peeps network…', 'head'); addHtml('<div class="scan"><i id="scanbar" style="width:100%;transition-duration:' + (0.9 * PACE) + 's"></i></div>');
     await wait(900);
     for (const c of [...CANDIDATES].sort((a, b) => b.surface - a.surface)) { moveCard(c.id, 'queued'); addLine(`Potential candidate · <b>${esc(c.name)}</b> <span class="mut">· ${esc(c.headline)} · ${c.surface}% initial match</span>`, 'dim'); await wait(210); }
-    addLine(`${CANDIDATES.length} potential candidates found.`, 'head'); await wait(500);
-    addLine('Investigating candidates…', 'sub'); await wait(450);
+    addLine(`${CANDIDATES.length} potential candidates found.`, 'head'); await wait(1400);
+    addLine('Ranked by profile match only. A strong profile is not the same as a qualified fit, so the agent investigates before anyone is approached.', 'sub'); await wait(2800);
     // 4–5. investigate + A2A
     setPhase('investigate'); live('Investigating');
     for (const id of INVESTIGATION_ORDER) {
@@ -224,7 +238,7 @@ VIEWS.understand = VIEWS.discover = VIEWS.investigate = VIEWS.qualify = {
     setPhase('qualify'); live('Qualifying');
     const sum = E.runBatchQualification(S); persist();
     addLine(`Pool processed: <b>${sum.qualified.length} qualified</b> · ${sum.excluded.length} excluded · ${usd2(sum.contextSpend)} of context purchased`, 'head');
-    await wait(1700);
+    await wait(2500);
     enter('shortlist');
   },
 };
@@ -234,12 +248,13 @@ VIEWS.shortlist = {
   html: () => {
     const sum = E.batchSummary(S); const david = E.candidate('david'); const total = E.introTotal();
     return `<div class="sl-head"><div class="eyebrow">Your agent is back</div><h1 class="h1" style="margin:8px 0 6px">David wins the profile search.<br><span style="color:var(--accent2)">Sarah wins the qualification.</span></h1></div>
-    <div class="grid4" style="margin-bottom:18px"><div class="stat"><small>Investigated</small><b>${sum.investigated}</b></div><div class="stat"><small>Qualified</small><b style="color:var(--green)">${sum.qualified.length}</b></div><div class="stat"><small>Excluded</small><b style="color:var(--red)">${sum.excluded.length}</b></div><div class="stat"><small>Context purchased</small><b>${usd2(sum.contextSpend)}</b></div></div>
-    <div class="rec3">${sum.qualified.map((c) => `<article class="card ${c.hero ? 'glow' : ''}"><div class="row">${av(c, 'lg')}<div><b style="font-size:20px">${esc(c.name)}</b><div class="mut" style="font-size:13px">${esc(c.headline)} · ${esc(c.sector)}</div></div></div><div class="row sp"><div><div class="pct">${c.contextual}%</div><div class="tiny">contextual match</div></div><div style="text-align:right"><b style="font-size:20px">${usd(c.rate)} / hour</b></div></div><div class="lbl" style="margin:6px 0 0">Why</div><ul class="rs">${c.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></article>`).join('')}</div>
-    <div class="davidcard" style="margin:18px 0"><div><div class="tiny" style="color:#d9968c;letter-spacing:.12em;text-transform:uppercase;font-weight:800">Rejected by qualification</div><div class="row" style="margin-top:6px">${av(david, 'lg')}<div><b style="font-size:22px">${esc(david.name)}</b><div class="mut">${david.surface}% illustrative profile match</div></div></div></div><div class="big2" style="color:var(--red)">✕ NOT QUALIFIED</div><p style="max-width:500px;color:#ffb3a8"><b>No demonstrated institutional banking relationships.</b> No enterprise procurement experience. No evidence of navigating regulated financial institutions.</p></div>
-    <div class="row wrap tiny" style="margin-bottom:18px"><span>Also excluded:</span>${sum.excluded.filter((c) => c.id !== 'david').map((c) => `<span class="chip bad">${esc(c.name.split(' ')[0])} · ${esc(SHORT_REASON[c.id] || c.exclusion.reason)}</span>`).join('')}</div>
+    <div class="grid4 sl-stats" style="margin-bottom:18px"><div class="stat"><small>Investigated</small><b>${sum.investigated}</b></div><div class="stat"><small>Qualified</small><b style="color:var(--green)">${sum.qualified.length}</b></div><div class="stat"><small>Excluded</small><b style="color:var(--red)">${sum.excluded.length}</b></div><div class="stat"><small>Context purchased</small><b>${usd2(sum.contextSpend)}</b></div></div>
+    <div class="sl-two"><div class="rec3">${sum.qualified.map((c) => `<article class="card ${c.hero ? 'glow' : ''}"><div class="row">${av(c, 'lg')}<div><b style="font-size:20px">${esc(c.name)}</b><div class="mut" style="font-size:13px">${esc(c.headline)} · ${esc(c.sector)}</div></div></div><div class="row sp"><div><div class="pct">${c.contextual}%</div><div class="tiny">contextual match</div></div><div style="text-align:right"><b style="font-size:20px">${usd(c.rate)} / hour</b></div></div><div class="lbl" style="margin:6px 0 0">Why</div><ul class="rs">${c.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul></article>`).join('')}</div>
+    <div class="davidcard"><div><div class="tiny" style="color:#d9968c;letter-spacing:.12em;text-transform:uppercase;font-weight:800">Rejected by qualification</div><div class="row" style="margin-top:6px">${av(david, 'lg')}<div><b style="font-size:22px">${esc(david.name)}</b><div class="mut">${david.surface}% illustrative profile match</div></div></div></div><div class="big2" style="color:var(--red)">✕ NOT QUALIFIED</div><p style="max-width:500px;color:#ffb3a8"><b>No demonstrated institutional banking relationships.</b> No enterprise procurement experience. No evidence of navigating regulated financial institutions.</p></div></div>
+    <div class="row wrap tiny sl-also" style="margin-bottom:18px"><span>Also excluded:</span>${sum.excluded.filter((c) => c.id !== 'david').map((c) => `<span class="chip bad">${esc(c.name.split(' ')[0])} · ${esc(SHORT_REASON[c.id] || c.exclusion.reason)}</span>`).join('')}</div>
     <div class="recommend"><div style="max-width:620px"><div class="eyebrow">Agent recommendation</div><p style="font-size:20px;margin-top:6px">Approach Sarah only. She is the qualified path for banking and fintech partnerships in Southeast Asia. Jam cost: <b>${usd(total)}</b>.</p><div class="tiny">Scores and evidence are illustrative, simulated, and labelled in the demo ledger.</div></div><button class="cta xl" data-act="authorize">Authorize introduction · ${usd(total)}</button></div>`;
   },
+  start(t) { autoplay('shortlist', 14000, 'authorize', t); },
 };
 
 // ------------------------------------------------------------------ 7. approach
@@ -267,7 +282,7 @@ VIEWS.approach = {
       const r = row.querySelector('.res'); r.className = 'res q'; r.textContent = `✓ Jam created · ${usd(c.rate)} reserved`;
       $(`[data-pid="${c.id}"]`)?.classList.add('booked'); $('#feed').scrollTop = $('#feed').scrollHeight; await wait(350);
     }
-    addLine(`Sarah accepted. ${usd(E.jamReserved(S))} reserved.`, 'head'); live('Done', true); await wait(900);
+    addLine(`Sarah accepted. ${usd(E.jamReserved(S))} reserved.`, 'head'); live('Done', true); await wait(2200);
     enter('ready');
   },
 };
@@ -281,6 +296,7 @@ VIEWS.ready = {
     <button class="cta xl" data-act="joinjam">Join Jam →</button>
     <p class="tiny">Also reserved by your agent: ${others.map((c) => `${esc(c.name.split(' ')[0])} (${usd(c.rate)})`).join(' · ')}</p></div>`;
   },
+  start(t) { autoplay('ready', 6000, 'joinjam', t); },
 };
 
 // ------------------------------------------------------------------ 9. studio
@@ -293,10 +309,10 @@ VIEWS.studio = {
   <aside class="card stack"><div class="lbl">Jam context</div><b style="font-size:18px">${JAM.title}</b><div class="row wrap"><span class="b plain">60 min</span><span class="b verified">${usd(JAM.rate)} committed</span></div><div class="hr"></div><div class="lbl">Briefed by your agent</div><p class="mut" style="font-size:14px">Goal: qualify banking and payment-sector partnership capability while preserving requester anonymity.</p><div class="lbl">Sarah will discuss</div><div class="chips">${S.dub.interests.topics.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</div><div class="lbl">Sarah won’t disclose</div><div class="chips">${S.dub.boundaries.topics.slice(0, 2).map((x) => `<span class="chip bad">${esc(x)}</span>`).join('')}</div></aside></div>`,
   async start(t, wait) {
     await wait(900); $('#cS').textContent = 'Sarah · consented ✓'; $('#cS').className = 'b verified'; await wait(700);
-    $('#cR').textContent = `${REQUESTER.name} · consented ✓`; $('#cR').className = 'b verified'; await wait(600);
+    $('#cR').textContent = `${REQUESTER.name} · consented ✓`; $('#cR').className = 'b verified'; S.studio.consent = true; persist(); await wait(1500);
     $('#recind').style.visibility = 'visible'; $('#trind').style.visibility = 'visible';
     const caps = $('#caps'); caps.innerHTML = ''; let sec = 0;
-    const clock = setInterval(() => { sec++; const c = $('#clock'); if (c) c.textContent = `00:${String(sec).padStart(2, '0')} · demo clock`; }, 1000 / SPEEDS[speed]);
+    const clock = setInterval(() => { sec++; const c = $('#clock'); if (c) c.textContent = `00:${String(sec).padStart(2, '0')} · demo clock`; }, 1000);
     try {
       for (let i = 0; i < TRANSCRIPT.length; i++) {
         const l = TRANSCRIPT[i]; const sarah = l.who === 'Sarah';
@@ -335,13 +351,14 @@ VIEWS.results = {
     <div class="card glow reveal ${st >= 2 ? 'on' : ''}" id="rvDub" style="margin-top:16px"><div class="row sp wrap"><div><div class="eyebrow">Richer Dub</div><h2 class="h2" style="margin:4px 0">Your Dub got smarter.</h2></div><div class="ring" style="--p:${st >= 2 ? after : before}" id="pring"><b>${st >= 2 ? after : before}%</b></div></div>
     <div class="row sp tiny" style="margin-top:12px"><span>Context coverage at start of demo: ${before}%</span><span>Now: ${after}%</span></div><div class="bar" style="margin:6px 0 14px"><u style="width:${before}%"></u><i id="cbar" style="width:${st >= 2 ? after : before}%"></i></div>
     <div class="grid2"><div class="card" style="background:#150c0a"><div class="lbl">The agent that asked before</div><div class="tiny">${SARAH_DUB.knowledge.length} claims · ${SARAH_DUB.breadcrumbs.length} Breadcrumbs · 0 completed Jams</div></div><div class="card" style="background:rgba(95,211,154,.06);border-color:rgba(95,211,154,.4)"><div class="lbl" style="color:var(--green)">The next agent that asks</div><div class="tiny" style="color:var(--text)">${S.dub.knowledge.length} claims · ${S.dub.breadcrumbs.length} Breadcrumbs · 1 verified completed Jam</div></div></div>
-    <div class="msg dub" style="margin-top:12px;max-width:100%"><small>Next agent: “Has Sarah completed a paid banking-partnership qualification Jam?”</small><div>Yes. One verified Jam, evidenced by a Studio recording and transcript.</div><div class="ev">${prov('verified')}</div></div>
+    <div class="msg dub rec-hide" style="margin-top:12px;max-width:100%"><small>Next agent: “Has Sarah completed a paid banking-partnership qualification Jam?”</small><div>Yes. One verified Jam, evidenced by a Studio recording and transcript.</div><div class="ev">${prov('verified')}</div></div>
     </div>
-    <h3 style="margin:26px 0 12px;font-size:20px">Session artifacts</h3>${artifacts}
-    <div class="card" style="margin-top:16px"><div class="row sp"><b>Trust checks on this payout</b><span class="b ${tr.decision === 'release' ? 'verified' : 'unknown'}">${tr.decision === 'release' ? 'Released' : 'Held'}</span></div>${sigHtml(tr)}</div>
-    <div class="row sp wrap" style="margin-top:22px"><span></span><button class="cta lg" data-act="togrowth">See how the network grows →</button></div>`;
+    <div class="rec-hide"><h3 style="margin:26px 0 12px;font-size:20px">Session artifacts</h3>${artifacts}</div>
+    <div class="card rec-hide" style="margin-top:16px"><div class="row sp"><b>Trust checks on this payout</b><span class="b ${tr.decision === 'release' ? 'verified' : 'unknown'}">${tr.decision === 'release' ? 'Released' : 'Held'}</span></div>${sigHtml(tr)}</div>
+    <div class="row sp wrap" style="margin-top:22px"><span></span><button class="cta lg" data-act="tojams">Open My Jams →</button></div>`;
   },
   async start(t, wait) {
+    autoplay('results', 12000, 'tojams', t);
     if (S.post.stage >= 2) return;
     const d = $('#dough');
     for (let i = 0; i <= 20; i++) { d.textContent = '+$' + Math.round((JAM.rate * i) / 20); await wait(30); }
@@ -351,7 +368,47 @@ VIEWS.results = {
   },
 };
 
-// ------------------------------------------------------------------ 11. growth: claim your Dub, then invite your network
+
+// ------------------------------------------------------------------ 11. My Jams + receipt (read from the demo ledger)
+const jam$ = (n) => '$' + Number(n).toFixed(2);
+VIEWS.jams = {
+  html: () => {
+    const r = E.buildReceipt(S); const done = r.jam.status === 'completed';
+    return `<div class="eyebrow">My Jams · every paid conversation</div><h1 class="h2">My Jams</h1>
+    <div class="jtable"><div class="jrow head"><span>Engagement</span><span>Participants</span><span>Settlement</span><span>Status</span><span></span></div>
+    <div class="jrow"><span><b>${esc(r.jam.title)}</b><small>${r.jam.minutes}-minute Jam · ${esc(r.jam.id)}</small></span><span>${r.participants.map((p) => `${esc(p.name)}`).join('<br>')}</span><span><b>${jam$(r.money.earnedBySarahUsd)}</b><small>Dough ledger · demo credits</small></span><span><span class="b verified">${done ? 'Completed' : 'Open'}</span></span><span><button class="cta" data-act="receipt">View receipt →</button></span></div></div>
+    <p class="tiny" style="margin-top:14px">Jam settlement is paid for the engagement. This list shows a simulated Jam; no real funds were used.</p>`;
+  },
+  async start(t) { autoplay('jams', 6000, 'receipt', t); },
+};
+
+const rcRow = (k, v, flag = '') => `<div class="rcr"><span>${k}</span><b>${v}</b>${flag}</div>`;
+VIEWS.receipt = {
+  html: () => {
+    const r = E.buildReceipt(S); const m = r.money; const bc = r.breadcrumbs[0]; const st = m.settlement;
+    const lbl = { demo: '<span class="b demoflag plain">Demo credits</span>', sim: '<span class="b demoflag plain">Simulated settlement</span>', chain: '<span class="b plain">On-chain: none</span>' };
+    return `<div class="rc-head"><div><div class="eyebrow">Jam receipt · generated from this demo’s ledger</div><h1 class="h2" style="margin:4px 0 0">${esc(r.jam.title)}</h1></div>
+    <div class="row wrap"><span class="b verified">${r.jam.status === 'completed' ? 'Completed & settled' : 'Open'}</span>${lbl.demo}${lbl.sim}</div></div>
+    <div class="rc-grid">
+      <div class="rc-col"><section class="card rc"><h3>Participants</h3>${r.participants.map((p) => `<div class="rcp"><div><b>${esc(p.name)}</b><small>${esc(p.role)}</small></div><div class="row wrap"><span class="b verified">${p.status === 'completed' ? 'Completed' : 'Accepted'}</span><span class="b ${p.consent ? 'verified' : 'unknown'} plain">${p.consent ? 'Consent captured' : 'No consent'}</span></div></div>`).join('')}
+        ${rcRow('Evidence', `Recording + ${r.evidence.transcriptSegments}-line transcript`)}${rcRow('Ended by', esc(r.evidence.completionTrigger))}</section>
+        ${bc ? `<div class="card rc-bc"><div class="lbl" style="color:var(--green)">Breadcrumb · verified</div><b>${esc(bc.statement)}</b></div>` : ''}</div>
+      <section class="card rc glow"><h3>Money</h3>
+        ${rcRow('Introduction authorized', `<span class="bigamt">${jam$(m.introductionAuthorizedUsd)}</span>`, lbl.demo)}
+        ${rcRow('Earned by Sarah', `<span class="bigamt g">${jam$(m.earnedBySarahUsd)}</span>`, lbl.demo)}
+        ${rcRow('Context purchased by the agent', `${jam$(m.contextPurchasedUsd)} · ${m.contextUnlocks} unlocks`, lbl.sim)}
+        ${rcRow('Dough settlement', st ? `${st.status === 'ledger_posted' ? 'Released to Sarah’s Dough' : 'Held for review'}` : '—', lbl.sim)}
+        ${rcRow('Ledger entry', st ? esc(st.id) : '—', `<span class="b plain">${st?.status === 'ledger_posted' ? 'Ledger posted' : esc(st?.status || '')}</span>`)}
+        ${rcRow('Verified blockchain transactions', `<b>${m.onchainTransactions}</b>`, lbl.chain)}
+      </section>
+      <section class="card rc"><h3>Verified outcome</h3>${r.checks.map((c) => `<div class="rck"><i>${c.state === 'done' ? '✓' : '·'}</i><span><b>${esc(c.label)}</b><small>${esc(c.detail)}</small></span></div>`).join('')}</section>
+    </div>
+    <p class="tiny rc-note"><b>Demo receipt.</b> Every amount above is read from this demo’s ledger and is test money; nothing was paid out. No blockchain transaction was made. A production receipt lists a transaction signature only for a payment the server verified on-chain.</p>
+    ${RECORD ? '' : '<div class="row" style="margin-top:12px;justify-content:flex-end"><button class="ghost" data-act="togrowth">See how the network grows →</button></div>'}`;
+  },
+};
+
+// ------------------------------------------------------------------ 12. growth: claim your Dub, then invite your network
 const SUGGESTED = [
   { id: 'n1', name: 'Pailin R.', initials: 'PR', hue: 15, headline: 'Founder · Bangkok' },
   { id: 'n2', name: 'Arthit S.', initials: 'AS', hue: 200, headline: 'CTO · Chiang Mai' },
@@ -468,15 +525,16 @@ document.addEventListener('click', async (ev) => {
     case 'authorize': return enter('approach'); // human action #2
     case 'joinjam': { // human action #3
       if (joining) return; joining = true;
-      try { await interlude('Agents have finished the machine work.', 'Now the humans meet.'); } finally { joining = false; }
+      try { await interlude('Agents have finished the machine work.', 'Now the humans meet.', 3000); } finally { joining = false; }
       return enter('studio');
     }
     case 'endjam': return enter('wrapup');
+    case 'tojams': return enter('jams');
+    case 'receipt': return enter('receipt');
     case 'togrowth': return enter('growth');
     case 'claim': { S.growth.stage = 3; persist(); growthRefresh(); const t = token; guarded(() => runClaim(t, mkWait(t))); return; }
     case 'invite': { const inv = invited(); if (!inv.includes(el.dataset.id)) inv.push(el.dataset.id); persist(); growthRefresh(); return; }
-    case 'reset': S = E.resetState(localStorage); $('#drawer').hidden = true; $('#overlay').hidden = true; joining = false; render(); window.scrollTo({ top: 0 }); return;
-    case 'speed': speed = el.dataset.v; try { localStorage.setItem(SPEED_KEY, speed); } catch { /* noop */ } renderChrome(); return;
+    case 'reset': S = E.resetState(localStorage); if (RECORD) { location.reload(); return; } $('#drawer').hidden = true; $('#overlay').hidden = true; joining = false; render(); window.scrollTo({ top: 0 }); return;
     case 'drawer': return drawer(el.dataset.pane);
     case 'closedrawer': $('#drawer').hidden = true; return;
     case 'scn': trustScn = el.dataset.k; return drawer('trust');
