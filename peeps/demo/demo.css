@@ -313,3 +313,50 @@ select.mini{width:auto;padding:5px 8px;font-size:12.5px}
 .drawer.wide{width:min(940px,100%)}
 
 .ask-locked{background:#120a08;border:1px solid var(--line2);border-radius:14px;padding:10px 12px;width:100%;color:var(--text);cursor:default;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;white-space:pre-wrap}
+
+/* ---- progress, 1080p readability, recording mode, receipt ---- */
+.top,.rail,.stage{zoom:var(--z,1)}
+.prog{height:3px;background:var(--line);position:sticky;top:0;z-index:31}
+.prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .7s ease}
+.proglabel{font-size:13px;white-space:nowrap;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--accent2)}
+.rn{font-size:12.5px}
+.cta.pressed{transform:scale(.97);filter:brightness(1.15);box-shadow:0 0 0 4px rgba(237,154,111,.35)}
+body.record .top-right .ghost:not(.danger),body.record .rec-hide{display:none}
+body.record .feed{height:calc((100vh / var(--z,1)) - 270px)}
+.jtable{border:1px solid var(--line2);border-radius:16px;overflow:hidden;margin-top:14px;background:var(--card)}
+.jrow{display:grid;grid-template-columns:1.5fr 1.2fr 1fr .7fr .9fr;gap:16px;align-items:center;padding:20px 22px;border-top:1px solid var(--line);font-size:16px}
+.jrow.head{border-top:0;font-size:12px;letter-spacing:.12em;text-transform:uppercase;font-weight:800;color:var(--dim);padding:12px 22px}
+.jrow small{display:block;color:var(--mut);font-size:13px;margin-top:3px}
+.rc-head{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.rc-grid{display:grid;grid-template-columns:1fr 1.15fr 1fr;gap:14px;align-items:start}
+.rc{padding:18px}.rc h3{font-size:15px;letter-spacing:.1em;text-transform:uppercase;color:var(--gold);margin-bottom:10px;font-family:Inter,sans-serif}
+.rcp{padding:10px 0;border-bottom:1px solid var(--line);display:grid;gap:6px}.rcp small{display:block;color:var(--mut);font-size:13px}
+.rcr{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px;align-items:center}
+.rcr span:first-child{color:var(--mut)}.rcr b{text-align:right;font-weight:800}.rcr>.b{grid-column:2;justify-self:end}
+.bigamt{font:900 26px 'Libre Franklin';letter-spacing:-.03em}.bigamt.g{color:var(--green)}
+.rck{display:flex;gap:10px;padding:6px 0;font-size:14px;align-items:flex-start}.rck i{font-style:normal;width:20px;height:20px;border-radius:50%;background:rgba(95,211,154,.18);color:var(--green);display:grid;place-items:center;font-size:12px;font-weight:900;flex:none;margin-top:1px}
+.rck small{display:block;color:var(--mut);font-size:12.5px}
+.rc-bc{margin-top:14px;padding:16px 20px;border-color:rgba(95,211,154,.4);display:grid;gap:4px;font-size:17px}
+.rc-note{margin-top:12px;color:var(--mut);font-size:13.5px;max-width:1100px}
+@media(max-width:900px){.rc-grid{grid-template-columns:1fr}.jrow{grid-template-columns:1fr}.jrow.head{display:none}}
+
+body.record .rail{padding:8px 24px 2px}
+body.record .stage{padding-top:8px;padding-bottom:12px}
+body.record .ws{grid-template-columns:330px 1fr 320px}
+body.record .ws-left .card{padding:16px}
+body.record .sl-stats,body.record .sl-also{display:none}
+.sl-two{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:0 0 16px;align-items:stretch}
+.sl-two .davidcard{margin:0}
+body.record .sl-head .h1{font-size:clamp(30px,3.6vw,48px)}
+body.record .tile{aspect-ratio:21/8}
+body.record .bigmoney{font-size:50px}
+body.record .screen .h2{margin:4px 0 6px}
+.rc-col{display:grid;gap:14px}.rc-col .rc-bc{margin:0}
+@media(max-width:900px){.sl-two{grid-template-columns:1fr}}
+
+.sl-two .rec3{grid-template-columns:1fr}
+.sl-two .davidcard{flex-direction:column;align-items:flex-start;justify-content:center;gap:12px}
+.sl-two .davidcard .big2{font-size:34px}
+body.record .card{padding:16px 18px}
+body.record .rc-bc{padding:14px 18px}
+body.record #rvDub{margin-top:10px!important}body.record .bar{margin:4px 0 10px!important}body.record .ring{transform:scale(.86);transform-origin:right center}

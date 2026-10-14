@@ -3,10 +3,10 @@
 import { SARAH_DUB, INTENTS, CANDIDATES, PRICING, JAM, TRANSCRIPT, REQUESTER, INVITEE, TRUST_TIERS, INVESTIGATION_BUDGET_USD } from './data.js';
 
 export const STORAGE_KEY = 'toasty.peeps.demo.v1'; // isolated namespace: never touches production data
-export const LIFECYCLE = ['Understand', 'Discover', 'Investigate', 'Qualify', 'Approach', 'Jam', 'Settle', 'Breadcrumb', 'Richer Dub', 'Network growth'];
+export const LIFECYCLE = ['Understand', 'Discover', 'Investigate', 'Qualify', 'Approach', 'Jam', 'Settle', 'Breadcrumb', 'Richer Dub', 'Receipt', 'Network growth'];
 // phase: compose → understand → discover → investigate → qualify → shortlist (human pause) → approach → ready (human)
 //        → studio → wrapup → results → growth
-export const PHASES = ['compose', 'understand', 'discover', 'investigate', 'qualify', 'shortlist', 'approach', 'ready', 'studio', 'wrapup', 'results', 'growth'];
+export const PHASES = ['compose', 'understand', 'discover', 'investigate', 'qualify', 'shortlist', 'approach', 'ready', 'studio', 'wrapup', 'results', 'jams', 'receipt', 'growth'];
 
 export const COVERAGE = { base: 62, perLearnedClaim: 2, perBreadcrumb: 4 };
 const DEMO_RAIL = 'x402 / Solana USDC rail · DEMO transaction · no on-chain settlement';
@@ -248,7 +248,53 @@ export function railIndex(s) {
     case 'ready': case 'studio': return 5;
     case 'wrapup': return 6;
     case 'results': return 6 + Math.min(2, s.post.stage); // 0 settle, 1 breadcrumb, 2 richer Dub
-    case 'growth': return 9;
+    case 'jams': case 'receipt': return 9;
+    case 'growth': return 10;
     default: return -1;
   }
+}
+
+// ---- Jam receipt ---------------------------------------------------------------------------
+// Same sections and field names as the production receipt (GET /api/peeps/requests/:id/receipt): participants,
+// evidence, breadcrumbs, dough settlement and checks. Every number is read from this demo's ledger/state, nothing is
+// typed in. Rail labels follow the production rule: a signature is shown only for a payment verified on-chain, and
+// nothing in the demo ever is, so onchain is always 0 here.
+export function buildReceipt(s) {
+  const entries = s.ledger;
+  const commit = entries.find((e) => e.kind === 'jam_commit' && e.jamId === JAM.id);
+  const credit = entries.find((e) => e.kind === 'dough_credit' && e.jamId === JAM.id);
+  const hold = entries.find((e) => e.kind === 'payment_hold' && e.jamId === JAM.id);
+  const unlocks = entries.filter((e) => e.kind === 'context_unlock');
+  const bc = s.dub.breadcrumbs.find((b) => b.id === s.post.breadcrumb);
+  const completed = Boolean(s.jam.ended);
+  const settled = Boolean(credit);
+  const check = (key, label, done, detail) => ({ key, label, state: done ? 'done' : 'pending', detail });
+  return {
+    jam: { id: JAM.id, title: JAM.title, status: completed ? 'completed' : 'scheduled', minutes: JAM.minutes },
+    participants: [
+      { name: 'Sarah Chen', role: 'Expert', status: completed ? 'completed' : 'accepted', consent: Boolean(s.studio.consent) },
+      { name: REQUESTER.org, role: 'Requester', status: completed ? 'completed' : 'accepted', consent: Boolean(s.studio.consent) },
+    ],
+    evidence: { transcriptSegments: TRANSCRIPT.length, recordingPresent: completed, completionTrigger: 'End Jam' },
+    breadcrumbs: bc ? [{ id: bc.id, statement: bc.text, status: bc.status, evidence: bc.evidence }] : [],
+    money: {
+      introductionAuthorizedUsd: commit ? commit.amountUsd : 0,
+      earnedBySarahUsd: credit ? credit.amountUsd : 0,
+      contextPurchasedUsd: contextSpend(s), contextUnlocks: unlocks.length,
+      settlement: credit ? { id: credit.id, label: credit.label, status: 'ledger_posted', from: credit.from, to: credit.to }
+        : hold ? { id: hold.id, label: hold.label, status: 'held', from: hold.from, to: hold.to } : null,
+      sarahDoughUsd: s.sarahDough,
+      onchainTransactions: 0, mode: 'demo', funding: 'demo_credit',
+    },
+    checks: [
+      check('interaction', 'Interaction occurred', completed, 'Studio session ran to completion'),
+      check('consent', 'Consent captured', Boolean(s.studio.consent), '2 of 2 participants consented before recording'),
+      check('attendance', 'Participants attended', completed, '2 of 2 joined'),
+      check('evidence', 'Evidence generated', completed, `Recording + ${TRANSCRIPT.length}-line transcript`),
+      check('breadcrumb', 'Breadcrumb created', Boolean(bc), bc ? 'Verified, linked to this Jam' : 'Not yet'),
+      check('payment', 'Introduction payment', Boolean(commit), commit ? 'Demo credits, held in Jam escrow' : 'Not yet'),
+      check('settlement', 'Compensation settled', settled, settled ? 'Released to Sarah’s Dough (simulated)' : hold ? 'Held for review' : 'Not yet'),
+      check('dub', 'Dub gained evidence', Boolean(bc), 'New Breadcrumb added to Sarah’s Dub'),
+    ],
+  };
 }
