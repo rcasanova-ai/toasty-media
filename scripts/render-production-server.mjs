@@ -5929,6 +5929,10 @@ function inviteIsLive(invite) {
 
 const SPEAKER_LINK_KEYS = ["linkedin", "x", "website", "instagram", "tiktok", "youtube", "github", "telegram", "other"];
 
+const SPEAKER_PREP_KEYS = Object.freeze([
+  ["preferredIntro", 800], ["expertise", 1500], ["topicsToDiscuss", 1500], ["topicsToAvoid", 1500], ["supportingLinks", 1500], ["additionalNotes", 2000]
+]);
+
 function sanitizeSpeakerFields(input, { profileMode = false } = {}) {
   const raw = input && typeof input === "object" ? input : {};
   const fields = {};
@@ -5955,10 +5959,20 @@ function sanitizeSpeakerFields(input, { profileMode = false } = {}) {
   if ("hiddenFields" in raw && Array.isArray(raw.hiddenFields)) {
     fields.hiddenFields = raw.hiddenFields.map((v) => sessionText(v, 60)).filter(Boolean).slice(0, 40);
   }
+  // Guest preparation: what the guest wants the host and producer to know. Plain text only, length-capped.
+  if ("prep" in raw && raw.prep && typeof raw.prep === "object") {
+    const prep = {};
+    for (const [key, max] of SPEAKER_PREP_KEYS) {
+      const value = sessionText(raw.prep[key], max);
+      if (value) prep[key] = value;
+    }
+    fields.prep = prep;
+  }
   // Organizer-only fields never reachable from the guest profile-submission path — includes the Peeps
   // bridge fields (Phase 10): a guest completing their own profile never gets to attach/change which
   // canonical Peeps person this speaker row is linked to, or why they were selected.
   if (!profileMode) {
+    if ("hostBackground" in raw) fields.hostBackground = sessionText(raw.hostBackground, 1500);
     if ("peepsPersonId" in raw) fields.peepsPersonId = sessionText(raw.peepsPersonId, 80) || null;
     if ("selectionReason" in raw) fields.selectionReason = sessionText(raw.selectionReason, 300);
   }
@@ -6054,18 +6068,22 @@ async function handleSpeakerInviteIssue(req, res, authSession) {
   const inviteUrl = `${APP_BASE_URL}/studio/speaker-invite.html?token=${token}`;
   const sessionRow = await db("session_get_public", { id: speaker.sessionId });
   const eventName = sessionRow.session?.title || "a Toasty session";
+  let emailed = false;
   if (EMAIL_PATTERN.test(speaker.email)) {
     // Same real transport as every other invite in this codebase (sendOrganizationInviteEmail) —
     // Resend when configured, console-logged dev transport otherwise. Never a second email system.
+    const briefing = sessionRow.session?.guestBriefing;
+    const briefingHtml = briefing ? `${briefing.intro ? `<p>${escapeHtml(briefing.intro).replace(/\n/g, "<br>")}</p>` : ""}${(briefing.sections || []).map((x) => `<h3>${escapeHtml(x.title)}</h3><p>${escapeHtml(x.body).replace(/\n/g, "<br>")}</p>`).join("")}` : "";
+    const when = sessionRow.session?.scheduledAt ? `<p>Planned for ${escapeHtml(sessionRow.session.scheduledAt.replace("T", " "))}.</p>` : "";
     await sendEmail({
       to: speaker.email,
-      subject: `You've been invited as a speaker for ${eventName}`,
-      html: `<p>You've been invited as a speaker for <strong>${escapeHtml(eventName)}</strong>.</p><p>Complete your speaker profile so your name, title, links, and on-screen information are accurate. No Toasty account is required.</p><p><a href="${inviteUrl}">${inviteUrl}</a></p><p>This link expires in 30 days.</p>`
-    }).catch((error) => console.error("[Toasty Email] speaker invite send failed", error));
+      subject: `Prepare for ${eventName}`,
+      html: `<p>You've been invited as a guest for <strong>${escapeHtml(eventName)}</strong>${sessionRow.session?.hostName ? ` with ${escapeHtml(sessionRow.session.hostName)}` : ""}.</p>${when}<p>Open your private preparation page to tell the host how you would like to be introduced, what you would like to talk about and anything to avoid. No Toasty account is required.</p><p><a href="${inviteUrl}">${inviteUrl}</a></p>${briefingHtml}<p>This link is personal to you and expires in 30 days. Only the host and producer see what you submit.</p>`
+    }).then(() => { emailed = true; }).catch((error) => console.error("[Toasty Email] speaker invite send failed", error));
   }
   // Raw token/URL is ALSO returned to the organizer (unlike the org-member invite flow) — a speaker may
   // not be checking email yet, and the organizer routinely hands this link over Slack/text directly.
-  sendJson(req, res, 201, { token, inviteUrl: `/studio/speaker-invite.html?token=${token}` });
+  sendJson(req, res, 201, { token, emailed, inviteUrl: `/studio/speaker-invite.html?token=${token}` });
 }
 
 async function handleSpeakerTechCheckLatest(req, res, authSession) {
@@ -6097,8 +6115,11 @@ async function handleSpeakerInviteGet(req, res) {
   // organizationId or which organization owns this session — only their own row plus the event title.
   const { organizationId, ...publicSpeaker } = speaker;
   const sessionRow = await db("session_get_public", { id: speaker.sessionId });
-  const event = sessionRow.session ? { title: sessionRow.session.title, brandId: sessionRow.session.brandId } : null;
-  sendJson(req, res, 200, { speaker: publicSpeaker, event });
+  const event = sessionRow.session ? { title: sessionRow.session.title, brandId: sessionRow.session.brandId, hostName: sessionRow.session.hostName || "", scheduledAt: sessionRow.session.scheduledAt || "", sessionType: sessionRow.session.sessionType || "" } : null;
+  // The host's private notes about this guest are for the host and producer only.
+  delete publicSpeaker.hostBackground;
+  delete publicSpeaker.selectionReason;
+  sendJson(req, res, 200, { speaker: publicSpeaker, event, briefing: sessionRow.session?.guestBriefing || null });
 }
 
 async function handleSpeakerInviteProfile(req, res) {

@@ -34,6 +34,18 @@
       .plan-status{font-size:13px;color:#8f857b;margin-top:10px;min-height:18px}
       .plan-status.err{color:#e58686}
       .plan-btn-small{padding:8px 14px;font-size:13px}
+      .plan-side-label{margin:18px 0 6px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#8f857b}
+      .plan-step-btn--minor{opacity:.85}
+      .plan-type-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-top:18px}
+      .plan-type-card{text-align:left;background:#151310;border:1px solid #2e2924;border-radius:14px;padding:18px;color:#eee;cursor:pointer;display:grid;gap:6px;font:inherit}
+      .plan-type-card:hover,.plan-type-card.active{border-color:#ff7a29}
+      .plan-type-card small{color:#8f857b}
+      .plan-brief-section{border:1px solid #2b2723;border-radius:12px;padding:14px;margin-bottom:12px}
+      .plan-review section{border:1px solid #2b2723;border-radius:14px;padding:18px;margin-bottom:14px;background:#151310}
+      .plan-review-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px}
+      .plan-review h2,.plan-review h3{margin:0}.plan-review h4{margin:14px 0 4px;font-size:13px;color:#c9bfb5}
+      .plan-guest{border-top:1px solid #2b2723;padding-top:14px;margin-top:14px}
+
     </style>
   </head>
   <body>
@@ -41,13 +53,17 @@
       <aside class="plan-side">
         <a href="./index.html"><img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty"></a>
         <nav id="stepNav">
-          <button class="plan-step-btn" data-step="basics"><span>Session Basics</span><span class="n">A</span></button>
-          <button class="plan-step-btn" data-step="audience"><span>Audience / Event</span><span class="n">B</span></button>
-          <button class="plan-step-btn" data-step="speakers"><span>Speakers</span><span class="n">C</span></button>
-          <button class="plan-step-btn" data-step="sponsors"><span>Sponsors</span><span class="n">D</span></button>
-          <button class="plan-step-btn" data-step="runofshow"><span>Run of Show</span><span class="n">E</span></button>
-          <button class="plan-step-btn" data-step="assets"><span>Assets</span><span class="n">F</span></button>
-          <button class="plan-step-btn" data-step="readiness"><span>Readiness Review</span><span class="n">G</span></button>
+          <button class="plan-step-btn" data-step="type"><span>Session type</span><span class="n">1</span></button>
+          <button class="plan-step-btn" data-step="basics"><span>Session information</span><span class="n">2</span></button>
+          <button class="plan-step-btn" data-step="speakers"><span>Guests</span><span class="n">3</span></button>
+          <button class="plan-step-btn" data-step="hostprep"><span>Your preparation</span><span class="n">4</span></button>
+          <button class="plan-step-btn" data-step="invite"><span>Invite guests</span><span class="n">5</span></button>
+          <button class="plan-step-btn" data-step="review"><span>Review the plan</span><span class="n">6</span></button>
+          <p class="plan-side-label">More options</p>
+          <button class="plan-step-btn plan-step-btn--minor" data-step="audience"><span>Audience and event</span></button>
+          <button class="plan-step-btn plan-step-btn--minor" data-step="sponsors"><span>Sponsors</span></button>
+          <button class="plan-step-btn plan-step-btn--minor" data-step="assets"><span>Assets</span></button>
+          <button class="plan-step-btn plan-step-btn--minor" data-step="readiness"><span>Readiness check</span></button>
         </nav>
       </aside>
       <main class="plan-main" id="planMain">

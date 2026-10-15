@@ -986,6 +986,9 @@ def migrate(conn):
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_speakers_session ON speakers(session_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_speakers_org ON speakers(organization_id)")
+    # Guest preparation (the guest fills `prep_json` from their invite link; the host's own note about the guest is
+    # `host_background`, organizer-only). Neither is ever shown to another guest.
+    ensure_columns(conn, "speakers", {"prep_json": "TEXT NOT NULL DEFAULT '{}'", "host_background": "TEXT NOT NULL DEFAULT ''"})
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS speaker_invites (
@@ -2933,6 +2936,8 @@ def public_speaker(row):
         "hiddenFields": _json_or(row["hidden_fields_json"], []),
         "pronouns": row["pronouns"],
         "selectionReason": row["selection_reason"],
+        "prep": _json_or(row["prep_json"], {}) if _row_has(row, "prep_json") else {},
+        "hostBackground": row["host_background"] if _row_has(row, "host_background") else "",
         "profileSubmittedAt": row["profile_submitted_at"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
@@ -5367,11 +5372,18 @@ def main():
         # Guest invite pages (speaker/sponsor) need the event's title/brand to say "for EVENT NAME" —
         # never the owner_user_id/organization_id or anything else that would identify the organizer's
         # account to someone holding only an invite token.
-        row = conn.execute("SELECT title, brand_id FROM live_sessions WHERE id = ?", (payload["id"],)).fetchone()
+        row = conn.execute("SELECT * FROM live_sessions WHERE id = ?", (payload["id"],)).fetchone()
         if not row:
             print(json.dumps({"session": None}))
             return
-        print(json.dumps({"session": {"title": row["title"], "brandId": row["brand_id"]}}))
+        # Only what the host reviewed and approved for guests: never host notes, run of show or other guests.
+        plan = session_plan(row)
+        briefing = plan.get("guestBriefing") if isinstance(plan.get("guestBriefing"), dict) else {}
+        public_briefing = None
+        if briefing.get("approved"):
+            sections = [{"title": str(x.get("title", ""))[:120], "body": str(x.get("body", ""))[:4000]} for x in (briefing.get("sections") or []) if isinstance(x, dict)][:12]
+            public_briefing = {"intro": str(briefing.get("intro", ""))[:2000], "sections": sections}
+        print(json.dumps({"session": {"title": row["title"], "brandId": row["brand_id"], "hostName": str(plan.get("hostName", ""))[:120], "scheduledAt": str(plan.get("scheduledAt", ""))[:40], "sessionType": str(plan.get("sessionType", ""))[:40], "guestBriefing": public_briefing}}))
         return
 
     if action == "session_get_room_and_status":
@@ -5493,6 +5505,7 @@ def main():
             "peepsPersonId": "peeps_person_id",
             "selectionReason": "selection_reason",
             "inviteStatus": "invite_status",
+            "hostBackground": "host_background",
         }
         sets = []
         values = []
@@ -5506,6 +5519,9 @@ def main():
         if "hiddenFields" in fields:
             sets.append("hidden_fields_json = ?")
             values.append(json.dumps(fields["hiddenFields"] or []))
+        if "prep" in fields:
+            sets.append("prep_json = ?")
+            values.append(json.dumps(fields["prep"] or {}))
         if payload.get("markProfileSubmitted"):
             sets.append("profile_submitted_at = ?")
             values.append(utc_now())
