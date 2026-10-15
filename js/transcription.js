@@ -22,13 +22,25 @@ export class WebSpeechTranscriptionProvider {
       this._recognition.continuous = true;
       this._recognition.interimResults = false;
       this._recognition.lang = "en-US";
+      // Each finished phrase becomes one transcript line. Every new final result in the event is handled, not just
+      // the last one, so a phrase is never dropped or doubled.
       this._recognition.addEventListener("result", (event) => {
-        const result = event.results[event.results.length - 1];
-        const text = result?.[0]?.transcript?.trim();
-        if (text) this._emit(text);
+        for (let i = event.resultIndex || 0; i < event.results.length; i += 1) {
+          const result = event.results[i];
+          if (result && result.isFinal === false) continue;
+          const text = result?.[0]?.transcript?.trim();
+          if (text) this._emit(text);
+        }
       });
-      // Chrome's SpeechRecognition stops itself after a pause; restart it while we're still meant to be on.
-      this._recognition.addEventListener("end", () => { if (this._running) this._recognition.start(); });
+      // Chrome's SpeechRecognition stops itself after a pause; restart it while we're still meant to be on, unless the
+      // browser says the microphone is not allowed.
+      this._recognition.addEventListener("error", (event) => {
+        if (event?.error === "not-allowed" || event?.error === "service-not-allowed") this._running = false;
+      });
+      this._recognition.addEventListener("end", () => {
+        if (!this._running) return;
+        setTimeout(() => { if (this._running) { try { this._recognition.start(); } catch { /* already started */ } } }, 250);
+      });
     }
   }
 

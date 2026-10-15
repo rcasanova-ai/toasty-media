@@ -9,7 +9,7 @@
 // is NOT executed here — ProgramController is the only path onto Program Output.
 
 import { ProducerEntryType } from "./ai-producer.js";
-import { detectHostDirective, detectImplicitProductionCue, DirectiveIntent, DirectiveStatus, MoxieStatus, productionActionFromDirective, ensureAddressedText, inferResponseAudience, wantsProgramVisual, wantsAssetPrep, isHostSpeaker, extractAddressedCommand } from "./host-directive.js";
+import { detectHostDirective, detectImplicitProductionCue, DirectiveIntent, DirectiveStatus, MoxieStatus, productionActionFromDirective, ensureAddressedText, inferResponseAudience, wantsProgramVisual, wantsAssetPrep, isHostSpeaker, extractAddressedCommand, isBareWake } from "./host-directive.js";
 import { attributeTranscriptLine } from "./show-context.js";
 import { programAssetFromCandidate, ProgramAssetStatus, serializeProgramAsset } from "./program-asset.js";
 import { ProductionActionType } from "./production-controller.js";
@@ -50,6 +50,9 @@ export function ingestAttributedTranscript(session, rawLine) {
   return line;
 }
 
+const WAKE_WINDOW_MS = 8000;
+const REPEAT_COMMAND_MS = 5000;
+
 export class LiveProducerController {
   constructor(session) {
     this.session = session;
@@ -59,6 +62,9 @@ export class LiveProducerController {
     this._lastTopicId = session?.runOfShow?.current()?.id || null;
     this._researchJobs = new Map();
     this._inflight = Promise.resolve();
+    this._armedUntil = 0;
+    this._lastCommandKey = "";
+    this._lastCommandAt = 0;
     this.status = MoxieStatus.LISTENING;
     this.actions = new MoxieActionBus();
     this.momentMarkers = [];
@@ -117,7 +123,16 @@ export class LiveProducerController {
       this.cancelSpeech();
     }
 
-    const implicit = detectImplicitProductionCue(line);
+    // "Hey Moxie." on its own arms a short listening window: the host's next line is the command.
+    const hostLine = isHostSpeaker(line);
+    if (hostLine && isBareWake(line.text)) {
+      this._armedUntil = Date.now() + WAKE_WINDOW_MS;
+      this.setStatus(MoxieStatus.LISTENING, { label: "LISTENING" }, "Listening…");
+      return;
+    }
+    const armed = hostLine && this._armedUntil > Date.now() && !extractAddressedCommand(line.text);
+    this._armedUntil = 0;
+    const implicit = armed ? null : detectImplicitProductionCue(line);
     if (implicit) {
       this._pushSuggestion(implicit);
       this._sinceCheckpoint += 1;
@@ -126,8 +141,12 @@ export class LiveProducerController {
     }
 
     const directive = detectHostDirective(line, {
-      participants: this.session.participants?.list?.() || []
+      participants: this.session.participants?.list?.() || [],
+      alreadyAddressed: armed,
+      pendingShare: this.hasShareable()
     });
+    // Speech recognition can repeat a finished sentence; the same command inside a few seconds counts once.
+    if (directive && this._isRepeatedCommand(directive)) return;
     if (directive) {
       this._dispatchDirective(directive, line);
       this._sinceCheckpoint += 1;
@@ -155,6 +174,47 @@ export class LiveProducerController {
 
   async ready() {
     await this._inflight;
+  }
+
+  _isRepeatedCommand(directive) {
+    const key = String(directive.rawText || "").toLowerCase().replace(/[^a-z0-9 ]+/g, "").trim();
+    const now = Date.now();
+    if (this._lastCommandKey === key && now - this._lastCommandAt < REPEAT_COMMAND_MS) return true;
+    this._lastCommandKey = key;
+    this._lastCommandAt = now;
+    return false;
+  }
+
+  // ---- Private results the host can choose to share with everyone -------------------------------------------
+  // Moxie's findings, recall and answers sit privately in the producer feed. Only an explicit host approval
+  // (the Share to chat button, or saying "share that with everyone") posts one to the session chat, with its
+  // source link. Nothing else in this controller posts to chat.
+  _shareableEntry(feedEntryId = null) {
+    const entries = this.session.aiProducerFeed?.entries || [];
+    const ok = (e) => e && !e.dismissed && !e.sharedToChat && (e.shareable || (e.type === ProducerEntryType.ASSET_PROPOSAL && e.proposal?.asset?.sourceUrl));
+    if (feedEntryId) { const e = entries.find((x) => x.id === feedEntryId); return ok(e) ? e : null; }
+    return entries.find(ok) || null;
+  }
+
+  hasShareable() {
+    return Boolean(this._shareableEntry());
+  }
+
+  shareToChat(feedEntryId = null, { approvedBy = "host", via = "button", actionId = null } = {}) {
+    const entry = this._shareableEntry(feedEntryId);
+    if (!entry) return { ok: false, reason: "nothing-to-share" };
+    const asset = entry.proposal?.asset;
+    const body = asset ? `${asset.title}${asset.excerpt ? `: ${asset.excerpt}` : ""}` : entry.summary;
+    const url = asset?.sourceUrl || entry.shareUrl || entry.sources?.[0] || "";
+    const source = asset?.sourceName || "";
+    const text = [body, url && `Source${source ? ` (${source})` : ""}: ${url}`].filter(Boolean).join("\n").slice(0, 1000);
+    const result = this.session.programController?.execute({ type: ProductionActionType.POST_CHAT, text, initiator: `host-approved:${via}` });
+    if (!result?.ok) return result || { ok: false, reason: "chat-unavailable" };
+    this.session.aiProducerFeed.replace(entry.id, { sharedToChat: true, sharedAt: Date.now(), sharedBy: approvedBy });
+    if (actionId) this.actions.setStatus(actionId, ProductionActionStatus.COMPLETED, { preview: { sharedToChat: true } });
+    this.session.productionLog?.record("SHARE_TO_CHAT", { feedEntryId: entry.id, approvedBy, via, sourceUrl: url || null });
+    this.setStatus(MoxieStatus.DONE, { label: "SHARED" }, "Shared to chat.");
+    return { ok: true, text };
   }
 
   async handleManualRequest(text) {
@@ -223,6 +283,15 @@ export class LiveProducerController {
       }
     }
 
+    if (directive.intent === DirectiveIntent.SHARE_TO_CHAT) {
+      const shared = this.shareToChat(null, { approvedBy: directive.speaker || "host", via: "voice", actionId: action.id });
+      if (!shared.ok) {
+        this.actions.setStatus(action.id, ProductionActionStatus.FAILED);
+        this._pushFeed({ type: ProducerEntryType.CONTEXT, title: "Nothing to share yet", instruction: directive.rawText, summary: "Ask Moxie to find something first, then approve sharing it.", actionId: action.id });
+        this.setStatus(MoxieStatus.NEEDS_CLARIFICATION, { label: "NOTHING TO SHARE" }, "There is nothing waiting to share.");
+      }
+      return;
+    }
     this.actions.setStatus(action.id, ProductionActionStatus.PROCESSING);
     this.voicePlan = createMoxieVoicePlan({
       responseAudience: action.responseAudience,
@@ -919,7 +988,9 @@ export class LiveProducerController {
       sources,
       actionId: action.id,
       bucket,
-      responseAudience: audience
+      responseAudience: audience,
+      shareable: Boolean(summary) && (type === ProducerEntryType.RESEARCH || title === "From earlier"),
+      shareUrl: sources?.[0] || preview?.sourceUrl || null
     });
     if (audience === ResponseAudience.PROGRAM && (spoken || summary)) {
       this.speakProgram(spoken || summary, { action, requestedBy: directive.speaker });

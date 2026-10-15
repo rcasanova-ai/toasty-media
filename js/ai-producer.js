@@ -592,7 +592,8 @@ export function renderFeedEntry(entry, {
   onRemoveAsset,
   onApproveMoxieProposal,
   onDismissMoxieProposal,
-  onPreview
+  onPreview,
+  onShareToChat
 } = {}) {
   const el = document.createElement("article");
   el.className = "lv-feed-entry";
@@ -687,12 +688,29 @@ export function renderFeedEntry(entry, {
         actionRow.appendChild(feedButton("OPEN SOURCE", () => window.open(sourceUrl, "_blank", "noopener,noreferrer")));
       }
       if (onTakeLive) actionRow.appendChild(feedButton("TAKE LIVE", () => onTakeLive(entry.id), true));
+      if (onShareToChat && !entry.sharedToChat) actionRow.appendChild(feedButton("SHARE TO CHAT", () => onShareToChat(entry.id)));
+      if (entry.sharedToChat) { const done = document.createElement("span"); done.className = "lv-feed-action-badge"; done.textContent = "Shared to chat"; actionRow.appendChild(done); }
       if (onFindAnother) actionRow.appendChild(feedButton("FIND ANOTHER", () => onFindAnother(entry.id)));
       if (onDiscardProposal) actionRow.appendChild(feedButton("DISMISS", () => onDiscardProposal(entry.id)));
     } else if (onRetryResearch && (entry.retryDirectiveId || proposal?.exhausted)) {
       actionRow.appendChild(feedButton("TRY AGAIN", () => onRetryResearch(entry.id)));
     }
     if (actionRow.childNodes.length) el.appendChild(actionRow);
+  }
+
+  // Private answers and recall can be shared to the session chat, but only by an explicit click here.
+  if (entry.shareable && entry.type !== ProducerEntryType.ASSET_PROPOSAL && (onShareToChat || entry.sharedToChat)) {
+    const shareRow = document.createElement("div");
+    shareRow.className = "lv-feed-entry-action lv-feed-entry-action--producer";
+    if (entry.sharedToChat) {
+      const done = document.createElement("span");
+      done.className = "lv-feed-action-badge";
+      done.textContent = "Shared to chat";
+      shareRow.appendChild(done);
+    } else {
+      shareRow.appendChild(feedButton("SHARE TO CHAT", () => onShareToChat(entry.id), true));
+    }
+    el.appendChild(shareRow);
   }
 
   // Moxie's own structured proposals (js/hottie-show-runner.js) — SEPARATE from the ASSET_PROPOSAL row

@@ -282,9 +282,9 @@ console.log("\nResponse audience routing");
 {
   const founded = detectHostDirective({ role: "host", participantId: "host", text: "Moxie, who founded FluidVoice?" });
   assertEqual(founded.intent, DirectiveIntent.ANSWER, "who-founded is a conversational answer");
-  assertEqual(founded.responseAudience, ResponseAudience.PROGRAM, "public question is PROGRAM");
+  assertEqual(founded.responseAudience, ResponseAudience.PRIVATE_HOST, "a question is answered privately to the host first");
   assertEqual(founded.riskLevel, ActionRiskLevel.GREEN, "ordinary informational answer is GREEN");
-  assert(!requiresApproval(founded.riskLevel), "PROGRAM answers do not wait on Producer");
+  assert(!requiresApproval(founded.riskLevel), "private answers do not wait on Producer");
 
   const prep = detectHostDirective({ role: "host", participantId: "host", text: "Moxie, find an article about FluidVoice and get it ready." });
   assertEqual(prep.intent, DirectiveIntent.FIND, "prep stays FIND");
@@ -300,7 +300,7 @@ console.log("\nResponse audience routing");
 
   const chat = detectHostDirective({ role: "host", participantId: "host", text: "Moxie, what is chat saying?" });
   assertEqual(chat.intent, DirectiveIntent.AUDIENCE, "chat summary intent");
-  assertEqual(chat.responseAudience, ResponseAudience.PROGRAM, "chat summary is PROGRAM");
+  assertEqual(chat.responseAudience, ResponseAudience.PRIVATE_HOST, "a chat summary goes to the host first");
 
   const privateChat = detectHostDirective({ role: "host", participantId: "host", text: "Moxie, privately tell me what chat is saying." });
   assertEqual(privateChat.intent, DirectiveIntent.AUDIENCE, "private chat is still a chat read");
@@ -319,7 +319,7 @@ console.log("\nResponse audience routing");
   assertEqual(shareIt.intent, DirectiveIntent.TAKE_ASSET, "share it approves pending result");
 }
 
-console.log("\nPROGRAM conversational answer does not propose TAKE LIVE");
+console.log("\nA conversational answer is private and is not spoken on the program");
 {
   const session = fixtureSession();
   ingestAttributedTranscript(session, {
@@ -328,32 +328,14 @@ console.log("\nPROGRAM conversational answer does not propose TAKE LIVE");
   });
   await session.liveProducer.ready();
   const action = session.liveProducer.actions.items[0];
-  assertEqual(action.responseAudience, ResponseAudience.PROGRAM, "action audience is PROGRAM");
-  assertEqual(action.riskLevel, ActionRiskLevel.GREEN, "spoken research is GREEN");
-  assert(session.liveProducer.voicePlan.speak, "MoxieVoice will speak on Program Audio");
-  assertEqual(session.liveProducer.voicePlan.mode, "PROGRAM_AUDIO", "voice mode is PROGRAM_AUDIO");
-  assert(session.program.hottieVoice?.speak, "canonical program carries hottieVoice");
-  assert(/hottie-voice/.test(session.program.hottieVoice.source), "voice source is hottie-voice");
-  assertEqual(session.liveProducer.status, "speaking", "Host/Producer see MOXIE SPEAKING");
+  assertEqual(action.responseAudience, ResponseAudience.PRIVATE_HOST, "action audience is the host");
+  assertEqual(action.riskLevel, ActionRiskLevel.GREEN, "research is GREEN");
+  assert(!session.liveProducer.voicePlan.speak, "Moxie does not speak on Program Audio by herself");
   assert(!session.aiProducerFeed.visible().some((e) => e.type === ProducerEntryType.ASSET_PROPOSAL), "answer does not propose TAKE LIVE");
   assertEqual(session.programController.liveAsset(), null, "program visual unchanged");
 }
 
-console.log("\nPRIVATE prep still proposes an asset");
-{
-  const session = fixtureSession();
-  ingestAttributedTranscript(session, {
-    participantId: "host", role: "host", speaker: "Ricardo",
-    text: "Moxie, find an article about FluidVoice and get it ready."
-  });
-  await session.liveProducer.ready();
-  const action = session.liveProducer.actions.items[0];
-  assertEqual(action.responseAudience, ResponseAudience.PRIVATE_PRODUCER, "prep stays private to Producer");
-  assert(!session.liveProducer.voicePlan.speak, "prep is not spoken on Program Audio");
-  assert(session.aiProducerFeed.visible().some((e) => e.type === ProducerEntryType.ASSET_PROPOSAL), "prep is ready for Producer Preview");
-}
-
-console.log("\nPUBLIC chat summary vs explicit private chat");
+console.log("\nChat summary stays with the host unless asked to tell everyone");
 {
   const session = fixtureSession();
   session.audience.ingest({ displayName: "Sarah", message: "Does FluidVoice stay on-device?", type: "question" });
@@ -363,8 +345,17 @@ console.log("\nPUBLIC chat summary vs explicit private chat");
     text: "Moxie, what is chat saying?"
   });
   await session.liveProducer.ready();
-  assertEqual(session.liveProducer.actions.items[0].responseAudience, ResponseAudience.PROGRAM, "chat summary speaks to the room");
-  assert(session.liveProducer.voicePlan.speak, "chat summary uses Program Audio");
+  assertEqual(session.liveProducer.actions.items[0].responseAudience, ResponseAudience.PRIVATE_HOST, "chat summary is for the host");
+  assert(!session.liveProducer.voicePlan.speak, "chat summary is not Program Audio");
+
+  const tell = fixtureSession();
+  tell.audience.ingest({ displayName: "Sarah", message: "Does FluidVoice stay on-device?", type: "question" });
+  ingestAttributedTranscript(tell, {
+    participantId: "host", role: "host", speaker: "Ricardo",
+    text: "Moxie, tell everyone what chat is saying."
+  });
+  await tell.liveProducer.ready();
+  assertEqual(tell.liveProducer.actions.items[0].responseAudience, ResponseAudience.PROGRAM, "asked to tell everyone, it speaks to the room");
 
   const privateSession = fixtureSession();
   privateSession.audience.ingest({ displayName: "Sarah", message: "Does FluidVoice stay on-device?", type: "question" });

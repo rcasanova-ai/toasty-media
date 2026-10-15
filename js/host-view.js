@@ -508,6 +508,7 @@ export class HostView {
       onPin: (id) => this.session.aiProducerFeed.togglePin(id),
       onSendToProgram: (id) => this.session.aiProducerService.sendEntryToProgram(id),
       onTakeLive: (id) => this.session.liveProducer.takeProposalLive(id),
+      onShareToChat: (id) => this.session.liveProducer.shareToChat(id, { via: "button" }),
       onFindAnother: (id) => this.session.liveProducer.findAnother(id),
       onDiscardProposal: (id) => this.session.liveProducer.discardProposal(id),
       onRetryResearch: (id) => this.session.liveProducer.retryResearch(id),
