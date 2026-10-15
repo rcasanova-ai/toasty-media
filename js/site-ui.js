@@ -11,6 +11,35 @@
     document.addEventListener("keydown", (e) => { if (e.key === "Escape") set(false); });
     set(false);
   }
+  // Term tooltips: hover and keyboard focus are handled in CSS; this adds tap/click toggling, Escape, and keeps the
+  // explanation inside the viewport.
+  const terms = [...document.querySelectorAll(".ts-term")];
+  if (terms.length) {
+    const closeAll = (except) => terms.forEach((t) => { if (t !== except) { t.classList.remove("is-open"); t.querySelector(".ts-term__btn")?.setAttribute("aria-expanded", "false"); } });
+    const place = (t) => {
+      const tip = t.querySelector(".ts-term__tip"); if (!tip) return;
+      tip.style.left = "0px";
+      const r = tip.getBoundingClientRect();
+      const over = r.right - (window.innerWidth - 12);
+      if (over > 0) tip.style.left = `${-over}px`;
+      if (r.left < 12) tip.style.left = `${12 - r.left}px`;
+    };
+    terms.forEach((t) => {
+      const btn = t.querySelector(".ts-term__btn");
+      btn?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const open = !t.classList.contains("is-open");
+        closeAll(t);
+        t.classList.toggle("is-open", open);
+        btn.setAttribute("aria-expanded", String(open));
+        if (open) place(t);
+      });
+      t.addEventListener("mouseenter", () => place(t));
+      btn?.addEventListener("focus", () => place(t));
+    });
+    document.addEventListener("click", () => closeAll());
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAll(); });
+  }
   const items = [...document.querySelectorAll(".ts-reveal")];
   if (!items.length) return;
   const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;

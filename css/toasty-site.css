@@ -82,7 +82,7 @@ body.ts {
 .ts-head p:not(.ts-eyebrow) { color: var(--text-2); font-size: var(--fs-2); margin: var(--s-3) 0 0; }
 
 /* ---- nav ---- */
-.ts-nav { position: sticky; top: 0; z-index: 50; backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px); background: rgba(7, 7, 13, 0.72); border-bottom: 1px solid var(--line); }
+.ts-nav { position: sticky; top: 0; z-index: 50; backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px); background: rgba(11, 9, 8, 0.78); border-bottom: 1px solid var(--line); }
 .ts-nav__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--s-4); min-height: 68px; }
 .ts-brand { display: inline-flex; align-items: center; gap: .65rem; text-decoration: none; font-weight: 650; letter-spacing: -0.01em; }
 .ts-brand img { height: 34px; width: auto; }
@@ -220,3 +220,11 @@ body.ts {
 }
 
 .ts [hidden] { display: none !important; }
+
+/* ---- term tooltips: a small question mark beside a term opens a short explanation (hover, focus, tap) ---- */
+.ts-term { position: relative; display: inline-flex; align-items: baseline; gap: .3em; white-space: nowrap; }
+.ts-term__btn { all: unset; box-sizing: border-box; width: 1.15em; height: 1.15em; border-radius: 50%; display: inline-grid; place-items: center; font-size: .72em; font-weight: 700; line-height: 1; color: var(--ink-0); background: var(--toast); cursor: pointer; transform: translateY(-.12em); }
+.ts-term__btn:hover, .ts-term__btn[aria-expanded="true"] { background: var(--orange); }
+.ts-term__btn:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+.ts-term__tip { position: absolute; z-index: 30; left: 0; top: calc(100% + .5rem); width: min(18rem, 80vw); padding: .8rem 1rem; border-radius: var(--r-2); background: var(--ink-3); border: 1px solid var(--line-strong); box-shadow: var(--shadow-1); color: var(--text); font-size: .9rem; font-weight: 400; line-height: 1.45; letter-spacing: 0; text-transform: none; white-space: normal; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .15s; }
+.ts-term:hover .ts-term__tip, .ts-term__btn:focus-visible + .ts-term__tip, .ts-term.is-open .ts-term__tip { opacity: 1; visibility: visible; pointer-events: auto; }

@@ -1,0 +1,7 @@
+{
+  "_note": "Add a destination URL (https) to switch a platform button on. Add episodes to the episodes array. Nothing is shown as live until a real URL is here.",
+  "shows": [
+    { "id": "talks-and-takes", "platforms": { "youtube": "", "spotify": "", "apple": "", "x": "", "other": [] }, "episodes": [] },
+    { "id": "lit", "platforms": { "youtube": "", "spotify": "", "apple": "", "x": "", "other": [] }, "episodes": [] }
+  ]
+}

@@ -69,3 +69,42 @@
 .peeps-landing .auth-message { min-height: 1.3em; margin: var(--s-2) 0 0; font-size: .92rem; font-weight: 500; }
 .peeps-landing .auth-message[data-state="error"] { color: var(--danger); }
 .peeps-landing .auth-footnote { font-size: .9rem; margin: var(--s-3) 0 0; }
+
+/* ---- reworked page: problem, statistics, aptitude example, agent payments, Colosseum ---- */
+.peeps-landing .peeps-beta { margin-top: var(--s-4); }
+.peeps-signals { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .6rem; }
+.peeps-signals li { border: 1px solid var(--line-strong); border-radius: 999px; padding: .5rem 1rem; font-weight: 500; background: var(--ink-1); }
+.peeps-signals__note { color: var(--text-2); margin: var(--s-4) 0 0; font-size: var(--fs-2); }
+.peeps-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s-4); }
+@media (max-width: 1000px) { .peeps-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .peeps-stats { grid-template-columns: 1fr; } }
+.peeps-stat { margin: 0; border: 1px solid var(--line-strong); border-radius: var(--r-2); background: linear-gradient(180deg, var(--ink-2), var(--ink-1)); padding: var(--s-4); display: flex; flex-direction: column; gap: var(--s-3); }
+.peeps-stat b { font-family: var(--font-display); font-weight: 400; font-size: clamp(2.8rem, 2rem + 3vw, 4rem); line-height: 1; color: var(--orange); letter-spacing: -0.02em; }
+.peeps-stat figcaption { display: flex; flex-direction: column; gap: var(--s-3); flex: 1; }
+.peeps-stat span { color: var(--text); font-size: .98rem; }
+.peeps-stat cite { margin-top: auto; font-style: normal; font-size: .76rem; color: var(--muted); }
+.peeps-stat cite a { color: var(--muted); text-decoration-color: var(--line-strong); }
+.peeps-compare { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: var(--s-4); align-items: stretch; }
+@media (max-width: 780px) { .peeps-compare { grid-template-columns: 1fr; } .peeps-compare__mid { justify-self: center; } }
+.peeps-compare__mid { align-self: center; color: var(--muted); font-family: var(--font-display); font-style: italic; font-size: 1.6rem; }
+.peeps-person { border: 1px solid var(--line); border-radius: var(--r-3); padding: var(--s-5); background: var(--ink-1); display: flex; flex-direction: column; gap: var(--s-2); }
+.peeps-person--found { border-color: rgba(255, 122, 41, 0.55); background: linear-gradient(180deg, rgba(255, 122, 41, 0.1), var(--ink-1)); box-shadow: 0 0 60px -30px rgba(255, 122, 41, 0.6); }
+.peeps-person__tag { margin: 0; font-size: var(--fs-0); letter-spacing: .12em; text-transform: uppercase; font-weight: 600; color: var(--toast); }
+.peeps-person--title .peeps-person__tag { color: var(--muted); }
+.peeps-person h3 { font-size: var(--fs-4); }
+.peeps-person__role { margin: 0; color: var(--text-2); font-weight: 500; }
+.peeps-person p:last-child { margin: 0; color: var(--text-2); }
+.peeps-compare__caption { max-width: 46rem; margin: var(--s-5) 0 0; color: var(--text-2); }
+.peeps-402 { border: 1px solid var(--line-strong); border-radius: var(--r-3); padding: var(--s-5); background: radial-gradient(80% 90% at 100% 0%, var(--orange-soft), transparent 70%), var(--ink-1); }
+.peeps-402__label { margin: 0 0 var(--s-2); font-size: var(--fs-0); letter-spacing: .14em; text-transform: uppercase; color: var(--toast); font-weight: 600; }
+.peeps-402__price { margin: 0; font-size: var(--fs-3); }
+.peeps-402__price b { font-family: var(--font-display); font-weight: 400; font-size: clamp(3rem, 2rem + 3.5vw, 4.5rem); color: var(--orange); letter-spacing: -0.02em; margin-right: .2em; }
+.peeps-402__text { color: var(--muted); margin: var(--s-1) 0 var(--s-4); }
+.peeps-402__calc { border-top: 1px solid var(--line); padding-top: var(--s-4); display: grid; gap: .2rem; }
+.peeps-402__calc b { font-size: var(--fs-4); font-weight: 600; }
+.peeps-402__calc span, .peeps-402__calc small { color: var(--text-2); }
+.peeps-402__note { margin: var(--s-4) 0 0; font-size: .85rem; color: var(--muted); }
+.peeps-colosseum { display: grid; gap: var(--s-3); justify-items: center; text-align: center; border: 1px solid var(--line); border-radius: var(--r-3); padding: var(--s-5); background: var(--ink-1); max-width: 46rem; }
+.peeps-colosseum img { width: min(100%, 22rem); height: auto; opacity: .92; }
+.peeps-colosseum p { margin: 0; color: var(--text-2); }
+.peeps-colosseum__links { display: flex; gap: var(--s-5); flex-wrap: wrap; justify-content: center; }
