@@ -28,14 +28,16 @@
         <section id="stepIntro" class="eg-step">
           <p class="eg-kicker">You're invited</p>
           <h1 id="introEventName">You've been invited as a speaker</h1>
-          <p>Complete your speaker profile so your name, title, links, and on-screen information are accurate. No Toasty account is required — this takes about three minutes.</p>
+          <p>Prepare for the session so the host and producer know how you would like to be introduced, what you would like to talk about and anything to steer clear of. No Toasty account is required, and this takes about five minutes.</p>
+          <p class="eg-meta" id="introMeta"></p>
+          <div id="briefingBox" class="eg-preview-card" hidden><strong>Briefing from the host</strong><div id="briefingBody"></div></div>
           <div class="eg-actions" style="justify-content:flex-start">
             <button class="eg-btn" id="startProfileBtn" type="button">Continue as guest</button>
           </div>
         </section>
 
         <section id="stepProfile" class="eg-step">
-          <p class="eg-kicker">Speaker profile</p>
+          <p class="eg-kicker">Guest preparation</p>
           <h1>Tell us about you</h1>
           <form id="profileForm">
             <div class="eg-field"><label for="fDisplayName">Preferred display name</label><input id="fDisplayName" required maxlength="120"></div>
@@ -55,6 +57,14 @@
               <div class="eg-field"><label for="fTimezone">Timezone</label><input id="fTimezone" maxlength="80" placeholder="e.g. America/New_York"></div>
             </div>
             <div class="eg-field"><label for="fPronunciation">Name pronunciation / notes</label><input id="fPronunciation" maxlength="300"></div>
+            <p class="eg-section-title">Preparation for the host and producer</p>
+            <p class="eg-meta">Only the host and producer see this. It is never shown to other guests or the audience.</p>
+            <div class="eg-field"><label for="pIntro">How would you like to be introduced?</label><textarea id="pIntro" maxlength="800"></textarea></div>
+            <div class="eg-field"><label for="pExpertise">Your relevant expertise and experience</label><textarea id="pExpertise" maxlength="1500"></textarea></div>
+            <div class="eg-field"><label for="pDiscuss">Topics you would like to discuss</label><textarea id="pDiscuss" maxlength="1500"></textarea></div>
+            <div class="eg-field"><label for="pAvoid">Topics you would prefer to avoid</label><textarea id="pAvoid" maxlength="1500"></textarea></div>
+            <div class="eg-field"><label for="pLinks">Links or supporting material</label><textarea id="pLinks" maxlength="1500" placeholder="One link per line"></textarea></div>
+            <div class="eg-field"><label for="pNotes">Anything else the host should know</label><textarea id="pNotes" maxlength="2000"></textarea></div>
             <p class="eg-section-title">Links</p>
             <div class="eg-grid-2">
               <div class="eg-field"><label for="lLinkedin">LinkedIn</label><input id="lLinkedin" type="url"></div>

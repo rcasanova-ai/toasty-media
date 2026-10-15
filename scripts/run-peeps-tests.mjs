@@ -10,7 +10,7 @@ const TESTS = [
   "peeps-demo-test", "peeps-fit-engine-test", "peeps-auth-gate-test", "peeps-jam-lobby-test", "peeps-josip-roast-test",
   "peeps-colosseum-golden-path-test", "solana-real-transaction-verification-test", "peeps-waitlist-server-test", "peeps-demo-credit-server-test", "peeps-demo-participants-server-test", "peeps-post-jam-journey-server-test", "peeps-stuck-request-recovery-server-test", "peeps-evaluation-account-server-test", "peeps-manual-share-server-test", "peeps-base-x402-server-test", "peeps-status-labels-test", "peeps-zcash-settlement-server-test", "peeps-recording-ingest-server-test", "peeps-agent-evaluation-server-test",
   "peeps-agent-lifecycle-server-test", "peeps-introduction-execution-server-test", "peeps-jam-lifecycle-server-test", "peeps-post-session-server-test",
-  "dough-ledger-test", "dough-money-loop-server-test", "accounts-solana-server-test"
+  "peeps-dub-paid-access-server-test", "dough-ledger-test", "dough-money-loop-server-test", "accounts-solana-server-test"
 ];
 const only = process.argv.slice(2);
 const results = [];

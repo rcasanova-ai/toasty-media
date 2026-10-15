@@ -1123,8 +1123,22 @@ export class LiveSession {
     this.sessionEndCard = record.endCard || {};
     if (record.brandId) this.brandTheme = record.brandId;
     this.applyReusableSetup(record.setup);
+    this.applyPlannedRunOfShow(record.plan);
     this.emit("durable-session", record);
     this.emit("end-card", { sessionEndCard: this.sessionEndCard, profileEndCard: this.profileEndCard });
+  }
+
+  // A plan made in Session Planner seeds the live run of show once, when the session has no run of show of its own.
+  applyPlannedRunOfShow(plan) {
+    if (this._reusableSetupApplied?.runOfShow || !plan || !Array.isArray(plan.runOfShow) || !plan.runOfShow.length) return;
+    const segments = plan.runOfShow.slice().sort((a, b) => (a.startOffset || 0) - (b.startOffset || 0));
+    const opening = String(plan.hostPrep?.openingQuestions || "").split(/\r?\n/).map((q) => q.trim()).filter(Boolean);
+    this.runOfShow.load(segments.map((segment, index) => {
+      const next = segments[index + 1];
+      const minutes = next ? Math.max(1, (next.startOffset || 0) - (segment.startOffset || 0)) : Math.max(1, (Number(plan.expectedDurationMinutes) || 60) - (segment.startOffset || 0));
+      return { title: segment.label, notes: segment.notes || "", preparedQuestions: index === 0 ? opening : [], estimatedMinutes: minutes, status: "upcoming" };
+    }));
+    this._reusableSetupApplied = { runOfShow: true };
   }
 
   applyReusableSetup(rawSetup) {
