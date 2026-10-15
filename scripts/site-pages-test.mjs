@@ -98,7 +98,8 @@ console.log("\nBranding: Toasty orange, no purple or teal, no em or en dashes, n
 console.log("\nAbout: recognition, uniform book cards, portfolio");
 {
   const html = read("about/index.html");
-  assert(/Queen Elizabeth II’s Platinum Jubilee Medal \(Alberta\)/.test(html) && /federal Platinum Jubilee Pin of Her Majesty Queen Elizabeth II/.test(html), "the Alberta (provincial) medal and the federal pin are listed under Recognition");
+  assert(/Queen Elizabeth II’s Platinum Jubilee Medal \(Alberta\)/.test(html) && /Platinum Jubilee Pin of Her Majesty Queen Elizabeth II/.test(html) && /Federal pin/.test(html), "the Alberta (provincial) medal and the federal pin are listed under Recognition");
+  assert([...html.matchAll(/<article class="honour /g)].length === 3 && /jubilee-medal\.jpg/.test(html) && /jubilee-pin\.jpg/.test(html) && /jubilee-certificate\.jpg/.test(html), "Recognition shows the medal, certificate and pin photos in matching cards");
   assert(!/alongside the day job/i.test(html), "no day-job framing");
   const books = [...html.matchAll(/<article class="about-book[^"]*[^>]*>([\s\S]*?)<\/article>/g)].map((m) => m[1]);
   assert(books.length === 4 && books.every((b) => /<div class="about-book__cover/.test(b) && /<span class="ts-badge/.test(b) && /<h3>/.test(b) && /<p>/.test(b)), "all four book cards share the same structure and cover container");
