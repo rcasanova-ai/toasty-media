@@ -51,6 +51,7 @@ jobs:
             peeps-demo-test \
             peeps-auth-gate-test \
             peeps-fit-engine-test \
+            peeps-dub-paid-access-server-test \
             peeps-jam-lobby-test; do
             echo "::group::$t"
             node "scripts/$t.mjs"
