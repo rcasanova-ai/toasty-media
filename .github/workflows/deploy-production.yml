@@ -208,5 +208,5 @@ jobs:
           curl --fail --silent --show-error --location https://toasty.media/about/ -o /tmp/about.html
           grep -Fq 'Ricardo Casanova' /tmp/about.html
           curl --fail --silent --show-error --location https://toasty.media/css/toasty-site.css -o /tmp/toasty-site.css
-          grep -Fq -- '--violet' /tmp/toasty-site.css
+          grep -Fq -- '--orange-strong' /tmp/toasty-site.css
           echo 'Production verification passed.'
