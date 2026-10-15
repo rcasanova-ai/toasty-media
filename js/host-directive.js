@@ -8,7 +8,15 @@
 import { MoxieIntent, ActionRiskLevel, ResponseAudience, riskForIntent } from "./hottie-action.js";
 
 export const DEFAULT_WAKE_WORD = "moxie";
-export const WAKE_WORDS = Object.freeze(["moxie", "hottie", "toasty"]);
+// Speech recognition often writes the name a few ways, so the common spellings all count. Only the host's own line
+// can ever be a command, and it must start with the wake phrase, so a guest saying "Moxie is interesting" is
+// conversation.
+export const WAKE_WORDS = Object.freeze(["moxie", "moxy", "moxi", "moxxie", "hottie", "toasty"]);
+const WAKE_ALT = WAKE_WORDS.join("|");
+// Filler a host naturally says before the name: "okay, hey Moxie", "thanks Moxie."
+const LEAD_IN = "(?:(?:ok|okay|so|and|well|alright|all right|right|now|um|uh|hmm|thanks|thank you|great|perfect|cool|yeah)[,.!]?\\s+){0,3}";
+// Words that make a command by themselves after "Hey Moxie" (no comma needed). The weaker ones need "hey" first.
+const WEAK_VERBS = "can|could|would|please|how|when|where|why|let|share|post|send";
 
 export const DirectiveIntent = Object.freeze({
   FIND: "find",
@@ -16,6 +24,7 @@ export const DirectiveIntent = Object.freeze({
   UNCOVERED: "uncovered",
   QUIET: "quiet",
   AUDIENCE: "audience",
+  SHARE_TO_CHAT: "share_to_chat",
   SET_LAYOUT: "set_layout",
   SET_SPOTLIGHT: "set_spotlight",
   CLEAR_SPOTLIGHT: "clear_spotlight",
@@ -87,12 +96,13 @@ export function extractAddressedCommand(text, wakeWord = DEFAULT_WAKE_WORD) {
   for (const word of words) {
     const wake = escapeRegExp(word);
     const addressed = new RegExp(
-      `^(?:hey\\s+)?${wake}\\s*[,:—\\-]\\s*(.+)$|^((?:hey\\s+)?${wake})\\s+(${ADDRESS_VERBS})\\b([\\s\\S]*)$`,
+      `^${LEAD_IN}(?:hey\\s+)?${wake}\\s*[,:.!?—\\-]\\s*(.+)$|^${LEAD_IN}((?:hey\\s+)?${wake})\\s+(${ADDRESS_VERBS})\\b([\\s\\S]*)$|^${LEAD_IN}hey\\s+${wake}\\s+(${WEAK_VERBS})\\b([\\s\\S]*)$`,
       "i"
     );
     const match = raw.match(addressed);
     if (!match) continue;
     if (match[1]) return { wakeWord: word, rest: match[1].trim() };
+    if (match[5]) return { wakeWord: word, rest: `${match[5]} ${(match[6] || "").trim()}`.trim() };
     const verb = (match[3] || "").trim();
     const tail = (match[4] || "").trim();
     return { wakeWord: word, rest: `${verb} ${tail}`.trim() };
@@ -100,8 +110,20 @@ export function extractAddressedCommand(text, wakeWord = DEFAULT_WAKE_WORD) {
   return null;
 }
 
+// "Hey Moxie." on its own: the host is getting Moxie's attention and the command follows in the next line.
+export function isBareWake(text) {
+  const raw = foldText(text);
+  return new RegExp(`^${LEAD_IN}(?:hey\\s+)?(?:${WAKE_ALT})\\s*[.!?,]*$`, "i").test(raw);
+}
+
+// The host saying yes to sharing what Moxie just found, without repeating the wake phrase.
+export function isShareApproval(text) {
+  const t = foldText(text).toLowerCase().replace(/[.!?]+$/g, "").trim();
+  return /^(?:(?:yes|yeah|yep|ok|okay|sure|go ahead|please|great)[,.]?\s+)?(?:please\s+)?(?:share|post|send|put)\s+(?:that|it|this)\s+(?:with everyone|with (?:the )?(?:room|audience|guests)|(?:to|in|on|into) (?:the )?(?:session )?chat)$/.test(t);
+}
+
 export function commandBody(text) {
-  return foldText(text).replace(/^(?:hey\s+)?(moxie|hottie|toasty)\s*[,:—\-]?\s*/i, "").trim();
+  return foldText(text).replace(new RegExp(`^${LEAD_IN}(?:hey\\s+)?(?:${WAKE_ALT})\\s*[,:.!?—\\-]?\\s*`, "i"), "").trim();
 }
 
 export function wantsProgramVisual(utterance) {
@@ -178,16 +200,19 @@ export function inferResponseAudience(utterance, { intent } = {}) {
   ) {
     return ResponseAudience.PRIVATE_HOST;
   }
+  // Answers, recall and fact checks come back privately to the host. Nothing is said on air or posted to chat
+  // unless the host asks for it ("tell everyone", "say it out loud", or approves sharing afterwards).
   if (
     intent === DirectiveIntent.ANSWER
     || intent === DirectiveIntent.FACT_CHECK
     || intent === DirectiveIntent.RECALL
     || intent === DirectiveIntent.AUDIENCE
     || intent === DirectiveIntent.READ_CHAT
+    || intent === DirectiveIntent.SHARE_TO_CHAT
+    || isConversationalQuestion(text)
   ) {
-    return ResponseAudience.PROGRAM;
+    return ResponseAudience.PRIVATE_HOST;
   }
-  if (isConversationalQuestion(text)) return ResponseAudience.PROGRAM;
   return ResponseAudience.PRIVATE_PRODUCER;
 }
 
@@ -195,6 +220,7 @@ export function classifyDirectiveIntent(rest) {
   const text = foldText(rest).toLowerCase();
   if (/\b(end (the )?show|kill the stream|disconnect everyone)\b/.test(text)) return DirectiveIntent.END_SHOW;
   if (/\b(start recording|stop recording|record (this|that)|stop the recording)\b/.test(text)) return DirectiveIntent.RECORDING;
+  if (isShareApproval(text) || /\b(?:share|post|send|put)\s+(?:that|it|this)\s+(?:with everyone|with (?:the )?(?:room|audience|guests)|(?:to|in|on|into) (?:the )?(?:session )?chat)\b/.test(text)) return DirectiveIntent.SHARE_TO_CHAT;
   if (/\bfact[-\s]?check\b/.test(text) || /\bis (that|what) .{0,80}(actually )?(true|right|accurate)\b/.test(text) || /\bcheck if that'?s actually true\b/.test(text)) {
     return DirectiveIntent.FACT_CHECK;
   }
@@ -213,14 +239,14 @@ export function classifyDirectiveIntent(rest) {
   ) {
     return DirectiveIntent.AUDIENCE;
   }
-  if (/remind (me|everyone|us)|what did .+ say|said about|what did we say|what was the name|ten minutes ago|what you found/.test(text)) {
+  if (/remind (me|everyone|us)|what did .+ say|said about|what did we say|what was the name|ten minutes ago|what you found|what (did|has|was|were) (i|we|he|she|they|our guest|the guest|\w+) (say|said|mention|mentioned|tell)|what (was|were) (said|mentioned)|who (said|mentioned)|\b(earlier|a few minutes ago|a minute ago)\b.{0,40}\b(said|mentioned|told)/.test(text)) {
     return DirectiveIntent.RECALL;
   }
   if (/who hasn'?t|who have we not heard|not heard from|hasn'?t answered|have not answered/.test(text)) return DirectiveIntent.QUIET;
   if (/haven'?t covered|have not covered|what haven'?t we|missed anything|what are we missing/.test(text)) return DirectiveIntent.UNCOVERED;
   if (/\b(take it live|take that live|take it on(?:\s+air)?|put it (?:on|up)(?:\s+live)?)\b/.test(text)) return DirectiveIntent.TAKE_ASSET;
   if (isPendingAssetApproval(text)) return DirectiveIntent.TAKE_ASSET;
-  if (/\b(remove that|take that off|get that off|clear the (?:card|article|asset))\b/.test(text)) return DirectiveIntent.REMOVE_ASSET;
+  if (/\b(remove (?:that|it)|take (?:that|it|the (?:article|card|image|picture)) (?:off|down)|get (?:that|it) off|that'?s enough|clear (?:it|that)|clear the (?:card|article|asset|screen))\b/.test(text)) return DirectiveIntent.REMOVE_ASSET;
   if (/\b(drum roll|rimshot|applause|sting|stinger|whistle|whoosh)\b/.test(text) || /^(play|give me|hit me with|cue)\b/.test(text)) {
     return DirectiveIntent.PLAY_AUDIO;
   }
@@ -258,6 +284,7 @@ export function hottieIntentFromDirective(intent, rest = "") {
     return MoxieIntent.SEARCH_WEB;
   }
   if (intent === DirectiveIntent.RECALL) return MoxieIntent.RECALL_TRANSCRIPT;
+  if (intent === DirectiveIntent.SHARE_TO_CHAT) return MoxieIntent.RESPOND_CHAT;
   if (intent === DirectiveIntent.FACT_CHECK) return MoxieIntent.FACT_CHECK;
   if (intent === DirectiveIntent.CLIP) return MoxieIntent.CLIP_MOMENT;
   if (intent === DirectiveIntent.MARK) return MoxieIntent.MARK_MOMENT;
@@ -379,13 +406,15 @@ export function extractDirectivePayload(intent, rest, participants = []) {
   return { query: trimmed };
 }
 
-export function detectHostDirective(line, { wakeWord = DEFAULT_WAKE_WORD, participants = [], alreadyAddressed = false } = {}) {
+export function detectHostDirective(line, { wakeWord = DEFAULT_WAKE_WORD, participants = [], alreadyAddressed = false, pendingShare = false } = {}) {
   if (!line?.text || !isHostSpeaker(line)) return null;
-  const pendingApproval = isPendingAssetApproval(commandBody(line.text)) || isPendingAssetApproval(line.text);
+  const pendingApproval = isPendingAssetApproval(commandBody(line.text)) || isPendingAssetApproval(line.text) || (pendingShare && isShareApproval(line.text));
   const addressed = alreadyAddressed
-    ? { wakeWord: DEFAULT_WAKE_WORD, rest: foldText(line.text).replace(/^(?:hey\s+)?(moxie|hottie|toasty)\s*[,:—\-]?\s*/i, "") }
+    ? { wakeWord: DEFAULT_WAKE_WORD, rest: commandBody(line.text) }
     : extractAddressedCommand(line.text, wakeWord) || (pendingApproval ? { wakeWord: DEFAULT_WAKE_WORD, rest: commandBody(line.text) } : null);
   if (!addressed?.rest) return null;
+  // "Can you find...", "please look up...": the request is what follows.
+  addressed.rest = addressed.rest.replace(/^(?:(?:can|could|would) you\s+)?(?:please\s+)?/i, "").trim() || addressed.rest;
   const intent = classifyDirectiveIntent(addressed.rest);
   const hottieIntent = hottieIntentFromDirective(intent, addressed.rest);
   const payload = extractDirectivePayload(intent, addressed.rest, participants);

@@ -160,7 +160,7 @@ console.log("\nFIND ANOTHER, DISCARD, failure, removal, layout restore");
   assert(session.productionLog.items.some((item) => item.type === ProductionActionType.SELECT_CANDIDATE), "candidate selection is timestamped");
 
   session.liveProducer.discardProposal(second.id);
-  assertEqual(session.aiProducerFeed.visible().length, 0, "DISCARD hides the proposal");
+  assertEqual(session.aiProducerFeed.visible().filter((e) => e.type === ProducerEntryType.ASSET_PROPOSAL).length, 0, "DISCARD hides the proposal");
   assert(session.assets.items.every((asset) => asset.status === ProgramAssetStatus.DISCARDED), "discarded assets are not live");
   assertEqual(session.programController.liveAsset(), null, "DISCARD never takes program");
   assert(session.productionLog.items.some((item) => item.type === ProductionActionType.DISCARD), "DISCARD is timestamped");

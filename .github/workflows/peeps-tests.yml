@@ -55,7 +55,12 @@ jobs:
             peeps-jam-lobby-test \
             session-planner-wizard-test \
             guest-preparation-server-test \
-            speaker-readiness-test; do
+            speaker-readiness-test \
+            moxie-wake-share-test \
+            hottie-ai-producer-v1-test \
+            hottie-research-take-live-test \
+            hottie-live-context-test \
+            program-composition-test; do
             echo "::group::$t"
             node "scripts/$t.mjs"
             echo "::endgroup::"
