@@ -99,7 +99,7 @@ async function init() {
   await refreshSpeakers();
   await refreshSponsors();
   wireNav();
-  goToStep(plan.wizardStep && STEPS.includes(plan.wizardStep) ? plan.wizardStep : (existingId ? "review" : "type"));
+  goToStep(plan.wizardStep && STEPS.includes(plan.wizardStep) ? plan.wizardStep : (plan.template ? "review" : "type"));
 }
 
 function wireNav() {
