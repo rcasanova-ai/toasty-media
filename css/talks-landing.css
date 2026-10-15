@@ -1,0 +1,22 @@
+/* Talks page, on top of css/toasty-site.css. A show is one .show block, so a new show is a copy of the block and an entry in talks/shows.json. */
+.talks-page .ts-hero h1 { max-width: 16ch; }
+.show { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.4fr); gap: clamp(2rem, 5vw, 5rem); align-items: start; }
+@media (max-width: 860px) { .show { grid-template-columns: 1fr; } }
+.show__art { position: sticky; top: 6rem; }
+@media (max-width: 860px) { .show__art { position: static; max-width: 20rem; } }
+.show__logo { background: linear-gradient(160deg, #fff3e3, #ecd5b3); border-radius: var(--r-3); aspect-ratio: 1 / 1; display: grid; place-items: center; padding: 12%; border: 1px solid var(--line-strong); box-shadow: var(--shadow-1), 0 0 80px -34px rgba(255, 122, 41, 0.55); }
+.show__logo img { max-height: 100%; width: auto; object-fit: contain; }
+.show__body h2 { margin-bottom: var(--s-2); }
+.show__more { color: var(--text-2); max-width: 40rem; margin: var(--s-4) 0 0; }
+.platforms { display: flex; flex-wrap: wrap; gap: var(--s-2); margin: var(--s-5) 0 var(--s-5); }
+.platform { display: inline-flex; align-items: center; gap: .5rem; min-height: 44px; padding: 0 1.1rem; border-radius: 999px; font-size: .92rem; font-weight: 600; text-decoration: none; border: 1px solid var(--line-strong); color: var(--muted); border-style: dashed; cursor: default; }
+.platform small { font-size: .68rem; letter-spacing: .08em; text-transform: uppercase; color: var(--toast); font-weight: 600; }
+.platform.is-live { color: #1c0c06; border: 0; background: linear-gradient(135deg, var(--orange), var(--orange-strong) 60%, var(--burnt)); cursor: pointer; }
+.platform.is-live:hover { transform: translateY(-1px); }
+.episodes h3 { font-size: var(--fs-2); margin-bottom: var(--s-3); }
+.episodes__list { list-style: none; margin: 0; padding: 0; display: grid; }
+.episodes__list li { padding: var(--s-3) 0; border-top: 1px solid var(--line); display: grid; gap: .2rem; }
+.episodes__list .episode__title { font-weight: 600; font-size: 1.05rem; text-decoration: none; }
+.episodes__list small { color: var(--toast); font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; }
+.episodes__list p { margin: 0; color: var(--text-2); }
+.episodes__empty { border: 1px dashed var(--line-strong); border-radius: var(--r-2); padding: var(--s-4); margin: 0; }

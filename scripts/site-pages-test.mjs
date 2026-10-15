@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => readFileSync(join(ROOT, p), "utf8");
 const assert = (c, m) => { if (!c) throw new Error(`FAILED: ${m}`); console.log(`  ok — ${m}`); };
-const PAGES = { "index.html": "/", "studio/index.html": "/studio/", "peeps/index.html": "/peeps/", "about/index.html": "/about/" };
+const PAGES = { "index.html": "/", "studio/index.html": "/studio/", "peeps/index.html": "/peeps/", "talks/index.html": "/talks/", "about/index.html": "/about/" };
 
 function targetFile(fromPage, href) {
   const clean = href.split("#")[0].split("?")[0];
@@ -29,7 +29,7 @@ for (const [page, route] of Object.entries(PAGES)) {
   assert(/<html lang="en"/.test(html) && /<a class="ts-skip"/.test(html) && /<main id="main">/.test(html), "has lang, a skip link and a main landmark");
   const nav = html.match(/<nav class="ts-nav__links"[\s\S]*?<\/nav>/)?.[0] || "";
   const labels = [...nav.matchAll(/<a [^>]*>([^<]+)<\/a>/g)].map((m) => m[1]);
-  assert(JSON.stringify(labels) === JSON.stringify(["Studio", "Peeps", "About", "Contact"]), `navigation is exactly Studio, Peeps, About, Contact (${labels.join(", ")})`);
+  assert(JSON.stringify(labels) === JSON.stringify(["Studio", "Peeps", "Talks", "About", "Contact"]), `navigation is exactly Studio, Peeps, Talks, About, Contact (${labels.join(", ")})`);
   assert(/css\/toasty-site\.css/.test(html) && /js\/site-ui\.js/.test(html), "uses the shared design system and UI script");
   assert(!/<h1[\s>]/.test(html.replace(/<h1[\s\S]*?<\/h1>/, "")), "exactly one h1");
   const imgs = [...html.matchAll(/<img [^>]*>/g)].map((m) => m[0]);
@@ -72,14 +72,60 @@ console.log("\nStudio is a sales page: one clear call to action, no defensive or
   const ctas = [...html.matchAll(/>Join the Beta Waitlist</g)].length;
   assert(ctas >= 3 && /<button class="ts-btn ts-btn--primary" type="submit" id="swSubmit">Join the Beta Waitlist<\/button>/.test(html), `the primary call to action is Join the Beta Waitlist (${ctas} places, including the form button)`);
   for (const id of ["planner", "moxie", "rtr", "features", "waitlist"]) assert(new RegExp(`<section class="ts-section[^"]*" id="${id}"`).test(html), `has the ${id} section`);
-  for (const id of ["status", "pricing", "present", "live", "recording"]) assert(!new RegExp(`id="${id}"`).test(html), `has no separate ${id} section (no roadmap, limits, pricing tables or screen-sharing hero)`);
-  assert(!/honest|limitation|roadmap|in development|your own AI provider|provider key|Wikipedia|GitHub|API\b/i.test(html.replace(/<form[\s\S]*?<\/form>/, "")), "no honesty, limitation, roadmap or implementation disclosures");
+  for (const id of ["status", "pricing", "present", "live", "recording", "gallery"]) assert(!new RegExp(`id="${id}"`).test(html), `has no separate ${id} section (no roadmap, limits, pricing tables or screen-sharing hero)`);
+  assert(!/honest|limitation|roadmap|in development|your own AI provider|provider key|Wikipedia|GitHub|API\b|hold to talk|hold-to-talk/i.test(html.replace(/<form[\s\S]*?<\/form>/, "")), "no honesty, limitation, roadmap or implementation disclosures");
   const rtr = html.match(/<section class="ts-section[^"]*" id="rtr"[\s\S]*?<\/section>/)?.[0] || "";
   assert(/Coming soon/.test(rtr) && /Read The Room/.test(rtr) && /body language/i.test(rtr), "RTR is introduced as Read The Room with a Coming soon label");
   const planner = html.match(/<section class="ts-section[^"]*" id="planner"[\s\S]*?<\/section>/)?.[0] || "";
   assert(/run of show/i.test(planner) && /guests/i.test(planner) && /talking points/i.test(planner), "Session Planner covers guests, run of show and talking points");
   const features = html.match(/<section class="ts-section[^"]*" id="features"[\s\S]*?<\/section>/)?.[0] || "";
-  for (const f of ["Recording", "Live production", "Guest invitations", "Producer controls", "Screen sharing", "Program output"]) assert(features.includes(`<h3>${f}</h3>`), `production features include ${f}`);
+  for (const f of ["Session planning", "Guest invitations", "Producer controls", "Live recording", "Screen sharing", "Moxie, your AI producer", "Run of show", "Recording downloads"]) assert(features.includes(`<b>${f}</b>`), `the production checklist includes ${f}`);
+  assert(!/<figure|<img/.test(features) && !/ts-tile/.test(features), "the production section is a concise checklist, not a card grid or screenshot cluster");
+  assert((html.match(/studio-(producer|host|present|moxie|recording|golive)\.jpg/g) || []).length <= 2, "only the stronger screenshots remain on the page");
+  const moxie = html.match(/<section class="ts-section[^"]*" id="moxie"[\s\S]*?<\/section>/)?.[0] || "";
+  assert(/Hey Moxie/.test(moxie) && /nothing reaches your guests or your audience until you approve/.test(moxie), "Moxie is hands-free by name and keeps results private until approved");
+  assert(!/Wikipedia|GitHub|search tool|search box/i.test(moxie), "Moxie is not described as a search tool or tied to named sources");
+  assert(/take it off/i.test(moxie) && /share that with everyone/i.test(moxie), "sharing and taking items off screen are explained");
+  const planner2 = html.match(/<section class="ts-section[^"]*" id="planner"[\s\S]*?<\/section>/)?.[0] || "";
+  assert(/book club/i.test(planner2) && /private invitation/.test(planner2) && /no account/i.test(planner2) && /six steps/.test(planner2), "Session Planner describes the guided steps, guest invitations and the book club template");
+}
+
+console.log("\nTalks page");
+{
+  const html = read("talks/index.html");
+  assert(/Toasty Talks &amp; Takes/.test(html) && /Toasty Lit/.test(html), "both launch shows are listed");
+  assert(/Conversations, interviews, commentary and opinions about technology, business, culture, current events and interesting people/.test(html), "Talks & Takes has its description");
+  assert(/two regular hosts and a rotating guest/.test(html) && /do not need to have read the whole book/.test(html) && /concise briefing/.test(html), "Toasty Lit explains the format and the guest briefing");
+  assert(/href="\.\.\/studio\/"/.test(html) && /Produced with Toasty Studio/.test(html), "it says Produced with Toasty Studio and links to the Studio page");
+  assert(/href="\.\.\/studio\/#planner"/.test(html), "Toasty Lit connects to Session Planner");
+  const platforms = [...html.matchAll(/data-platform="([a-z]+)"/g)].map((m) => m[1]);
+  for (const p2 of ["youtube", "spotify", "apple", "x", "other"]) assert(platforms.includes(p2), `has a ${p2} platform button`);
+  assert(![...html.matchAll(/<a [^>]*class="[^"]*platform[^"]*"/g)].length && !/youtube\.com|spotify\.com|apple\.com|x\.com|twitter\.com/i.test(html), "no platform button is a link until a real URL exists, and no account is invented");
+  const shows = JSON.parse(read("talks/shows.json"));
+  const urls = shows.shows.flatMap((sh) => [...Object.values(sh.platforms).flat().map((v) => (typeof v === "string" ? v : v?.url))]).filter(Boolean);
+  assert(shows.shows.length === 2 && urls.length === 0 && shows.shows.every((sh) => sh.episodes.length === 0), "the data file holds no invented links or episodes");
+  assert(/data-episodes-list="lit"/.test(html) && /data-episodes-list="talks-and-takes"/.test(html) && /talks\.js/.test(html), "each show has an episode listing driven by the data file");
+}
+
+console.log("\nPeeps page");
+{
+  const html = read("peeps/index.html");
+  assert(!/described honestly|our roadmap|roadmap/i.test(html), "no defensive beta language or roadmap");
+  assert(/Toasty Peeps is in beta\. Join the waitlist and be among the first to experience it\./.test(html), "straightforward beta messaging");
+  assert(!/zcash|institutional|confidential settlement|shielded/i.test(html.replace(/<[^>]*>/g, " ")), "Zcash, institutional discretion and confidential settlement are not marketed");
+  for (const [value, text] of [["63%", "skills gaps as a major barrier to business transformation"], ["6.1x", "instead of relying on previous job titles"], ["39%", "existing core skills are expected to change by 2030"], ["81%", "moderately or extensively integrated into their AI strategy within 12 to 18 months"]]) {
+    assert(new RegExp(`<b>${value.replace(".", "\\.")}</b>[\\s\\S]{0,40}<figcaption>[\\s\\S]*?${text}`).test(html), `statistic ${value} is present with its meaning intact`);
+  }
+  assert(/weforum\.org\/media\/future-of-jobs-report-2025/.test(html) && /economicgraph\.linkedin\.com\/content\/dam\/me\/economicgraph\/en-us\/PDF\/skills-based-hiring-march-2025\.pdf/.test(html) && /microsoft\.com\/en-us\/worklab\/work-trend-index\/2025-the-year-the-frontier-firm-is-born/.test(html), "each statistic links to its source");
+  assert(/Sally/.test(html) && /Steven/.test(html) && /illustrative example, not a statistic/.test(html), "the aptitude example is framed as illustrative");
+  for (const term of ["Dubs?", "Dough", "Jams?", "Breadcrumbs"]) assert(new RegExp(`${term}<button type="button" class="ts-term__btn"[^>]*aria-label="What is [^"]+\\?"[^>]*aria-expanded="false"`).test(html), `${term.replace("?", "")} has a keyboard-accessible question-mark explanation`);
+  assert(!/id="terms"/.test(html) && !/<h3>(Dub|Dough|Jam|Breadcrumbs?)<\/h3>/.test(html), "there is no glossary section");
+  assert(/Personal AI representatives that help people become discoverable/.test(html) && /payment and wallet layer/.test(html) && /Real conversations where people connect/.test(html) && /Evidence and context generated through interactions/.test(html), "the four explanations match the agreed wording");
+  assert(/Your expertise has value\./.test(html) && /HTTP 402/.test(html) && /\$0\.01/.test(html) && /10,000 paid accesses a day/.test(html) && /\$100/.test(html) && /not a revenue forecast/.test(html), "the x402 section explains price, the example and the illustrative arithmetic");
+  assert(/Colosseum Crypto World’s Fair Hackathon/.test(html) && /colosseum\.com\/arena\/projects\/toasty-peeps/.test(html) && /colosseum\.com\/worldsfair/.test(html) && existsSync(join(ROOT, "site/assets/images/colosseum/crypto-worlds-fair-wordmark.svg")), "the Colosseum section uses the official wordmark and links to the project and the event");
+  assert(!/winner|won |award|placed|prize|finalist/i.test(html.match(/<section class="ts-section" id="colosseum"[\s\S]*?<\/section>/)?.[0] || ""), "no awards or placement are claimed");
+  const ui = read("js/site-ui.js");
+  assert(/Escape/.test(ui) && /aria-expanded/.test(ui) && /ts-term/.test(ui), "tooltips open on tap or click, close on Escape and report their state");
 }
 
 console.log("\nBranding: Toasty orange, no purple or teal, no em or en dashes, no Kristine");
@@ -87,7 +133,7 @@ console.log("\nBranding: Toasty orange, no purple or teal, no em or en dashes, n
   const css = ["css/toasty-site.css", "css/home-landing.css", "css/studio-landing.css", "css/peeps-landing.css", "css/about-page.css"].map(read).join("\n");
   assert(!/#8b7cf6|#6f5ee8|#3dd6c3|#1fb8a6|139, ?124, ?246|61, ?214, ?195|violet|teal/i.test(css), "the site stylesheets contain no purple or teal");
   assert(/--orange-strong: #ff7a29/.test(css) && /--ink-0: #0b0908/.test(css), "uses the Toasty orange and warm near-black from the Studio interface");
-  const publicPages = ["index.html", "studio/index.html", "peeps/index.html", "about/index.html", "books/index.html", "speaking/index.html", "ricardo/index.html", "access/index.html", "thank-you.html", "eloquencebonus/index.html", "peeps/login/index.html", "peeps/demo/index.html", "peeps/demo/data.js", "peeps/demo/demo.js", "js/studio-waitlist.js", "js/site-ui.js"];
+  const publicPages = ["index.html", "studio/index.html", "peeps/index.html", "about/index.html", "books/index.html", "speaking/index.html", "ricardo/index.html", "access/index.html", "thank-you.html", "eloquencebonus/index.html", "peeps/login/index.html", "peeps/demo/index.html", "peeps/demo/data.js", "peeps/demo/demo.js", "js/studio-waitlist.js", "js/site-ui.js", "talks/index.html", "js/talks.js", "talks/shows.json"];
   for (const page of publicPages) {
     const text = read(page).replace(/<!--[\s\S]*?-->/g, "").split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\n");
     assert(!/[\u2013\u2014]/.test(text), `${page} has no em or en dashes`);

@@ -28,7 +28,11 @@
 .rtr-signals b { font-weight: 600; }
 .rtr-signals span { color: var(--muted); font-size: .92rem; }
 
-/* ---- Production gallery ---- */
-.studio-gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-5) var(--s-4); margin-top: var(--s-6); }
-.studio-gallery figcaption { margin-top: var(--s-2); color: var(--muted); font-size: .92rem; }
-@media (max-width: 760px) { .studio-gallery { grid-template-columns: 1fr; } }
+/* ---- Production checklist ---- */
+.studio-checklist { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--s-5); }
+@media (max-width: 640px) { .studio-checklist { grid-template-columns: 1fr; } }
+.studio-checklist li { position: relative; display: grid; gap: .1rem; padding: .85rem 0 .85rem 2rem; border-bottom: 1px solid var(--line); }
+.studio-checklist li::before { content: ""; position: absolute; left: 0; top: 1.05rem; width: 1.15rem; height: 1.15rem; border-radius: 50%; background: linear-gradient(135deg, var(--orange), var(--burnt)); }
+.studio-checklist li::after { content: ""; position: absolute; left: .38rem; top: 1.25rem; width: .36rem; height: .2rem; border-left: 2px solid #1c0c06; border-bottom: 2px solid #1c0c06; transform: rotate(-45deg); }
+.studio-checklist b { font-weight: 600; }
+.studio-checklist span { color: var(--muted); font-size: .9rem; }
