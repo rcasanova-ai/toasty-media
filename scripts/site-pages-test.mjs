@@ -98,13 +98,13 @@ console.log("\nBranding: Toasty orange, no purple or teal, no em or en dashes, n
 console.log("\nAbout: recognition, uniform book cards, portfolio");
 {
   const html = read("about/index.html");
-  assert(/Queen Elizabeth II’s Platinum Jubilee Medal/.test(html) && /commemorative pin/.test(html), "the Platinum Jubilee Medal and pin are listed under Recognition");
+  assert(/Queen Elizabeth II’s Platinum Jubilee Medal/.test(html) && /federal Platinum Jubilee commemorative pin/.test(html), "the Platinum Jubilee Medal and federal pin are listed under Recognition");
   assert(!/alongside the day job/i.test(html), "no day-job framing");
   const books = [...html.matchAll(/<article class="about-book[^"]*[^>]*>([\s\S]*?)<\/article>/g)].map((m) => m[1]);
   assert(books.length === 4 && books.every((b) => /<div class="about-book__cover/.test(b) && /<span class="ts-badge/.test(b) && /<h3>/.test(b) && /<p>/.test(b)), "all four book cards share the same structure and cover container");
   assert(/<h3>Upcoming AI Book<\/h3>/.test(html), "the AI book placeholder reads Upcoming AI Book");
   const projects = html.match(/<div class="about-projects">[\s\S]*?<\/div>\s*<\/div>\s*<\/section>/)?.[0] || "";
   for (const name of ["8ALTA", "Santati", "Get Thai'd Down", "Toasty Studio", "Toasty Peeps"]) assert(projects.includes(`<h3>${name}</h3>`), `portfolio lists ${name}`);
-  assert(/https:\/\/www\.8alta\.com/.test(projects) && /https:\/\/www\.santaticrm\.com/.test(projects) && !/thai.?d ?down[^<]*<\/h3>[\s\S]{0,200}href=/i.test(projects.split("Toasty Studio")[0].split("Get Thai'd Down")[1] || ""), "only real project links are used (none invented for Get Thai'd Down)");
+  assert(/https:\/\/www\.8alta\.com/.test(projects) && /https:\/\/www\.santaticrm\.com/.test(projects) && /https:\/\/gettieddown\.vercel\.app/.test(projects), "each portfolio company links to its real site");
 }
 console.log("\nALL PASSED: the public site pages are consistent, on brand and fully linked.");
