@@ -1491,3 +1491,12 @@ body.studio-public-shell[data-brand-theme] {
   min-height: 17rem;
 }
 .live-console[data-lv-view="host"] .lv-ai-producer .lv-feed-list { flex: 1 1 auto; max-height: none; min-height: 8rem; overflow-y: auto; }
+
+/* ---- Session plan and guest preparation (host and producer only) ---- */
+.live-console .lv-prep { display: grid; gap: .6rem; max-height: 24rem; overflow-y: auto; }
+.live-console .lv-prep[hidden] { display: none; }
+.live-console .lv-prep .lv-prep-block h4 { margin: .5rem 0 .2rem; font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; opacity: .75; }
+.live-console .lv-prep .lv-prep-block p, .live-console .lv-prep .lv-prep-guest p { margin: .2rem 0; font-size: .9rem; }
+.live-console .lv-prep ul { margin: .2rem 0 .4rem 1.1rem; padding: 0; font-size: .9rem; }
+.live-console .lv-prep .lv-prep-guest { border: 1px solid rgba(230, 200, 168, 0.14); border-radius: 10px; padding: .55rem .7rem; }
+.live-console .lv-prep .lv-prep-guest summary { cursor: pointer; font-weight: 700; }

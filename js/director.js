@@ -11,6 +11,7 @@ import { HostPrejoin } from "./host-prejoin.js";
 import { HostState } from "./host-state.js";
 import { BUILD_ID } from "./build-info.js";
 import { resolveSession, showSessionArtifacts } from "./session-manager.js";
+import { mountSessionPrep } from "./session-prep-panel.js";
 
 // Set by js/studio-auth.js's openStudio when /auth/session reports a "locked" account (a brand-locked
 // customer like Moe @ Superteam Thailand) — a UX nicety only (hides the selector, blocks the local optimistic
@@ -149,6 +150,7 @@ async function init() {
   session.applyDurableSession(durableSession);
   void session.loadProfileEndCard();
   await initStudio();
+  void mountSessionPrep(session, document.getElementById("lvPrepPanel")).catch((error) => console.warn("[Studio] session prep unavailable", error));
   // Re-resolve+re-apply AFTER the durable session record is in hand: a direct session link/refresh
   // (director.html?session=xxx with no ?brand= at all) only gets the real brand from record.brandId here,
   // not from the URL applySelectedBrand() already ran with above — see applyDurableSession's own comment.

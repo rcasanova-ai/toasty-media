@@ -51,7 +51,10 @@ jobs:
             peeps-demo-test \
             peeps-auth-gate-test \
             peeps-fit-engine-test \
-            peeps-jam-lobby-test; do
+            peeps-jam-lobby-test \
+            session-planner-wizard-test \
+            guest-preparation-server-test \
+            speaker-readiness-test; do
             echo "::group::$t"
             node "scripts/$t.mjs"
             echo "::endgroup::"

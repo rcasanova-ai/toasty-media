@@ -39,13 +39,27 @@ async function init() {
     const result = await studioRequest(`/api/speaker-invites/${encodeURIComponent(token)}`);
     speaker = result.speaker;
     eventName = result.event?.title || "this event";
-    document.getElementById("introEventName").textContent = `You've been invited as a speaker for ${eventName}`;
+    document.getElementById("introEventName").textContent = `You've been invited as a guest for ${eventName}`;
+    const meta = [result.event?.hostName ? `Host: ${result.event.hostName}` : "", result.event?.scheduledAt ? `Planned for ${result.event.scheduledAt.replace("T", " ")}` : ""].filter(Boolean).join(" · ");
+    document.getElementById("introMeta").textContent = meta;
+    renderBriefing(result.briefing);
     prefillProfileForm(speaker);
     showStep("stepIntro");
   } catch (error) {
     document.getElementById("errorMessage").textContent = error.message || "This invitation link is no longer valid.";
     showStep("stepError");
   }
+}
+
+function renderBriefing(briefing) {
+  const box = document.getElementById("briefingBox");
+  const body = document.getElementById("briefingBody");
+  if (!briefing || (!briefing.intro && !(briefing.sections || []).length)) return;
+  body.textContent = "";
+  const add = (tag, text) => { const el = document.createElement(tag); el.textContent = text; el.style.whiteSpace = "pre-wrap"; body.appendChild(el); };
+  if (briefing.intro) add("p", briefing.intro);
+  for (const section of briefing.sections || []) { add("h3", section.title); add("p", section.body); }
+  box.hidden = false;
 }
 
 function prefillProfileForm(s) {
@@ -62,6 +76,13 @@ function prefillProfileForm(s) {
   set("fLocation", s.location);
   set("fTimezone", s.speakerTimezone);
   set("fPronunciation", s.pronunciationNotes);
+  const prep = s.prep || {};
+  set("pIntro", prep.preferredIntro);
+  set("pExpertise", prep.expertise);
+  set("pDiscuss", prep.topicsToDiscuss);
+  set("pAvoid", prep.topicsToAvoid);
+  set("pLinks", prep.supportingLinks);
+  set("pNotes", prep.additionalNotes);
   const links = s.links || {};
   set("lLinkedin", links.linkedin);
   set("lX", links.x);
@@ -108,6 +129,7 @@ document.getElementById("profileForm").addEventListener("submit", async (event) 
     location: val("fLocation"),
     speakerTimezone: val("fTimezone"),
     pronunciationNotes: val("fPronunciation"),
+    prep: { preferredIntro: val("pIntro"), expertise: val("pExpertise"), topicsToDiscuss: val("pDiscuss"), topicsToAvoid: val("pAvoid"), supportingLinks: val("pLinks"), additionalNotes: val("pNotes") },
     links
   };
   try {

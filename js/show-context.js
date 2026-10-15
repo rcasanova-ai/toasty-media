@@ -261,6 +261,8 @@ export function buildShowContext(session) {
     topicElapsedMs: runOfShow.currentElapsedMs(),
     topicRemainingMs: current?.estimatedMinutes ? Math.max(0, current.estimatedMinutes * 60000 - runOfShow.currentElapsedMs()) : null,
     elapsedMs: session.elapsedMs(),
+    // The host's own plan and each guest's preparation (host and producer only). Plain text, bounded.
+    sessionPrep: session.sessionPrep?.contextText || "",
     agenda: runOfShow.items.map((item) => ({ id: item.id, title: item.title, status: item.status, notes: item.notes })),
     previousTopics: runOfShow.completed().map((item) => ({ title: item.title, notes: item.notes })),
     transcript: session.transcript.recent(60),
