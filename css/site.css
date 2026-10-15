@@ -1903,29 +1903,50 @@ h2 {
   max-width: 1120px;
 }
 .book-grid-four {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  max-width: 1240px;
 }
 .book-grid-four .book-card {
   min-height: 0;
+  padding: 1rem;
 }
-.book-grid-four .book-cover {
-  aspect-ratio: 3 / 4;
-  max-height: 460px;
+/* One cover container for every book: same ratio, same fit, artwork never stretched or cropped. */
+.book-grid-four .book-cover,
+.book-grid-four .book-placeholder-mark {
+  aspect-ratio: 2 / 3;
+  background: #1a100d;
+  border: 1px solid rgba(217,166,111,.28);
+  border-radius: 4px;
+  display: block;
+  margin-bottom: 1rem;
+  max-height: none;
   object-fit: contain;
+  object-position: center;
   width: 100%;
 }
+.book-grid-four .series-kicker { min-height: 2.4em; }
+.book-grid-four .book-card h3 { min-height: 2.6em; }
+.book-grid-four .book-card p:not(.series-kicker) {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 7;
+  display: -webkit-box;
+  font-size: .94rem;
+  margin-bottom: 1rem;
+  overflow: hidden;
+}
+.book-grid-four .book-card .text-link { margin-top: auto; }
 .book-card-placeholder {
-  justify-content: center;
+  justify-content: flex-start;
 }
 .book-placeholder-mark {
   align-items: center;
-  aspect-ratio: 3 / 4;
   background: linear-gradient(145deg, rgba(237,154,111,.22), rgba(255,246,232,.05));
   border: 1px solid rgba(217,166,111,.28);
   color: var(--toast-bright);
   display: flex;
   font-family: var(--font-heading);
-  font-size: clamp(4rem, 9vw, 7rem);
+  font-size: clamp(3rem, 6vw, 5rem);
   font-weight: 900;
   justify-content: center;
   letter-spacing: -.05em;
@@ -1938,8 +1959,14 @@ h2 {
   aspect-ratio: 3 / 4;
   object-fit: contain;
 }
-@media (max-width: 760px) {
+@media (max-width: 1080px) {
+  .book-grid-four {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 560px) {
   .book-grid-four {
     grid-template-columns: 1fr;
+    max-width: 22rem;
   }
 }

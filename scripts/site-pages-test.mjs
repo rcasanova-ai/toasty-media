@@ -66,34 +66,45 @@ console.log("\nStudio waitlist form");
   assert(/api\/organizations\/studio-waitlist/.test(js) && !/localStorage|sessionStorage/.test(js), "submits to the server and stores nothing in the browser");
 }
 
-console.log("\nStudio pricing is honest");
+console.log("\nStudio is a sales page: one clear call to action, no defensive or technical sections");
 {
   const html = read("studio/index.html");
-  const pricing = html.match(/<section class="ts-section" id="pricing">[\s\S]*?<\/section>/)?.[0] || "";
-  assert(!/[$€£]\s?\d|\d\s?(USD|EUR|usd|\/mo)|per month/.test(pricing), "no invented prices appear in the pricing section");
-  const server = read("scripts/render-production-server.mjs");
-  const plan = (name) => {
-    const block = server.match(new RegExp(`\\n  ${name}: Object\\.freeze\\(\\{([\\s\\S]*?)\\n  \\}\\)`))?.[1] || "";
-    const n = (key) => Number(block.match(new RegExp(`${key}: (\\d+)`))?.[1]);
-    return { people: n("maxParticipants"), sessions: n("maxConcurrentSessions"), members: n("maxMembers") };
-  };
-  const cards = [...pricing.matchAll(/<article class="ts-plan[^"]*"><h3>(\w+)<\/h3>([\s\S]*?)<\/article>/g)];
-  assert(cards.length === 4, "four plans are listed");
-  for (const [, name, body] of cards) {
-    const p = plan(name.toLowerCase());
-    const people = Number(body.match(/Up to (\d+) people/)?.[1]);
-    const sessions = Number(body.match(/(\d+) sessions? at a time/)?.[1]);
-    const members = Number(body.match(/(\d+) team members?/)?.[1]);
-    assert(people === p.people && sessions === p.sessions && members === p.members, `${name}: ${people} people / ${sessions} sessions / ${members} members match the enforced plan limits`);
-  }
-  assert(!/RTMP|custom domain/i.test(pricing), "unenforced plan features (live-streaming and custom-domain gating) are not advertised as tiers");
+  const ctas = [...html.matchAll(/>Join the Beta Waitlist</g)].length;
+  assert(ctas >= 3 && /<button class="ts-btn ts-btn--primary" type="submit" id="swSubmit">Join the Beta Waitlist<\/button>/.test(html), `the primary call to action is Join the Beta Waitlist (${ctas} places, including the form button)`);
+  for (const id of ["planner", "moxie", "rtr", "features", "waitlist"]) assert(new RegExp(`<section class="ts-section[^"]*" id="${id}"`).test(html), `has the ${id} section`);
+  for (const id of ["status", "pricing", "present", "live", "recording"]) assert(!new RegExp(`id="${id}"`).test(html), `has no separate ${id} section (no roadmap, limits, pricing tables or screen-sharing hero)`);
+  assert(!/honest|limitation|roadmap|in development|your own AI provider|provider key|Wikipedia|GitHub|API\b/i.test(html.replace(/<form[\s\S]*?<\/form>/, "")), "no honesty, limitation, roadmap or implementation disclosures");
+  const rtr = html.match(/<section class="ts-section[^"]*" id="rtr"[\s\S]*?<\/section>/)?.[0] || "";
+  assert(/Coming soon/.test(rtr) && /Read The Room/.test(rtr) && /body language/i.test(rtr), "RTR is introduced as Read The Room with a Coming soon label");
+  const planner = html.match(/<section class="ts-section[^"]*" id="planner"[\s\S]*?<\/section>/)?.[0] || "";
+  assert(/run of show/i.test(planner) && /guests/i.test(planner) && /talking points/i.test(planner), "Session Planner covers guests, run of show and talking points");
+  const features = html.match(/<section class="ts-section[^"]*" id="features"[\s\S]*?<\/section>/)?.[0] || "";
+  for (const f of ["Recording", "Live production", "Guest invitations", "Producer controls", "Screen sharing", "Program output"]) assert(features.includes(`<h3>${f}</h3>`), `production features include ${f}`);
 }
 
-console.log("\nMoxie claims distinguish available from upcoming");
+console.log("\nBranding: Toasty orange, no purple or teal, no em or en dashes, no Kristine");
 {
-  const html = read("studio/index.html");
-  const moxie = html.match(/<section class="ts-section" id="moxie">[\s\S]*?<\/section>/)?.[0] || "";
-  assert((moxie.match(/ts-badge--live">Available/g) || []).length === 4 && /ts-badge--soon">Studio chat today/.test(moxie) && /ts-badge--soon">Coming/.test(moxie), "four capabilities are marked Available, the rest are marked as partial or coming");
-  assert(/Wikipedia and GitHub today/.test(moxie) && /own AI provider key/.test(moxie) && /waits for your approval/.test(moxie), "research sources, bring-your-own-key and approval-before-air are stated plainly");
+  const css = ["css/toasty-site.css", "css/home-landing.css", "css/studio-landing.css", "css/peeps-landing.css", "css/about-page.css"].map(read).join("\n");
+  assert(!/#8b7cf6|#6f5ee8|#3dd6c3|#1fb8a6|139, ?124, ?246|61, ?214, ?195|violet|teal/i.test(css), "the site stylesheets contain no purple or teal");
+  assert(/--orange-strong: #ff7a29/.test(css) && /--ink-0: #0b0908/.test(css), "uses the Toasty orange and warm near-black from the Studio interface");
+  const publicPages = ["index.html", "studio/index.html", "peeps/index.html", "about/index.html", "books/index.html", "speaking/index.html", "ricardo/index.html", "access/index.html", "thank-you.html", "eloquencebonus/index.html", "peeps/login/index.html", "peeps/demo/index.html", "peeps/demo/data.js", "peeps/demo/demo.js", "js/studio-waitlist.js", "js/site-ui.js"];
+  for (const page of publicPages) {
+    const text = read(page).replace(/<!--[\s\S]*?-->/g, "").split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\n");
+    assert(!/[\u2013\u2014]/.test(text), `${page} has no em or en dashes`);
+    assert(!/Kristine/i.test(text), `${page} does not mention Kristine`);
+  }
 }
-console.log("\nALL PASSED — public site pages are consistent, honest and fully linked.");
+
+console.log("\nAbout: recognition, uniform book cards, portfolio");
+{
+  const html = read("about/index.html");
+  assert(/Queen Elizabeth II’s Platinum Jubilee Medal/.test(html) && /commemorative pin/.test(html), "the Platinum Jubilee Medal and pin are listed under Recognition");
+  assert(!/alongside the day job/i.test(html), "no day-job framing");
+  const books = [...html.matchAll(/<article class="about-book[^"]*[^>]*>([\s\S]*?)<\/article>/g)].map((m) => m[1]);
+  assert(books.length === 4 && books.every((b) => /<div class="about-book__cover/.test(b) && /<span class="ts-badge/.test(b) && /<h3>/.test(b) && /<p>/.test(b)), "all four book cards share the same structure and cover container");
+  assert(/<h3>Upcoming AI Book<\/h3>/.test(html), "the AI book placeholder reads Upcoming AI Book");
+  const projects = html.match(/<div class="about-projects">[\s\S]*?<\/div>\s*<\/div>\s*<\/section>/)?.[0] || "";
+  for (const name of ["8ALTA", "Santati", "Get Thai'd Down", "Toasty Studio", "Toasty Peeps"]) assert(projects.includes(`<h3>${name}</h3>`), `portfolio lists ${name}`);
+  assert(/https:\/\/www\.8alta\.com/.test(projects) && /https:\/\/www\.santaticrm\.com/.test(projects) && !/thai.?d ?down[^<]*<\/h3>[\s\S]{0,200}href=/i.test(projects.split("Toasty Studio")[0].split("Get Thai'd Down")[1] || ""), "only real project links are used (none invented for Get Thai'd Down)");
+}
+console.log("\nALL PASSED: the public site pages are consistent, on brand and fully linked.");

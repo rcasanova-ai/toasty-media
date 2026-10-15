@@ -1,19 +1,19 @@
 /* Home page — page-specific layout on top of css/toasty-site.css */
 .home-landing .ts-hero { padding-bottom: var(--s-5); }
-.home-landing .ts-hero h1 { max-width: 14ch; }
+
 .home-products { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-4); }
 @media (max-width: 900px) { .home-products { grid-template-columns: 1fr; } }
 .home-product { border: 1px solid var(--line-strong); border-radius: var(--r-3); padding: clamp(1.5rem, 3.5vw, 2.8rem); background: var(--ink-1); position: relative; overflow: hidden; display: flex; flex-direction: column; }
 .home-product::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .9; }
-.home-product--studio::before { background: radial-gradient(70% 60% at 0% 0%, rgba(139, 124, 246, 0.2), transparent 70%); }
-.home-product--peeps::before { background: radial-gradient(70% 60% at 100% 0%, rgba(61, 214, 195, 0.17), transparent 70%); }
+.home-product--studio::before { background: radial-gradient(70% 60% at 0% 0%, rgba(255, 122, 41, 0.2), transparent 70%); }
+.home-product--peeps::before { background: radial-gradient(70% 60% at 100% 0%, rgba(231, 178, 122, 0.17), transparent 70%); }
 .home-product > * { position: relative; }
 .home-product h2 { font-size: clamp(1.8rem, 1.3rem + 1.6vw, 2.6rem); margin-bottom: var(--s-3); }
 .home-product p { color: var(--text-2); }
 .home-product .ts-actions { margin-top: auto; padding-top: var(--s-5); }
 .home-flow { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s-3); counter-reset: step; }
 .home-flow li { counter-increment: step; display: grid; grid-template-columns: 2.4rem 1fr; gap: .2rem 1rem; padding: var(--s-3) 0; border-bottom: 1px solid var(--line); }
-.home-flow li::before { content: counter(step, decimal-leading-zero); grid-row: span 2; color: var(--violet); font-weight: 600; font-size: .85rem; letter-spacing: .1em; padding-top: .2rem; }
+.home-flow li::before { content: counter(step, decimal-leading-zero); grid-row: span 2; color: var(--orange); font-weight: 600; font-size: .85rem; letter-spacing: .1em; padding-top: .2rem; }
 .home-flow b { font-weight: 600; font-size: 1.1rem; }
 .home-flow span { color: var(--text-2); }
 .home-contact-card h3 { font-size: 1.2rem; margin-bottom: var(--s-3); }

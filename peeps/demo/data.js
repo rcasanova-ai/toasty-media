@@ -54,7 +54,7 @@ export const SARAH_DUB = {
   id: 'dub_sarah_chen',
   profile: {
     name: 'Sarah Chen',
-    headline: 'Former regional fintech partnerships director — banking and payment rails, Southeast Asia',
+    headline: 'Former regional fintech partnerships director, banking and payment rails in Southeast Asia',
     role: 'Fintech partnerships operator',
     location: 'Singapore / Bangkok',
     industries: ['Fintech', 'Banking partnerships', 'Payments', 'Regulated financial services'],
