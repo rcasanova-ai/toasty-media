@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Toasty Media — Studio and Peeps</title>
-  <meta name="description" content="Toasty Media builds two products: Toasty Studio, a production studio for podcasts and live conversations, and Toasty Peeps, the human layer for the agent economy.">
-  <meta property="og:title" content="Toasty Media">
-  <meta property="og:description" content="Toasty Studio produces the conversation. Toasty Peeps finds and reaches the right people.">
-  <meta name="theme-color" content="#07070d">
+  <title>Toasty Media | Toasty Studio and Toasty Peeps</title>
+  <meta name="description" content="Toasty Media builds Toasty Studio, a production studio for podcasts, interviews and live shows with Moxie, your AI producer, and Toasty Peeps, a talent discovery platform for the agent economy. Join the Studio beta waitlist.">
+  <meta property="og:title" content="Toasty Media | Produce like a professional">
+  <meta property="og:description" content="Toasty Studio is the production studio for podcasts, interviews and live shows, with Moxie, your AI producer. Join the beta waitlist.">
+  <meta name="theme-color" content="#0b0908">
   <link rel="icon" href="shared/brand/toasty-media/ToastyTransparent.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -32,6 +32,7 @@
         </nav>
         <div class="ts-nav__cta">
           <a class="ts-btn ts-btn--ghost ts-btn--sm" href="access/">Sign in</a>
+          <a class="ts-btn ts-btn--primary ts-btn--sm" href="studio/#waitlist">Join the Beta Waitlist</a>
         </div>
       </div>
     </div>
@@ -39,55 +40,52 @@
 
   <main id="main">
     <section class="ts-hero">
-      <div class="ts-wrap">
-        <p class="ts-eyebrow">Toasty Media</p>
-        <h1>Two products for <em>real conversations.</em></h1>
-        <p class="ts-lede">Toasty Studio is where conversations are produced. Toasty Peeps is how the right people are found and brought into them — by people and by AI agents alike.</p>
-        <div class="ts-actions">
-          <a class="ts-btn ts-btn--primary" href="studio/">Explore Studio</a>
-          <a class="ts-btn ts-btn--ghost" href="peeps/">Explore Peeps</a>
+      <div class="ts-wrap ts-hero__grid">
+        <div>
+          <p class="ts-eyebrow">Toasty Studio · Beta</p>
+          <h1>Produce podcasts, interviews and live shows <em>like a professional.</em></h1>
+          <p class="ts-lede">Plan your session, invite guests with a link, record, go live and work with Moxie, your AI producer, in one room in the browser. Toasty Studio gives every conversation a proper production.</p>
+          <div class="ts-actions">
+            <a class="ts-btn ts-btn--primary" href="studio/#waitlist">Join the Beta Waitlist</a>
+            <a class="ts-btn ts-btn--ghost" href="studio/">Explore Toasty Studio</a>
+          </div>
         </div>
+        <figure class="ts-figure ts-reveal">
+          <div class="ts-frame"><div class="ts-frame__bar"><i></i><i></i><i></i><span>Toasty Studio · Producer</span></div>
+            <img src="site/assets/images/product/studio-producer.jpg" width="1440" height="900" alt="The Toasty Studio producer view with the program preview, run of show and the control bar" fetchpriority="high"></div>
+        </figure>
       </div>
     </section>
 
-    <section class="ts-section ts-section--tight">
+    <section class="ts-section ts-section--tight" id="studio">
+      <div class="ts-wrap">
+        <div class="ts-head ts-reveal">
+          <p class="ts-eyebrow">Inside Toasty Studio</p>
+          <h2>Everything a good show needs, <em>in one room.</em></h2>
+        </div>
+        <div class="ts-grid">
+          <article class="ts-tile ts-reveal"><span class="ts-tile__n">Session Planner</span><h3>Walk in prepared</h3><p>Plan the session, organize your topics, prepare your guests and build a run of show that stays at hand while you record.</p></article>
+          <article class="ts-tile ts-reveal"><span class="ts-tile__n">Moxie</span><h3>Your AI producer</h3><p>Moxie follows the conversation, takes your instructions out loud or by text and finds what you need without interrupting the show.</p></article>
+          <article class="ts-tile ts-reveal"><span class="ts-tile__n">Production</span><h3>Record, present and go live</h3><p>Invite guests, share your screen, record in high quality and broadcast to your channels with the same set of controls.</p></article>
+        </div>
+        <div class="ts-actions"><a class="ts-btn ts-btn--primary" href="studio/#waitlist">Join the Beta Waitlist</a><a class="ts-link" href="studio/#moxie">Meet Moxie →</a></div>
+      </div>
+    </section>
+
+    <section class="ts-section ts-section--band" id="peeps">
       <div class="ts-wrap home-products">
         <article class="home-product home-product--studio ts-reveal">
-          <p class="ts-eyebrow">Toasty Studio</p>
-          <h2>Produce the conversation. <em>Keep the recording.</em></h2>
-          <p>A production studio in the browser for podcasts, interviews and live shows. Guests join from a link, Moxie — an AI production partner — keeps you on track, and recordings are made on your own machine.</p>
-          <ul class="ts-points">
-            <li><span>Recording, transcripts and branded output</span></li>
-            <li><span>Present screens, stream to X, YouTube, TikTok and Instagram</span></li>
-          </ul>
-          <div class="ts-actions"><a class="ts-btn ts-btn--primary" href="studio/">Discover Studio</a><a class="ts-link" href="studio/#waitlist">Join the waitlist →</a></div>
+          <p class="ts-eyebrow">Read The Room · Coming soon</p>
+          <h2>RTR helps you catch <em>the moments that matter.</em></h2>
+          <p>An intelligent production capability in development. RTR will watch the energy of a conversation and how guests react, so you can mark a memorable moment while it is happening.</p>
+          <div class="ts-actions"><a class="ts-link" href="studio/#rtr">Learn about RTR →</a></div>
         </article>
         <article class="home-product home-product--peeps ts-reveal">
           <p class="ts-eyebrow">Toasty Peeps</p>
           <h2>The human layer for <em>the agent economy.</em></h2>
           <p>Describe who you need and Peeps finds people by what they have actually done and known. Both sides consent, the conversation happens in a Studio session, and everyone who created value is paid.</p>
-          <ul class="ts-points">
-            <li><span>Discovery by lived experience, not résumés</span></li>
-            <li><span>Consent first, with verifiable outcomes</span></li>
-          </ul>
-          <div class="ts-actions"><a class="ts-btn ts-btn--primary" href="peeps/">Discover Peeps</a><a class="ts-link" href="peeps/waitlist/">Join the waitlist →</a></div>
+          <div class="ts-actions"><a class="ts-btn ts-btn--primary" href="peeps/">Discover Toasty Peeps</a></div>
         </article>
-      </div>
-    </section>
-
-    <section class="ts-section ts-section--band" id="together">
-      <div class="ts-wrap ts-split">
-        <div class="ts-reveal">
-          <p class="ts-eyebrow">Better together</p>
-          <h2>From finding the right person to <em>the finished recording.</em></h2>
-          <p class="ts-lede">Peeps finds and qualifies the people. Studio runs the conversation. What was said, who was there and what came of it stay connected from first introduction to final file.</p>
-        </div>
-        <ol class="home-flow ts-reveal">
-          <li><b>Find</b><span>Peeps matches a request to people with the right experience.</span></li>
-          <li><b>Agree</b><span>Both sides consent before anything is shared or scheduled.</span></li>
-          <li><b>Produce</b><span>The conversation happens in a Studio session, recorded and transcribed.</span></li>
-          <li><b>Settle</b><span>Outcomes are recorded and contributors are paid.</span></li>
-        </ol>
       </div>
     </section>
 
@@ -105,7 +103,7 @@
         <div class="ts-card ts-reveal home-contact-card">
           <h3>Looking for something specific?</h3>
           <ul class="ts-points">
-            <li><span><a class="ts-link" href="studio/#waitlist">Join the Studio waitlist</a> for early access.</span></li>
+            <li><span><a class="ts-link" href="studio/#waitlist">Join the Studio beta waitlist</a> for early access.</span></li>
             <li><span><a class="ts-link" href="peeps/waitlist/">Join the Peeps waitlist</a> for the private beta.</span></li>
             <li><span>Speaking and advisory enquiries: <a class="ts-link" href="about/#speaking">see About</a>.</span></li>
           </ul>

@@ -1,13 +1,34 @@
 /* Studio landing page — page-specific refinements on top of css/toasty-site.css */
-.studio-landing .moxie-note { margin-top: var(--s-4); font-size: .92rem; max-width: 38rem; }
+.studio-landing .moxie-copy { margin-top: var(--s-3); color: var(--text-2); max-width: 38rem; }
 .studio-landing .moxie-shot { margin-top: var(--s-5); }
-.studio-landing .live-note { font-size: .88rem; margin-top: var(--s-4); }
 .studio-landing .ts-split > .ts-figure .ts-frame { transform: perspective(1600px) rotateY(-2.5deg); transition: transform .6s var(--ease); }
 .studio-landing .ts-split--flip > .ts-figure .ts-frame { transform: perspective(1600px) rotateY(2.5deg); }
 .studio-landing .ts-split > .ts-figure:hover .ts-frame { transform: none; }
 @media (max-width: 900px), (prefers-reduced-motion: reduce) { .studio-landing .ts-split > .ts-figure .ts-frame, .studio-landing .ts-split--flip > .ts-figure .ts-frame { transform: none; } }
-.studio-landing .ts-hero .ts-frame { box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.85), 0 0 80px -30px rgba(139, 124, 246, 0.45); }
-.studio-landing #status .ts-cap__row p { font-size: .96rem; color: var(--text-2); }
-.studio-landing #status .ts-card { padding-block: var(--s-3); }
+.studio-landing .ts-hero .ts-frame { box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.85), 0 0 80px -30px rgba(255, 122, 41, 0.45); }
 .studio-landing #waitlist .ts-card { max-width: 34rem; justify-self: end; width: 100%; }
 @media (max-width: 900px) { .studio-landing #waitlist .ts-card { justify-self: stretch; } }
+
+/* ---- Session Planner ---- */
+.plan-card { border: 1px solid var(--line-strong); border-radius: var(--r-3); background: linear-gradient(180deg, var(--ink-2), var(--ink-1)); padding: var(--s-4); box-shadow: var(--shadow-1); }
+.plan-card__head { display: flex; justify-content: space-between; align-items: center; gap: var(--s-3); margin-bottom: var(--s-3); font-weight: 600; letter-spacing: .02em; }
+.plan-steps { list-style: none; margin: 0; padding: 0; display: grid; counter-reset: ps; }
+.plan-steps li { counter-increment: ps; display: grid; grid-template-columns: 2.1rem 1fr; column-gap: var(--s-3); padding: .8rem 0; border-top: 1px solid var(--line); }
+.plan-steps li::before { content: counter(ps); grid-row: span 2; width: 1.7rem; height: 1.7rem; border-radius: 50%; display: grid; place-items: center; font-size: .8rem; font-weight: 700; color: #1c0c06; background: linear-gradient(135deg, var(--orange), var(--orange-strong)); }
+.plan-steps b { font-weight: 600; }
+.plan-steps span { color: var(--muted); font-size: .9rem; }
+
+/* ---- RTR ---- */
+.rtr-badge { margin-left: .6rem; vertical-align: middle; }
+.rtr-card { border: 1px dashed var(--line-strong); border-radius: var(--r-3); padding: var(--s-4); background: radial-gradient(90% 90% at 100% 0%, var(--orange-soft), transparent 70%), var(--ink-1); }
+.rtr-card__label { margin: 0 0 var(--s-3); font-size: var(--fs-0); letter-spacing: .14em; text-transform: uppercase; color: var(--toast); font-weight: 600; }
+.rtr-signals { list-style: none; margin: 0; padding: 0; display: grid; }
+.rtr-signals li { display: grid; gap: .15rem; padding: .85rem 0; border-top: 1px solid var(--line); }
+.rtr-signals li:first-child { border-top: 0; padding-top: 0; }
+.rtr-signals b { font-weight: 600; }
+.rtr-signals span { color: var(--muted); font-size: .92rem; }
+
+/* ---- Production gallery ---- */
+.studio-gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-5) var(--s-4); margin-top: var(--s-6); }
+.studio-gallery figcaption { margin-top: var(--s-2); color: var(--muted); font-size: .92rem; }
+@media (max-width: 760px) { .studio-gallery { grid-template-columns: 1fr; } }

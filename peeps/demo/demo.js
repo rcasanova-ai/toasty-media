@@ -397,8 +397,8 @@ VIEWS.receipt = {
         ${rcRow('Introduction authorized', `<span class="bigamt">${jam$(m.introductionAuthorizedUsd)}</span>`, lbl.demo)}
         ${rcRow('Earned by Sarah', `<span class="bigamt g">${jam$(m.earnedBySarahUsd)}</span>`, lbl.demo)}
         ${rcRow('Context purchased by the agent', `${jam$(m.contextPurchasedUsd)} · ${m.contextUnlocks} unlocks`, lbl.sim)}
-        ${rcRow('Dough settlement', st ? `${st.status === 'ledger_posted' ? 'Released to Sarah’s Dough' : 'Held for review'}` : '—', lbl.sim)}
-        ${rcRow('Ledger entry', st ? esc(st.id) : '—', `<span class="b plain">${st?.status === 'ledger_posted' ? 'Ledger posted' : esc(st?.status || '')}</span>`)}
+        ${rcRow('Dough settlement', st ? `${st.status === 'ledger_posted' ? 'Released to Sarah’s Dough' : 'Held for review'}` : 'None', lbl.sim)}
+        ${rcRow('Ledger entry', st ? esc(st.id) : 'None', `<span class="b plain">${st?.status === 'ledger_posted' ? 'Ledger posted' : esc(st?.status || '')}</span>`)}
         ${rcRow('Verified blockchain transactions', `<b>${m.onchainTransactions}</b>`, lbl.chain)}
       </section>
       <section class="card rc"><h3>Verified outcome</h3>${r.checks.map((c) => `<div class="rck"><i>${c.state === 'done' ? '✓' : '·'}</i><span><b>${esc(c.label)}</b><small>${esc(c.detail)}</small></span></div>`).join('')}</section>
