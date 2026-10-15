@@ -986,6 +986,9 @@ def migrate(conn):
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_speakers_session ON speakers(session_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_speakers_org ON speakers(organization_id)")
+    # Guest preparation (the guest fills `prep_json` from their invite link; the host's own note about the guest is
+    # `host_background`, organizer-only). Neither is ever shown to another guest.
+    ensure_columns(conn, "speakers", {"prep_json": "TEXT NOT NULL DEFAULT '{}'", "host_background": "TEXT NOT NULL DEFAULT ''"})
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS speaker_invites (
@@ -1798,6 +1801,37 @@ def migrate(conn):
         )
         """
     )
+
+    # ---- Paid access to a Dub (x402). The owner sets whether paid access is on and the price per access; an
+    # access is a one-use quote that carries a unique payment reference, settled only by a verified on-chain
+    # payment (the signature is UNIQUE so one transaction can pay for exactly one quote).
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dub_access_settings (
+          dub_id TEXT PRIMARY KEY REFERENCES dubs(id) ON DELETE CASCADE,
+          enabled INTEGER NOT NULL DEFAULT 0,
+          price_usdc REAL NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dub_access_quotes (
+          id TEXT PRIMARY KEY,
+          dub_id TEXT NOT NULL REFERENCES dubs(id) ON DELETE CASCADE,
+          price_usdc REAL NOT NULL,
+          status TEXT NOT NULL DEFAULT 'open',
+          expires_at TEXT NOT NULL,
+          transaction_signature TEXT,
+          payer_wallet TEXT,
+          paid_at TEXT,
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_dub_access_quotes_sig ON dub_access_quotes(transaction_signature) WHERE transaction_signature IS NOT NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_dub_access_quotes_dub ON dub_access_quotes(dub_id, created_at)")
 
     # ---- Peeps completion -> Breadcrumbs -> Dub -> outcome -> settlement -> matching ----
     # One completion row per Jam: the durable link request -> introduction -> booking -> Jam -> Studio
@@ -2902,6 +2936,8 @@ def public_speaker(row):
         "hiddenFields": _json_or(row["hidden_fields_json"], []),
         "pronouns": row["pronouns"],
         "selectionReason": row["selection_reason"],
+        "prep": _json_or(row["prep_json"], {}) if _row_has(row, "prep_json") else {},
+        "hostBackground": row["host_background"] if _row_has(row, "host_background") else "",
         "profileSubmittedAt": row["profile_submitted_at"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
@@ -5336,11 +5372,18 @@ def main():
         # Guest invite pages (speaker/sponsor) need the event's title/brand to say "for EVENT NAME" —
         # never the owner_user_id/organization_id or anything else that would identify the organizer's
         # account to someone holding only an invite token.
-        row = conn.execute("SELECT title, brand_id FROM live_sessions WHERE id = ?", (payload["id"],)).fetchone()
+        row = conn.execute("SELECT * FROM live_sessions WHERE id = ?", (payload["id"],)).fetchone()
         if not row:
             print(json.dumps({"session": None}))
             return
-        print(json.dumps({"session": {"title": row["title"], "brandId": row["brand_id"]}}))
+        # Only what the host reviewed and approved for guests: never host notes, run of show or other guests.
+        plan = session_plan(row)
+        briefing = plan.get("guestBriefing") if isinstance(plan.get("guestBriefing"), dict) else {}
+        public_briefing = None
+        if briefing.get("approved"):
+            sections = [{"title": str(x.get("title", ""))[:120], "body": str(x.get("body", ""))[:4000]} for x in (briefing.get("sections") or []) if isinstance(x, dict)][:12]
+            public_briefing = {"intro": str(briefing.get("intro", ""))[:2000], "sections": sections}
+        print(json.dumps({"session": {"title": row["title"], "brandId": row["brand_id"], "hostName": str(plan.get("hostName", ""))[:120], "scheduledAt": str(plan.get("scheduledAt", ""))[:40], "sessionType": str(plan.get("sessionType", ""))[:40], "guestBriefing": public_briefing}}))
         return
 
     if action == "session_get_room_and_status":
@@ -5462,6 +5505,7 @@ def main():
             "peepsPersonId": "peeps_person_id",
             "selectionReason": "selection_reason",
             "inviteStatus": "invite_status",
+            "hostBackground": "host_background",
         }
         sets = []
         values = []
@@ -5475,6 +5519,9 @@ def main():
         if "hiddenFields" in fields:
             sets.append("hidden_fields_json = ?")
             values.append(json.dumps(fields["hiddenFields"] or []))
+        if "prep" in fields:
+            sets.append("prep_json = ?")
+            values.append(json.dumps(fields["prep"] or {}))
         if payload.get("markProfileSubmitted"):
             sets.append("profile_submitted_at = ?")
             values.append(utc_now())
@@ -7020,7 +7067,7 @@ def main():
         now = utc_now()
         row = conn.execute("SELECT * FROM dough_funding_intents WHERE id = ?", (payload["id"],)).fetchone()
         if not row:
-            print(json.dumps({"ok": False, "error": "not_found"}))
+            print(json.dumps({"ok": False, "reason": "not_found"}))
             return
         if row["status"] == "paid":
             print(json.dumps({"ok": True, "alreadyPaid": True, "amount": row["amount"]}))
@@ -7085,7 +7132,7 @@ def main():
         now = utc_now()
         row = conn.execute("SELECT * FROM dough_withdrawals WHERE id = ?", (payload["id"],)).fetchone()
         if not row:
-            print(json.dumps({"ok": False, "error": "not_found"}))
+            print(json.dumps({"ok": False, "reason": "not_found"}))
             return
         new_status = payload["status"]
         valid_transitions = {
@@ -7876,6 +7923,112 @@ def main():
     if action == "dub_entry_list":
         ids = payload["dubIds"]
         rows = conn.execute(f"SELECT * FROM dub_profile_entries WHERE dub_id IN ({','.join('?' for _ in ids)}) ORDER BY created_at ASC", ids).fetchall() if ids else []
+        print(json.dumps({"entries": [public_dub_entry(r) for r in rows]}))
+        return
+
+    # ---- Paid Dub access (x402) ----
+    if action == "dub_access_owner_get":
+        dub_row = conn.execute("SELECT * FROM dubs WHERE user_id = ? ORDER BY created_at ASC LIMIT 1", (payload["userId"],)).fetchone()
+        if not dub_row:
+            print(json.dumps({"dub": None}))
+            return
+        st = conn.execute("SELECT * FROM dub_access_settings WHERE dub_id = ?", (dub_row["id"],)).fetchone()
+        entries = conn.execute("SELECT * FROM dub_profile_entries WHERE dub_id = ? ORDER BY created_at ASC", (dub_row["id"],)).fetchall()
+        earned = conn.execute("SELECT COUNT(*) AS n, COALESCE(SUM(price_usdc), 0) AS total FROM dub_access_quotes WHERE dub_id = ? AND status = 'paid'", (dub_row["id"],)).fetchone()
+        print(json.dumps({
+            "dub": public_dub(dub_row),
+            "settings": {"enabled": bool(st["enabled"]) if st else False, "priceUsd": float(st["price_usdc"]) if st else 0},
+            "entries": [public_dub_entry(r) for r in entries],
+            "paidAccesses": {"count": int(earned["n"]), "totalUsd": round(float(earned["total"]), 2)},
+        }))
+        return
+
+    if action == "dub_access_set":
+        now = utc_now()
+        conn.execute(
+            "INSERT INTO dub_access_settings (dub_id, enabled, price_usdc, updated_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(dub_id) DO UPDATE SET enabled = excluded.enabled, price_usdc = excluded.price_usdc, updated_at = excluded.updated_at",
+            (payload["dubId"], 1 if payload.get("enabled") else 0, float(payload["priceUsd"]), now),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "dub_access_entry_visibility":
+        row = conn.execute("SELECT id FROM dub_profile_entries WHERE id = ? AND dub_id = ?", (payload["entryId"], payload["dubId"])).fetchone()
+        if not row:
+            print(json.dumps({"ok": False, "reason": "not_found"}))
+            return
+        conn.execute("UPDATE dub_profile_entries SET visibility = ?, updated_at = ? WHERE id = ?", (payload["visibility"], utc_now(), payload["entryId"]))
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "dub_access_public_get":
+        dub_row = conn.execute("SELECT * FROM dubs WHERE id = ?", (payload["dubId"],)).fetchone()
+        st = conn.execute("SELECT * FROM dub_access_settings WHERE dub_id = ?", (payload["dubId"],)).fetchone()
+        print(json.dumps({
+            "dub": {"id": dub_row["id"], "displayName": dub_row["display_name"], "ownerUserId": dub_row["user_id"]} if dub_row else None,
+            "settings": {"enabled": bool(st["enabled"]) if st else False, "priceUsd": float(st["price_usdc"]) if st else 0},
+        }))
+        return
+
+    if action == "dub_access_quote_create":
+        conn.execute(
+            "INSERT INTO dub_access_quotes (id, dub_id, price_usdc, status, expires_at, created_at) VALUES (?, ?, ?, 'open', ?, ?)",
+            (payload["id"], payload["dubId"], float(payload["priceUsd"]), payload["expiresAt"], utc_now()),
+        )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "dub_access_quote_get":
+        q = conn.execute("SELECT * FROM dub_access_quotes WHERE id = ? AND dub_id = ?", (payload["id"], payload["dubId"])).fetchone()
+        print(json.dumps({"quote": None if not q else {
+            "id": q["id"], "dubId": q["dub_id"], "priceUsd": float(q["price_usdc"]), "status": q["status"], "expiresAt": q["expires_at"],
+            "transactionSignature": q["transaction_signature"], "payerWallet": q["payer_wallet"], "paidAt": q["paid_at"],
+        }}))
+        return
+
+    if action == "dub_access_quote_settle":
+        # One transaction pays for exactly one quote (unique index), and the owner is credited in the same
+        # database transaction that marks the quote paid, keyed by the quote id so a retry never double-credits.
+        q = conn.execute("SELECT * FROM dub_access_quotes WHERE id = ? AND dub_id = ?", (payload["id"], payload["dubId"])).fetchone()
+        if not q:
+            print(json.dumps({"ok": False, "reason": "quote_not_found"}))
+            return
+        if q["status"] == "paid":
+            same = q["transaction_signature"] == payload["transactionSignature"]
+            print(json.dumps({"ok": same, "idempotent": same, "reason": None if same else "quote_already_paid"}))
+            return
+        if datetime.fromisoformat(str(q["expires_at"]).replace("Z", "+00:00")) < datetime.now(timezone.utc):
+            conn.execute("UPDATE dub_access_quotes SET status = 'expired' WHERE id = ?", (q["id"],))
+            conn.commit()
+            print(json.dumps({"ok": False, "reason": "quote_expired"}))
+            return
+        used = conn.execute("SELECT id FROM dub_access_quotes WHERE transaction_signature = ?", (payload["transactionSignature"],)).fetchone()
+        if used:
+            print(json.dumps({"ok": False, "reason": "signature_already_used"}))
+            return
+        now = utc_now()
+        conn.execute(
+            "UPDATE dub_access_quotes SET status = 'paid', transaction_signature = ?, payer_wallet = ?, paid_at = ? WHERE id = ?",
+            (payload["transactionSignature"], payload.get("payerWallet"), now, q["id"]),
+        )
+        owner = payload.get("ownerUserId")
+        if owner:
+            conn.execute("INSERT OR IGNORE INTO dough_accounts (subject_type, subject_id, updated_at) VALUES ('user', ?, ?)", (owner, now))
+            conn.execute("UPDATE dough_accounts SET earned_balance = earned_balance + ?, updated_at = ? WHERE subject_type = 'user' AND subject_id = ?", (round(float(q["price_usdc"]), 2), now, owner))
+            conn.execute(
+                "INSERT INTO dough_entries (id, subject_type, subject_id, bucket, direction, amount, kind, reference_id, status, metadata_json, created_at) VALUES (?, 'user', ?, 'earned', 'credit', ?, 'dub_access', ?, 'posted', ?, ?)",
+                ("de_" + q["id"], owner, round(float(q["price_usdc"]), 2), q["id"], json.dumps({"dubId": q["dub_id"], "transactionSignature": payload["transactionSignature"]}), now),
+            )
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "dub_access_entries":
+        rows = conn.execute("SELECT * FROM dub_profile_entries WHERE dub_id = ? AND visibility IN ('public', 'paid') ORDER BY created_at ASC", (payload["dubId"],)).fetchall()
         print(json.dumps({"entries": [public_dub_entry(r) for r in rows]}))
         return
 

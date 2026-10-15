@@ -1636,6 +1636,28 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // ---- Paid access to a Dub over x402. Owner controls (signed in) and the agent-facing gateway (public). ----
+  if (req.url === "/api/peeps/me/dub-access" || req.url?.startsWith("/api/peeps/me/dub-access/")) {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    if (req.method === "GET" && req.url === "/api/peeps/me/dub-access") { await handleDubAccessOwnerGet(req, res, session); return; }
+    if (req.method === "POST" && req.url === "/api/peeps/me/dub-access") {
+      if (!requireCsrf(req, res) || !limit(req, res, "dub-access-owner-set", 30, 15 * 60 * 1000)) return;
+      await handleDubAccessOwnerSet(req, res, session);
+      return;
+    }
+    if (req.method === "POST" && req.url.startsWith("/api/peeps/me/dub-access/entries/")) {
+      if (!requireCsrf(req, res) || !limit(req, res, "dub-access-entry", 60, 15 * 60 * 1000)) return;
+      await handleDubAccessEntryVisibility(req, res, session);
+      return;
+    }
+  }
+  if (req.method === "GET" && /^\/api\/peeps\/dubs\/[A-Za-z0-9_-]+\/access(\?.*)?$/.test(req.url || "")) {
+    if (!limit(req, res, "dub-access", 120, 60 * 1000)) return;
+    await handleDubAccess(req, res, req.url.split("?")[0].split("/")[4]);
+    return;
+  }
+
   // ---- Dub claim (section 27 — invite an externally-discovered/unclaimed Dub to claim their identity
   // after a real interaction). GET is unauthenticated (a claimant has no session yet); claiming itself
   // requires one, since it attaches the Dub to a real Toasty user. ----
@@ -5907,6 +5929,10 @@ function inviteIsLive(invite) {
 
 const SPEAKER_LINK_KEYS = ["linkedin", "x", "website", "instagram", "tiktok", "youtube", "github", "telegram", "other"];
 
+const SPEAKER_PREP_KEYS = Object.freeze([
+  ["preferredIntro", 800], ["expertise", 1500], ["topicsToDiscuss", 1500], ["topicsToAvoid", 1500], ["supportingLinks", 1500], ["additionalNotes", 2000]
+]);
+
 function sanitizeSpeakerFields(input, { profileMode = false } = {}) {
   const raw = input && typeof input === "object" ? input : {};
   const fields = {};
@@ -5933,10 +5959,20 @@ function sanitizeSpeakerFields(input, { profileMode = false } = {}) {
   if ("hiddenFields" in raw && Array.isArray(raw.hiddenFields)) {
     fields.hiddenFields = raw.hiddenFields.map((v) => sessionText(v, 60)).filter(Boolean).slice(0, 40);
   }
+  // Guest preparation: what the guest wants the host and producer to know. Plain text only, length-capped.
+  if ("prep" in raw && raw.prep && typeof raw.prep === "object") {
+    const prep = {};
+    for (const [key, max] of SPEAKER_PREP_KEYS) {
+      const value = sessionText(raw.prep[key], max);
+      if (value) prep[key] = value;
+    }
+    fields.prep = prep;
+  }
   // Organizer-only fields never reachable from the guest profile-submission path — includes the Peeps
   // bridge fields (Phase 10): a guest completing their own profile never gets to attach/change which
   // canonical Peeps person this speaker row is linked to, or why they were selected.
   if (!profileMode) {
+    if ("hostBackground" in raw) fields.hostBackground = sessionText(raw.hostBackground, 1500);
     if ("peepsPersonId" in raw) fields.peepsPersonId = sessionText(raw.peepsPersonId, 80) || null;
     if ("selectionReason" in raw) fields.selectionReason = sessionText(raw.selectionReason, 300);
   }
@@ -6032,18 +6068,22 @@ async function handleSpeakerInviteIssue(req, res, authSession) {
   const inviteUrl = `${APP_BASE_URL}/studio/speaker-invite.html?token=${token}`;
   const sessionRow = await db("session_get_public", { id: speaker.sessionId });
   const eventName = sessionRow.session?.title || "a Toasty session";
+  let emailed = false;
   if (EMAIL_PATTERN.test(speaker.email)) {
     // Same real transport as every other invite in this codebase (sendOrganizationInviteEmail) —
     // Resend when configured, console-logged dev transport otherwise. Never a second email system.
+    const briefing = sessionRow.session?.guestBriefing;
+    const briefingHtml = briefing ? `${briefing.intro ? `<p>${escapeHtml(briefing.intro).replace(/\n/g, "<br>")}</p>` : ""}${(briefing.sections || []).map((x) => `<h3>${escapeHtml(x.title)}</h3><p>${escapeHtml(x.body).replace(/\n/g, "<br>")}</p>`).join("")}` : "";
+    const when = sessionRow.session?.scheduledAt ? `<p>Planned for ${escapeHtml(sessionRow.session.scheduledAt.replace("T", " "))}.</p>` : "";
     await sendEmail({
       to: speaker.email,
-      subject: `You've been invited as a speaker for ${eventName}`,
-      html: `<p>You've been invited as a speaker for <strong>${escapeHtml(eventName)}</strong>.</p><p>Complete your speaker profile so your name, title, links, and on-screen information are accurate. No Toasty account is required.</p><p><a href="${inviteUrl}">${inviteUrl}</a></p><p>This link expires in 30 days.</p>`
-    }).catch((error) => console.error("[Toasty Email] speaker invite send failed", error));
+      subject: `Prepare for ${eventName}`,
+      html: `<p>You've been invited as a guest for <strong>${escapeHtml(eventName)}</strong>${sessionRow.session?.hostName ? ` with ${escapeHtml(sessionRow.session.hostName)}` : ""}.</p>${when}<p>Open your private preparation page to tell the host how you would like to be introduced, what you would like to talk about and anything to avoid. No Toasty account is required.</p><p><a href="${inviteUrl}">${inviteUrl}</a></p>${briefingHtml}<p>This link is personal to you and expires in 30 days. Only the host and producer see what you submit.</p>`
+    }).then(() => { emailed = true; }).catch((error) => console.error("[Toasty Email] speaker invite send failed", error));
   }
   // Raw token/URL is ALSO returned to the organizer (unlike the org-member invite flow) — a speaker may
   // not be checking email yet, and the organizer routinely hands this link over Slack/text directly.
-  sendJson(req, res, 201, { token, inviteUrl: `/studio/speaker-invite.html?token=${token}` });
+  sendJson(req, res, 201, { token, emailed, inviteUrl: `/studio/speaker-invite.html?token=${token}` });
 }
 
 async function handleSpeakerTechCheckLatest(req, res, authSession) {
@@ -6075,8 +6115,11 @@ async function handleSpeakerInviteGet(req, res) {
   // organizationId or which organization owns this session — only their own row plus the event title.
   const { organizationId, ...publicSpeaker } = speaker;
   const sessionRow = await db("session_get_public", { id: speaker.sessionId });
-  const event = sessionRow.session ? { title: sessionRow.session.title, brandId: sessionRow.session.brandId } : null;
-  sendJson(req, res, 200, { speaker: publicSpeaker, event });
+  const event = sessionRow.session ? { title: sessionRow.session.title, brandId: sessionRow.session.brandId, hostName: sessionRow.session.hostName || "", scheduledAt: sessionRow.session.scheduledAt || "", sessionType: sessionRow.session.sessionType || "" } : null;
+  // The host's private notes about this guest are for the host and producer only.
+  delete publicSpeaker.hostBackground;
+  delete publicSpeaker.selectionReason;
+  sendJson(req, res, 200, { speaker: publicSpeaker, event, briefing: sessionRow.session?.guestBriefing || null });
 }
 
 async function handleSpeakerInviteProfile(req, res) {
@@ -7971,7 +8014,7 @@ function solanaExplorerTxUrl(signature, network = TOASTY_SOLANA_NETWORK) {
   return `https://explorer.solana.com/tx/${encodeURIComponent(signature)}${cluster ? `?cluster=${cluster}` : ""}`;
 }
 
-async function verifyPeepsOnchainPayment({ signature, requestId, amount }) {
+async function verifyPeepsOnchainPayment({ signature, requestId, amount, reference = "" }) {
   if (!TOASTY_EXPERT_DISCOVERY_RECIPIENT) throw httpError(503, "On-chain payment verification isn't configured on this server.");
   const tx = await verifySolanaTransactionForIntent({ recipientWallet: TOASTY_EXPERT_DISCOVERY_RECIPIENT, asset: "USDC", cryptoAmount: amount, mintOverride: TOASTY_USDC_MINT }, signature);
   // Static keys plus any keys loaded from address lookup tables (versioned transactions).
@@ -7979,7 +8022,7 @@ async function verifyPeepsOnchainPayment({ signature, requestId, amount }) {
     ...(tx.transaction?.message?.accountKeys || []).map((entry) => (typeof entry === "string" ? entry : entry.pubkey)),
     ...(tx.meta?.loadedAddresses?.writable || []), ...(tx.meta?.loadedAddresses?.readonly || [])
   ];
-  if (!keys.includes(peepsPaymentReference(requestId))) throw httpError(400, "That transaction doesn't carry this request's payment reference, so it can't be applied to it.");
+  if (!keys.includes(reference || peepsPaymentReference(requestId))) throw httpError(400, "That transaction doesn't carry this request's payment reference, so it can't be applied to it.");
   // Payer = the owner whose USDC balance fell the most in this transaction (the account that actually
   // funded it). A relayer that only pays the fee is not the payer. Falls back to the fee payer.
   const owed = new Map();
@@ -7991,6 +8034,154 @@ async function verifyPeepsOnchainPayment({ signature, requestId, amount }) {
     slot: Number.isFinite(tx.slot) ? tx.slot : null,
     blockTime: Number.isFinite(tx.blockTime) ? new Date(tx.blockTime * 1000).toISOString() : null
   };
+}
+
+// ---- Paid Dub access (x402) ------------------------------------------------------------------------------------
+// The owner of a Dub chooses whether paid access is on and the price per access. An agent that calls the gateway
+// without payment gets an HTTP 402 and a one-use quote whose payment carries a unique reference key. Information is
+// released only after the server re-reads the transaction from the chain (right recipient, USDC mint, at least the
+// quoted amount, that quote's reference) and records the signature against that one quote. A claimed payment, a
+// reused signature or another quote's transaction never unlocks anything. Only entries the owner marked "paid" (and
+// public ones) are ever returned; private entries are not reachable from here.
+const DUB_ACCESS_MIN_USD = 0.01;
+const DUB_ACCESS_MAX_USD = 100;
+const DUB_ACCESS_QUOTE_TTL_MS = 15 * 60 * 1000;
+const DUB_ACCESS_VISIBILITIES = new Set(["public", "paid", "private"]);
+const dubAccessReference = (quoteId) => base58Encode(createHmac("sha256", SESSION_SECRET || "toasty-peeps").update(`dub-access-reference:${quoteId}`).digest());
+
+function normalizeDubAccessPrice(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const rounded = Math.round(n * 100) / 100;
+  if (Math.abs(n - rounded) > 1e-9 || rounded < DUB_ACCESS_MIN_USD || rounded > DUB_ACCESS_MAX_USD) return null;
+  return rounded;
+}
+
+function dubAccessRequirement(dubId, quote, reason) {
+  return {
+    status: 402,
+    error: "Payment Required",
+    reason,
+    provider: "toasty-peeps",
+    action: "dub-access",
+    paymentKind: "DUB_ACCESS",
+    purpose: "access to information this person has chosen to make available",
+    quoteId: quote.id,
+    expiresAt: quote.expiresAt,
+    accepts: [{
+      scheme: "exact",
+      network: TOASTY_SOLANA_NETWORK,
+      asset: "USDC",
+      amount: Number(quote.priceUsd).toFixed(2),
+      payTo: TOASTY_EXPERT_DISCOVERY_RECIPIENT,
+      tokenMint: TOASTY_USDC_MINT,
+      reference: dubAccessReference(quote.id)
+    }],
+    resource: { url: `/api/peeps/dubs/${dubId}/access` },
+    continueWith: `/api/peeps/dubs/${dubId}/access`,
+    howToContinue: "Pay the quoted amount in USDC to payTo with the reference account included in the transaction, then repeat this request with the headers X-Payment-Signature (the transaction signature) and X-Toasty-Quote (quoteId)."
+  };
+}
+
+function sendDubAccessRequirement(req, res, dubId, quote, reason, message = "") {
+  const requirement = { ...dubAccessRequirement(dubId, quote, reason), ...(message ? { message } : {}) };
+  setCors(req, res);
+  res.writeHead(402, {
+    "Content-Type": "application/json",
+    "X402-Payment-Required": "true",
+    "Payment-Required": Buffer.from(JSON.stringify(requirement)).toString("base64")
+  });
+  res.end(JSON.stringify(requirement));
+}
+
+async function issueDubAccessQuote(dubId, priceUsd) {
+  const quote = { id: newId("daq"), dubId, priceUsd, expiresAt: new Date(Date.now() + DUB_ACCESS_QUOTE_TTL_MS).toISOString() };
+  await db("dub_access_quote_create", quote);
+  return quote;
+}
+
+async function handleDubAccess(req, res, dubId) {
+  const info = await db("dub_access_public_get", { dubId });
+  if (!info.dub || !info.settings?.enabled || !(info.settings.priceUsd > 0)) throw httpError(404, "This Dub does not offer paid access.");
+  if (!TOASTY_EXPERT_DISCOVERY_RECIPIENT) throw httpError(503, "Paid access is not available on this server yet.");
+  const signature = String(req.headers["x-payment-signature"] || req.headers["payment-signature"] || "").trim();
+  const quoteId = String(req.headers["x-toasty-quote"] || "").trim();
+  if (!signature || !quoteId) {
+    sendDubAccessRequirement(req, res, dubId, await issueDubAccessQuote(dubId, info.settings.priceUsd), "payment_required");
+    return;
+  }
+  if (!SAFE_ID.test(quoteId)) throw httpError(400, "That quote id is not valid.");
+  const { quote } = await db("dub_access_quote_get", { id: quoteId, dubId });
+  if (!quote) throw httpError(404, "Quote not found for this Dub. Request a new quote first.");
+  const expired = quote.status !== "paid" && new Date(quote.expiresAt).getTime() < Date.now();
+  if (expired) {
+    sendDubAccessRequirement(req, res, dubId, await issueDubAccessQuote(dubId, info.settings.priceUsd), "quote_expired", "That quote has expired. Use the new quote.");
+    return;
+  }
+  let payerWallet = quote.payerWallet || null;
+  if (quote.status !== "paid") {
+    let chain;
+    try {
+      chain = await verifyPeepsOnchainPayment({ signature, requestId: quote.id, amount: quote.priceUsd, reference: dubAccessReference(quote.id) });
+    } catch (error) {
+      if (error.statusCode === 503) throw error;
+      sendDubAccessRequirement(req, res, dubId, quote, "payment_not_verified", error.message || "The payment could not be verified.");
+      return;
+    }
+    payerWallet = chain.payerWallet;
+  }
+  const settled = await db("dub_access_quote_settle", { id: quote.id, dubId, transactionSignature: signature, payerWallet, ownerUserId: info.dub.ownerUserId || null });
+  if (!settled.ok) {
+    const status = settled.reason === "signature_already_used" || settled.reason === "quote_already_paid" ? 409 : 402;
+    if (status === 402) { sendDubAccessRequirement(req, res, dubId, quote, settled.reason || "payment_not_verified"); return; }
+    throw httpError(409, "That payment has already been used for a different access.");
+  }
+  const { entries } = await db("dub_access_entries", { dubId });
+  sendJson(req, res, 200, {
+    ok: true,
+    dub: { id: info.dub.id, displayName: info.dub.displayName },
+    payment: { amount: quote.priceUsd, currency: "USDC", network: TOASTY_SOLANA_NETWORK, transactionSignature: signature, explorerUrl: solanaExplorerTxUrl(signature), idempotent: Boolean(settled.idempotent) },
+    access: { entries: (entries || []).map((e) => ({ kind: e.kind, statement: e.statement, evidenceClass: e.evidenceClass, topics: e.topics, tier: e.visibility })) }
+  });
+}
+
+async function handleDubAccessOwnerGet(req, res, session) {
+  const result = await db("dub_access_owner_get", { userId: session.id });
+  if (!result.dub) throw httpError(404, "You don't have a Dub yet.");
+  sendJson(req, res, 200, {
+    dub: { id: result.dub.id, displayName: result.dub.displayName },
+    settings: result.settings,
+    entries: result.entries.map((e) => ({ id: e.id, statement: e.statement, kind: e.kind, visibility: e.visibility })),
+    paidAccesses: result.paidAccesses,
+    limits: { minUsd: DUB_ACCESS_MIN_USD, maxUsd: DUB_ACCESS_MAX_USD },
+    paymentsConfigured: Boolean(TOASTY_EXPERT_DISCOVERY_RECIPIENT),
+    network: TOASTY_SOLANA_NETWORK
+  });
+}
+
+async function handleDubAccessOwnerSet(req, res, session) {
+  const owner = await db("dub_access_owner_get", { userId: session.id });
+  if (!owner.dub) throw httpError(404, "You don't have a Dub yet.");
+  const body = await readJson(req);
+  const enabled = Boolean(body.enabled);
+  const price = normalizeDubAccessPrice(body.priceUsd);
+  if (enabled && price === null) throw httpError(400, `Choose a price between $${DUB_ACCESS_MIN_USD.toFixed(2)} and $${DUB_ACCESS_MAX_USD} in whole cents.`);
+  if (enabled && !TOASTY_EXPERT_DISCOVERY_RECIPIENT) throw httpError(503, "Paid access is not available on this server yet.");
+  await db("dub_access_set", { dubId: owner.dub.id, enabled, priceUsd: price === null ? owner.settings.priceUsd : price });
+  sendJson(req, res, 200, { settings: { enabled, priceUsd: price === null ? owner.settings.priceUsd : price } });
+}
+
+async function handleDubAccessEntryVisibility(req, res, session) {
+  const entryId = decodeURIComponent(req.url.slice("/api/peeps/me/dub-access/entries/".length)).split("?")[0];
+  if (!SAFE_ID.test(entryId)) throw httpError(400, "Invalid entry id.");
+  const owner = await db("dub_access_owner_get", { userId: session.id });
+  if (!owner.dub) throw httpError(404, "You don't have a Dub yet.");
+  const body = await readJson(req);
+  const visibility = String(body.visibility || "");
+  if (!DUB_ACCESS_VISIBILITIES.has(visibility)) throw httpError(400, "Visibility must be public, paid or private.");
+  const result = await db("dub_access_entry_visibility", { dubId: owner.dub.id, entryId, visibility });
+  if (!result.ok) throw httpError(404, "Entry not found.");
+  sendJson(req, res, 200, { ok: true, visibility });
 }
 
 function sendPeepsIntroductionPaymentRequirement(req, res, reason, requestId = "") {
@@ -12288,7 +12479,7 @@ function setCors(req, res) {
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Toasty-Render-Token, X-Toasty-CSRF, X-Toasty-Recording, X-Payment-Signature, X-Solana-Transaction-Signature, X-Payment-Asset, X-Payment-Amount");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Toasty-Render-Token, X-Toasty-CSRF, X-Toasty-Recording, X-Payment-Signature, X-Solana-Transaction-Signature, X-Payment-Asset, X-Payment-Amount, X-Toasty-Quote, Payment-Signature");
   res.setHeader("Access-Control-Max-Age", "86400");
   return true;
 }
