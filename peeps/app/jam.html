@@ -252,6 +252,8 @@ if (!jamId) {
   $("jamObjective").textContent = "Open a Jam from My Jams.";
 } else {
   load().catch((error) => { $("jamTitle").textContent = "Could not load this Jam"; $("jamObjective").textContent = error.message || ""; });
+  // Organizer controls for optional human presence checks. Inert unless the server enables the feature.
+  import("../../js/human-presence-ui.js").then((m) => m.mountHostPanel({ kind: "jam", id: jamId })).catch(() => null);
 }
 </script>
 </body></html>

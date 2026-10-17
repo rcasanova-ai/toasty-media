@@ -349,6 +349,8 @@ async function joinStudio() {
     company: guestCompany
   });
   state.presence.setMediaState({ micEnabled: !state.micMuted, cameraEnabled: !state.cameraOff });
+  // Optional host requested human presence check. Inert unless the server enables it; never blocks the session.
+  import("./human-presence-ui.js").then((m) => m.mountParticipantPrompt({ roomId: state.roomId, participantId: state.participantId })).catch(() => null);
   state.presence.onRosterChange((roster) => {
     renderRemoteParticipants(roster);
     const liveBrandId = state.presence?.brandId;

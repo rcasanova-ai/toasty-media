@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { lookup as dnsLookup } from "node:dns/promises";
+import { createHumanPresence } from "./human-presence/routes.mjs";
 import { isIPv4, isIPv6 } from "node:net";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -265,6 +266,21 @@ function loadLocalEnv() {
   }
 }
 
+const humanPresence = createHumanPresence({
+  db: (...args) => db(...args),
+  readSession: (...args) => readSession(...args),
+  sendJson: (...args) => sendJson(...args),
+  readJson: (...args) => readJson(...args),
+  httpError: (...args) => httpError(...args),
+  limit: (...args) => limit(...args),
+  requireCsrf: (...args) => requireCsrf(...args),
+  newId: (...args) => newId(...args),
+  SAFE_ID: /^[a-z0-9][a-z0-9._-]{0,80}$/i,
+  loadLiveJamInvite: (...args) => loadLiveJamInvite(...args),
+  requireOwnedJam: (...args) => requireOwnedJam(...args),
+  sessionSecret: SESSION_SECRET
+});
+
 const server = createServer(async (req, res) => {
   try {
   if (!setCors(req, res)) {
@@ -280,6 +296,8 @@ const server = createServer(async (req, res) => {
     sendJson(req, res, 200, { ok: true, authConfigured: authConfigured() });
     return;
   }
+  // Human Presence Verification: inert (404) unless HUMAN_PRESENCE_ENABLED=1. See scripts/human-presence/.
+  if (req.url?.includes("human-presence") && (await humanPresence.handle(req, res))) return;
   if (req.method === "GET" && req.url === "/auth/session") {
     const session = await readSession(req);
     sendJson(req, res, 200, {
@@ -2004,6 +2022,7 @@ if (process.env.TOASTY_DISABLE_MATEO_BOOTSTRAP !== "1") await ensureMateoCreator
 
 server.listen(PORT, HOST, () => {
   console.log(`Toasty render helper listening on http://${HOST}:${PORT}`);
+  humanPresence.startRetentionSweep();
 });
 
 // AI Producer proxy — the ONLY place either API key is used. The browser (js/ai-producer.js's
@@ -10915,7 +10934,7 @@ function peepsBreadcrumbView(b, { forOrganizer = false } = {}) {
 }
 
 async function peepsReviewBreadcrumb(breadcrumb, { action, statement, userId }) {
-  if (breadcrumb.kind === "participation") throw httpError(409, "This is a system-recorded fact and doesn't need review.");
+  if (breadcrumb.kind === "participation" || breadcrumb.kind === "presence_check") throw httpError(409, "This is a system-recorded fact and doesn't need review.");
   if (!["accept", "correct", "reject"].includes(action)) throw httpError(400, "Choose accept, correct or reject.");
   const now = new Date().toISOString();
   void now;
