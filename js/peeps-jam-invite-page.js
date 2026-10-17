@@ -184,6 +184,8 @@ async function init() {
   updateJoinEnabled();
   startPreview();
   acceptJamInvite(token).catch(() => {});
+  // Optional organizer requested human presence check before the session. Inert unless the server enables it.
+  import("./human-presence-ui.js").then((m) => m.mountParticipantPrompt({ jamId: jam.id, invite: token })).catch(() => null);
   if (jam.organizationId) {
     ensureOrgTheme(`org:${jam.organizationId}`)
       .then((theme) => { if (theme) applyBrandTheme(theme.id, { logoImg: $("brandLogo") }); })

@@ -31,6 +31,8 @@ function hideElement(el) {
 }
 
 const session = new LiveSession();
+// Host controls for optional human presence checks. Inert unless the server enables the feature.
+import("./human-presence-ui.js").then((m) => m.mountHostPanel(() => (session.durableSession?.id ? { kind: "session", id: session.durableSession.id } : null))).catch(() => null);
 let goLivePanel = null;
 // Dev diagnostics only — never rendered in Host/Producer UI. In devtools: session.aiProducerService.diagnostics()
 // for the speech-complete -> result-rendered latency breakdown of recent AI Producer requests.

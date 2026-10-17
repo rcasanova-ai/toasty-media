@@ -3568,6 +3568,16 @@ def main():
     conn = connect(db_path)
     migrate(conn)
 
+    # Human Presence Verification keeps its own tables and atomic operations in scripts/human-presence/store.py.
+    if action.startswith("hp_") or action == "migrate":
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "human-presence"))
+        import store as presence_store
+        conn.commit()
+        presence_store.migrate(conn)
+        if action.startswith("hp_"):
+            print(json.dumps(presence_store.handle(conn, action, payload)))
+            return
+
     if action == "migrate":
         print(json.dumps({"ok": True}))
         return
@@ -4433,6 +4443,7 @@ def main():
     if action == "session_get_by_room":
         row = conn.execute("SELECT * FROM live_sessions WHERE room_id = ?", (payload["roomId"],)).fetchone()
         print(json.dumps({
+            "sessionId": row["id"] if row else None,
             "status": row["status"] if row else None,
             "brandId": row["brand_id"] if row else None,
             "organizationId": (row["organization_id"] if _row_has(row, "organization_id") else None) if row else None,

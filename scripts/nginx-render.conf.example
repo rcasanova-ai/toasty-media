@@ -132,6 +132,33 @@ server {
         proxy_send_timeout 20s;
     }
 
+    # Human Presence Verification participant and receipt routes (inert 404 unless HUMAN_PRESENCE_ENABLED=1).
+    # The pending check polls every few seconds per participant, so this uses the presence zone, not the
+    # 6r/m render zone. Node's per-route limit() calls and the invite/session binding are the real boundary.
+    location ~ ^/api/human-presence/(config|pending|consent|challenge|respond|delete|receipts/verify)$ {
+        limit_req zone=toasty_presence burst=20 nodelay;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 20s;
+        proxy_send_timeout 20s;
+    }
+
     location = /api/sessions {
         # LiveSession management (create/list) — Producer-authenticated via the same toasty_session cookie
         # as /auth/*, so needs Allow-Credentials + the CSRF header allowlisted the same way. Human-triggered
@@ -371,7 +398,7 @@ server {
     # rejected a nested-optional-group version of a pattern like this once (see the /api/sessions/ block
     # above's own comment); keep these flat.
 
-    location ~ "^/api/sessions/[a-zA-Z0-9._-]+/(plan|speakers|sponsors|sponsor-moments|consent|landing-page|landing-page/publish|landing-page/unpublish|audience/events|audience/summary|campaign-links|ai-usage|moxie/readiness-summary|moxie/speaker-briefing|moxie/session-research|moxie/audience-insights|moxie/post-event-suggestions|artifacts|jam)$" {
+    location ~ "^/api/sessions/[a-zA-Z0-9._-]+/(plan|speakers|sponsors|sponsor-moments|consent|landing-page|landing-page/publish|landing-page/unpublish|audience/events|audience/summary|campaign-links|ai-usage|moxie/readiness-summary|moxie/speaker-briefing|moxie/session-research|moxie/audience-insights|moxie/post-event-suggestions|artifacts|jam|human-presence|human-presence/requests|human-presence/cancel)$" {
         # Same organizer-authenticated shape as the /api/sessions/ block above — one block covering every
         # new session sub-resource route rather than one location per route.
         limit_req zone=toasty_settings burst=20 nodelay;
