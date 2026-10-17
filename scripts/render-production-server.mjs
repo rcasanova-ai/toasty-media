@@ -11,7 +11,6 @@ import { fileURLToPath } from "node:url";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { lookup as dnsLookup } from "node:dns/promises";
-import { createHumanPresence } from "./human-presence/routes.mjs";
 import { isIPv4, isIPv6 } from "node:net";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -266,7 +265,14 @@ function loadLocalEnv() {
   }
 }
 
-const humanPresence = createHumanPresence({
+// The render host's deploy copies only this file and toasty-auth-db.py, so the feature module may be absent
+// there. Load it optionally: a missing directory leaves the feature off instead of crashing the service.
+let createHumanPresence = null;
+try { ({ createHumanPresence } = await import("./human-presence/routes.mjs")); } catch (error) {
+  if (error?.code !== "ERR_MODULE_NOT_FOUND") throw error;
+  console.warn("[human-presence] module not installed on this host; feature disabled.");
+}
+const humanPresence = createHumanPresence ? createHumanPresence({
   db: (...args) => db(...args),
   readSession: (...args) => readSession(...args),
   sendJson: (...args) => sendJson(...args),
@@ -279,7 +285,7 @@ const humanPresence = createHumanPresence({
   loadLiveJamInvite: (...args) => loadLiveJamInvite(...args),
   requireOwnedJam: (...args) => requireOwnedJam(...args),
   sessionSecret: SESSION_SECRET
-});
+}) : { handle: async () => false, startRetentionSweep() {} };
 
 const server = createServer(async (req, res) => {
   try {
