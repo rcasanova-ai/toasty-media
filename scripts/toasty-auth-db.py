@@ -3569,14 +3569,25 @@ def main():
     migrate(conn)
 
     # Human Presence Verification keeps its own tables and atomic operations in scripts/human-presence/store.py.
+    # Imported lazily and guarded so a host that has this helper but not that directory keeps working for every
+    # other action; only hp_* actions need it.
     if action.startswith("hp_") or action == "migrate":
         sys.path.insert(0, str(Path(__file__).resolve().parent / "human-presence"))
-        import store as presence_store
-        conn.commit()
-        presence_store.migrate(conn)
+        try:
+            import store as presence_store
+        except ImportError:
+            presence_store = None
         if action.startswith("hp_"):
+            if presence_store is None:
+                print(json.dumps({"error": "db_error", "detail": "human presence store is not installed"}))
+                return
+            conn.commit()
+            presence_store.migrate(conn)
             print(json.dumps(presence_store.handle(conn, action, payload)))
             return
+        if presence_store is not None:
+            conn.commit()
+            presence_store.migrate(conn)
 
     if action == "migrate":
         print(json.dumps({"ok": True}))
