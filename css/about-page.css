@@ -15,7 +15,9 @@
 .about-book h3 { font-size: 1.1rem; margin: .1rem 0 .4rem; min-height: 2.6em; line-height: 1.3; }
 .about-book p { margin: 0; color: var(--text-2); font-size: .94rem; }
 .about-projects { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: var(--s-4); }
-.about-project { grid-column: span 2; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--ink-1); padding: var(--s-4); display: flex; flex-direction: column; gap: var(--s-2); min-height: 11rem; }
+.about-project { grid-column: span 2; border: 1px solid var(--line); border-radius: var(--r-2); background: var(--ink-1); padding: var(--s-4); display: flex; flex-direction: column; gap: var(--s-2); min-height: 11rem; text-decoration: none; color: var(--text-1); transition: border-color .2s ease, background .2s ease; }
+.about-project:hover { border-color: var(--orange-strong); background: var(--ink-2); }
+.about-project:focus-visible { outline: 2px solid var(--orange-strong); outline-offset: 4px; }
 .about-project:nth-child(4) { grid-column: 2 / span 2; }
 .about-project:nth-child(5) { grid-column: 4 / span 2; }
 .about-project h3 { font-size: var(--fs-3); margin: 0; }
@@ -47,8 +49,6 @@
 .honour h3 { font-size: 1.15rem; line-height: 1.3; margin: 0 0 var(--s-2); }
 .honour p:last-child { margin: 0; color: var(--text-2); font-size: .94rem; }
 
-/* Portfolio identity */
-.about-project__brand { height: 6.5rem; display: flex; align-items: center; justify-content: center; padding: .6rem; border-radius: var(--r-1); text-decoration: none; background: rgba(255,255,255,.035); border: 1px solid var(--line); transition: background .2s ease, border-color .2s ease; }
-.about-project__brand:hover, .about-project__brand:focus-visible { background: rgba(255,255,255,.075); border-color: var(--line-strong); }
-.about-project__brand img { width: 100%; max-width: 15rem; height: 100%; object-fit: contain; }
-.about-project__brand--type span { font-size: clamp(1.25rem, 2vw, 1.7rem); line-height: 1.1; text-align: center; font-weight: 700; letter-spacing: -.035em; color: var(--text-1); }
+/* Portfolio identity: a shared, generous canvas with uncropped artwork. */
+.about-project__brand { height: 11rem; display: flex; align-items: center; justify-content: center; padding: .6rem; border-radius: var(--r-1); background: rgba(255,255,255,.035); border: 1px solid var(--line); }
+.about-project__brand img { display: block; width: 100%; max-width: 18rem; height: 100%; object-fit: contain; }
