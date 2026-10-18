@@ -11578,7 +11578,8 @@ async function handleStudioWaitlistUnsubscribe(req, res) {
 }
 
 const WAITLIST_STATS_TOKEN = process.env.TOASTY_WAITLIST_STATS_TOKEN || "";
-const SANTATI_WAITLIST_PING_URL = process.env.SANTATI_WAITLIST_PING_URL || "https://santaticrm.com/crm-api.php";
+// Opt-in: set SANTATI_WAITLIST_PING_URL (e.g. https://santaticrm.com/crm-api.php) in /etc/toasty-render.env. Unset = no ping (tests, dev).
+const SANTATI_WAITLIST_PING_URL = process.env.SANTATI_WAITLIST_PING_URL || "";
 
 async function handleWaitlistStats(req, res) {
   if (WAITLIST_STATS_TOKEN.length < 32) return sendJson(req, res, 503, { error: "Waitlist stats are not configured." });
@@ -11598,6 +11599,7 @@ async function handleWaitlistStats(req, res) {
 // Tells Santati "a signup was just persisted" so its dashboard sweep can send the owner notification right away.
 // Carries no data, never blocks or fails the signup, and Santati's sweep is idempotent and also runs on its own.
 function pingSantatiWaitlist() {
+  if (!SANTATI_WAITLIST_PING_URL) return;
   try {
     fetch(SANTATI_WAITLIST_PING_URL, {
       method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "Mozilla/5.0 ToastyRender/1.0" }, body: JSON.stringify({ action: "waitlist_sweep_ping" }),
