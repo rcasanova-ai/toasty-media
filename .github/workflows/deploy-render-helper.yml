@@ -24,6 +24,7 @@ on:
       - "scripts/recording-jobs-server-test.mjs"
       - "scripts/recording-recovery-test.mjs"
       - "scripts/studio-waitlist-server-test.mjs"
+      - "scripts/waitlist-stats-server-test.mjs"
       - ".github/workflows/deploy-render-helper.yml"
 
 concurrency:
@@ -150,6 +151,8 @@ jobs:
           REMOTE
 
       - name: Sync helper and Node server if hashes differ
+        env:
+          WL_TOKEN: ${{ secrets.TOASTY_WAITLIST_STATS_TOKEN }}
         run: |
           set -euo pipefail
           LOCAL_HELPER_HASH="$(sha256sum scripts/toasty-auth-db.py | awk '{print $1}')"
@@ -273,6 +276,12 @@ jobs:
           ENVSCRIPT
           )"
           echo "env flags changed: $ENV_CHANGED"
+          # ---- Santati waitlist dashboard: stats token + opt-in signup ping. Idempotent; the token never appears in logs or argv. ----
+          if [[ -n "${WL_TOKEN:-}" ]]; then
+            WL_CHANGED="$(printf '%s\n' "$WL_TOKEN" | ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 'set -euo pipefail; read -r T; F=/etc/toasty-render.env; [[ -f "$F" ]] || { echo NOFILE; exit 0; }; changed=no; upsert() { if grep -qxF "$1=$2" "$F"; then return 0; fi; { grep -v "^$1=" "$F" || true; } > "$F.tmp"; cat "$F.tmp" > "$F"; rm -f "$F.tmp"; if [[ -n "$(tail -c1 "$F")" ]]; then echo >> "$F"; fi; echo "$1=$2" >> "$F"; changed=yes; }; upsert TOASTY_WAITLIST_STATS_TOKEN "$T"; upsert SANTATI_WAITLIST_PING_URL https://santaticrm.com/crm-api.php; echo "$changed"')"
+            echo "waitlist env changed: $WL_CHANGED"
+            if [[ "$WL_CHANGED" == "yes" ]]; then NEED_RESTART=true; fi
+          fi
           if [[ "$ENV_CHANGED" == "yes" ]]; then NEED_RESTART=true; fi
           if [[ "$NEED_RESTART" == "true" ]]; then
             ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "set -euo pipefail; systemctl restart toasty-render.service; systemctl is-active toasty-render.service"
