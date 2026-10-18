@@ -8194,6 +8194,24 @@ def main():
         print(json.dumps({"entry": public_studio_waitlist(conn.execute("SELECT * FROM studio_waitlist WHERE id = ?", (payload["id"],)).fetchone())}))
         return
 
+    # Read-only per-source counts for the Santati consolidated waitlist dashboard (counts are exact SQL COUNTs).
+    # Cutoffs are ISO strings computed by the caller; created_at is stored as UTC isoformat so string comparison is chronological.
+    if action == "waitlist_stats":
+        table = {"studio": "studio_waitlist", "peeps": "peeps_waitlist"}.get(str(payload.get("brand") or ""))
+        if not table:
+            print(json.dumps({"error": "bad_brand"}))
+            return
+        limit_n = max(1, min(100, int(payload.get("limit") or 25)))
+        offset_n = max(0, int(payload.get("offset") or 0))
+        total = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        last7 = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE created_at >= ?", (str(payload.get("since7") or ""),)).fetchone()[0]
+        last30 = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE created_at >= ?", (str(payload.get("since30") or ""),)).fetchone()[0]
+        last = conn.execute(f"SELECT MAX(created_at) FROM {table}").fetchone()[0]
+        rows = conn.execute(f"SELECT id, name, email, created_at, consent_at, consent_withdrawn_at FROM {table} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?", (limit_n, offset_n)).fetchall()
+        print(json.dumps({"total": total, "last7": last7, "last30": last30, "lastSignupAt": last, "entries": [
+            {"id": r["id"], "name": r["name"], "email": r["email"], "createdAt": r["created_at"], "consent": bool(r["consent_at"]) and not r["consent_withdrawn_at"]} for r in rows]}))
+        return
+
     if action == "studio_waitlist_list":
         limit_n = max(1, min(5000, int(payload.get("limit") or 1000)))
         rows = conn.execute("SELECT * FROM studio_waitlist ORDER BY created_at DESC LIMIT ?", (limit_n,)).fetchall()
