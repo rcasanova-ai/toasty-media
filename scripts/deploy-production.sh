@@ -26,6 +26,7 @@ fi
 FULL_PATHS=(
   ".htaccess"
   "index.html"
+  "about"
   "site"
   "ricardo"
   "studio"
