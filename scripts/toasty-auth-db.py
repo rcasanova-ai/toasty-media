@@ -2251,7 +2251,12 @@ def ensure_columns(conn, table, columns):
     existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     for name, definition in columns.items():
         if name not in existing:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+            try:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+            except sqlite3.OperationalError as error:
+                # Two helper processes can both see the column missing; the loser must not fail the request.
+                if "duplicate column name" not in str(error).lower():
+                    raise
 
 
 def user_end_card(row):
