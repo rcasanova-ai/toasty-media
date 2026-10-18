@@ -327,12 +327,42 @@ async function testProviderGate() {
   } finally { s.child.kill(); }
 }
 
+// ------------------------------------------------------------------ admin only test mode
+async function testAdminOnly() {
+  console.log("\nAdmin only test mode");
+  for (const [port, env, expectNonAdmin] of [[4335, {}, 404], [4336, { HUMAN_PRESENCE_ADMIN_ONLY: "0" }, 201]]) {
+    const s = start(port, { HUMAN_PRESENCE_ENABLED: "1", ...env });
+    try {
+      await waitForHealth(s.base);
+      const call = client(s.base);
+      const admin = await call("/auth/register", { method: "POST", body: { name: "Founder", email: "founder@example.com", password: "password10chars" } });
+      const user = await call("/auth/register", { method: "POST", body: { name: "Regular", email: "regular@example.com", password: "password10chars" } });
+      const mk = async (who, roomId) => {
+        const created = await call("/api/sessions", { method: "POST", cookie: who.cookie, body: { roomId, title: roomId } });
+        await call("/api/presence/announce", { method: "POST", body: { roomId, participantId: "guest-x", role: "guest", displayName: "G" } });
+        return created.data.session.id;
+      };
+      const adminSid = await mk(admin, `hpadmin${port}`);
+      const userSid = await mk(user, `hpuser${port}`);
+      const cfg = await call("/api/human-presence/config");
+      assert(cfg.data.adminOnly === (expectNonAdmin === 404), `config reports adminOnly=${expectNonAdmin === 404}`);
+      const a = await call(`/api/sessions/${adminSid}/human-presence/requests`, { method: "POST", cookie: admin.cookie, body: { participantId: "guest-x" } });
+      assert(a.status === 201, "a platform admin can request a check");
+      const u = await call(`/api/sessions/${userSid}/human-presence/requests`, { method: "POST", cookie: user.cookie, body: { participantId: "guest-x" } });
+      assert(u.status === expectNonAdmin, `a regular account gets ${expectNonAdmin} for its own session`);
+      const read = await call(`/api/sessions/${userSid}/human-presence`, { cookie: user.cookie });
+      assert(read.status === (expectNonAdmin === 404 ? 404 : 200), "regular account reads follow the same gate");
+    } finally { s.child.kill(); }
+  }
+}
+
 try {
   await testDisabled();
   const ctx = await testEnabled();
   ctx.s.child.kill();
   await testJam();
   await testProviderGate();
+  await testAdminOnly();
   console.log("\nAll human presence server checks passed.");
 } catch (error) {
   console.error(error.message);

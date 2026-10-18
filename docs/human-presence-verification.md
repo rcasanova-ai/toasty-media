@@ -25,7 +25,15 @@ Status: first functional version, **disabled by default**. This is presence assu
 | `HUMAN_PRESENCE_RECEIPT_KEYS=kid:secret,...` | Receipt signing keys, first one signs, the rest only verify. Defaults to a key derived from `TOASTY_SESSION_SECRET`. |
 | `HUMAN_PRESENCE_RETENTION_DAYS`, `HUMAN_PRESENCE_AUDIT_RETENTION_DAYS` | Retention. |
 
-Operational note: nginx does not deploy automatically. `scripts/nginx-render.conf.example` has the new `/api/human-presence/*` block and the session sub-route additions; they must be applied on the host before enabling the flag.
+| `HUMAN_PRESENCE_ADMIN_ONLY` | Defaults to on: only platform admins can request or read checks. Set `0` to open the host controls to every account. |
+
+### Deployment (automatic)
+
+`.github/workflows/deploy-render-helper.yml` runs on every merge to main that touches the feature. It runs the presence and nginx tests, copies `scripts/human-presence/` to the render host (tree hash compared, previous copy backed up), makes sure the three flags exist in `/etc/toasty-render.env` in admin only mode (it only appends missing keys, so a value set by hand is never overridden), restarts the service, then syncs the marked `toasty-managed` blocks of `scripts/nginx-render.conf.example` into the live nginx config (`nginx -t`, reload, automatic rollback; `scripts/sync-nginx-managed-block.py`) and verifies the routes. Edit nginx routes only inside the `BEGIN/END toasty-managed:human-presence` markers in the repo.
+
+### Admin only test mode
+
+Participants only poll for checks when their link carries `?hp=1`, so ordinary guests never make presence requests. To test: sign in as the platform admin, open the Director page, join as a guest with `...guest.html?room=...&hp=1`, open the "Human presence" panel and request a check. For Peeps, open the Jam page as the organizer and have the participant open their invite with `&hp=1`.
 
 ## Adding a deepfake or liveness provider later
 
@@ -36,7 +44,7 @@ Implement `{ id, version, trusted, verify({ challenge, evidence, elapsedMs }) }`
 - No liveness analysis exists, so no check can ever pass. Statuses top out at `inconclusive`.
 - On device signals are weak, trivially spoofable hints and are deliberately not used for any decision.
 - Studio guests have no account. A guest is identified by room and participant id and must be present in the room roster; this is the existing Studio trust model. Jam participants are bound to their invite token, which is stronger.
-- A browser that already holds the camera for the session (some phones) may refuse a second capture; the dialog then offers cancel and never interrupts the session.
+- Camera reuse: the check borrows a live stream the page already holds (the Jam lobby preview, the Studio check-in preview) and never opens a second capture, stops or replaces its tracks. Once a Studio guest has joined, the camera lives inside VDO.Ninja's cross origin iframe, which exposes no stream or frame API to the page (confirmed against the VDO.Ninja IFRAME API docs), so it cannot be reused. Then: on a computer the guest can click "Use a separate capture"; on a phone no second capture is attempted (it can interrupt the live camera) and the guest is told to ask the host for a check before joining or to use a computer. Studio guests are not in the room roster until they join, so a pre-join Studio check is not possible; Jam participants can be checked in the lobby.
 - The camera and microphone capture path was not exercised with real devices in automated tests. The protocol, server, storage and UI states are tested.
 - Virtual camera and injected media detection is limited to a self reported flag.
 - Accessibility: participants can decline; hosts must have an alternative way to verify (not built).

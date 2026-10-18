@@ -3,7 +3,10 @@ name: Deploy render helper and Node server
 # Copies scripts/toasty-auth-db.py AND scripts/render-production-server.mjs onto the
 # Ubuntu render host, then restarts toasty-render if either hash changed.
 # Presence/control-plane routes live in the Node server; Python alone cannot ship them.
-# Does not touch the SQLite DB, environment file, nginx, or broadcast.
+# Also ships the scripts/human-presence/ feature directory (hash-compared, backed up) and syncs the repo's
+# marked "toasty-managed" nginx blocks into the live nginx config (nginx -t, reload, automatic rollback), then
+# makes sure the human presence flags exist in the service env file in admin only test mode (never overriding a
+# value someone already set). Does not touch the SQLite DB, broadcast, or any other part of the env file.
 on:
   workflow_dispatch:
   push:
@@ -11,6 +14,10 @@ on:
     paths:
       - "scripts/toasty-auth-db.py"
       - "scripts/render-production-server.mjs"
+      - "scripts/human-presence/**"
+      - "scripts/nginx-render.conf.example"
+      - "scripts/sync-nginx-managed-block.py"
+      - "scripts/locate-nginx-config.sh"
       - "scripts/creator-broadcast-test.mjs"
       - "scripts/studio-broadcast-server-test.mjs"
       - "scripts/studio-mode-model-test.mjs"
@@ -98,6 +105,14 @@ jobs:
           set -euo pipefail
           node scripts/peeps-waitlist-server-test.mjs
           node scripts/peeps-zcash-settlement-server-test.mjs
+
+      - name: Validate human presence feature and managed nginx sync
+        run: |
+          set -euo pipefail
+          node scripts/human-presence-core-test.mjs
+          node scripts/human-presence-server-test.mjs
+          node scripts/nginx-managed-block-test.mjs
+          node scripts/nginx-route-coverage-test.mjs
 
       - name: Configure SSH
         env:
@@ -226,6 +241,39 @@ jobs:
           else
             echo "Node hashes already match."
           fi
+          # ---- Human presence feature directory (imported by render-production-server.mjs) ----
+          REMOTE_DIR="$(dirname "$REMOTE_NODE")/human-presence"
+          LOCAL_HP_HASH="$(cd scripts/human-presence && find . -type f \( -name '*.mjs' -o -name '*.py' \) | sort | xargs sha256sum | sha256sum | awk '{print $1}')"
+          REMOTE_HP_HASH="$(ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "if [[ -d '$REMOTE_DIR' ]]; then cd '$REMOTE_DIR' && find . -type f \\( -name '*.mjs' -o -name '*.py' \\) | sort | xargs sha256sum | sha256sum | awk '{print \$1}'; else echo MISSING; fi")"
+          echo "REMOTE_HP_DIR=$REMOTE_DIR" >> "$GITHUB_ENV"
+          echo "LOCAL_HP_HASH=$LOCAL_HP_HASH" >> "$GITHUB_ENV"
+          if [[ "$REMOTE_HP_HASH" != "$LOCAL_HP_HASH" ]]; then
+            echo "Human presence dir differs (remote=$REMOTE_HP_HASH local=$LOCAL_HP_HASH). Copying."
+            ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "set -euo pipefail; if [[ -d '$REMOTE_DIR' ]]; then cp -a '$REMOTE_DIR' '$REMOTE_DIR.bak-$STAMP'; fi; mkdir -p '$REMOTE_DIR'"
+            tar -C scripts/human-presence --exclude=__pycache__ -cf - . | ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "set -euo pipefail; tar -C '$REMOTE_DIR' -xf -"
+            NEED_RESTART=true
+          else
+            echo "Human presence dir already matches."
+          fi
+          # ---- Service env: human presence flags, admin only test mode. Only appends keys that are absent. ----
+          ENV_CHANGED="$(ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 'bash -s' <<'ENVSCRIPT'
+          set -euo pipefail
+          F=/etc/toasty-render.env
+          if [[ ! -f "$F" ]]; then echo "NOFILE"; exit 0; fi
+          changed=no
+          for kv in HUMAN_PRESENCE_ENABLED=1 HUMAN_PRESENCE_ADMIN_ONLY=1 HUMAN_PRESENCE_PEEPS_ENABLED=1; do
+            k="${kv%%=*}"
+            if ! grep -qE "^${k}=" "$F"; then
+              [[ -n "$(tail -c1 "$F")" ]] && echo >> "$F"
+              echo "$kv" >> "$F"
+              changed=yes
+            fi
+          done
+          echo "$changed"
+          ENVSCRIPT
+          )"
+          echo "env flags changed: $ENV_CHANGED"
+          if [[ "$ENV_CHANGED" == "yes" ]]; then NEED_RESTART=true; fi
           if [[ "$NEED_RESTART" == "true" ]]; then
             ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "set -euo pipefail; systemctl restart toasty-render.service; systemctl is-active toasty-render.service"
             echo "copied=true" >> "$GITHUB_ENV"
@@ -245,6 +293,10 @@ jobs:
           echo "local  node   sha256=$LOCAL_NODE_HASH"
           test "$REMOTE_HELPER_HASH" = "$LOCAL_HELPER_HASH"
           test "$REMOTE_NODE_HASH" = "$LOCAL_NODE_HASH"
+          REMOTE_HP_NOW="$(ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "cd '$REMOTE_HP_DIR' && find . -type f \\( -name '*.mjs' -o -name '*.py' \\) | sort | xargs sha256sum | sha256sum | awk '{print \$1}'")"
+          echo "remote human-presence tree sha256=$REMOTE_HP_NOW"
+          echo "local  human-presence tree sha256=$LOCAL_HP_HASH"
+          test "$REMOTE_HP_NOW" = "$LOCAL_HP_HASH"
           if ! curl --retry 5 --retry-delay 2 --retry-all-errors --fail --silent --show-error https://render.toasty.media/health; then
             echo "===== toasty-render journal ====="
             ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 'journalctl -u toasty-render.service -n 120 --no-pager || true; systemctl status toasty-render.service --no-pager || true'
@@ -256,3 +308,70 @@ jobs:
           systemctl_status="$(ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 'systemctl is-active toasty-render.service')"
           echo "service=$systemctl_status"
           test "$systemctl_status" = "active"
+
+      - name: Locate the live nginx config for render.toasty.media
+        id: locate
+        run: |
+          set -euo pipefail
+          scp -P 22 -i ~/.ssh/toasty_render_deploy -o BatchMode=yes scripts/locate-nginx-config.sh "root@165.22.57.61:/tmp/locate-nginx-config.sh"
+          set +e
+          OUTPUT="$(ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "bash /tmp/locate-nginx-config.sh")"
+          STATUS=$?
+          set -e
+          if [[ $STATUS -ne 0 || "$OUTPUT" != FOUND:* ]]; then
+            echo "Could not locate the live nginx config file." >&2
+            exit 1
+          fi
+          echo "file_path=${OUTPUT#FOUND:}" >> "$GITHUB_OUTPUT"
+
+      - name: Sync managed nginx blocks (backup, nginx -t, reload, auto-rollback)
+        run: |
+          set -euo pipefail
+          REMOTE="${{ steps.locate.outputs.file_path }}"
+          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "cat '$REMOTE'" > /tmp/live-nginx.conf
+          python3 scripts/sync-nginx-managed-block.py scripts/nginx-render.conf.example < /tmp/live-nginx.conf > /tmp/merged-nginx.conf
+          if cmp -s /tmp/live-nginx.conf /tmp/merged-nginx.conf; then
+            echo "Live nginx already matches the managed blocks. Nothing to do."
+            exit 0
+          fi
+          diff -u /tmp/live-nginx.conf /tmp/merged-nginx.conf || true
+          STAMP="$(date -u +%Y%m%d-%H%M%S)"
+          scp -P 22 -i ~/.ssh/toasty_render_deploy -o BatchMode=yes /tmp/merged-nginx.conf "root@165.22.57.61:/tmp/nginx-managed-merge.conf"
+          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 "REMOTE='$REMOTE' STAMP='$STAMP' bash -s" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          NGINX_BIN="$(command -v nginx || true)"
+          for candidate in "$NGINX_BIN" /usr/sbin/nginx /usr/bin/nginx /sbin/nginx; do
+            if [[ -n "$candidate" && -x "$candidate" ]]; then NGINX_BIN="$candidate"; break; fi
+          done
+          if [[ -z "$NGINX_BIN" ]]; then echo "No nginx binary found." >&2; exit 1; fi
+          # Backups live outside sites-enabled/ so nginx's include glob can never pick them up.
+          BACKUP_DIR="/root/nginx-jam-backups"
+          mkdir -p "$BACKUP_DIR"
+          BACKUP_PATH="$BACKUP_DIR/$(basename "$REMOTE").bak-$STAMP"
+          cp -a "$REMOTE" "$BACKUP_PATH"
+          cp /tmp/nginx-managed-merge.conf "$REMOTE"
+          if "$NGINX_BIN" -t; then
+            systemctl reload nginx
+            echo "nginx -t passed; reloaded."
+          else
+            echo "nginx -t FAILED, restoring backup, NOT reloading." >&2
+            cp -a "$BACKUP_PATH" "$REMOTE"
+            exit 1
+          fi
+          REMOTE_SCRIPT
+
+      - name: Verify human presence routes reach the app and existing routes still work
+        run: |
+          set -euo pipefail
+          CFG="$(curl -s -o /tmp/hp-config.json -w '%{http_code}' https://render.toasty.media/api/human-presence/config)"
+          echo "GET /api/human-presence/config -> $CFG"
+          cat /tmp/hp-config.json; echo
+          test "$CFG" = "200"
+          grep -q '"adminOnly":true' /tmp/hp-config.json
+          HOST_STATUS="$(curl -s -o /dev/null -w '%{http_code}' https://render.toasty.media/api/sessions/ls_probe/human-presence)"
+          echo "GET /api/sessions/:id/human-presence (anonymous) -> $HOST_STATUS (expect 401, never 404 from nginx)"
+          test "$HOST_STATUS" = "401"
+          ORG_STATUS="$(curl -s -o /dev/null -w '%{http_code}' https://render.toasty.media/api/organizations)"
+          test "$ORG_STATUS" = "401"
+          curl --fail --silent --show-error https://render.toasty.media/health
+          echo
