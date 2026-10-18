@@ -30,7 +30,7 @@ export function consentText(flags) {
 export function createHumanPresence(deps) {
   const {
     db, readSession, sendJson, readJson, httpError, limit, requireCsrf, newId, SAFE_ID,
-    loadLiveJamInvite, requireOwnedJam, env = process.env, sessionSecret = "", now = () => Date.now()
+    loadLiveJamInvite, requireOwnedJam, isPlatformAdmin = () => false, env = process.env, sessionSecret = "", now = () => Date.now()
   } = deps;
   const flags = getFlags(env);
   const keys = deriveReceiptKeys(env, sessionSecret);
@@ -47,10 +47,20 @@ export function createHumanPresence(deps) {
     if (!flags.peepsIntegration) throw httpError(404, "Not found.");
   }
 
+  // Host side callers. In admin only mode (the default) only platform admins may create or read checks, which
+  // keeps the first live tests to hand picked sessions. Others get the same 404 as when the feature is off.
+  async function hostSession(req, res) {
+    const authSession = await readSession(req);
+    if (!authSession) { sendJson(req, res, 401, { error: "Sign in to Toasty Studio first." }); return null; }
+    if (flags.adminOnly && !isPlatformAdmin(authSession)) { sendJson(req, res, 404, { error: "Not found." }); return null; }
+    return authSession;
+  }
+
   function publicConfig() {
     const v = verifier();
     return {
       enabled: flags.enabled && secretsOk(),
+      adminOnly: flags.adminOnly,
       peepsIntegration: flags.peepsIntegration && secretsOk(),
       protocol: PROTOCOL_VERSION,
       livenessAnalysis: { active: v.trusted === true, provider: v.trusted === true ? v.id : null },
@@ -241,15 +251,15 @@ export function createHumanPresence(deps) {
       const sub = m[2] || "";
       if (method === "GET" && !sub) {
         if (!limit(req, res, "hp-host-read", 120, 60 * 1000)) return true;
-        const authSession = await readSession(req);
-        if (!authSession) return sendJson(req, res, 401, { error: "Sign in to Toasty Studio first." }), true;
+        const authSession = await hostSession(req, res);
+        if (!authSession) return true;
         const session = await requireOwnedSessionById(authSession, decodeURIComponent(m[1]));
         return sendJson(req, res, 200, await sessionOverview(session)), true;
       }
       if (method === "POST" && (sub === "/requests" || sub === "/cancel")) {
         if (!requireCsrf(req, res) || !limit(req, res, "hp-host-write", 60, 15 * 60 * 1000)) return true;
-        const authSession = await readSession(req);
-        if (!authSession) return sendJson(req, res, 401, { error: "Sign in to Toasty Studio first." }), true;
+        const authSession = await hostSession(req, res);
+        if (!authSession) return true;
         const session = await requireOwnedSessionById(authSession, decodeURIComponent(m[1]));
         const body = await readJson(req);
         if (sub === "/cancel") {
@@ -276,16 +286,16 @@ export function createHumanPresence(deps) {
       requirePeeps();
       if (method === "GET" && !m[2]) {
         if (!limit(req, res, "hp-jam-read", 120, 60 * 1000)) return true;
-        const authSession = await readSession(req);
-        if (!authSession) return sendJson(req, res, 401, { error: "Sign in to Toasty Studio first." }), true;
+        const authSession = await hostSession(req, res);
+        if (!authSession) return true;
         const jam = await requireOwnedJam(req, res, authSession, decodeURIComponent(m[1]), "member");
         if (!jam) return true;
         return sendJson(req, res, 200, await jamOverview(jam)), true;
       }
       if (method === "POST" && m[2]) {
         if (!requireCsrf(req, res) || !limit(req, res, "hp-jam-write", 60, 15 * 60 * 1000)) return true;
-        const authSession = await readSession(req);
-        if (!authSession) return sendJson(req, res, 401, { error: "Sign in to Toasty Studio first." }), true;
+        const authSession = await hostSession(req, res);
+        if (!authSession) return true;
         const jam = await requireOwnedJam(req, res, authSession, decodeURIComponent(m[1]), "member");
         if (!jam) return true;
         const body = await readJson(req);
@@ -399,8 +409,8 @@ export function createHumanPresence(deps) {
     if (method === "POST" && path === "/api/human-presence/receipts/verify") {
       requireEnabled();
       if (!requireCsrf(req, res) || !limit(req, res, "hp-receipt-verify", 120, 60 * 1000)) return true;
-      const authSession = await readSession(req);
-      if (!authSession) return sendJson(req, res, 401, { error: "Sign in to Toasty Studio first." }), true;
+      const authSession = await hostSession(req, res);
+      if (!authSession) return true;
       const body = await readJson(req, 8 * 1024);
       const parsed = assessReceipt(body.receipt, keys, { now: now() });
       if (!parsed.valid) return sendJson(req, res, 200, { valid: false, reason: parsed.reason }), true;

@@ -59,6 +59,8 @@ export function getFlags(env = process.env) {
     enabled,
     // Peeps Jam / Dub / Breadcrumb integration is a second gate: the Studio feature can run without it.
     peepsIntegration: enabled && on("HUMAN_PRESENCE_PEEPS_ENABLED"),
+    // Admin only test mode is the default: only platform admins can request or read checks.
+    adminOnly: env.HUMAN_PRESENCE_ADMIN_ONLY !== "0",
     providerId: String(env.HUMAN_PRESENCE_PROVIDER || "none"),
     // Result rows (never media) are deleted after this many days; the audit log has its own, longer clock.
     resultRetentionDays: days("HUMAN_PRESENCE_RETENTION_DAYS", 30),

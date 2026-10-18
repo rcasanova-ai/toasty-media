@@ -175,9 +175,21 @@ async function runStep(step, { video, analyser, sampleMotion, setPrompt, setProg
 // Participant dialog
 // ------------------------------------------------------------------------------------------------
 
-export async function mountParticipantPrompt(identity, { pollMs = 5000 } = {}) {
+const IS_PHONE = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "") || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform || ""));
+
+function liveTrack(stream, kind) {
+  return stream?.getTracks?.().find((t) => t.kind === kind && t.readyState === "live") || null;
+}
+
+// getStream: optional () => MediaStream the page already holds for the session (Studio check-in preview, Jam
+// lobby preview). The check borrows it and never stops or replaces its tracks. Without one, a second capture is
+// offered only on desktop and only after an explicit click, because a second capture can interrupt the live
+// camera on phones and VDO.Ninja's cross origin iframe exposes no stream to reuse.
+export async function mountParticipantPrompt(identity, { pollMs = 5000, getStream = null } = {}) {
   const config = await humanPresenceConfig();
   if (!config.enabled) return () => null;
+  // Admin test mode: only polls when the participant link carries ?hp=1, so ordinary guests never poll.
+  if (config.adminOnly && !new URLSearchParams(location.search).has("hp")) return () => null;
   ensureStyle();
   let open = false, stopped = false, timer = null;
   // A request the participant closed without finishing is not re-offered during this page visit.
@@ -204,7 +216,7 @@ export async function mountParticipantPrompt(identity, { pollMs = 5000 } = {}) {
     const close = () => { overlay.remove(); open = false; dismissed.add(requestId); };
     const base = () => ({ ...who(), requestId });
     let stream = null;
-    const stopMedia = () => { stream?.getTracks().forEach((t) => t.stop()); stream = null; };
+    const stopMedia = () => { if (!borrowed) stream?.getTracks().forEach((t) => t.stop()); stream = null; };
 
     function renderConsent() {
       card.replaceChildren(
@@ -232,26 +244,52 @@ export async function mountParticipantPrompt(identity, { pollMs = 5000 } = {}) {
         el("div", { class: "hp-row" }, [el("button", { class: "hp-btn", type: "button", text: "Close", onclick: close })]));
     }
 
+    let borrowed = false;
     async function renderReady() {
       const video = el("video", { class: "hp-video", autoplay: "", muted: "", playsinline: "" });
-      const status = el("p", { class: "hp-note", text: "Allow camera and microphone when your browser asks. Nothing is recorded or uploaded." });
+      const status = el("p", { class: "hp-note", text: "Nothing is recorded or uploaded." });
       const startBtn = el("button", { class: "hp-btn", type: "button", text: "Start check", disabled: "" });
-      card.replaceChildren(
-        el("h2", { id: "hp-title", text: "Get ready" }), video, status,
-        el("div", { class: "hp-row" }, [startBtn, el("button", { class: "hp-btn hp-ghost", type: "button", text: "Cancel", onclick: () => { stopMedia(); close(); } })])
-      );
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240, facingMode: "user" }, audio: true });
+      const row = el("div", { class: "hp-row" }, [startBtn, el("button", { class: "hp-btn hp-ghost", type: "button", text: "Cancel", onclick: () => { stopMedia(); close(); } })]);
+      card.replaceChildren(el("h2", { id: "hp-title", text: "Get ready" }), video, status, row);
+      const existing = getStream?.() || null;
+      const existingVideo = liveTrack(existing, "video");
+      if (existingVideo) {
+        // Reuse the session's own camera. The same track object feeds the preview here, so no new capture.
+        borrowed = true;
+        const audio = liveTrack(existing, "audio");
+        stream = new MediaStream([existingVideo, ...(audio && audio.enabled ? [audio] : [])]);
         video.srcObject = stream;
         await video.play().catch(() => null);
-        status.textContent = "Sit where your face and one hand are visible. Press Start when you are ready.";
+        status.textContent = audio && audio.enabled
+          ? "Using your current camera and microphone. Sit where your face and one hand are visible, then press Start."
+          : "Using your current camera. Your microphone is muted, so the spoken step will not be analyzed. Press Start when ready.";
         startBtn.removeAttribute("disabled");
         startBtn.focus();
-      } catch {
-        status.textContent = "Your camera or microphone could not be opened here (it may be in use by the session). You can cancel, and your host can verify you another way. This never removes you from the session.";
+        startBtn.addEventListener("click", () => run(video));
         return;
       }
-      startBtn.addEventListener("click", () => run(video));
+      if (IS_PHONE()) {
+        startBtn.remove();
+        status.textContent = "Your camera is in use by the live session. To avoid interrupting your video, phones do not open a second capture. Ask the host to run this check before you join, or use a computer. This never removes you from the session.";
+        return;
+      }
+      status.textContent = "Your camera is in use by the live session. You can open a separate capture just for this check, which may briefly affect your live video on some devices.";
+      row.insertBefore(el("button", { class: "hp-btn hp-ghost", type: "button", text: "Use a separate capture", onclick: async (e) => {
+        e.target.disabled = true;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240, facingMode: "user" }, audio: true });
+          borrowed = false;
+          video.srcObject = stream;
+          await video.play().catch(() => null);
+          status.textContent = "Sit where your face and one hand are visible. Press Start when you are ready.";
+          startBtn.removeAttribute("disabled");
+          startBtn.addEventListener("click", () => run(video));
+          e.target.remove();
+        } catch {
+          status.textContent = "A separate capture could not be opened. Cancel and ask your host to verify you another way. This never removes you from the session.";
+          e.target.remove();
+        }
+      } }), startBtn);
     }
 
     async function run(video) {
@@ -263,7 +301,7 @@ export async function mountParticipantPrompt(identity, { pollMs = 5000 } = {}) {
       catch (err) { return renderMessage("Could not start", err.status === 429 ? "Too many attempts for this request. Ask your host to send a new one." : err.message); }
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const analyser = audioCtx.createAnalyser(); analyser.fftSize = 1024;
-      audioCtx.createMediaStreamSource(stream).connect(analyser);
+      if (stream.getAudioTracks().length) audioCtx.createMediaStreamSource(new MediaStream(stream.getAudioTracks())).connect(analyser);
       const sampleMotion = createMotionSampler(video);
       const startedAt = performance.now();
       const steps = [];
