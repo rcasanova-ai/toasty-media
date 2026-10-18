@@ -369,6 +369,14 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // ---- Santati consolidated waitlist dashboard: read-only counts, server-to-server only ----
+  // Bearer token (TOASTY_WAITLIST_STATS_TOKEN), never a browser session. Disabled (503) until the token is configured.
+  if (req.method === "GET" && String(req.url || "").split("?")[0] === "/api/organizations/waitlist-stats") {
+    if (!limit(req, res, "waitlist-stats-read", 120, 15 * 60 * 1000)) return;
+    await handleWaitlistStats(req, res);
+    return;
+  }
+
   // ---- Studio broadcast (Program -> external destinations): authenticated by the Studio session ----
   // Destination credentials (RTMP(S) URL + stream key) are saved ONCE server-side, encrypted, scoped to the
   // caller's organization, and never returned to the browser. The browser only names destinations to
@@ -11556,6 +11564,7 @@ async function handleStudioWaitlistJoin(req, res) {
     company: peepsWaitlistCleanText(body.company, 120), notes: peepsWaitlistCleanText(body.notes, 500), source: "studio-landing"
   });
   if (joined.created || joined.reconsented) await studioWaitlistSendConfirmation(joined.entry);
+  if (joined.created) pingSantatiWaitlist();
   return uniform();
 }
 
@@ -11566,6 +11575,37 @@ async function handleStudioWaitlistUnsubscribe(req, res) {
   if (!SAFE_ID.test(id || "") || !safeStringEqual(raw, studioWaitlistUnsubscribeToken(id))) return html(400, "That unsubscribe link isn't valid.");
   await db("studio_waitlist_withdraw_consent", { id });
   html(200, "You've been unsubscribed. You won't receive Studio launch or invitation emails.");
+}
+
+const WAITLIST_STATS_TOKEN = process.env.TOASTY_WAITLIST_STATS_TOKEN || "";
+// Opt-in: set SANTATI_WAITLIST_PING_URL (e.g. https://santaticrm.com/crm-api.php) in /etc/toasty-render.env. Unset = no ping (tests, dev).
+const SANTATI_WAITLIST_PING_URL = process.env.SANTATI_WAITLIST_PING_URL || "";
+
+async function handleWaitlistStats(req, res) {
+  if (WAITLIST_STATS_TOKEN.length < 32) return sendJson(req, res, 503, { error: "Waitlist stats are not configured." });
+  const supplied = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+  if (!supplied || !safeStringEqual(supplied, WAITLIST_STATS_TOKEN)) return sendJson(req, res, 403, { error: "Forbidden." });
+  const params = new URL(req.url, "http://x").searchParams;
+  const brand = params.get("brand") || "";
+  if (brand !== "studio" && brand !== "peeps") return sendJson(req, res, 400, { error: "brand must be studio or peeps." });
+  const now = Date.now();
+  const iso = (days) => new Date(now - days * 86400000).toISOString().replace(/\.\d{3}Z$/, "+00:00");
+  const result = await db("waitlist_stats", {
+    brand, limit: Number(params.get("limit")) || 25, offset: Number(params.get("offset")) || 0, since7: iso(7), since30: iso(30)
+  });
+  sendJson(req, res, 200, { brand, ...result });
+}
+
+// Tells Santati "a signup was just persisted" so its dashboard sweep can send the owner notification right away.
+// Carries no data, never blocks or fails the signup, and Santati's sweep is idempotent and also runs on its own.
+function pingSantatiWaitlist() {
+  if (!SANTATI_WAITLIST_PING_URL) return;
+  try {
+    fetch(SANTATI_WAITLIST_PING_URL, {
+      method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "Mozilla/5.0 ToastyRender/1.0" }, body: JSON.stringify({ action: "waitlist_sweep_ping" }),
+      signal: AbortSignal.timeout(4000)
+    }).catch(() => {});
+  } catch { /* nonblocking */ }
 }
 
 async function handleStudioWaitlistAdminList(req, res) {
@@ -11655,7 +11695,7 @@ async function handlePeepsWaitlistJoin(req, res) {
     id: newId("pwl"), email, name, interest, consentVersion: PEEPS_WAITLIST_CONSENT_VERSION,
     country: peepsWaitlistCleanText(body.country, 80), city: peepsWaitlistCleanText(body.city, 80), description: peepsWaitlistCleanText(body.description, 1000)
   });
-  if (joined.created) { peepsBetaCache.clear(); await peepsWaitlistSendConfirmation(joined.entry); }
+  if (joined.created) { peepsBetaCache.clear(); pingSantatiWaitlist(); await peepsWaitlistSendConfirmation(joined.entry); }
   return uniform();
 }
 
