@@ -47,6 +47,12 @@ jobs:
           node scripts/clip-mixer-test.mjs
           node scripts/clip-music-test.mjs
           node scripts/transcript-import-test.mjs
+          node scripts/behavior-timeline-test.mjs
+          node scripts/behavior-vocal-test.mjs
+          node scripts/behavior-visual-test.mjs
+          node scripts/behavior-language-test.mjs
+          node scripts/behavior-moments-test.mjs
+          node scripts/behavior-engine-test.mjs
           node scripts/site-pages-test.mjs
 
       - name: Install ffmpeg for broadcast and MP4 tests
@@ -221,4 +227,14 @@ jobs:
           grep -Fq 'Ricardo Casanova' /tmp/about.html
           curl --fail --silent --show-error --location https://toasty.media/css/toasty-site.css -o /tmp/toasty-site.css
           grep -Fq -- '--orange-strong' /tmp/toasty-site.css
+          # Moxie behavioral intelligence is actually served: the engine modules and the Clips page that drives them.
+          for f in engine timeline language vocal visual interaction moments embeddings text vocal-worker vocal-client; do
+            curl --fail --silent --show-error --location "https://toasty.media/js/behavior/$f.js" -o "/tmp/behavior-$f.js"
+          done
+          grep -Fq 'analyzeRecording' /tmp/behavior-engine.js
+          grep -Fq 'BehaviorTimeline' /tmp/behavior-timeline.js
+          grep -Fq 'proposeMoments' /tmp/behavior-moments.js
+          curl --silent --show-error --location -o /tmp/clips-page.html -w '%{http_code}' https://toasty.media/studio/clips.html | grep -Eq '^(200|302)$'
+          curl --fail --silent --show-error --location https://toasty.media/js/clips-app.js -o /tmp/clips-app.js
+          grep -Fq 'behavior/engine.js' /tmp/clips-app.js
           echo 'Production verification passed.'
