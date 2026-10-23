@@ -100,10 +100,16 @@ console.log("\nEnhancement: gentle, bounded, never clips");
   near(after.integratedLufs, ENHANCE_DEFAULTS.targetLufs, 1.0, `quiet material is normalised to ${ENHANCE_DEFAULTS.targetLufs} LUFS`);
   ok(after.peakDbfs <= ENHANCE_DEFAULTS.limiterCeilingDb + 0.05, `peaks stay under the ${ENHANCE_DEFAULTS.limiterCeilingDb} dBFS ceiling (${after.peakDbfs})`);
   ok(after.clippedSamples === 0, "no clipped samples after enhancement");
-  ok(report.appliedGainDb > 0 && report.appliedGainDb <= ENHANCE_DEFAULTS.maxBoostDb, `boost is capped (${report.appliedGainDb} dB, max ${ENHANCE_DEFAULTS.maxBoostDb})`);
+  ok(report.appliedGainDb > 0 && report.appliedGainDb <= ENHANCE_DEFAULTS.maxBoostDb, `boost stays within the ceiling (${report.appliedGainDb.toFixed(1)} dB, max ${ENHANCE_DEFAULTS.maxBoostDb})`);
   ok(before.integratedLufs < after.integratedLufs, "output is louder than the quiet original");
-  const tooQuiet = enhanceChannels([programme(-42)], sr);
-  ok(tooQuiet.report.boostCapped && tooQuiet.report.appliedGainDb === ENHANCE_DEFAULTS.maxBoostDb, "a recording far too quiet is boosted by the cap only, not into the noise floor");
+  // A quiet take is raised by the MEASURED distance to the target (a 22 dB boost here), not by a fixed amount, and a quiet take in a
+  // noisy room is capped by its signal-to-noise ratio so the noise is not brought up as loud as the voice.
+  const quietClean = enhanceChannels([programme(-42)], sr);
+  ok(quietClean.report.appliedGainDb > 15, `a clean, very quiet take is raised by the distance it needs (${quietClean.report.appliedGainDb.toFixed(1)} dB)`);
+  const noisyFloor = noise(20, dbToLin(-52), 22);
+  const noisyQuiet = programme(-42).map((v, i) => v - floor[i] + noisyFloor[i]);
+  const capped = enhanceChannels([noisyQuiet], sr);
+  ok(capped.report.boostCapped && capped.report.capReason === "limited-by-noise" && capped.report.plannedGainDb < capped.report.verdict.state.length * 0 + 20, `a quiet take in a noisy room is capped by its noise (${capped.report.plannedGainDb.toFixed(1)} dB planned)`);
 
   // Hot material with sudden spikes: limiter must hold the ceiling and the loud spike must not drag everything down.
   const hot = noise(10, 0.05, 31).map((v, i) => v + (i > sr * 4 && i < sr * 4 + 200 ? 0.98 : 0));
@@ -135,7 +141,8 @@ console.log("\nOptions and ffmpeg parity");
   const chain = buildFfmpegEnhanceFilters().join(",");
   ok(/highpass=f=80/.test(chain) && /acompressor=/.test(chain) && !/afftdn/.test(chain), "default ffmpeg chain: high-pass + gentle compressor, no noise reduction");
   ok(/afftdn/.test(buildFfmpegEnhanceFilters({ noiseReduction: { enabled: true } }).join(",")), "noise reduction is added only when asked for");
-  ok(/alimiter=limit=0\.891/.test(buildFfmpegLimiter()), "ffmpeg limiter ceiling matches -1 dBFS");
+  ok(/alimiter=limit=0\.841/.test(buildFfmpegLimiter()), "ffmpeg limiter ceiling matches -1.5 dBFS");
+  ok(/volume=12\.00dB,acompressor/.test(buildFfmpegEnhanceFilters({}, { preGainDb: 12 }).join(",")), "the measured gain goes in front of the compressor");
 }
 
 console.log("\nMicrophone processing configuration");

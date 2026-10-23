@@ -6169,3 +6169,6 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
 .lv-mic-panel[hidden] { display: none; }
 .lv-mic-panel label { color: var(--studio-cream-dim); display: grid; font-size: 0.8rem; gap: 0.25rem; }
 .lv-mic-panel select { max-width: 100%; }
+
+.lv-level-advice { border-left: 3px solid var(--toasty-orange, #e8730c); padding-left: 0.6rem; }
+.lv-level-advice[data-state="silent"] { border-left-color: #b3411f; font-weight: 600; }

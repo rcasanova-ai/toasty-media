@@ -5,12 +5,16 @@ class ToastyClipMixer extends AudioWorkletProcessor {
   constructor(options) {
     super();
     const o = options?.processorOptions || {};
-    this.mixer = new ClipMixer(sampleRate, { channels: 2, enhance: o.enhance !== false, musicGainDb: o.musicGainDb ?? -20, duckDb: o.duckDb ?? -14 });
+    this.mixer = new ClipMixer(sampleRate, {
+      channels: 2, enhance: o.enhance !== false, musicGainDb: o.musicGainDb ?? -20, duckDb: o.duckDb ?? -14,
+      preGainDb: Number.isFinite(o.preGainDb) ? o.preGainDb : null, noiseReduction: o.noiseReduction === true,
+      ...(Number.isFinite(o.targetRmsDb) ? { targetRmsDb: o.targetRmsDb } : {}), ...(Number.isFinite(o.ceilingDb) ? { ceilingDb: o.ceilingDb } : {})
+    });
     this.silence = new Float32Array(128);
     this.port.onmessage = (e) => {
       const d = e.data || {};
       if (typeof d.musicBoostDb === "number") this.mixer.setMusicBoost(d.musicBoostDb);
-      if (d.type === "stats") this.port.postMessage({ type: "stats", minDuckDb: this.mixer.minDuckDb, levelDb: this.mixer.levelDb });
+      if (d.type === "stats") this.port.postMessage({ type: "stats", minDuckDb: this.mixer.minDuckDb, levelDb: this.mixer.levelDb, limiterMaxReductionDb: this.mixer.limiter.maxReductionDb, compressorMaxReductionDb: this.mixer.compressor?.maxReductionDb ?? 0, speechGainAvgDb: this.mixer.leveler.averageSpeechGainDb });
     };
   }
   process(inputs, outputs) {

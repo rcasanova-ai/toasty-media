@@ -9,6 +9,8 @@ import { ASPECTS, applyOverrides, validateTemplate } from "./clip-templates.js";
 import { captionChunks, captionWords, computeFrame, planTimeline } from "./clip-timeline.js";
 import { drawFrame } from "./clip-draw.js";
 import { renderMusic } from "./clip-music.js";
+import { judgeRendered, LOUDNESS_TOLERANCE_LU, measureRendered, planClipAudio, TRUE_PEAK_LIMIT_DBTP, TRUE_PEAK_TARGET_DBTP, WARNING_TEXT } from "./clip-loudness.js";
+import { SPEECH_TARGET_LUFS } from "./loudness-plan.js";
 
 const MP4_TYPES = ["video/mp4;codecs=avc1.640028,mp4a.40.2", "video/mp4;codecs=avc1.4d4028,mp4a.40.2", "video/mp4;codecs=avc1,mp4a.40.2"];
 const WEBM_TYPES = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
@@ -59,7 +61,7 @@ export async function loadImage(blobOrUrl) {
 
 // spec: { clip: {start,end}, template (validated or id-resolved by caller), aspect, title, subtitle, lowerThird, custom[], words | lines,
 //         focusX, music: { style, buffer? }, enhance, images[], logo }
-export async function renderClip({ source, spec, onProgress, signal } = {}) {
+async function renderOnce({ source, spec, onProgress, signal, audio = {} } = {}) {
   const caps = renderCapabilities();
   if (!caps.supported) throw new Error("This browser cannot render clips locally. Use a current Chrome, Edge or Safari.");
   const tpl = validateTemplate(spec.template);
@@ -74,7 +76,7 @@ export async function renderClip({ source, spec, onProgress, signal } = {}) {
   const cleanup = [];
   try {
     await actx.audioWorklet.addModule(new URL("./clip-mixer-worklet.js", import.meta.url).href);
-    const mixer = new AudioWorkletNode(actx, "toasty-clip-mixer", { numberOfInputs: 2, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { enhance: tpl.audio.enhance && spec.enhance !== false, musicGainDb: tpl.music.gainDb, duckDb: tpl.music.duckDb } });
+    const mixer = new AudioWorkletNode(actx, "toasty-clip-mixer", { numberOfInputs: 2, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { enhance: tpl.audio.enhance && spec.enhance !== false, musicGainDb: tpl.music.gainDb, duckDb: tpl.music.duckDb, preGainDb: audio.preGainDb, noiseReduction: audio.noiseReduction === true, ceilingDb: audio.ceilingDb, targetRmsDb: audio.targetRmsDb } });
     const dest = actx.createMediaStreamDestination(); dest.channelCount = 2; dest.channelCountMode = "explicit";
     mixer.connect(dest);
     const voiceSrc = actx.createMediaElementSource(video);
@@ -147,6 +149,52 @@ export async function renderClip({ source, spec, onProgress, signal } = {}) {
     try { await actx.close(); } catch (_) {}
     if (!(source instanceof HTMLVideoElement)) { video.pause(); if (video.__url) URL.revokeObjectURL(video.__url); video.removeAttribute("src"); video.load(); }
   }
+}
+
+// Render with a measured audio plan, then measure the file that came out. The source's loudness is measured first and the gain
+// needed to reach -16 LUFS is applied (js/clip-loudness.js), capped by the take's signal-to-noise ratio. The exported file is then
+// decoded and measured; if it is more than 1.5 LU from the target or its true peak is above -1 dBTP, it is rendered once more with
+// the measured error corrected. The result reports what was measured so the app can show it (and say so when audio is quiet).
+export async function renderClip({ source, spec, onProgress, signal } = {}) {
+  const tpl = validateTemplate(spec.template);
+  const enhance = tpl.audio.enhance && spec.enhance !== false;
+  const target = spec.targetLufs ?? SPEECH_TARGET_LUFS;
+  let planned = null;
+  if (enhance && !(source instanceof HTMLVideoElement)) {
+    onProgress?.({ t: 0, total: 1, phase: "measuring" });
+    planned = await planClipAudio(source, spec.clip, { targetLufs: target, noiseReduction: spec.noiseReduction }).catch(() => null);
+  }
+  const usePlan = Boolean(planned?.available && planned.plan.reason !== "no-signal");
+  let gainDb = usePlan ? planned.plan.gainDb : null;
+  const noiseReduction = spec.noiseReduction === true || (spec.noiseReduction !== false && Boolean(usePlan && planned.plan.noiseReduction));
+  let ceilingDb = -2.5, corrected = false, result = null, measured = null, judged = null, firstPass = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    result = await renderOnce({ source, spec, onProgress, signal, audio: { preGainDb: gainDb, targetRmsDb: usePlan ? planned.plan.levelerTargetDb + (gainDb - planned.plan.gainDb) : null, noiseReduction, ceilingDb } });
+    if (spec.verifyAudio === false) break;      // quick previews are not checked or re-rendered
+    measured = await measureRendered(result.blob).catch(() => null);
+    if (!measured) break;
+    judged = judgeRendered(measured, { targetLufs: target, expectTarget: usePlan });
+    if (attempt === 0) firstPass = { integratedLufs: measured.integratedLufs, truePeakDbtp: measured.truePeakDbtp, predictedLufs: planned?.plan?.calibration?.predictedLufs ?? null };
+    const needsFix = usePlan && attempt === 0 && (judged.warnings.includes("output-too-quiet") || judged.warnings.includes("output-too-loud") || judged.warnings.includes("peak-high"));
+    if (!needsFix) break;
+    onProgress?.({ t: 0, total: 1, phase: "correcting" });
+    if (judged.deltaLu !== null && Math.abs(judged.deltaLu) > LOUDNESS_TOLERANCE_LU) gainDb = Math.min(planned.plan.maxAllowedBoostDb, gainDb + judged.deltaLu);
+    if (measured.truePeakDbtp > TRUE_PEAK_LIMIT_DBTP) ceilingDb -= measured.truePeakDbtp - TRUE_PEAK_TARGET_DBTP + 0.1;
+    corrected = true;
+  }
+  const warnings = [...new Set([...(planned?.verdict?.warnings || []), ...(judged?.warnings || [])])];
+  return {
+    ...result,
+    audio: {
+      enhanced: enhance,
+      measuredBefore: planned?.available ? { integratedLufs: planned.analysis.integratedLufs, snrDb: planned.analysis.snrDb, peakDbfs: planned.analysis.peakDbfs, state: planned.verdict.state } : null,
+      measuredAfter: measured ? { integratedLufs: measured.integratedLufs, truePeakDbtp: measured.truePeakDbtp, state: judged?.verdict?.state } : null,
+      appliedGainDb: gainDb, planReason: usePlan ? planned.plan.reason : "none", noiseReduction, corrected, firstPass: corrected ? firstPass : null, targetLufs: target,
+      ok: judged ? judged.ok : null,
+      warnings,
+      messages: warnings.map((w) => WARNING_TEXT[w]).filter(Boolean)
+    }
+  };
 }
 
 // Batch: every selected clip in every chosen aspect, one after another (a browser records one canvas at a time reliably). Each

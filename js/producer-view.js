@@ -55,6 +55,7 @@ export class ProducerView {
       playbackEchoNote: root.querySelector("#lvPlaybackEchoNote"),
       masterDownloadWebm: root.querySelector("#lvMasterDownloadWebm"),
       clipBox: root.querySelector("#lvClipBookmarks"),
+      levelAdvice: root.querySelector("#lvLevelAdvice"),
       clipList: root.querySelector("#lvClipBookmarkList"),
       masterEnhance: root.querySelector("#lvMasterEnhanceAudio"),
       masterEnhanceNoise: root.querySelector("#lvMasterEnhanceNoise"),
@@ -240,6 +241,7 @@ export class ProducerView {
     this.session.on("session-control-rejected", (rejection) => this.renderSessionControlRejected(rejection));
     if (this.session.sessionControlRejected) this.renderSessionControlRejected(this.session.sessionControlRejected);
     this.session.on("recording", (recording) => this.renderRecording(recording));
+    this.session.on?.("recording-level", (advice) => this.renderLevelAdvice(advice));
     this.session.on("recording-status", (message) => { this.elements.recordNote.textContent = message; this.elements.recordNote.dataset.error = "false"; });
     this.session.on("policy", () => this.renderRecordingGate());
     this.session.on("program-output", () => {
@@ -802,6 +804,16 @@ export class ProducerView {
 
   // Explicit, dedicated WebM download — always the original tab-capture source (Advanced), never labelled
   // as MP4, available whether or not MP4 finalization ever succeeded.
+  // Quiet or dead microphone: say so plainly, in place, while recording and after.
+  renderLevelAdvice(advice) {
+    const el = this.elements.levelAdvice;
+    if (!el) return;
+    const show = Boolean(advice?.message) && advice.state !== "ok";
+    el.hidden = !show;
+    el.textContent = show ? advice.message : "";
+    el.dataset.state = show ? advice.state : "ok";
+  }
+
   renderClipBookmarks(list = []) {
     const { clipBox, clipList } = this.elements;
     if (!clipBox || !clipList) return;

@@ -18,7 +18,7 @@ console.log("\nVoice leveler (enhancement)");
   ok(after - before > 6 && Math.abs(after - -20) < 2.5, `quiet speech is brought up to a steady level (${before.toFixed(1)} -> ${after.toFixed(1)} dBFS RMS, target -20)`);
   const loud = voice(30, dB(-8)), l = run(new ClipMixer(SR, { enhance: true, musicGainDb: -200 }), loud, new Float32Array(loud.length));
   ok(rmsDb(l[0], 20, 28) < rmsDb(loud, 20, 28) - 3, "loud speech is brought down toward the same level");
-  let peak = 0; for (const x of l[0]) peak = Math.max(peak, Math.abs(x)); ok(peak <= dB(-3) + 1e-6, `and never exceeds the -3 dBFS ceiling (peak ${toDbfs(peak).toFixed(2)})`);
+  let peak = 0; for (const x of l[0]) peak = Math.max(peak, Math.abs(x)); ok(peak <= dB(-2.5) + 1e-6, `and never exceeds the -2.5 dBFS ceiling (peak ${toDbfs(peak).toFixed(2)})`);
   const noise = Float32Array.from({ length: SR * 10 }, () => (rand() * 2 - 1) * dB(-62)), n = run(new ClipMixer(SR, { enhance: true, musicGainDb: -200 }), noise, new Float32Array(noise.length));
   ok(rmsDb(n[0], 4, 10) < -55, `room noise is not boosted (${rmsDb(n[0], 4, 10).toFixed(1)} dBFS out)`);
   const mixer2 = new ClipMixer(SR, { enhance: true, musicGainDb: -200 }), withPause = voice(30, dB(-26), { gap: [10, 16] }), o2 = run(mixer2, withPause, new Float32Array(withPause.length));
@@ -47,6 +47,6 @@ console.log("\nNothing clips");
 {
   const v = voice(10, dB(-3)), m = music(10, dB(-3)), out = run(new ClipMixer(SR, { enhance: false, musicGainDb: -3, duckDb: -3 }), v, m);
   const a = analyzeChannels([out[0].subarray(1000)], SR);
-  ok(a.clippedSamples === 0 && a.peakDbfs <= -2.9, `loud voice plus loud music stays under the ceiling (peak ${a.peakDbfs} dBFS)`);
+  ok(a.clippedSamples === 0 && a.peakDbfs <= -2.4, `loud voice plus loud music stays under the ceiling (peak ${a.peakDbfs} dBFS)`);
 }
 console.log("ALL PASSED — the clip mixer levels the voice, ducks the music under it and never clips.");
