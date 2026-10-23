@@ -407,3 +407,43 @@ export function detectRecorderGaps(timestampsMs, timesliceMs = 1000) {
   }
   return { slices: timestampsMs.length, gaps, worstLateMs: gaps.reduce((m, g) => Math.max(m, g.lateByMs), 0) };
 }
+
+// True peak (dBTP): the highest level the reconstructed waveform reaches between samples, found by 4x oversampling with
+// a windowed-sinc interpolator (the BS.1770 method). Lossy encoders and DACs can overshoot the sample peak by this much.
+export const TP_TAPS = 12;
+export const TP_PHASES = (() => {
+  const phases = [];
+  for (const frac of [0.25, 0.5, 0.75]) {
+    const h = new Float64Array(TP_TAPS * 2);
+    let sum = 0;
+    for (let k = -TP_TAPS + 1; k <= TP_TAPS; k++) {
+      const x = k - frac, sinc = Math.sin(Math.PI * x) / (Math.PI * x);
+      const w = 0.5 + 0.5 * Math.cos(Math.PI * x / TP_TAPS);
+      h[k + TP_TAPS - 1] = sinc * w; sum += sinc * w;
+    }
+    for (let i = 0; i < h.length; i++) h[i] /= sum;
+    phases.push(h);
+  }
+  return phases;
+})();
+
+export function truePeakDbtp(channels) {
+  let peak = 0;
+  for (const x of channels) {
+    const n = x.length;
+    for (let i = 0; i < n; i++) {
+      const a = Math.abs(x[i]);
+      if (a > peak) peak = a;
+      // Only inspect intervals whose neighbours are near the running peak: an inter-sample overshoot needs both samples high.
+      if (i < n - 1 && a > peak * 0.5 && Math.abs(x[i + 1]) > peak * 0.5) {
+        for (const h of TP_PHASES) {
+          let s = 0;
+          for (let k = 0; k < TP_TAPS * 2; k++) { const idx = i - TP_TAPS + 1 + k; if (idx >= 0 && idx < n) s += x[idx] * h[k]; }
+          const v = Math.abs(s);
+          if (v > peak) peak = v;
+        }
+      }
+    }
+  }
+  return toDbfs(peak);
+}

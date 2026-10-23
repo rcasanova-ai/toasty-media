@@ -45,6 +45,7 @@ jobs:
           node scripts/clip-templates-test.mjs
           node scripts/clip-timeline-test.mjs
           node scripts/clip-mixer-test.mjs
+          node scripts/loudness-normalize-test.mjs
           node scripts/clip-music-test.mjs
           node scripts/transcript-import-test.mjs
           node scripts/behavior-timeline-test.mjs

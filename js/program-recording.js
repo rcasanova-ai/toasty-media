@@ -574,6 +574,8 @@ export function assembleMasterPackage({
     },
     // What, if anything, was done to the audio between capture and encode (see js/capture-audio-guard.js).
     audioProcessing: captureResult.audioLimiter || { applied: false, reason: "not-reported" },
+    // Measured loudness of the recorded audio and what the quiet-voice leveler did (js/recording-leveler.js); null when not measured.
+    audioLevel: captureResult.audioLevel || null,
     notes: [
       "Master Program Recording is Program Output tab capture (the audience picture and sound).",
       "Isolated Host getUserMedia recordings are source tapes, not this master.",
@@ -603,6 +605,8 @@ export function buildMasterManifest({
   markers = [],
   audioSources = [],
   capture = {},
+  audioProcessing = null,
+  audioLevel = null,
   notes = []
 } = {}) {
   const started = startedAt || Date.now();
@@ -659,6 +663,9 @@ export function buildMasterManifest({
       programRenderer: "dom+vdo-iframes",
       programAudioBus: "listener-destination-in-tab-mix"
     },
+    // What was done to the audio between capture and encode (limiter) and the measured loudness of what was recorded.
+    audioProcessing,
+    audioLevel,
     notes
   };
 }
@@ -900,7 +907,8 @@ export class MasterProgramRecorder {
         this.status?.("SAVING RECORDING…");
         const guard = this.audioGuard;
         this.audioGuard = null;
-        Promise.resolve(guard?.stats?.()).catch(() => null).then((stats) => {
+        Promise.all([Promise.resolve(guard?.stats?.()).catch(() => null), Promise.resolve(guard?.finalStats?.()).catch(() => null)]).then(([stats, level]) => {
+          if (level) result.audioLevel = level;
           result.audioLimiter = guard
             ? { applied: guard.applied, reason: guard.reason || "", ceilingDb: guard.ceilingDb ?? null, maxReductionDb: stats ? Math.round(stats.maxReductionDb * 10) / 10 : null, activeSeconds: stats ? Math.round(stats.activeSeconds * 100) / 100 : null }
             : { applied: false, reason: "not-created" };

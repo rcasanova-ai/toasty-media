@@ -140,7 +140,14 @@ try {
   const aud = execFileSync("ffmpeg", ["-v", "error", "-i", lf, "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "-"], { maxBuffer: 1 << 28 });
   const fa = new Float32Array(aud.buffer, aud.byteOffset, Math.floor(aud.length / 4)); let aBeep = null;
   // the beep is a pure 1 kHz tone at 0.7: find the first window whose RMS is high
-  for (let i = 0; i + 160 < fa.length; i += 80) { let s = 0; for (let k = 0; k < 160; k++) s += fa[i + k] * fa[i + k]; if (Math.sqrt(s / 160) > 0.25) { aBeep = i / 16000; break; } }
+  // Exports are now levelled to -16 LUFS, so loud speech can pass an RMS threshold on its own; the beep is a pure tone, so also require
+  // that nearly all of the window's energy sits at 1 kHz (Goertzel).
+  for (let i = 0; i + 160 < fa.length; i += 80) {
+    let s = 0, re = 0, im = 0;
+    for (let k = 0; k < 160; k++) { const x = fa[i + k]; s += x * x; re += x * Math.cos(2 * Math.PI * 1000 * k / 16000); im += x * Math.sin(2 * Math.PI * 1000 * k / 16000); }
+    const tone = ((re * re + im * im) * 2 / 160) / (s + 1e-12);
+    if (Math.sqrt(s / 160) > 0.1 && tone > 0.8) { aBeep = i / 16000; break; }
+  }
   console.log(`  flash at ${vFlash?.toFixed(3)} s, beep at ${aBeep?.toFixed(3)} s in the exported clip (expected ${(FLASH - 30).toFixed(1)} s plus any intro)`);
   assert(vFlash != null && aBeep != null, "the flash and the beep are both present in the export");
   assert(Math.abs(vFlash - aBeep) <= 0.15, `audio and video stay in sync: ${Math.abs(vFlash - aBeep).toFixed(3)} s apart (limit 0.15 s)`);

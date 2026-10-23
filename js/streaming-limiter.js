@@ -1,12 +1,19 @@
-// Look-ahead peak limiter, sample by sample. Pure and dependency-free so the exact same code runs inside an
+import { TP_PHASES, TP_TAPS } from "./audio-analysis.js";
+
+// Look-ahead peak limiter, sample by sample. Pure (its only import is the true-peak filter table) so the exact same code runs inside an
 // AudioWorklet (live recording), in the offline enhancement chain (js/audio-enhance.js) and in Node tests.
 //
 // Guarantee: no output sample exceeds the ceiling. Below the ceiling the gain is exactly 1 (the limiter is transparent).
 // How: required gain per sample -> sliding minimum over the look-ahead window -> release smoothing (fast down, slow up)
 // -> moving average over the same window length, which together keep gain(i) <= required(i) for every sample while the
 // gain changes smoothly (no clicks). The audio is delayed by `lookahead` samples to make this possible.
+// With `truePeak: true` the detector also looks at the waveform BETWEEN samples (4x oversampled, BS.1770 style): a broadband burst such as
+// laughter can reach several dB above its largest sample, and a sample-peak limiter lets that through to the encoder and DAC. The
+// interpolated peak for the interval 12 samples back is credited to the current sample, which the look-ahead (at least 12 samples) covers.
 export class StreamingLimiter {
-  constructor(sampleRate, channelCount = 1, { ceilingDb = -1, lookaheadMs = 5, releaseMs = 80 } = {}) {
+  constructor(sampleRate, channelCount = 1, { ceilingDb = -1, lookaheadMs = 5, releaseMs = 80, truePeak = false } = {}) {
+    this.truePeak = truePeak;
+    this.hist = truePeak ? Array.from({ length: channelCount }, () => new Float32Array(2 * TP_TAPS)) : null;
     this.channelCount = channelCount;
     this.ceiling = 10 ** (ceilingDb / 20);
     this.L = Math.max(1, Math.round(sampleRate * lookaheadMs / 1000));
@@ -35,6 +42,21 @@ export class StreamingLimiter {
     const slot = n % size;
     let peak = 0;
     for (let c = 0; c < this.channelCount; c++) { const a = Math.abs(frameIn[c]); if (a > peak) peak = a; }
+    if (this.truePeak) {
+      const span = 2 * TP_TAPS;
+      for (let c = 0; c < this.channelCount; c++) {
+        const h = this.hist[c];
+        h[n % span] = frameIn[c];
+        if (n < span) continue;
+        for (let p = 0; p < TP_PHASES.length; p++) {
+          const f = TP_PHASES[p];
+          let acc = 0;
+          for (let k = 0; k < span; k++) acc += h[(n + 1 + k) % span] * f[k];
+          const v = acc < 0 ? -acc : acc;
+          if (v > peak) peak = v;
+        }
+      }
+    }
     const req = peak > this.ceiling ? this.ceiling / peak : 1;
     this.required[slot] = req;
     // maintain monotonic deque of indices with increasing `required` values

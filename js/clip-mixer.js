@@ -1,11 +1,18 @@
-// Clip audio mixer: voice (optionally enhanced) + background music ducked under the voice, then a peak limiter at -3 dBFS (AAC encoding can overshoot its input by 1 to 2 dB, measured).
+// Clip audio mixer: the clip's voice (optionally enhanced) + background music ducked under the voice, then a peak limiter at
+// -2.5 dBFS (AAC encoding can overshoot its input by 1 to 2 dB, measured, so the exported file lands near -1.5 dBTP).
 // Pure DSP on blocks of Float32Array, so the same code runs in an AudioWorklet during a render and in Node tests.
 //
-// Enhancement is a LIVE chain because a render plays the clip in real time and the source can be an hour long (it cannot be
-// decoded whole): 80 Hz high-pass, then a slow leveler that moves the voice toward a steady level (never boosting silence or
-// room noise, capped at +12 dB), then the limiter. Ducking follows the processed voice: music drops by `duckDb` within ~80 ms
-// of speech starting and comes back over ~0.5 s after it stops.
+// Voice chain when enhancement is on (js/speech-dynamics.js): 80 Hz high-pass -> optional noise expander (capped, relative to the
+// measured noise floor, so quiet speech is not eaten) -> the planned static gain `preGainDb` (the renderer measures the clip's
+// loudness first and passes exactly the gain needed to reach the target, js/loudness-plan.js) -> slow speech leveler that evens
+// out quiet and loud passages around that level -> gentle compressor on peaks -> limiter. A source that is already at the target
+// gets ~0 dB of static gain; a source 29 dB too quiet gets ~29 dB.
+//
+// Without a plan (preGainDb unset) the leveler alone lifts up to `maxBoostDb` (12 dB), as before.
+//
+// Ducking follows the processed voice: music drops by `duckDb` within ~80 ms of speech starting and comes back over ~0.5 s after it stops.
 import { StreamingLimiter } from "./streaming-limiter.js";
+import { FloorTracker, NoiseExpander, SpeechCompressor, SpeechLeveler } from "./speech-dynamics.js";
 
 const dbToLin = (db) => 10 ** (db / 20);
 const linToDb = (x) => (x > 1e-9 ? 20 * Math.log10(x) : -180);
@@ -20,57 +27,76 @@ class Highpass {
 }
 
 export class ClipMixer {
-  constructor(sampleRate, { channels = 2, enhance = true, musicGainDb = -20, duckDb = -14, targetRmsDb = -20, maxBoostDb = 12, ceilingDb = -3 } = {}) {
+  constructor(sampleRate, {
+    channels = 2, enhance = true, musicGainDb = -20, duckDb = -14, targetRmsDb = null, maxBoostDb = 12, ceilingDb = -2.5,
+    preGainDb = null, noiseReduction = false, compress = null
+  } = {}) {
     Object.assign(this, { sampleRate, channels, enhance, musicGainDb, duckDb, targetRmsDb, maxBoostDb });
+    const planned = Number.isFinite(preGainDb);
+    // The leveler's 400 ms RMS (pauses included) sits about 6.6 dB under the gated loudness; with a plan the voice is already at -16 LUFS, so -22.6.
+    targetRmsDb = Number.isFinite(targetRmsDb) ? targetRmsDb : (planned ? -22.6 : -20);
+    this.targetRmsDb = targetRmsDb;
+    this.preGainDb = planned ? preGainDb : 0;
     this.hp = Array.from({ length: channels }, () => new Highpass(sampleRate, 80));
-    this.limiter = new StreamingLimiter(sampleRate, channels, { ceilingDb, lookaheadMs: 5, releaseMs: 90 });
-    this.voiceRms = 0;            // short RMS (about 400 ms)
-    this.levelDb = 0;             // current leveler gain in dB
+    this.limiter = new StreamingLimiter(sampleRate, channels, { ceilingDb, lookaheadMs: 5, releaseMs: 90, truePeak: true });
+    // With a plan the static gain does the heavy lifting and the leveler only rides +/- 8 dB around it; with no plan it works alone.
+    this.leveler = new SpeechLeveler(sampleRate, planned
+      ? { targetDb: targetRmsDb, maxBoostDb: 8, maxCutDb: 10, upDbPerSec: 3, downDbPerSec: 6 }
+      : { targetDb: targetRmsDb, maxBoostDb, maxCutDb: 12, upDbPerSec: 3, downDbPerSec: 6, absGateDb: -48 });
+    this.compressor = (compress === false || !planned) ? null : new SpeechCompressor(sampleRate, { thresholdDb: targetRmsDb + 2.6, ratio: 2, kneeDb: 6, ...(compress || {}) });
+    this.expander = noiseReduction ? new NoiseExpander(sampleRate, { maxReductionDb: 8, floor: new FloorTracker() }) : null;
     this.env = -120;              // voice envelope for ducking (dB)
     this.duckNow = 0;             // current duck amount in dB (0 = none, negative = reduced)
     this.musicBoostDb = 0;        // set by the render for intro/outro, where there is no voice
     this.lastDuckDb = 0; this.minDuckDb = 0;
     this._inF = new Float32Array(channels); this._outF = new Float32Array(channels);
+    this._buf = null; this._tmp = null;
   }
 
   setMusicBoost(db) { this.musicBoostDb = db; }
 
+  get levelDb() { return this.leveler.gainDb; }
+
+  _ensure(n) {
+    if (this._buf && this._buf[0].length >= n) return;
+    this._buf = Array.from({ length: this.channels }, () => new Float32Array(n));
+    this._tmp = Array.from({ length: this.channels }, () => new Float32Array(n));
+  }
+
   // voice: array of Float32Array (null/empty allowed), music: same, out: array of Float32Array to fill.
-  process(voice, music, out) {
+  // dry (optional): arrays to receive the mix as it enters the limiter, for measuring how hard the limiter works (js/clip-loudness.js).
+  process(voice, music, out, dry = null) {
     const frames = out[0].length, sr = this.sampleRate;
-    const rmsCoef = Math.exp(-1 / (0.4 * sr)), envA = Math.exp(-1 / (0.08 * sr)), envR = Math.exp(-1 / (0.5 * sr));
-    const upPerSample = 3 / sr, downPerSample = 6 / sr;       // leveler slew: dB per second / sr
+    this._ensure(frames);
+    const envA = Math.exp(-1 / (0.08 * sr)), envR = Math.exp(-1 / (0.5 * sr));
     const musicBase = this.musicGainDb + this.musicBoostDb;
     const lim = this.limiter, inF = this._inF, outF = this._outF;
+    const v = this._buf.map((b) => b.subarray(0, frames)), t = this._tmp.map((b) => b.subarray(0, frames));
+    for (let c = 0; c < this.channels; c++) {
+      const src = voice?.[c] ?? voice?.[0];
+      for (let i = 0; i < frames; i++) v[c][i] = src ? (this.enhance ? this.hp[c].run(src[i]) : src[i]) : 0;
+    }
+    if (this.enhance) {
+      if (this.expander) { this.expander.processBlock(v, t); for (let c = 0; c < this.channels; c++) v[c].set(t[c]); }
+      if (this.preGainDb) { const g = dbToLin(this.preGainDb); for (let c = 0; c < this.channels; c++) for (let i = 0; i < frames; i++) v[c][i] *= g; }
+      this.leveler.processBlock(v, t);
+      for (let c = 0; c < this.channels; c++) v[c].set(t[c]);
+      if (this.compressor) { this.compressor.processBlock(v, t); for (let c = 0; c < this.channels; c++) v[c].set(t[c]); }
+    }
     for (let i = 0; i < frames; i++) {
       let vmax = 0;
-      const v = new Array(this.channels);
-      for (let c = 0; c < this.channels; c++) {
-        let x = voice?.[c]?.[i] ?? voice?.[0]?.[i] ?? 0;
-        if (this.enhance) x = this.hp[c].run(x);
-        v[c] = x;
-        const a = Math.abs(x); if (a > vmax) vmax = a;
-      }
-      this.voiceRms = rmsCoef * this.voiceRms + (1 - rmsCoef) * vmax * vmax;
-      const rmsDb = linToDb(Math.sqrt(this.voiceRms));
-      if (this.enhance) {
-        // Level toward the target only while there is speech; hold the gain through pauses and never lift room noise.
-        if (rmsDb > -48) {
-          const want = Math.max(-12, Math.min(this.maxBoostDb, this.targetRmsDb - rmsDb));
-          if (want > this.levelDb) this.levelDb = Math.min(want, this.levelDb + upPerSample); else this.levelDb = Math.max(want, this.levelDb - downPerSample);
-        }
-      }
-      const g = this.enhance ? dbToLin(this.levelDb) : 1;
+      for (let c = 0; c < this.channels; c++) { const a = Math.abs(v[c][i]); if (a > vmax) vmax = a; }
       // Envelope of the processed voice drives the music duck.
-      const vdb = linToDb(vmax * g);
+      const vdb = linToDb(vmax);
       this.env = vdb > this.env ? this.env * envA + vdb * (1 - envA) : this.env * envR + vdb * (1 - envR);
       const targetDuck = this.env > -46 ? this.duckDb : 0;
       this.duckNow += (targetDuck - this.duckNow) * (targetDuck < this.duckNow ? 1 - envA : 1 - envR);
       const mg = dbToLin(musicBase + this.duckNow);
       for (let c = 0; c < this.channels; c++) {
         const m = music?.[c]?.[i] ?? music?.[0]?.[i] ?? 0;
-        inF[c] = v[c] * g + m * mg;
+        inF[c] = v[c][i] + m * mg;
       }
+      if (dry) for (let c = 0; c < this.channels; c++) dry[c][i] = inF[c];
       lim._step(inF, outF);
       for (let c = 0; c < this.channels; c++) out[c][i] = outF[c];
     }

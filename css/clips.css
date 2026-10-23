@@ -90,3 +90,6 @@ a.tc-btn { text-decoration: none; }
 .tc-clip details { margin-top: .3rem; font-size: .8rem; }
 .tc-clip details ul { margin: .3rem 0 0; padding-left: 1.1rem; }
 .tc-clip .tc-rec { color: #6b4a2e; font-size: .8rem; margin: .2rem 0 0; }
+
+.tc-audio { color: var(--muted, #7a5c45); font-size: 0.85rem; }
+.tc-audio.is-warn, #tcAudioLevel.is-warn { color: var(--red, #b3411f); }

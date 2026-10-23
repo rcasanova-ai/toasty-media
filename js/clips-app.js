@@ -25,7 +25,7 @@ const loadPrefs = () => { try { return { models: true, visual: true, ...JSON.par
 const savePrefs = () => { try { localStorage.setItem(PREFS_KEY, JSON.stringify({ models: $("tcUseModels").checked, visual: $("tcUseVisual").checked })); } catch (_) {} };
 window.__toastyClips = state;   // read-only handle for tests and diagnostics
 
-const defaultSpec = () => ({ templateId: "toasty-classic", overrides: {}, title: "", subtitle: "", lt: { name: "", role: "" }, custom: [], images: [], musicFile: null, musicStyle: "template", musicGainDb: null, enhance: true, focusX: 0.5, aspects: ["16:9"], logoDefault: true });
+const defaultSpec = () => ({ templateId: "toasty-classic", overrides: {}, title: "", subtitle: "", lt: { name: "", role: "" }, custom: [], images: [], musicFile: null, musicStyle: "template", musicGainDb: null, enhance: true, denoise: "auto", focusX: 0.5, aspects: ["16:9"], logoDefault: true });
 const activeClip = () => state.clips[state.active] || null;
 
 async function init() {
@@ -79,6 +79,7 @@ async function setSource({ id, name, blob, lines = [], bookmarks = [] }) {
   $("tcFindStatus").textContent = `${name} · ${fmt(state.source.duration).replace(/\.\d$/, "")}`;
   restore();
   renderClips();
+  void showSourceLevel(state.source);
 }
 
 // ---------- analysis ----------
@@ -201,7 +202,7 @@ function selectClip(i) {
   const sp = c.spec;
   $("tcTitle").value = sp.title || c.title || ""; $("tcSubtitle").value = sp.subtitle || ""; $("tcLtName").value = sp.lt.name; $("tcLtRole").value = sp.lt.role;
   $("tcCustomText").value = sp.custom[0]?.text || ""; $("tcCustomAt").value = sp.custom[0]?.at ?? 2;
-  $("tcMusic").value = sp.musicStyle; $("tcMusicFileWrap").hidden = sp.musicStyle !== "file"; $("tcEnhance").checked = sp.enhance; $("tcFocus").value = sp.focusX; $("tcLogoDefault").checked = sp.logoDefault;
+  $("tcMusic").value = sp.musicStyle; $("tcMusicFileWrap").hidden = sp.musicStyle !== "file"; $("tcEnhance").checked = sp.enhance; $("tcDenoise").value = sp.denoise || "auto"; $("tcFocus").value = sp.focusX; $("tcLogoDefault").checked = sp.logoDefault;
   document.querySelectorAll("[data-aspect]").forEach((cb) => { cb.checked = sp.aspects.includes(cb.dataset.aspect); });
   syncTemplateControls(); $("tcUnderstood").innerHTML = "";
   const v = $("tcVideo"); v.currentTime = c.start; drawPreview(0);
@@ -264,10 +265,39 @@ function buildJobs() {
     for (const aspect of c.spec.aspects.length ? c.spec.aspects : ["16:9"]) {
       const tpl = resolvedTemplate(c);
       const music = c.spec.musicStyle === "file" && c.spec.musicFile ? { buffer: state.musicBuffers.get(c.spec.musicFile.name) || null, style: "none" } : { style: tpl.music.style };
-      jobs.push({ label: `${c.title} (${aspect})`, name: `${slug(c.title)}-${aspect.replace(":", "x")}`, spec: { clip: { start: c.start, end: c.end }, template: tpl, aspect, title: c.spec.title || c.title, subtitle: c.spec.subtitle || undefined, lowerThird: c.spec.lt.name ? { ...c.spec.lt } : undefined, custom: c.spec.custom.filter((x) => x.text), lines: state.source.lines, focusX: c.spec.focusX, enhance: c.spec.enhance, images: imageList(c), logo: c.spec.logoDefault ? state.logo : null, music } });
+      jobs.push({ label: `${c.title} (${aspect})`, name: `${slug(c.title)}-${aspect.replace(":", "x")}`, spec: { clip: { start: c.start, end: c.end }, template: tpl, aspect, title: c.spec.title || c.title, subtitle: c.spec.subtitle || undefined, lowerThird: c.spec.lt.name ? { ...c.spec.lt } : undefined, custom: c.spec.custom.filter((x) => x.text), lines: state.source.lines, focusX: c.spec.focusX, enhance: c.spec.enhance, noiseReduction: c.spec.denoise === "on" ? true : c.spec.denoise === "off" ? false : undefined, images: imageList(c), logo: c.spec.logoDefault ? state.logo : null, music } });
     }
   }
   return jobs;
+}
+
+// One line under each export saying what the audio measured, so a quiet or odd result is visible instead of silently shipped.
+function audioLine(a) {
+  if (!a) return "";
+  const out = a.measuredAfter;
+  const parts = [];
+  if (out && Number.isFinite(out.integratedLufs)) parts.push(`Audio ${out.integratedLufs.toFixed(1)} LUFS, peak ${out.truePeakDbtp.toFixed(1)} dBTP`);
+  if (a.enhanced && Number.isFinite(a.appliedGainDb) && Math.abs(a.appliedGainDb) >= 1) parts.push(`${a.appliedGainDb > 0 ? "raised" : "lowered"} ${Math.abs(a.appliedGainDb).toFixed(0)} dB${a.noiseReduction ? ", noise reduced" : ""}`);
+  if (a.corrected) parts.push("level corrected after a check");
+  const warn = (a.messages || []).filter((m) => m);
+  return `<span class="tc-audio${warn.length || a.ok === false ? " is-warn" : ""}" style="flex-basis:100%">${esc(parts.join(" · "))}${warn.length ? " · " + esc(warn.join(" ")) : ""}</span>`;
+}
+
+// What the whole source measures, shown as soon as it is loaded (the decode is cached for the analysis and the renders).
+async function showSourceLevel(source) {
+  const el = $("tcAudioLevel");
+  el.hidden = true;
+  try {
+    const { decodeMono16k } = await import("./clip-analysis.js");
+    const { analyseSpeechLevel, classifyLevel, planSpeechGain } = await import("./loudness-plan.js");
+    const d = await decodeMono16k(source.blob);
+    if (state.source !== source) return;
+    const a = analyseSpeechLevel([d.samples], d.sampleRate), v = classifyLevel(a), plan = planSpeechGain(a);
+    if (v.state === "silent") el.textContent = v.message;
+    else el.textContent = `Audio level ${a.integratedLufs.toFixed(1)} LUFS.${v.state === "ok" ? "" : ` ${v.message}`}${Math.abs(plan.gainDb) >= 3 ? ` Exports are ${plan.gainDb > 0 ? "raised" : "lowered"} by about ${Math.abs(plan.gainDb).toFixed(0)} dB to reach -16 LUFS.` : ""}`;
+    el.classList.toggle("is-warn", v.state !== "ok");
+    el.hidden = false;
+  } catch (_) { /* a file too large to decode in the browser simply shows no level line */ }
 }
 
 async function renderSelected() {
@@ -279,10 +309,12 @@ async function renderSelected() {
   const results = await renderBatch({ source: state.source.blob, jobs, signal: state.abort.signal, onProgress: (p) => {
     if (p.index !== current) { done += planTimeline(jobs[current].spec.template, jobs[current].spec.clip.end - jobs[current].spec.clip.start).total; current = p.index; }
     $("tcProgress").value = Math.min(1, (done + p.t) / total);
-    $("tcRenderStatus").textContent = `Rendering ${p.index + 1} of ${p.count}: ${p.job.label} (${p.phase}, ${Math.round(p.t)} of ${Math.round(p.total)} s). Keep this tab open.`;
+    $("tcRenderStatus").textContent = p.phase === "measuring" ? `Measuring the audio level of ${p.job.label}…`
+      : p.phase === "correcting" ? `Adjusting the audio level of ${p.job.label} and rendering it again…`
+      : `Rendering ${p.index + 1} of ${p.count}: ${p.job.label} (${p.phase}, ${Math.round(p.t)} of ${Math.round(p.total)} s). Keep this tab open.`;
   } });
   state.results = results.map((r) => ({ ...r, url: r.ok ? URL.createObjectURL(r.blob) : null, filename: r.ok ? `${r.job.name}.${r.container}` : null }));
-  $("tcResults").innerHTML = state.results.map((r, i) => r.ok ? `<li><span>${esc(r.job.label)} · ${r.width}×${r.height} · ${(r.blob.size / 1048576).toFixed(1)} MB · ${r.container.toUpperCase()}</span><a class="tc-btn tc-primary" href="${r.url}" download="${esc(r.filename)}">Download</a></li>` : `<li class="is-error"><span>${esc(r.job.label)}: ${esc(r.error)}</span></li>`).join("");
+  $("tcResults").innerHTML = state.results.map((r, i) => r.ok ? `<li><span>${esc(r.job.label)} · ${r.width}×${r.height} · ${(r.blob.size / 1048576).toFixed(1)} MB · ${r.container.toUpperCase()}</span><a class="tc-btn tc-primary" href="${r.url}" download="${esc(r.filename)}">Download</a>${audioLine(r.audio)}</li>` : `<li class="is-error"><span>${esc(r.job.label)}: ${esc(r.error)}</span></li>`).join("");
   const ok = state.results.filter((r) => r.ok).length;
   $("tcRenderStatus").textContent = `${ok} of ${jobs.length} rendered${state.abort.signal.aborted ? " (cancelled)" : ""}. Files are on this computer only.`;
   $("tcDownloadAll").hidden = ok < 2;
@@ -294,7 +326,7 @@ async function renderPreviewVideo() {
   const btn = $("tcRenderPreview"); btn.disabled = true; state.busy = true;
   try {
     const job = buildPreviewJob(c);
-    const r = await renderClip({ source: state.source.blob, spec: job.spec, onProgress: (p) => { btn.textContent = `Rendering preview… ${Math.round(p.t)} / ${Math.round(p.total)} s`; } });
+    const r = await renderClip({ source: state.source.blob, spec: { ...job.spec, verifyAudio: false }, onProgress: (p) => { btn.textContent = `Rendering preview… ${Math.round(p.t)} / ${Math.round(p.total)} s`; } });
     const pv = $("tcPreviewVideo"); if (pv.src) URL.revokeObjectURL(pv.src); pv.src = URL.createObjectURL(r.blob); pv.hidden = false; pv.play().catch(() => {});
   } catch (error) { btn.textContent = `Preview failed: ${error?.message || error}`; }
   finally { state.busy = false; btn.disabled = false; setTimeout(() => { btn.textContent = "Render a preview (plays in real time)"; }, 4000); renderClips(); }
@@ -348,6 +380,7 @@ function bind() {
   $("tcMusicFile").onchange = async (e) => { const f = e.target.files[0], c = activeClip(); if (!f || !c) return; try { const ctx = new AudioContext({ sampleRate: 48000 }); const buf = await ctx.decodeAudioData(await f.arrayBuffer()); await ctx.close(); state.musicBuffers.set(f.name, buf); c.spec.musicFile = { name: f.name }; $("tcMusicFileWrap").firstChild.textContent = `Music: ${f.name}`; } catch (_) { $("tcMusicFileWrap").firstChild.textContent = "That file could not be read as audio."; } };
   $("tcMusicGain").oninput = (e) => { const c = activeClip(); if (c) { c.spec.musicGainDb = Number(e.target.value); $("tcMusicGainLabel").textContent = `${e.target.value} dB`; persist(); } };
   $("tcEnhance").onchange = (e) => { const c = activeClip(); if (c) { c.spec.enhance = e.target.checked; persist(); } };
+  $("tcDenoise").onchange = (e) => { const c = activeClip(); if (c) { c.spec.denoise = e.target.value; persist(); } };
   $("tcFocus").oninput = (e) => { const c = activeClip(); if (c) { c.spec.focusX = Number(e.target.value); redraw(); persist(); } };
   document.querySelectorAll("[data-aspect]").forEach((cb) => cb.onchange = () => { const c = activeClip(); if (!c) return; c.spec.aspects = [...document.querySelectorAll("[data-aspect]")].filter((x) => x.checked).map((x) => x.dataset.aspect); if (!c.spec.aspects.length) { c.spec.aspects = ["16:9"]; cb.checked = cb.dataset.aspect === "16:9"; } redraw(); persist(); });
   $("tcScrub").oninput = (e) => { const c = activeClip(); if (c) drawPreview(Number(e.target.value) * planFor(c).total); };

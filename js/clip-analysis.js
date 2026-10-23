@@ -6,7 +6,16 @@ import { detectClips } from "./clip-detector.js";
 
 export const MAX_DECODE_BYTES = 700 * 1024 * 1024;
 
+const decodeCache = new WeakMap();   // a render and the analysis of the same file decode it once
+
 export async function decodeMono16k(blob, { AudioContextImpl = globalThis.AudioContext } = {}) {
+  if (decodeCache.has(blob)) return decodeCache.get(blob);
+  const result = await decodeUncached(blob, { AudioContextImpl });
+  decodeCache.set(blob, result);
+  return result;
+}
+
+async function decodeUncached(blob, { AudioContextImpl }) {
   if (blob.size > MAX_DECODE_BYTES) { const e = new Error("This file is too large to analyse in the browser (over 700 MB). Trim it first or import a transcript and use the suggestions from that."); e.code = "too-large"; throw e; }
   const ctx = new AudioContextImpl({ sampleRate: 16000 });
   try {

@@ -23,6 +23,12 @@ on:
       - "js/limiter-worklet.js"
       - "js/streaming-limiter.js"
       - "js/audio-*.js"
+      - "js/speech-dynamics.js"
+      - "js/loudness-plan.js"
+      - "js/recording-leveler.js"
+      - "js/clip-loudness.js"
+      - "js/clip-mixer*.js"
+      - "js/clip-renderer.js"
       - "scripts/audio-*"
       - "scripts/lib/**"
       - ".github/workflows/audio-quality.yml"
@@ -51,7 +57,7 @@ jobs:
       - name: Audio unit tests
         run: |
           set -euo pipefail
-          for t in audio-analysis-test streaming-limiter-test stable-mic-track-test capture-audio-guard-test microphone-capture-chain-test master-program-recording-test; do
+          for t in audio-analysis-test streaming-limiter-test stable-mic-track-test capture-audio-guard-test microphone-capture-chain-test master-program-recording-test loudness-normalize-test clip-mixer-test; do
             echo "== $t"; node "scripts/$t.mjs"
           done
 
@@ -74,7 +80,7 @@ jobs:
           CHROME_PATH: /usr/bin/google-chrome
         run: |
           set -euo pipefail
-          for t in audio-limiter-browser-test audio-av-sync-browser-test audio-pipeline-browser-test audio-scenarios-browser-test; do
+          for t in audio-limiter-browser-test audio-av-sync-browser-test audio-pipeline-browser-test audio-scenarios-browser-test loudness-browser-test; do
             echo "== $t"; node "scripts/$t.mjs"
           done
 

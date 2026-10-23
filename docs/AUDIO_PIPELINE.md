@@ -94,9 +94,10 @@ speech instead of the built-in synthetic programme. `.github/workflows/audio-qua
 
 ## 5. Enhancement (optional, never replaces the original)
 
-Chain: 80 Hz high-pass, optional gentle noise reduction (soft expander, depth capped at 15 dB), 2:1 compressor with a soft knee, one
-constant gain to -16 LUFS (boost capped at +12 dB so a very quiet room is not amplified into hiss), look-ahead limiter, and for
-exports a true-peak check that re-renders with more headroom if the encoded file would exceed -1 dBTP. No spectral subtraction.
+Chain (see §9): 80 Hz high-pass, noise reduction (soft expander relative to the measured noise floor, capped at 8 dB, automatic when the
+boost is large), the MEASURED gain to -16 LUFS, a slow speech leveler, a gentle 2:1 RMS compressor, a trim measured on the limiter's
+output, a true-peak look-ahead limiter at -1.5 dBTP, and for exports a check that re-renders with more headroom if the encoded file would
+exceed it. No spectral subtraction.
 
 * In the Studio, **Advanced > Download Enhanced Audio** makes a separate 16-bit WAV in the browser (nothing uploaded; recordings over
   45 minutes or 350 MB are refused with a message).
@@ -157,4 +158,84 @@ leaving loudness within 0.3 LU. That is processing working as intended, and why 
   broadcast tolerance, but can be switched off.
 * Packet loss and long outages on the guest side are not simulated; WebRTC stats are collected on loopback only.
 * The Studio can enhance audio to a WAV; an enhanced MP4 is produced by the command-line tool, not a button.
+* **Loudness limits.** The Studio recorder only rescues a quiet microphone (boost only, +30 dB at most, no compression), so a Studio recording of a quiet mic lands around -22 to -28 LUFS, not -16; the -16 LUFS target is applied by Toasty Clips exports and the enhancement tools. Raising the system input volume is still the cleaner fix and the Studio says so.
+* A peaky take can settle a little under -16 LUFS instead of being limited hard (`limited-by-peaks`). A noisy take is boosted less than the full distance (`limited-by-noise`). The real recording hit neither.
+* Clips plans its gain from a 16 kHz decode, so at very large boosts the first render can be 1 to 2 LU off; the post-render check then renders once more (that doubled the time of one export from 18 s to 42 s). Sources over 700 MB cannot be decoded in the browser for planning, and are only checked after the render.
+* Noise reduction is a capped expander: it lowers room tone between words by up to 8 dB but cannot remove steady hiss while someone is talking.
+* The quiet-voice rescue in the Program Output tab-capture path (recordings with guests) is in the same worklet but could not be measured end to end headless; see the tab-capture limitation above.
+* A stereo export of a mono voice measures 3 LU louder than the same mono file (BS.1770 sums channels); Clips calibrates against the stereo file it will actually write.
 * Webcam hardware latency (often 50 to 150 ms) is upstream of anything measurable here.
+
+## 9. Loudness: the -45 LUFS recording
+
+A real Studio recording measured -45.2 LUFS integrated, -24.9 dBTP, first 6.3 s below -45 dBFS. The voice was fine; it was 29 dB too quiet.
+
+### Where the signal was lost
+
+| Stage | What happened | Verdict |
+|---|---|---|
+| Microphone | Auto gain is off on purpose (it pumps and fights the loudness work). The operating system's input volume and the device decide the level; this take arrived at about -47 dBFS RMS with peaks near -25 dBFS. Chrome's noise suppression also gated the first 6 s to near digital silence | **Source of the problem** |
+| MediaRecorder | Records exactly what it is given: AAC 160 kbps, no gain | Not a cause |
+| Studio recorder | The microphone went straight to the recorder at exactly 1.0 gain. A comment in `microphone-capture.js` said loudness "is done at export", but no export stage existed for Studio recordings | **Missing stage** |
+| Clips mixer | The leveler ignored anything below -48 dBFS and was capped at +12 dB, so this speech was never lifted more than a few dB: -45 became about -35 | **Bug** |
+| Enhancement chain | Boost capped at +12 dB, so a -45 LUFS take could reach only -33 | **Bug** |
+| Clips render, final MP4 | Limiter at -3 dBFS was fine; nothing measured the exported file, so a quiet export shipped silently | **Missing check** |
+
+### What changed
+
+* `js/loudness-plan.js` measures the speech (BS.1770 gated loudness, noise floor, signal-to-noise ratio, leading silence) and plans the gain
+  as the distance to -16 LUFS. It is capped by the signal-to-noise ratio (full boost from 20 dB SNR, shrinking to +6 dB at 8 dB), never by a constant.
+* `js/speech-dynamics.js`: a speech leveler that moves gain only while someone talks, a gentle RMS compressor, and a noise expander that
+  works relative to the measured floor and is capped at 8 dB. Laughter and bumps pull a boost back down within about a quarter of a second.
+* `js/streaming-limiter.js` can look between samples (true peak). A noise burst such as laughter sits several dB above its largest sample;
+  a sample-peak limiter let +2.6 dBTP through.
+* Studio recorder (`js/recording-leveler.js`, in the existing limiter worklet): lifts a quiet voice toward -23 LUFS-equivalent, boost only, at
+  most +30 dB, and leaves a healthy microphone bit-identical. It measures the recording as it goes and reports `audioLevel` (integrated
+  loudness, gain applied, quiet seconds, dead-line seconds) in the manifest. The host is told in plain words when the microphone is quiet or silent.
+* Toasty Clips: the source is measured when it is opened and the level shown. Before each render the real mixer chain is simulated on the
+  clip to find the gain that lands on -16 LUFS; the exported file is then decoded and measured and, if it is more than 1.5 LU off or peaks
+  above -1 dBTP, rendered once more with the error corrected. Each export shows what it measured and why.
+* `scripts/audio-check-export.mjs` is the automated check for any exported or recorded file (CI runs the same rules in `loudness-browser-test`).
+* `scripts/audio-enhance.mjs` plans from the measurement and corrects against the encoded output.
+
+### Rules that keep speech natural
+
+Gain moves only while speech is present, a few dB per second. Compression is 2:1 on a 20 ms RMS (not a peak hold, which ducks the vowel after
+every plosive). The loudness trim stops when 90 % of the speech would be limited by more than 4 dB: the take then settles a little under -16 LUFS
+instead of being crushed (the report says `limited-by-peaks`). Noise reduction never exceeds 8 dB and is relative to the floor, so quiet speech is not removed.
+
+### Measured results (real Chrome, ffmpeg EBU R128 meter on the files that came out)
+
+The recording that exposed the problem, `toastyaudiotest.mp4` (31.8 s):
+
+| Path | Integrated | True peak |
+|---|---|---|
+| As recorded (the shipped file) | **-45.2 LUFS** | -24.9 dBTP |
+| Played into the new Studio recorder as the microphone (real Studio, headless Chrome) | **-22.1 LUFS** (recorder gain up to +29 dB) | -2.0 dBTP |
+| Toasty Clips export of its speech (energy burst template, music, 16:9 MP4) | **-16.2 LUFS** | -2.4 dBTP |
+| `scripts/audio-enhance.mjs` (offline, video copied) | **-16.6 LUFS**, loudness range 12.2 to 8.4 LU | -1.6 dBTP |
+| Browser "Download Enhanced Audio" chain (offline) | **-16.4 LUFS** | -1.5 dBTP |
+
+The same speech at three microphone levels (synthetic programme with room noise, a 0.6 s laughter burst and a quiet second speaker):
+
+| Microphone / source | Studio recording | Toasty Clips export (12 s clip) | Gain the export needed |
+|---|---|---|---|
+| Very quiet (-45 LUFS) | -28.0 LUFS, -2.5 dBTP, recorder +22.6 dB, host told the mic is quiet | **-15.5 LUFS**, -1.9 dBTP | +29.5 dB, noise reduced |
+| Normal (-23 LUFS) | -24.6 LUFS, -1.9 dBTP, recorder +2.3 dB at most, no warning | **-15.9 LUFS**, -2.1 dBTP | +6.0 dB |
+| Loud / clipped mic (-12 LUFS) | -15.6 LUFS, -1.6 dBTP, recorder +0.3 dB, no warning | **-15.7 LUFS**, -2.4 dBTP | -4.8 dB |
+| No audio at all | | reported "no usable audio", export fails the loudness check, nothing amplified | |
+
+The app's own measurement of each exported file agreed with ffmpeg's to 0.1 LU. The real recording needed a second render pass in the Clips
+test (first pass -17.8 LUFS against a predicted -16.2; the check caught it); the others landed on the first pass.
+
+Speech quality, measured on the enhanced real recording: spectral balance within 3 dB of the original in every octave from 50 Hz to 6.4 kHz
+(the top octave is 33 dB below the voice), loudness range reduced from 12.2 to 8.4 LU (evened out, not flattened), limiter gain reduction
+under 2 dB on the speech, no clipped samples. As with everything here, this is measurement, not a listening test.
+
+### Tests
+
+* `scripts/loudness-normalize-test.mjs`: true peak, measured gain at five levels, quiet and missing audio detection, the recorder safety net
+  (quiet, normal, loud, dead line, laughter burst), the enhancement chain at four levels, noise reduction keeping quiet speech, the Clips mixer
+  with calibration, the worklet failing open, and the real recording when present.
+* `scripts/loudness-browser-test.mjs`: real Chrome. Studio recording at each level and Clips export of each source, measured with ffmpeg.
+* `scripts/audio-check-export.mjs`: the check you can run on any file. CI runs both tests on every audio or clips change and the deploy gate runs the unit test.

@@ -58,6 +58,7 @@ import { ProgramAudioBus, serializeProgramAudio } from "./program-audio.js";
 import { ProgramAudioMixer } from "./program-audio-mixer.js";
 import { MasterRecorder } from "./master-recorder.js";
 import { createProgramCanvasCapture } from "./program-canvas-capture.js";
+import { levelAdvice } from "./recording-leveler.js";
 import { ProductionTimeline, ProductionEventType } from "./production-timeline.js";
 import { SessionArtifactStore } from "./session-artifact.js";
 import { ProgramDestinationRouter } from "./program-destination.js";
@@ -2139,6 +2140,7 @@ export class LiveSession {
         getScreen: () => (this.screenShare?.active ? this.screenShare.stream : null),
         getMicTrack: () => this._hostPreviewStream?.getAudioTracks?.()[0] || null
       });
+      this._programCaptureMic = capture.mic || null;
       this._programCaptureMicKind = capture.mic?.kind || "none";
       this._programCaptureMicSwaps = () => capture.mic?.swaps ?? 0;
       return capture;
@@ -2146,6 +2148,7 @@ export class LiveSession {
     // Open/refresh Program Output from the same producer gesture if it is not already ready.
     // The browser's native capture picker remains the final source-selection boundary.
     this._programCaptureKind = "program-output";
+    this._programCaptureMic = null;     // the tab capture reports its level through the recording guard instead
     if (!this.programOutput?.readyToRecord) this.ensureProgramOutputWindow();
     this.emit("recording-status", PROGRAM_OUTPUT_PICKER_INSTRUCTION);
     const capture = await navigator.mediaDevices.getDisplayMedia(programOutputDisplayConstraints());
@@ -2203,12 +2206,30 @@ export class LiveSession {
       this.clipBookmarks = [];
       this.emit("clip-bookmarks", this.clipBookmarks);
       this.liveClips.start(started.startedAt).catch(() => {});
+      this._startLevelWatch();
       this._publishControlNow();
       return this.recording;
     } catch (error) {
       this._masterRecorder = null;
       throw error;
     }
+  }
+
+  // While recording, watch how loud the voice is. A microphone that is far too quiet (or dead) is worth telling the host about
+  // right away, not after the take: the recorder lifts a quiet voice, but a better input level is always cleaner.
+  _startLevelWatch() {
+    this._stopLevelWatch();
+    this._levelAdviceState = "ok";
+    this._levelWatch = setInterval(() => {
+      const stats = this._programCaptureMic?.levelStats?.();
+      const advice = levelAdvice(stats) || { state: "ok", message: "" };
+      if (advice.state !== this._levelAdviceState) { this._levelAdviceState = advice.state; this.emit("recording-level", advice); }
+    }, 2000);
+  }
+
+  _stopLevelWatch() {
+    if (this._levelWatch) clearInterval(this._levelWatch);
+    this._levelWatch = null;
   }
 
   async _finishMasterRecording() {
@@ -2224,7 +2245,11 @@ export class LiveSession {
     this.emit("recording-status", "Saving recording...");
     const finalClips = this.liveClips.finish();
     if (finalClips.length) { this.clipBookmarks = finalClips; finalClips.forEach((bm) => this._syncClipMarker(bm)); this.emit("clip-bookmarks", this.clipBookmarks); }
+    this._stopLevelWatch();
+    // Final loudness of what was recorded, read from the audio thread before the capture is torn down.
+    const micLevel = await Promise.resolve(this._programCaptureMic?.finalStats?.()).catch(() => null);
     const captureResult = await recorder.stop();
+    if (micLevel) captureResult.audioLevel = { ...micLevel, source: "host-microphone", leveler: this._programCaptureMic?.leveler || null };
     const { startedAt, stoppedAt } = captureResult;
     const { manifest: sourceManifest } = assembleMasterPackage({
       sessionId: this.durableSession?.id || this.roomId,
@@ -2318,7 +2343,11 @@ export class LiveSession {
     });
     this._publishControlNow();
     if (direct) {
-      this.emit("recording-status", "Recording ready · MP4 saved on this device");
+      const lufs = captureResult.audioLevel?.integratedLufs;
+      const loudness = Number.isFinite(lufs) ? ` · audio ${lufs.toFixed(1)} LUFS` : "";
+      this.emit("recording-status", `Recording ready · MP4 saved on this device${loudness}`);
+      if (Number.isFinite(lufs) && lufs < -32) this.emit("recording-level", { state: "quiet", message: `The recording is still quiet (${lufs.toFixed(1)} LUFS). Exports from Toasty Clips raise it to broadcast level automatically.` });
+      else if (captureResult.audioLevel && !Number.isFinite(lufs)) this.emit("recording-level", { state: "silent", message: "No audio was recorded from the microphone. Check that it is not muted and that the right input is selected." });
     } else if (sourcePersisted) {
       this._convertOnServerIfAllowed({ sourceManifest, sourceBlob: captureResult.blob });
     }

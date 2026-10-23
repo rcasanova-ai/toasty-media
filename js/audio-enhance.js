@@ -2,25 +2,34 @@
 // the enhanced result next to it.
 //
 // Chain (all stages are conservative, speech-safe defaults):
-//   high-pass 80 Hz  ->  optional noise reduction (soft downward expander, capped)  ->  gentle compressor (2:1, soft knee)
-//   ->  loudness normalisation to the target (default -16 LUFS, the common podcast/online-video level; gain is capped
-//   so a quiet noisy room is not boosted into hiss)  ->  look-ahead peak limiter at -1 dBFS (no clipping, no overs).
+//   high-pass 80 Hz  ->  noise reduction (soft downward expander relative to the measured floor, capped; automatic when the
+//   boost is large)  ->  MEASURED static gain to the target (default -16 LUFS, the common podcast/online-video level)  ->  slow
+//   speech leveler (evens out quiet and loud passages)  ->  gentle compressor (2:1, soft knee, peaks only)  ->  final trim to the
+//   target  ->  look-ahead peak limiter that keeps the true peak at or under -1.5 dBTP (no clipping, no overs).
+//
+// The gain is the distance between the measured speech loudness and the target (js/loudness-plan.js), never a fixed number. It
+// is capped by the take's signal-to-noise ratio, so a noisy room is not boosted into hiss, but a clean recording that is 30 dB
+// quiet is raised by 30 dB.
 //
 // Two implementations of ONE set of defaults: processChannels() works on decoded samples in the browser/Node,
 // and buildFfmpegEnhanceFilters() gives the equivalent streaming ffmpeg chain for hour-long files on the server/CLI.
-import { measureLoudness, toDbfs } from "./audio-analysis.js";
+import { measureLoudness, toDbfs, truePeakDbtp } from "./audio-analysis.js";
 import { StreamingLimiter } from "./streaming-limiter.js";
+import { SpeechCompressor, SpeechLeveler, processChannels } from "./speech-dynamics.js";
+import { analyseSpeechLevel, classifyLevel, planSpeechGain, TRUE_PEAK_TARGET_DBTP } from "./loudness-plan.js";
 
 export const ENHANCE_DEFAULTS = Object.freeze({
   highpassHz: 80,
-  compressor: Object.freeze({ thresholdDb: -24, ratio: 2, attackMs: 15, releaseMs: 200, kneeDb: 6 }),
+  compressor: Object.freeze({ thresholdDb: -20, ratio: 2, attackMs: 10, releaseMs: 150, kneeDb: 6 }), // 20 ms RMS threshold: syllables well above the speech body, never a peak hold
+  leveler: Object.freeze({ enabled: true }),
   targetLufs: -16,
-  maxBoostDb: 12,        // never amplify a quiet recording by more than this; beyond it you are mostly raising noise
+  maxBoostDb: 36,        // an upper bound; the real cap is derived from the take's signal-to-noise ratio (loudness-plan.js)
   maxCutDb: 18,
-  limiterCeilingDb: -1,
+  limiterCeilingDb: -1.5,
   limiterLookaheadMs: 5,
   limiterReleaseMs: 80,
-  noiseReduction: Object.freeze({ enabled: false, maxReductionDb: 8, attackMs: 10, releaseMs: 150 })
+  maxLimiterWorkDb: 4,   // stop raising the level when 90% of the speech is already being limited by more than this (the take settles a little under the target instead)
+  noiseReduction: Object.freeze({ enabled: "auto", maxReductionDb: 8, attackMs: 10, releaseMs: 150 }) // true | false | "auto" (on when the boost is large)
 });
 
 export function normalizeEnhanceOptions(options = {}) {
@@ -36,13 +45,15 @@ export function normalizeEnhanceOptions(options = {}) {
       kneeDb: clamp(options.compressor?.kneeDb, 0, 24, d.compressor.kneeDb)
     },
     targetLufs: clamp(options.targetLufs, -30, -10, d.targetLufs),
-    maxBoostDb: clamp(options.maxBoostDb, 0, 24, d.maxBoostDb),
+    leveler: { enabled: options.leveler?.enabled ?? d.leveler.enabled },
+    maxBoostDb: clamp(options.maxBoostDb, 0, 48, d.maxBoostDb),
     maxCutDb: clamp(options.maxCutDb, 0, 40, d.maxCutDb),
-    limiterCeilingDb: clamp(options.limiterCeilingDb, -6, -0.1, d.limiterCeilingDb),
+    limiterCeilingDb: clamp(options.limiterCeilingDb, -12, -0.1, d.limiterCeilingDb),
     limiterLookaheadMs: clamp(options.limiterLookaheadMs, 1, 20, d.limiterLookaheadMs),
     limiterReleaseMs: clamp(options.limiterReleaseMs, 10, 500, d.limiterReleaseMs),
+    maxLimiterWorkDb: clamp(options.maxLimiterWorkDb, 1, 12, d.maxLimiterWorkDb),
     noiseReduction: {
-      enabled: Boolean(options.noiseReduction?.enabled),
+      enabled: options.noiseReduction?.enabled === undefined ? d.noiseReduction.enabled : options.noiseReduction.enabled === "auto" ? "auto" : Boolean(options.noiseReduction.enabled),
       maxReductionDb: clamp(options.noiseReduction?.maxReductionDb, 0, 15, d.noiseReduction.maxReductionDb), // capped: more sounds artificial
       attackMs: clamp(options.noiseReduction?.attackMs, 1, 100, d.noiseReduction.attackMs),
       releaseMs: clamp(options.noiseReduction?.releaseMs, 20, 1000, d.noiseReduction.releaseMs)
@@ -137,48 +148,103 @@ export function reduceNoise(channels, sampleRate, { maxReductionDb, attackMs, re
 }
 
 // Look-ahead peak limiter: the result never exceeds the ceiling (see js/streaming-limiter.js, shared with live recording).
-export function limit(channels, sampleRate, { ceilingDb, lookaheadMs, releaseMs }) {
-  return StreamingLimiter.processBuffer(channels, sampleRate, { ceilingDb, lookaheadMs, releaseMs }).channels.map((c) => Float32Array.from(c));
+export function limit(channels, sampleRate, { ceilingDb, lookaheadMs, releaseMs, truePeak = false }) {
+  return StreamingLimiter.processBuffer(channels, sampleRate, { ceilingDb, lookaheadMs, releaseMs, truePeak }).channels.map((c) => Float32Array.from(c));
 }
+
+// 90th-percentile gain reduction (dB) the limiter applied over the frames that carry signal: how hard the limiter is working on the speech.
+export function limiterWorkDb(before, after, sampleRate) {
+  const win = Math.round(sampleRate * 0.02), reductions = [];
+  for (let s = 0; s + win <= before[0].length; s += win) {
+    let a = 0, b = 0;
+    for (let c = 0; c < before.length; c++) for (let i = s; i < s + win; i++) { a += before[c][i] * before[c][i]; b += after[c][i] * after[c][i]; }
+    const da = 10 * Math.log10(a / (win * before.length) + 1e-18);
+    if (da > -50) reductions.push(da - 10 * Math.log10(b / (win * before.length) + 1e-18));
+  }
+  reductions.sort((x, y) => x - y);
+  return reductions.length ? reductions[Math.floor(reductions.length * 0.9)] : 0;
+}
+
+const scale = (channels, db) => { const g = dbToLin(db); return channels.map((ch) => { const out = new Float32Array(ch.length); for (let i = 0; i < ch.length; i++) out[i] = ch[i] * g; return out; }); };
 
 // Full chain over decoded channels. Returns { channels, report } where report states what was done and measured.
 export function enhanceChannels(channels, sampleRate, options = {}) {
   const o = normalizeEnhanceOptions(options);
-  const before = measureLoudness(channels, sampleRate);
+  const before = analyseSpeechLevel(channels, sampleRate);
+  const verdict = classifyLevel(before);
   let work = channels.map((ch) => highpass(ch, sampleRate, o.highpassHz));
-  if (o.noiseReduction.enabled) work = reduceNoise(work, sampleRate, o.noiseReduction);
-  work = compress(work, sampleRate, o.compressor);
-  const afterDynamics = measureLoudness(work, sampleRate);
-  let gainDb = 0;
-  if (Number.isFinite(afterDynamics.integratedLufs)) {
-    gainDb = Math.min(o.maxBoostDb, Math.max(-o.maxCutDb, o.targetLufs - afterDynamics.integratedLufs));
-    const g = dbToLin(gainDb);
-    work = work.map((ch) => { const out = new Float32Array(ch.length); for (let i = 0; i < ch.length; i++) out[i] = ch[i] * g; return out; });
+  if (verdict.state === "silent") {
+    return { channels: work, report: { options: o, inputLufs: before.integratedLufs, outputLufs: before.integratedLufs, appliedGainDb: 0, boostCapped: false, skipped: "no-signal", verdict, before, after: before, truePeakDbtp: truePeakDbtp(work) } };
   }
-  work = limit(work, sampleRate, { ceilingDb: o.limiterCeilingDb, lookaheadMs: o.limiterLookaheadMs, releaseMs: o.limiterReleaseMs });
-  const after = measureLoudness(work, sampleRate);
+  const levelRef = analyseSpeechLevel(work, sampleRate);
+  const plan = planSpeechGain(levelRef, { targetLufs: o.targetLufs, maxBoostDb: o.maxBoostDb, maxCutDb: o.maxCutDb });
+  const noiseReduced = o.noiseReduction.enabled === true || (o.noiseReduction.enabled === "auto" && plan.noiseReduction);
+  if (noiseReduced) work = reduceNoise(work, sampleRate, o.noiseReduction);
+  work = scale(work, plan.gainDb);
+  let totalGainDb = plan.gainDb;
+  // The leveler holds speech around its OWN typical level (the median 400 ms level of the speech windows) so it evens out words and
+  // sentences without pulling a take made of short loud words down toward the level of continuous speech.
+  if (o.leveler.enabled) work = processChannels(new SpeechLeveler(sampleRate, { targetDb: Number.isFinite(levelRef.speechRefDb) ? levelRef.speechRefDb + plan.gainDb : o.targetLufs - 6.6, maxBoostDb: 6, maxCutDb: 6, upDbPerSec: 3, downDbPerSec: 6 }), work);
+  if (o.compressor.ratio > 1) work = processChannels(new SpeechCompressor(sampleRate, o.compressor), work);
+  // The dynamics stages and the limiter move loudness: close the gap by measuring what comes OUT of the limiter. The signal ahead of
+  // the limiter stays fixed; only a trim gain and the limiter ceiling change between passes, and the loop stops as soon as the
+  // output is within 0.4 LU of the target with its true peak at or under -1.5 dBTP. A very peaky take can settle a little under the
+  // target rather than being crushed to reach it (the trim is bounded).
+  const pre = work, preLufs = measureLoudness(pre, sampleRate).integratedLufs;
+  let peakLimited = false, ceilingDb = o.limiterCeilingDb, trimDb = Number.isFinite(preLufs) ? Math.max(-12, Math.min(12, o.targetLufs - preLufs)) : 0, tp = null, passes = 0;
+  const trimLimit = Math.max(0, plan.maxAllowedBoostDb + 8 - plan.gainDb);
+  for (; passes < 8; passes++) {
+    const limited = limit(scale(pre, trimDb), sampleRate, { ceilingDb, lookaheadMs: o.limiterLookaheadMs, releaseMs: o.limiterReleaseMs, truePeak: true });
+    tp = truePeakDbtp(limited);
+    const lufs = measureLoudness(limited, sampleRate).integratedLufs;
+    work = limited;
+    const overshoot = tp - TRUE_PEAK_TARGET_DBTP;
+    if (globalThis.__TOASTY_ENH_DEBUG) console.error(`pass ${passes} trim ${trimDb.toFixed(2)} ceil ${ceilingDb.toFixed(2)} lufs ${lufs.toFixed(2)} tp ${tp.toFixed(2)} work ${limiterWorkDb(scale(pre, trimDb), limited, sampleRate).toFixed(2)}`);
+    if (overshoot > 0.05) { ceilingDb -= overshoot + 0.02; continue; }
+    const error = o.targetLufs - lufs;
+    if (!Number.isFinite(error) || Math.abs(error) <= 0.4) break;
+    // Quality guard: do not buy the last dB of loudness with heavy limiting. Nine tenths of the speech limited by more than the cap is
+    // where a limiter starts to be heard, so stop here and report the take as limited by its peaks.
+    if (error > 0 && limiterWorkDb(scale(pre, trimDb), limited, sampleRate) > o.maxLimiterWorkDb) { peakLimited = true; break; }
+    const next = Math.max(-12, Math.min(trimLimit, trimDb + error * 0.9));
+    if (Math.abs(next - trimDb) < 0.05) break;
+    trimDb = next;
+  }
+  totalGainDb += trimDb;
+  const after = analyseSpeechLevel(work, sampleRate);
   return {
     channels: work,
     report: {
       options: o,
       inputLufs: before.integratedLufs,
       outputLufs: after.integratedLufs,
-      appliedGainDb: gainDb,
-      boostCapped: Number.isFinite(afterDynamics.integratedLufs) && o.targetLufs - afterDynamics.integratedLufs > o.maxBoostDb
+      appliedGainDb: totalGainDb,
+      plannedGainDb: plan.gainDb,
+      boostCapped: plan.capped,
+      capReason: peakLimited && !plan.capped ? "limited-by-peaks" : plan.reason,
+      peakLimited,
+      noiseReduced,
+      verdict,
+      before,
+      after,
+      truePeakDbtp: truePeakDbtp(work)
     }
   };
 }
 
 // Equivalent streaming ffmpeg filters, up to (not including) loudness normalisation, which the caller runs as a
 // two-pass loudnorm in linear mode so level is changed by one constant gain rather than a pumping dynamic filter.
-export function buildFfmpegEnhanceFilters(options = {}) {
+export function buildFfmpegEnhanceFilters(options = {}, { preGainDb = 0, noiseReduction = null } = {}) {
   const o = normalizeEnhanceOptions(options);
   const filters = [];
   if (o.highpassHz) filters.push(`highpass=f=${o.highpassHz}:poles=2`);
-  if (o.noiseReduction.enabled) {
+  const nr = noiseReduction === null ? o.noiseReduction.enabled === true : noiseReduction;
+  if (nr) {
     // afftdn with a small, capped reduction and noise tracking; far gentler than its default.
     filters.push(`afftdn=nr=${Math.round(o.noiseReduction.maxReductionDb)}:nf=-45:tn=1`);
   }
+  // The measured gain goes BEFORE the compressor so the compressor works at speech level (a 29 dB too quiet take would sit entirely below its threshold).
+  if (preGainDb) filters.push(`volume=${preGainDb.toFixed(2)}dB`);
   if (o.compressor.ratio > 1) {
     const c = o.compressor;
     filters.push(`acompressor=threshold=${dbToLin(c.thresholdDb).toFixed(5)}:ratio=${c.ratio}:attack=${c.attackMs}:release=${c.releaseMs}:knee=${Math.max(1, Math.min(8, 1 + c.kneeDb / 3)).toFixed(2)}:makeup=1`);

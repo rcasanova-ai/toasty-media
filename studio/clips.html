@@ -46,6 +46,7 @@
       <button id="tcAnalyzeCancel" class="tc-btn tc-ghost" type="button" hidden>Cancel</button>
       <progress id="tcAnalyzeProgress" max="1" value="0" hidden></progress>
       <p id="tcFindStatus" class="tc-muted" role="status"></p>
+      <p id="tcAudioLevel" class="tc-muted" role="status" hidden></p>
       <div class="tc-card" id="tcSignalsCard" hidden>
         <h3>What Moxie used</h3>
         <ul id="tcSignals" class="tc-signals"></ul>
@@ -105,7 +106,8 @@
         <label>Music <select id="tcMusic"><option value="template">Template default</option><option value="none">None</option><option value="upbeat">Upbeat</option><option value="chill">Chill</option><option value="cinematic">Cinematic</option><option value="tense">Tense</option><option value="file">My own file…</option></select></label>
         <label class="tc-btn tc-ghost" id="tcMusicFileWrap" hidden>Choose music file<input id="tcMusicFile" type="file" accept="audio/*" hidden></label>
         <label>Music level <input id="tcMusicGain" type="range" min="-34" max="-10" step="1" value="-22"> <span id="tcMusicGainLabel" class="tc-muted"></span></label>
-        <label class="tc-check"><input id="tcEnhance" type="checkbox" checked> Enhance the voice (level it, remove rumble, never clip)</label>
+        <label class="tc-check"><input id="tcEnhance" type="checkbox" checked> Enhance the voice (normalize to -16 LUFS, level it, remove rumble, never clip)</label>
+        <label>Background noise <select id="tcDenoise"><option value="auto">Auto (reduce only when the voice is boosted a lot)</option><option value="on">Reduce</option><option value="off">Leave as recorded</option></select></label>
         <p class="tc-muted">The music always dips under the voice.</p>
       </div>
       <div class="tc-card">
