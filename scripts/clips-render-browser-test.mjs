@@ -54,7 +54,9 @@ const RUN = `async ({ jobs, mode }) => {
   return { container: r.container, mimeType: r.mimeType, width: r.width, height: r.height, seconds: r.seconds, b64: await toB64(r.blob), phases: [...new Set(progress)] };
 }`;
 const save = (name, b64, container) => { const p = join(scratch, `${name}.${container}`); writeFileSync(p, Buffer.from(b64, "base64")); return p; };
-const probe = (p) => JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_streams", "-show_format", "-of", "json", p]).toString());
+// MediaRecorder WebM (Linux Chrome, Firefox) has no duration in its header, so ffprobe reports N/A; fall back to decoding it.
+const decodedSeconds = (p) => { const m = String(execFileSync("sh", ["-c", `ffmpeg -hide_banner -i '${p}' -f null - 2>&1 | grep -o 'time=[0-9:.]*' | tail -1`]).toString()).match(/time=(\d+):(\d+):([\d.]+)/); return m ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : NaN; };
+const probe = (p) => { const j = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-show_streams", "-show_format", "-of", "json", p]).toString()); if (!Number.isFinite(Number(j.format.duration))) { const d = decodedSeconds(p); j.format.duration = d; j.streams.forEach((s) => { if (!Number.isFinite(Number(s.duration))) s.duration = d; }); } return j; };
 const lumaAt = (p, t) => Number(execFileSync("sh", ["-c", `ffmpeg -hide_banner -loglevel error -ss ${t} -i '${p}' -frames:v 1 -vf "scale=64:36,format=gray" -f rawvideo - | od -An -tu1 -v | tr -s ' ' '\\n' | awk 'NF{s+=$1;n++} END{print s/n}'`]).toString());
 const base = (templateId, aspect, extra = {}) => ({ templateId, overrides: extra.overrides, spec: { clip: { start: 4, end: 16 }, aspect, title: "Why hiring fails", lines: LINES, lowerThird: { name: "Jane Doe", role: "CEO" }, custom: [{ text: "Subscribe", at: 6, dur: 3, position: "center" }], enhance: true, ...(extra.spec || {}) } });
 

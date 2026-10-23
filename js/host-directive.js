@@ -6,7 +6,6 @@
 // are NOT executed here — this module only recognizes and structures.
 
 import { MoxieIntent, ActionRiskLevel, ResponseAudience, riskForIntent } from "./hottie-action.js";
-import { parseClipCommand } from "./clip-detector.js";
 
 export const DEFAULT_WAKE_WORD = "moxie";
 // Speech recognition often writes the name a few ways, so the common spellings all count. Only the host's own line
@@ -409,8 +408,6 @@ export function extractDirectivePayload(intent, rest, participants = []) {
 
 export function detectHostDirective(line, { wakeWord = DEFAULT_WAKE_WORD, participants = [], alreadyAddressed = false, pendingShare = false } = {}) {
   if (!line?.text || !isHostSpeaker(line)) return null;
-  // "Moxie, clip that" belongs to the live clip detector (js/live-clips.js), not to the question-answering path.
-  if (parseClipCommand(line.text)) return null;
   const pendingApproval = isPendingAssetApproval(commandBody(line.text)) || isPendingAssetApproval(line.text) || (pendingShare && isShareApproval(line.text));
   const addressed = alreadyAddressed
     ? { wakeWord: DEFAULT_WAKE_WORD, rest: commandBody(line.text) }
