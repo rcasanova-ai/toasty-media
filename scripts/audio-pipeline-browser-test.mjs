@@ -14,7 +14,7 @@
 // Chrome (CHROME_PATH), ffmpeg/ffprobe, python3.   Env: STUDIO_RECORD_SECONDS (default 38), RECORD_FORMAT=webm, HEADLESS=1,
 // SKIP_SERVERS=1, AUDIO_PROGRAMME, KEEP_DIR=/path (keep every stage file there), REPORT_JSON=/path.
 import { spawn, execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync, mkdirSync, copyFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync, mkdirSync, copyFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -192,8 +192,8 @@ try {
   assert(enhanced.analysis.clippedSamples === 0 && enh.truePeakDbtp <= -0.9, `enhanced true peak stays under -1 dBTP (${enh.truePeakDbtp} dBTP, ${enh.truePeakCorrections} correction(s))`);
   assert(Math.abs(enhanced.analysis.integratedLufs - -16) < 1.2, `enhanced loudness lands on target (${enhanced.analysis.integratedLufs} LUFS)`);
   assert(enhanced.analysis.loudnessRangeLu <= rec.analysis.loudnessRangeLu + 0.5, `enhancement does not widen the loudness range (${rec.analysis.loudnessRangeLu} -> ${enhanced.analysis.loudnessRangeLu} LU)`);
-  const sizeBefore = execFileSync("stat", ["-f", "%z", recPath]).toString().trim();
-  assert(sizeBefore === String(measured[3].probe.sizeBytes), "the original recording file is untouched by enhancement");
+  const sizeBefore = statSync(recPath).size;
+  assert(sizeBefore === measured[3].probe.sizeBytes, "the original recording file is untouched by enhancement");
 
   if (process.env.REPORT_JSON) writeFileSync(process.env.REPORT_JSON, JSON.stringify(report, null, 2));
   writeFileSync(join(scratch, "report.json"), JSON.stringify(report, null, 2));
