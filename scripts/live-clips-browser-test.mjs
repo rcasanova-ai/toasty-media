@@ -68,7 +68,7 @@ try {
   assert(saved.status === "finalized" && saved.clips.length >= 2, `the recording was saved with ${saved.clips.length} clip bookmarks in its manifest`);
   assert(saved.markers >= 1, `and as Moxie markers (${saved.markers})`);
   assert(await frame.isVisible("#lvMakeClips"), "a 'Make clips' button sits beside the download buttons");
-  const p2 = await ctx.newPage(); p2.on("pageerror", (e) => errors.push(String(e).slice(0, 200)));
+  const p2 = await ctx.newPage(); await p2.addInitScript(() => { try { localStorage.setItem("toasty.moxie.prefs", JSON.stringify({ models: false, visual: false })); } catch (_) {} }); p2.on("pageerror", (e) => errors.push(String(e).slice(0, 200)));
   await p2.goto(`${BASE}/studio/clips.html`);
   await p2.waitForSelector("#tcLibrary [data-recording]", { timeout: 20000 });
   await p2.click("#tcLibrary [data-recording]");

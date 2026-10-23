@@ -75,3 +75,18 @@ progress { accent-color: var(--orange); width: 100%; }
 a.tc-btn { text-decoration: none; }
 @media (max-width: 980px) { .tc-grid, .tc-grid:has(.tc-edit[hidden]) { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
+
+/* Moxie behavioral analysis */
+.tc-signals, .tc-notes { list-style: none; margin: 0 0 .6rem; padding: 0; font-size: .85rem; }
+.tc-signals li { padding: .15rem 0; }
+.tc-signals li::before { content: "\2713\00a0"; color: #ff7a29; font-weight: 700; }
+.tc-signals li.is-off::before { content: "\2013\00a0"; color: #8a7a6a; }
+.tc-signals li.is-off { color: #8a7a6a; }
+.tc-notes li { padding: .2rem 0; color: #6b4a2e; }
+#tcAnalyzeProgress { width: 100%; }
+.tc-tier { font-size: .7rem; padding: .1rem .45rem; border-radius: 999px; background: #ffe2c4; color: #6b3a10; white-space: nowrap; }
+.tc-tier.is-low { background: #efe6da; color: #6b5a48; }
+.tc-clip-why { margin: .25rem 0 0; font-size: .85rem; }
+.tc-clip details { margin-top: .3rem; font-size: .8rem; }
+.tc-clip details ul { margin: .3rem 0 0; padding-left: 1.1rem; }
+.tc-clip .tc-rec { color: #6b4a2e; font-size: .8rem; margin: .2rem 0 0; }

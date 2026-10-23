@@ -38,6 +38,9 @@ Host: Wait, no way, you are kidding. That actually happened to you?!
 await startServers(scratch);
 const browser = await launchChrome(playwright, { programmePath: wav, chromePath });
 const ctx = await browser.newContext({ viewport: { width: 1360, height: 1000 }, acceptDownloads: true });
+// Keep this test offline and deterministic: no downloadable models and no picture analysis (moxie-clips-browser-test.mjs and
+// moxie-models-browser-test.mjs cover those).
+await ctx.addInitScript(() => { try { localStorage.setItem("toasty.moxie.prefs", JSON.stringify({ models: false, visual: false })); } catch (_) {} });
 const page = await ctx.newPage();
 const errors = []; page.on("pageerror", (e) => errors.push(String(e).slice(0, 200)));
 try {
