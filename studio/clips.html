@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Toasty Clips</title>
+  <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/clips.css">
+  <script type="module" src="../js/clips-app.js"></script>
+</head>
+<body>
+  <header class="tc-top">
+    <a class="tc-brand" href="./director.html" aria-label="Back to Studio"><img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Media Studio"><span>Clips</span></a>
+    <p class="tc-tag">Find the best moments, style them, export them. Everything runs on this computer: nothing is uploaded.</p>
+    <a class="tc-link" href="./director.html">Back to Studio</a>
+  </header>
+
+  <main class="tc-grid">
+    <section class="tc-col tc-source" aria-label="Source">
+      <h2>1. Pick a video</h2>
+      <div class="tc-card">
+        <h3>Studio recordings</h3>
+        <ul id="tcLibrary" class="tc-list" aria-live="polite"><li class="tc-muted">Looking for recordings…</li></ul>
+        <button id="tcRefresh" class="tc-btn tc-ghost" type="button">Refresh</button>
+      </div>
+      <div class="tc-card">
+        <h3>Or upload one</h3>
+        <label class="tc-drop" id="tcDrop"><input id="tcFile" type="file" accept="video/*,.mp4,.mov,.webm,.m4v"><span>Choose a video, or drop it here</span></label>
+      </div>
+      <div class="tc-card" id="tcTranscriptCard" hidden>
+        <h3>Transcript</h3>
+        <p id="tcTranscriptNote" class="tc-muted"></p>
+        <label class="tc-btn tc-ghost">Import transcript (SRT, VTT, TXT, JSON)<input id="tcTranscriptFile" type="file" accept=".srt,.vtt,.txt,.json" hidden></label>
+        <button id="tcTranscribe" class="tc-btn tc-ghost" type="button" title="Downloads an open speech model (about 40 MB) once, then runs on this computer. Your video is never uploaded.">Transcribe in this browser</button>
+        <p id="tcTranscribeStatus" class="tc-muted" role="status"></p>
+      </div>
+      <button id="tcFind" class="tc-btn tc-primary" type="button" disabled>Find clips with Moxie</button>
+      <p id="tcFindStatus" class="tc-muted" role="status"></p>
+    </section>
+
+    <section class="tc-col tc-main" aria-label="Clips">
+      <h2>2. Choose clips</h2>
+      <div class="tc-player"><video id="tcVideo" controls playsinline preload="metadata"></video><p id="tcVideoEmpty" class="tc-muted">Pick or upload a video to begin.</p></div>
+      <div class="tc-row"><button id="tcAddHere" class="tc-btn tc-ghost" type="button" disabled>Add a clip at the playhead</button><span id="tcSummary" class="tc-muted"></span></div>
+      <ol id="tcClips" class="tc-clips" aria-label="Suggested clips"></ol>
+    </section>
+
+    <section class="tc-col tc-edit" aria-label="Edit clip" id="tcEdit" hidden>
+      <h2>3. Shape it</h2>
+      <div class="tc-card">
+        <h3>Trim</h3>
+        <div class="tc-trim">
+          <label>Start <input id="tcStart" type="text" inputmode="decimal" value="0:00.0" aria-label="Clip start"></label>
+          <label>End <input id="tcEnd" type="text" inputmode="decimal" value="0:30.0" aria-label="Clip end"></label>
+          <span id="tcLen" class="tc-muted"></span>
+        </div>
+        <div class="tc-nudge">
+          <button type="button" class="tc-btn tc-ghost" data-nudge="start:-2">Start −2s</button><button type="button" class="tc-btn tc-ghost" data-nudge="start:2">Start +2s</button>
+          <button type="button" class="tc-btn tc-ghost" data-nudge="end:-2">End −2s</button><button type="button" class="tc-btn tc-ghost" data-nudge="end:2">End +2s</button>
+          <button type="button" class="tc-btn tc-ghost" id="tcSetStart">Start here</button><button type="button" class="tc-btn tc-ghost" id="tcSetEnd">End here</button>
+        </div>
+      </div>
+      <div class="tc-card">
+        <h3>Tell Moxie what you want</h3>
+        <textarea id="tcInstruction" rows="3" placeholder="Give this clip an energetic opening with rolling text, subtle zooms, upbeat music, and a Toasty outro."></textarea>
+        <button id="tcApply" class="tc-btn tc-primary" type="button">Apply</button>
+        <ul id="tcUnderstood" class="tc-understood" aria-live="polite"></ul>
+      </div>
+      <div class="tc-card">
+        <h3>Style</h3>
+        <div id="tcTemplates" class="tc-templates" role="radiogroup" aria-label="Template"></div>
+        <label>Captions <select id="tcCaptions"><option value="none">None</option><option value="bar">Bar</option><option value="kinetic">Kinetic (word by word)</option><option value="karaoke">Karaoke highlight</option></select></label>
+        <label class="tc-check"><input id="tcIntro" type="checkbox"> Intro</label>
+        <label class="tc-check"><input id="tcOutro" type="checkbox"> Outro</label>
+      </div>
+      <div class="tc-card">
+        <h3>Words and brand</h3>
+        <label>Title <input id="tcTitle" type="text" maxlength="90"></label>
+        <label>Subtitle <input id="tcSubtitle" type="text" maxlength="90"></label>
+        <div class="tc-two"><label>Lower third name <input id="tcLtName" type="text" maxlength="40"></label><label>Role <input id="tcLtRole" type="text" maxlength="40"></label></div>
+        <div class="tc-two"><label>Extra text <input id="tcCustomText" type="text" maxlength="80"></label><label>At (seconds) <input id="tcCustomAt" type="number" min="0" step="0.5" value="2"></label></div>
+        <label class="tc-check"><input id="tcLogoDefault" type="checkbox" checked> Show the Toasty logo</label>
+        <label class="tc-btn tc-ghost">Add my logo or image<input id="tcImage" type="file" accept="image/*" hidden></label>
+        <div class="tc-two"><label>Position <select id="tcImagePos"><option value="top-right">Top right</option><option value="top-left">Top left</option><option value="bottom-right">Bottom right</option><option value="bottom-left">Bottom left</option><option value="center">Center</option></select></label><label>Size <input id="tcImageSize" type="range" min="0.08" max="0.4" step="0.01" value="0.16"></label></div>
+        <p id="tcImageNote" class="tc-muted"></p>
+      </div>
+      <div class="tc-card">
+        <h3>Music and audio</h3>
+        <label>Music <select id="tcMusic"><option value="template">Template default</option><option value="none">None</option><option value="upbeat">Upbeat</option><option value="chill">Chill</option><option value="cinematic">Cinematic</option><option value="tense">Tense</option><option value="file">My own file…</option></select></label>
+        <label class="tc-btn tc-ghost" id="tcMusicFileWrap" hidden>Choose music file<input id="tcMusicFile" type="file" accept="audio/*" hidden></label>
+        <label>Music level <input id="tcMusicGain" type="range" min="-34" max="-10" step="1" value="-22"> <span id="tcMusicGainLabel" class="tc-muted"></span></label>
+        <label class="tc-check"><input id="tcEnhance" type="checkbox" checked> Enhance the voice (level it, remove rumble, never clip)</label>
+        <p class="tc-muted">The music always dips under the voice.</p>
+      </div>
+      <div class="tc-card">
+        <h3>Formats</h3>
+        <label class="tc-check"><input type="checkbox" data-aspect="16:9" checked> Landscape 16:9 (1920×1080)</label>
+        <label class="tc-check"><input type="checkbox" data-aspect="9:16"> Vertical 9:16 (1080×1920)</label>
+        <label class="tc-check"><input type="checkbox" data-aspect="1:1"> Square 1:1 (1080×1080)</label>
+        <label>Crop focus for vertical and square <input id="tcFocus" type="range" min="0" max="1" step="0.05" value="0.5"></label>
+      </div>
+      <div class="tc-card">
+        <h3>Preview</h3>
+        <canvas id="tcPreview" width="640" height="360" aria-label="Preview frame"></canvas>
+        <label>Scrub the finished clip <input id="tcScrub" type="range" min="0" max="1" step="0.05" value="0"></label>
+        <button id="tcRenderPreview" class="tc-btn tc-ghost" type="button">Render a preview (plays in real time)</button>
+        <video id="tcPreviewVideo" controls playsinline hidden></video>
+      </div>
+    </section>
+  </main>
+
+  <section class="tc-export" aria-label="Export">
+    <h2>4. Export</h2>
+    <div class="tc-row">
+      <button id="tcRender" class="tc-btn tc-primary" type="button" disabled>Render selected clips</button>
+      <button id="tcCancel" class="tc-btn tc-ghost" type="button" hidden>Cancel</button>
+      <span id="tcSupport" class="tc-muted"></span>
+    </div>
+    <progress id="tcProgress" max="1" value="0" hidden></progress>
+    <p id="tcRenderStatus" class="tc-muted" role="status"></p>
+    <ul id="tcResults" class="tc-results"></ul>
+    <button id="tcDownloadAll" class="tc-btn tc-ghost" type="button" hidden>Download all</button>
+  </section>
+</body>
+</html>

@@ -72,6 +72,7 @@ import { createResearchProvider } from "./hottie-research.js";
 import { ParticipantRegistry, createParticipant, ParticipantRole, ConnectionStatus, SourceKind } from "./participant-registry.js";
 import { HostState } from "./host-state.js";
 import { RoomPresence } from "./room-presence.js";
+import { LiveClips } from "./live-clips.js";
 import { cleanMicAudioConstraint, cleanMicSettings, createCleanMicMeterPair } from "./microphone-capture.js";
 import {
   buildCanonicalState,
@@ -320,6 +321,16 @@ export class LiveSession {
     this.runOfShow = new RunOfShow();
     this.audience = new AudienceStore();
     this.transcript = new TranscriptStore();
+    // Moxie listens for clip-worthy moments while a recording runs (see js/live-clips.js). Bookmarks are timed from the
+    // start of the recording and saved into its manifest, so they open straight in Toasty Clips.
+    this.clipBookmarks = [];
+    this.liveClips = new LiveClips({
+      transcript: this.transcript,
+      getMicStream: () => this._hostPreviewStream,
+      onBookmark: (bm, info) => this._noteClipBookmark(bm, info),
+      onClose: (bm) => { this._syncClipMarker(bm); this.emit("clip-bookmarks", this.clipBookmarks); },
+      onCommand: (bm) => this.emit("recording-status", `Moxie: clipping that (from ${Math.round(bm.start)} s). I'll stop when the moment ends.`)
+    });
     this.showMemory = new ShowContextMemory();
     this.hostDirectives = new HostDirectiveLog();
     this.aiProducerFeed = new ProducerFeed();
@@ -2189,6 +2200,9 @@ export class LiveSession {
         last: this.recording.last
       }));
       this._recordingTimerId = window.setInterval(() => this.emit("recording", this.recording), 1000);
+      this.clipBookmarks = [];
+      this.emit("clip-bookmarks", this.clipBookmarks);
+      this.liveClips.start(started.startedAt).catch(() => {});
       this._publishControlNow();
       return this.recording;
     } catch (error) {
@@ -2208,6 +2222,8 @@ export class LiveSession {
     }
     this._setRecording({ ...this.recording, status: "saving" });
     this.emit("recording-status", "Saving recording...");
+    const finalClips = this.liveClips.finish();
+    if (finalClips.length) { this.clipBookmarks = finalClips; finalClips.forEach((bm) => this._syncClipMarker(bm)); this.emit("clip-bookmarks", this.clipBookmarks); }
     const captureResult = await recorder.stop();
     const { startedAt, stoppedAt } = captureResult;
     const { manifest: sourceManifest } = assembleMasterPackage({
@@ -2244,6 +2260,7 @@ export class LiveSession {
       },
       isolatedTracks: []
     });
+    sourceManifest.clipBookmarks = this.clipBookmarks.map((b) => ({ id: b.id, start: b.start, end: b.end, title: b.title, category: b.category, score: b.score, reason: b.reason, speakers: b.speakers, source: b.source }));
     let manifest = sourceManifest;
     // Local-first: when the browser encoded MP4 itself, the recording is already the finished MP4 — complete on this
     // machine, no upload, no server conversion. WebM (other browsers) gets optional server conversion afterwards.
@@ -2428,6 +2445,23 @@ export class LiveSession {
     });
     this.emit("marker", marker);
     return marker;
+  }
+
+  // A clip-worthy moment (or a spoken "Moxie, clip that"). Shown to the producer, kept as a Moxie marker, and saved with the recording.
+  _noteClipBookmark(bm, info = {}) {
+    const existing = this.clipBookmarks.find((b) => b.id === bm.id);
+    if (!existing) this.clipBookmarks.push(bm);
+    if (!info.open) this._syncClipMarker(bm);
+    this.emit("clip-bookmark", { bookmark: bm, open: Boolean(info.open) });
+    this.emit("clip-bookmarks", this.clipBookmarks);
+    this.emit("recording-status", info.open ? "Moxie: clipping that…" : `Moxie bookmarked: ${bm.title}`);
+  }
+
+  _syncClipMarker(bm) {
+    if (!bm || bm._marked || bm.open) return;
+    bm._marked = true;
+    const startedAt = this.recording.startedAt || this.liveClips.startedAt || Date.now();
+    this.markers.add({ type: "hottie", label: `Clip: ${bm.title}`.slice(0, 160), source: "moxie-clips", timestamp: startedAt + Math.round(bm.start * 1000) });
   }
 
   addMarker(label = "Marker") {
