@@ -4,6 +4,7 @@ import { attachFocusGroupToSession, buildFocusGroupInsightArtifact } from "./foc
 import { buildSessionDeliverables, buildWeeklyUpdatePackage, formatDeliverableMarkdown } from "./post-production.js";
 import { sanitizeEndCard, readImageFileAsDataUrl } from "./end-card.js";
 import { PROGRAM_OUTPUT_PICKER_INSTRUCTION } from "./program-recording.js";
+import { enhanceRecordingBlob } from "./audio-enhance-export.js";
 
 // ProducerView: the dense control surface for making the show. Same LiveSession as HostView — this
 // file only adds DOM bindings for producer-only actions (per-guest control, layout, graphics, show
@@ -53,6 +54,8 @@ export class ProducerView {
       masterRetry: root.querySelector("#lvMasterRetry"),
       playbackEchoNote: root.querySelector("#lvPlaybackEchoNote"),
       masterDownloadWebm: root.querySelector("#lvMasterDownloadWebm"),
+      masterEnhance: root.querySelector("#lvMasterEnhanceAudio"),
+      masterEnhanceNoise: root.querySelector("#lvMasterEnhanceNoise"),
       transcriptDownload: root.querySelector("#lvTranscriptDownload"),
       masterPlay: root.querySelector("#lvMasterPlay"),
       masterManifest: root.querySelector("#lvMasterManifest"),
@@ -176,6 +179,7 @@ export class ProducerView {
     this.elements.masterRetry?.addEventListener("click", () => this.retryMp4());
     this.bindPlaybackEchoGuard();
     this.elements.masterDownloadWebm?.addEventListener("click", () => this.downloadSourceWebm());
+    this.elements.masterEnhance?.addEventListener("click", () => this.downloadEnhancedAudio());
     this.elements.transcriptDownload?.addEventListener("click", () => this.downloadTranscript());
     this.elements.masterManifest?.addEventListener("click", () => this.downloadManifest());
     this.elements.openProgramOutput.addEventListener("click", () => {
@@ -795,6 +799,30 @@ export class ProducerView {
 
   // Explicit, dedicated WebM download — always the original tab-capture source (Advanced), never labelled
   // as MP4, available whether or not MP4 finalization ever succeeded.
+  // Optional, local, non-destructive: a separate enhanced WAV (high-pass, gentle compression, loudness to -16 LUFS,
+  // limiter, optional noise reduction). The recording itself is never changed.
+  async downloadEnhancedAudio() {
+    const last = this.session.recording.last;
+    const source = last?.masterBlob || last?.sourceBlob;
+    const button = this.elements.masterEnhance;
+    if (!source || !button || button.dataset.busy === "1") return;
+    const label = button.textContent;
+    button.dataset.busy = "1";
+    button.disabled = true;
+    try {
+      const result = await enhanceRecordingBlob(source, { noiseReduction: { enabled: Boolean(this.elements.masterEnhanceNoise?.checked) } }, { onProgress: (text) => { button.textContent = text; } });
+      downloadFile(result.blob, `${last.recordingId}-enhanced-audio.wav`);
+      const r = result.report;
+      this.session.emit?.("recording-status", `Enhanced audio saved: ${r.inputLufs.toFixed(1)} to ${r.outputLufs.toFixed(1)} LUFS${r.boostCapped ? " (quiet recording: boost was capped)" : ""}. Your original recording is unchanged.`);
+    } catch (error) {
+      this.session.emit?.("recording-status", error?.message || "Could not enhance this recording.");
+    } finally {
+      button.dataset.busy = "0";
+      button.disabled = false;
+      button.textContent = label;
+    }
+  }
+
   downloadSourceWebm() {
     const last = this.session.recording.last;
     if (!last?.sourceBlob) return;

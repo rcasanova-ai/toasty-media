@@ -130,8 +130,11 @@ console.log("\nProgram Renderer capture source is Program Output, not a second c
   assert(!startBody.includes("composeMasterMediaStream"), "start does not wrap capture tracks in a new MediaStream");
   assert(!recording.includes("createDynamicsCompressor"), "recording does not add Web Audio compression before MediaRecorder");
   assert(!recording.includes("buildLimitedRecordingStream"), "recording does not synthesize a second processed audio track");
-  assert(startBody.includes("this.masterStream = capture"), "start records the original Program Output capture stream");
-  assert(startBody.includes("startMasterMediaRecorder(Rec, this.masterStream"), "start records the raw Program Output stream");
+  const guard = read("js/capture-audio-guard.js");
+  assert(startBody.includes("guardCaptureAudio(capture)") && startBody.includes("this.masterStream = this.audioGuard.stream"), "start records the Program Output capture, with audio passed through the transparent safety limiter only");
+  assert(!guard.includes("createDynamicsCompressor") && !guard.includes("createGain") && !guard.includes("createBiquadFilter"), "the recording safety guard adds no compressor, gain stage or EQ");
+  assert(guard.includes("passthrough(stream") && /catch \(error\)[\s\S]*passthrough/.test(guard), "the guard fails open: any problem records the raw capture instead");
+  assert(startBody.includes("startMasterMediaRecorder(Rec, this.masterStream"), "start records the guarded Program Output stream");
   assert(startBody.includes("inspectMasterCapture"), "start validates live video and audio tracks before MediaRecorder");
   assert(startBody.includes("startMasterMediaRecorder"), "start uses the fallback MediaRecorder lifecycle");
   assert(recording.includes("ONE") || recording.includes("second compositor") || recording.includes("second visual truth"), "forbids a second visual truth");

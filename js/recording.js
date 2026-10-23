@@ -53,7 +53,8 @@ export class LocalIsolatedRecorder {
 
     const audioMimeType = chooseMimeType(["audio/webm;codecs=opus", "audio/webm"]);
     const videoMimeType = chooseMimeType(DEFAULT_MIME_TYPES);
-    this.audioRecorder = new MediaRecorder(new MediaStream(audioTracks), recorderOptions(audioMimeType));
+    // Explicit 160 kbps mono Opus, the same audio quality as the master recording, instead of whatever the browser defaults to.
+    this.audioRecorder = new MediaRecorder(new MediaStream(audioTracks), { ...(audioMimeType ? { mimeType: audioMimeType } : {}), audioBitsPerSecond: 160000 });
     this.audioRecorder.addEventListener("dataavailable", (event) => pushChunk(event, this.audioChunks));
     if (!audioOnly) {
       this.videoRecorder = new MediaRecorder(new MediaStream(videoTracks), recorderOptions(videoMimeType));

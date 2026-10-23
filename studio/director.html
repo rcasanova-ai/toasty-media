@@ -409,6 +409,14 @@
             </nav>
             <div class="lv-topbar-status">
               <span class="lv-policy-chip" id="lvPolicyChip" hidden></span>
+              <button type="button" class="lv-mini-btn" id="lvTopMic" aria-expanded="false" aria-controls="lvMicPanel" title="Choose your microphone and watch the input level">Mic setup</button>
+              <div class="lv-mic-panel" id="lvMicPanel" role="dialog" aria-label="Microphone setup" hidden>
+                <label>Microphone<select id="lvLiveMicSelect"></select></label>
+                <div class="mic-level" role="meter" aria-label="Microphone input level" aria-valuemin="-60" aria-valuemax="0" data-mic-meter><div class="mic-level-fill" data-mic-fill></div></div>
+                <p class="control-note" data-mic-note aria-live="polite">Waiting for the microphone…</p>
+                <p class="control-note" id="lvMicProcessingNote"></p>
+                <p class="control-note">The speakers / headphones choice is made before you join. Changing the microphone here keeps a recording going.</p>
+              </div>
               <button type="button" class="lv-mini-btn lv-top-settings" id="lvTopSettings" title="Open Settings in a new tab">Settings</button>
               <button type="button" class="lv-mini-btn" id="lvTopMore" aria-expanded="false" aria-controls="lvTopMoreMenu" aria-label="More">•••</button>
               <div class="lv-top-more-menu" id="lvTopMoreMenu" hidden>
@@ -448,6 +456,7 @@
                       <label>Company<input id="lvHostPrejoinCompany" type="text" autocomplete="organization" placeholder="e.g. Toasty Media"></label>
                       <label>Camera<select id="lvHostPrejoinCamera"></select></label>
                       <label>Microphone<select id="lvHostPrejoinMic"></select></label>
+                      <div id="lvHostMicSetup"></div>
                       <button id="lvHostPrejoinJoin" class="btn btn-primary" type="button" disabled>Join Studio</button>
                       <p class="control-note" id="lvHostPrejoinStatus">Requesting camera preview…</p>
                     </div>
@@ -688,6 +697,8 @@
                   <summary>Advanced</summary>
                   <div class="recording-actions">
                     <button id="lvMasterDownloadWebm" class="btn btn-ghost btn-small" type="button">Download Source WebM</button>
+                    <button id="lvMasterEnhanceAudio" class="btn btn-ghost btn-small" type="button" title="Makes a separate WAV with a high-pass filter, gentle compression, loudness to -16 LUFS and a limiter. Your recording is not changed.">Download Enhanced Audio</button>
+                    <label class="control-note"><input id="lvMasterEnhanceNoise" type="checkbox"> Reduce background noise (gentle)</label>
                     <button id="lvMasterManifest" class="btn btn-ghost btn-small" type="button">Recording Details</button>
                   </div>
                 </details>
