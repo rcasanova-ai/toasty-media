@@ -126,7 +126,7 @@ try {
   const single = await page.evaluate(async () => { const { guardCaptureAudio } = await import("/js/capture-audio-guard.js"); const c = document.createElement("canvas"); const s = new MediaStream([c.captureStream(5).getVideoTracks()[0]]); const a = new AudioContext(); const d = a.createMediaStreamDestination(); s.addTrack(d.stream.getAudioTracks()[0]); const r = await guardCaptureAudio(s); a.close(); return { applied: r.applied, reason: r.reason }; });
   assert(single.applied === false && single.reason === "single-source-capture", "the Studio's single-microphone canvas recording is left alone (nothing is being mixed there)");
   assert(nw.applied === false && /failed/.test(nw.reason), "if the worklet cannot load the raw stream is recorded instead");
-  assert((await analyzeFile(nw.path)).probe.audio.codec === "aac", "and that recording is still a valid MP4 with audio");
+  assert((await analyzeFile(nw.path)).probe.audio.codec === "aac" || (await analyzeFile(nw.path)).probe.audio.codec === "opus", "and that recording is still valid media with audio (AAC in MP4, or Opus in WebM where MP4 is unsupported)");
 
   writeFileSync(join(scratch, "report.json"), JSON.stringify(report, null, 2));
   if (process.env.REPORT_JSON) writeFileSync(process.env.REPORT_JSON, JSON.stringify(report, null, 2));
