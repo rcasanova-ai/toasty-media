@@ -129,7 +129,8 @@ try {
   const dims = files.map((f) => { const v = probe(f).streams.find((s) => s.codec_type === "video"); return `${v.width}x${v.height}`; }).sort();
   console.log("  files:", files.map((f) => f.split("/").pop()).join(", "), dims.join(" "));
   assert(dims.join() === "1080x1080,1080x1920,1920x1080", "the files are 1920x1080, 1080x1920 and 1080x1080");
-  for (const f of files) { const info = probe(f); assert(/mp4/.test(info.format.format_name) && info.streams.some((s) => s.codec_type === "audio") && Number(info.format.duration) > 5 && ffdecode(f).trim() === "", `${f.split("/").pop()} is a playable MP4 with video and audio that decodes without errors (${Number(info.format.duration).toFixed(1)} s)`); }
+  for (const f of files) { const info = probe(f); const dur = Number(info.format.duration);   // browsers without H.264 (CI Chrome) export WebM, which carries no duration header
+    assert(/mp4|webm|matroska/.test(info.format.format_name) && info.streams.some((s) => s.codec_type === "audio") && (!Number.isFinite(dur) || dur > 5) && ffdecode(f).trim() === "", `${f.split("/").pop()} is a playable ${/mp4/.test(info.format.format_name) ? "MP4" : "WebM (this browser has no H.264 encoder)"} with video and audio that decodes without errors (${Number.isFinite(dur) ? dur.toFixed(1) + " s" : "no duration header"})`); }
 
   const landscape = files.find((f) => /16x9/.test(f));
   // A/V sync: find the first bright frame and the first loud audio sample in the 1920x1080 clip; they were simultaneous in the source.
