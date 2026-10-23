@@ -29,6 +29,25 @@ export async function getMediaBlob(id) {
   return record?.blob || null;
 }
 
+// Everything stored (metadata only; blobs stay on disk until fetched with getMediaBlob). Optionally filtered by metadata.kind.
+export async function listMediaRecords({ kind = null } = {}) {
+  const db = await openMediaDb();
+  try {
+    return await new Promise((resolve, reject) => {
+      const out = [];
+      const req = db.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).openCursor();
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) return resolve(out);
+        const v = cursor.value;
+        if (!kind || v.metadata?.kind === kind) out.push({ id: v.id, metadata: v.metadata || {}, updatedAt: v.updatedAt || null, size: v.blob?.size ?? null, type: v.blob?.type || "" });
+        cursor.continue();
+      };
+      req.onerror = () => reject(req.error || new Error("Browser media storage failed."));
+    });
+  } finally { db.close(); }
+}
+
 export async function deleteMediaBlob(id) {
   if (!id) return;
   const db = await openMediaDb();

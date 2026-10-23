@@ -54,6 +54,8 @@ export class ProducerView {
       masterRetry: root.querySelector("#lvMasterRetry"),
       playbackEchoNote: root.querySelector("#lvPlaybackEchoNote"),
       masterDownloadWebm: root.querySelector("#lvMasterDownloadWebm"),
+      clipBox: root.querySelector("#lvClipBookmarks"),
+      clipList: root.querySelector("#lvClipBookmarkList"),
       masterEnhance: root.querySelector("#lvMasterEnhanceAudio"),
       masterEnhanceNoise: root.querySelector("#lvMasterEnhanceNoise"),
       transcriptDownload: root.querySelector("#lvTranscriptDownload"),
@@ -180,6 +182,7 @@ export class ProducerView {
     this.bindPlaybackEchoGuard();
     this.elements.masterDownloadWebm?.addEventListener("click", () => this.downloadSourceWebm());
     this.elements.masterEnhance?.addEventListener("click", () => this.downloadEnhancedAudio());
+    this.session.on?.("clip-bookmarks", (list) => this.renderClipBookmarks(list));
     this.elements.transcriptDownload?.addEventListener("click", () => this.downloadTranscript());
     this.elements.masterManifest?.addEventListener("click", () => this.downloadManifest());
     this.elements.openProgramOutput.addEventListener("click", () => {
@@ -799,6 +802,19 @@ export class ProducerView {
 
   // Explicit, dedicated WebM download — always the original tab-capture source (Advanced), never labelled
   // as MP4, available whether or not MP4 finalization ever succeeded.
+  renderClipBookmarks(list = []) {
+    const { clipBox, clipList } = this.elements;
+    if (!clipBox || !clipList) return;
+    clipBox.hidden = !list.length && !this.session.recording?.active;
+    const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+    clipList.replaceChildren(...list.map((b) => {
+      const li = document.createElement("li");
+      li.textContent = `${mmss(b.start)} to ${mmss(b.end)}  ${b.open ? "(capturing…) " : ""}${b.title}  [${b.category}, ${b.score}]`;
+      li.title = b.reason || "";
+      return li;
+    }));
+  }
+
   // Optional, local, non-destructive: a separate enhanced WAV (high-pass, gentle compression, loudness to -16 LUFS,
   // limiter, optional noise reduction). The recording itself is never changed.
   async downloadEnhancedAudio() {

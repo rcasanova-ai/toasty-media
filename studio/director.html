@@ -682,6 +682,11 @@
                 <button id="lvRecordMarker" class="btn btn-ghost btn-small" type="button" hidden>Mark</button>
               </div>
               <p class="control-note" id="lvRecordNote">Click Record, pick the Toasty Program Output tab and turn Share tab audio ON. Record and Go Live share that one pick.</p>
+              <div class="lv-clip-bookmarks" id="lvClipBookmarks" hidden>
+                <p class="rail-card-title">Moxie clips</p>
+                <p class="control-note">Moxie bookmarks strong moments while you record. Say "Moxie, clip that" to bookmark one yourself.</p>
+                <ol id="lvClipBookmarkList" class="lv-clip-list" aria-live="polite"></ol>
+              </div>
               <div class="master-playback" id="lvMasterPlayback" hidden>
                 <p class="rail-card-title">Last recording</p>
                 <video id="lvMasterVideo" class="master-playback-video" controls playsinline></video>
@@ -691,6 +696,7 @@
                   <button id="lvMasterDownload" class="btn btn-primary btn-small" type="button" disabled>Download MP4</button>
                   <button id="lvMasterRetry" class="btn btn-ghost btn-small" type="button" hidden>Retry MP4</button>
                   <button id="lvTranscriptDownload" class="btn btn-ghost btn-small" type="button">Download Transcript</button>
+                  <a id="lvMakeClips" class="btn btn-primary btn-small" href="./clips.html" target="_blank" rel="noopener">Make clips</a>
                 </div>
                 <p class="control-note" id="lvMasterManifestNote"></p>
                 <details class="recording-advanced">

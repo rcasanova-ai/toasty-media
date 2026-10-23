@@ -40,6 +40,13 @@ jobs:
           node scripts/stable-mic-track-test.mjs
           node scripts/capture-audio-guard-test.mjs
           node scripts/microphone-capture-chain-test.mjs
+          node scripts/clip-detector-test.mjs
+          node scripts/audio-events-test.mjs
+          node scripts/clip-templates-test.mjs
+          node scripts/clip-timeline-test.mjs
+          node scripts/clip-mixer-test.mjs
+          node scripts/clip-music-test.mjs
+          node scripts/transcript-import-test.mjs
           node scripts/site-pages-test.mjs
 
       - name: Install ffmpeg for broadcast and MP4 tests

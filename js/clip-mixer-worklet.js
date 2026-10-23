@@ -1,0 +1,26 @@
+// AudioWorklet wrapper for ClipMixer. Input 0 = the clip's own audio, input 1 = background music, output 0 = the mix.
+import { ClipMixer } from "./clip-mixer.js";
+
+class ToastyClipMixer extends AudioWorkletProcessor {
+  constructor(options) {
+    super();
+    const o = options?.processorOptions || {};
+    this.mixer = new ClipMixer(sampleRate, { channels: 2, enhance: o.enhance !== false, musicGainDb: o.musicGainDb ?? -20, duckDb: o.duckDb ?? -14 });
+    this.silence = new Float32Array(128);
+    this.port.onmessage = (e) => {
+      const d = e.data || {};
+      if (typeof d.musicBoostDb === "number") this.mixer.setMusicBoost(d.musicBoostDb);
+      if (d.type === "stats") this.port.postMessage({ type: "stats", minDuckDb: this.mixer.minDuckDb, levelDb: this.mixer.levelDb });
+    };
+  }
+  process(inputs, outputs) {
+    const out = outputs[0];
+    const n = out[0].length;
+    if (this.silence.length < n) this.silence = new Float32Array(n);
+    const voice = inputs[0]?.length ? inputs[0] : [this.silence, this.silence];
+    const music = inputs[1]?.length ? inputs[1] : [this.silence, this.silence];
+    this.mixer.process([voice[0], voice[1] || voice[0]], [music[0], music[1] || music[0]], [out[0], out[1] || out[0]]);
+    return true;
+  }
+}
+registerProcessor("toasty-clip-mixer", ToastyClipMixer);

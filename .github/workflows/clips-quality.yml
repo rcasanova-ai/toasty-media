@@ -1,0 +1,70 @@
+name: Toasty Clips
+
+# Test-only. Unit tests for clip detection, templates, timeline, mixer and music, plus real-Chrome tests that render clips to
+# 16:9, 9:16 and 1:1, drive the Clips workspace, and check Moxie's live clip listening inside the Studio.
+on:
+  pull_request:
+    paths:
+      - "js/clip-*.js"
+      - "js/clips-app.js"
+      - "js/live-clips.js"
+      - "js/audio-events.js"
+      - "js/audio-features-worklet.js"
+      - "js/transcript-import.js"
+      - "js/media-store.js"
+      - "js/live-session.js"
+      - "js/producer-view.js"
+      - "js/host-directive.js"
+      - "studio/clips.html"
+      - "studio/director.html"
+      - "css/clips.css"
+      - "scripts/clip*"
+      - "scripts/live-clips*"
+      - "scripts/audio-events-test.mjs"
+      - ".github/workflows/clips-quality.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clips-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: |
+          set -euo pipefail
+          for t in clip-detector-test audio-events-test clip-templates-test clip-timeline-test clip-mixer-test clip-music-test transcript-import-test; do
+            echo "== $t"; node "scripts/$t.mjs"
+          done
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install ffmpeg and Chrome tooling
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          npm install --no-save --no-audit --no-fund playwright-core
+      - name: Real-browser clip tests
+        env:
+          HEADLESS: "1"
+          CHROME_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          for t in clips-render-browser-test clips-ui-browser-test live-clips-browser-test; do
+            echo "== $t"; node "scripts/$t.mjs"
+          done
