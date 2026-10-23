@@ -33,16 +33,29 @@
       <div class="tc-card" id="tcTranscriptCard" hidden>
         <h3>Transcript</h3>
         <p id="tcTranscriptNote" class="tc-muted"></p>
-        <label class="tc-btn tc-ghost">Import transcript (SRT, VTT, TXT, JSON)<input id="tcTranscriptFile" type="file" accept=".srt,.vtt,.txt,.json" hidden></label>
-        <button id="tcTranscribe" class="tc-btn tc-ghost" type="button" title="Downloads an open speech model (about 40 MB) once, then runs on this computer. Your video is never uploaded.">Transcribe in this browser</button>
+        <label class="tc-btn tc-ghost">Import a transcript instead (SRT, VTT, TXT, JSON)<input id="tcTranscriptFile" type="file" accept=".srt,.vtt,.txt,.json" hidden></label>
         <p id="tcTranscribeStatus" class="tc-muted" role="status"></p>
       </div>
-      <button id="tcFind" class="tc-btn tc-primary" type="button" disabled>Find clips with Moxie</button>
+      <div class="tc-card" id="tcOptions">
+        <h3>How Moxie looks</h3>
+        <label class="tc-check"><input id="tcUseModels" type="checkbox" checked> Use open models on this computer for speech and meaning (about 60 MB, downloaded once)</label>
+        <label class="tc-check"><input id="tcUseVisual" type="checkbox" checked> Watch the video for reactions, gestures and movement (about 15 MB tracker, once)</label>
+        <p class="tc-muted">Your video is never uploaded. Only the model files are downloaded.</p>
+      </div>
+      <button id="tcFind" class="tc-btn tc-primary" type="button" disabled>Analyze with Moxie</button>
+      <button id="tcAnalyzeCancel" class="tc-btn tc-ghost" type="button" hidden>Cancel</button>
+      <progress id="tcAnalyzeProgress" max="1" value="0" hidden></progress>
       <p id="tcFindStatus" class="tc-muted" role="status"></p>
+      <div class="tc-card" id="tcSignalsCard" hidden>
+        <h3>What Moxie used</h3>
+        <ul id="tcSignals" class="tc-signals"></ul>
+        <ul id="tcNotes" class="tc-notes"></ul>
+        <button id="tcExportTimeline" class="tc-btn tc-ghost" type="button">Download the behavior timeline (JSON)</button>
+      </div>
     </section>
 
     <section class="tc-col tc-main" aria-label="Clips">
-      <h2>2. Choose clips</h2>
+      <h2>2. Review clips</h2>
       <div class="tc-player"><video id="tcVideo" controls playsinline preload="metadata"></video><p id="tcVideoEmpty" class="tc-muted">Pick or upload a video to begin.</p></div>
       <div class="tc-row"><button id="tcAddHere" class="tc-btn tc-ghost" type="button" disabled>Add a clip at the playhead</button><span id="tcSummary" class="tc-muted"></span></div>
       <ol id="tcClips" class="tc-clips" aria-label="Suggested clips"></ol>

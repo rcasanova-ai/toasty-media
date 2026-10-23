@@ -3,9 +3,12 @@
 import { listMediaRecords, getMediaBlob } from "./media-store.js";
 import { STARTER_TEMPLATES, ASPECTS, applyOverrides, getTemplate, validateTemplate } from "./clip-templates.js";
 import { interpretInstruction } from "./clip-instructions.js";
-import { analyzeSource, decodeMono16k, suggestClips } from "./clip-analysis.js";
+import { decodeMono16k } from "./clip-analysis.js";
+import { analyzeRecording } from "./behavior/engine.js";
+import { MOMENT_CATEGORIES } from "./behavior/moments.js";
 import { parseTranscript } from "./transcript-import.js";
 import { CLIP_CATEGORIES } from "./clip-detector.js";
+const CATEGORY_LABELS = { ...CLIP_CATEGORIES, ...MOMENT_CATEGORIES };
 import { captionWords, captionChunks, computeFrame, planTimeline } from "./clip-timeline.js";
 import { drawFrame } from "./clip-draw.js";
 import { loadImage, renderBatch, renderCapabilities, renderClip } from "./clip-renderer.js";
@@ -16,7 +19,10 @@ const parseTime = (v) => { const m = String(v).trim().match(/^(?:(\d+):)?(\d+(?:
 const slug = (s) => String(s || "clip").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "clip";
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const state = { source: null, clips: [], active: -1, logo: null, busy: false, abort: null, results: [], musicBuffers: new Map(), pcm: null };
+const state = { source: null, clips: [], active: -1, logo: null, busy: false, abort: null, results: [], musicBuffers: new Map(), pcm: null, analysis: null, analyzing: false, analyzeAbort: null };
+const PREFS_KEY = "toasty.moxie.prefs";
+const loadPrefs = () => { try { return { models: true, visual: true, ...JSON.parse(localStorage.getItem(PREFS_KEY) || "{}") }; } catch (_) { return { models: true, visual: true }; } };
+const savePrefs = () => { try { localStorage.setItem(PREFS_KEY, JSON.stringify({ models: $("tcUseModels").checked, visual: $("tcUseVisual").checked })); } catch (_) {} };
 window.__toastyClips = state;   // read-only handle for tests and diagnostics
 
 const defaultSpec = () => ({ templateId: "toasty-classic", overrides: {}, title: "", subtitle: "", lt: { name: "", role: "" }, custom: [], images: [], musicFile: null, musicStyle: "template", musicGainDb: null, enhance: true, focusX: 0.5, aspects: ["16:9"], logoDefault: true });
@@ -27,6 +33,7 @@ async function init() {
   $("tcSupport").textContent = caps.supported ? `Renders ${caps.container.toUpperCase()} on this computer.` : "This browser cannot render clips. Use a current Chrome, Edge or Safari.";
   $("tcRender").dataset.supported = caps.supported ? "1" : "0";
   try { state.logo = await loadImage("../shared/brand/toasty-media/ToastyMediaStudio.png"); } catch (_) {}
+  const prefs = loadPrefs(); $("tcUseModels").checked = prefs.models; $("tcUseVisual").checked = prefs.visual;
   renderTemplates();
   bind();
   refreshLibrary();
@@ -61,74 +68,130 @@ async function openRecording(recordingId) {
 async function setSource({ id, name, blob, lines = [], bookmarks = [] }) {
   if (state.source?.url) URL.revokeObjectURL(state.source.url);
   const url = URL.createObjectURL(blob);
+  if (!lines.length) { try { const cached = JSON.parse(localStorage.getItem(LINES_KEY(id)) || "null"); if (Array.isArray(cached)) lines = cached; } catch (_) {} }
   state.source = { id, name, blob, url, lines, events: [], duration: 0, bookmarks };
-  state.clips = []; state.active = -1; state.pcm = null; state.results = [];
+  state.clips = []; state.active = -1; state.pcm = null; state.results = []; state.analysis = null; showSignals(null);
   const v = $("tcVideo"); v.src = url;
   await new Promise((r) => { v.onloadedmetadata = r; v.onerror = r; setTimeout(r, 8000); });
   state.source.duration = Number.isFinite(v.duration) ? v.duration : 0;
   $("tcTranscriptCard").hidden = false; $("tcFind").disabled = false; $("tcAddHere").disabled = false; $("tcEdit").hidden = true;
-  $("tcTranscriptNote").textContent = lines.length ? `${lines.length} transcript lines found from the Studio.` : "No transcript yet. Moxie can still use laughter, silences and loud moments. For better suggestions import a transcript or transcribe in this browser.";
+  $("tcTranscriptNote").textContent = lines.length ? `${lines.length} transcript lines found${id.startsWith("upload-") ? " from the last analysis" : " from the Studio"}.` : "No transcript yet. Moxie will transcribe it on this computer when you analyze, or you can import one.";
   $("tcFindStatus").textContent = `${name} · ${fmt(state.source.duration).replace(/\.\d$/, "")}`;
   restore();
   renderClips();
 }
 
 // ---------- analysis ----------
-async function findClips() {
-  const s = state.source; if (!s) return;
-  $("tcFind").disabled = true;
-  try {
-    const res = await analyzeSource(s.blob, { lines: s.lines, onProgress: (t) => { $("tcFindStatus").textContent = t; } });
-    s.events = res.events; state.pcm = res.pcm;
-    const fromStudio = (s.bookmarks || []).map((b) => ({ ...b, source: b.source || "live" }));
-    const merged = [...fromStudio];
-    for (const c of res.clips) if (!merged.some((m) => m.start < c.end && c.start < m.end)) merged.push(c);
-    merged.sort((a, b) => a.start - b.start);
-    state.clips = merged.map((c) => ({ ...c, selected: c.score >= 60 || c.source === "command", spec: defaultSpec() }));
-    $("tcFindStatus").textContent = state.clips.length ? `Moxie found ${state.clips.length} moment${state.clips.length === 1 ? "" : "s"}.${res.note ? " " + res.note : ""}` : `No standout moments found${s.lines.length ? "" : " (no transcript, so only sound was used)"}. You can still add a clip at the playhead.${res.note ? " " + res.note : ""}`;
-    if (state.clips.length) selectClip(0);
-    renderClips();
-  } catch (error) { $("tcFindStatus").textContent = error?.message || String(error); }
-  finally { $("tcFind").disabled = false; }
+const LINES_KEY = (id) => `toasty.clips.lines.${id}`;
+const ANALYSIS_KEY = (id) => `toasty.clips.analysis.${id}`;
+
+function specFromRecommendation(rec) {
+  const sp = defaultSpec();
+  if (!rec) return sp;
+  sp.templateId = getTemplate(rec.templateId) ? rec.templateId : sp.templateId;
+  if (rec.aspect) sp.aspects = [rec.aspect];
+  if (rec.captions) sp.overrides = { captions: { style: rec.captions } };
+  if (rec.focusX != null) sp.focusX = rec.focusX;
+  return sp;
 }
 
-async function transcribe() {
-  const s = state.source; if (!s) return;
-  const btn = $("tcTranscribe"); btn.disabled = true;
+function showSignals(analysis) {
+  if (!analysis) { $("tcSignalsCard").hidden = true; return; }
+  const caps = analysis.engine?.capabilities || {}, on = (k) => caps[k]?.available;
+  const row = (ok, text) => `<li class="${ok ? "" : "is-off"}">${esc(text)}</li>`;
+  const sem = analysis.engine?.semantic;
+  $("tcSignals").innerHTML = [
+    row(on("transcript"), on("transcript") ? `Words: ${caps.transcript.detail}` : "Words: none (no transcript)"),
+    row(sem === "minilm" || sem === "lexical", sem === "minilm" ? "Meaning: sentence-embedding model (local)" : sem === "lexical" ? "Meaning: shared-vocabulary fallback (no model)" : "Meaning: not analysed"),
+    row(on("audio"), on("audio") ? "Voice: level, pitch, pace, pauses, laughter, overlap" : "Voice: audio could not be read"),
+    row(on("face"), on("face") ? "Faces: smiles, brows, head turns, nods, leaning" : "Faces: none detected or not tracked"),
+    row(on("hands") || on("pose"), on("hands") || on("pose") ? "Hands and posture: tracked" : "Hands and posture: not tracked"),
+    row(on("motion"), on("motion") ? "Movement: measured from the picture" : "Movement: not measured")
+  ].join("");
+  $("tcNotes").innerHTML = (analysis.notes || []).map((n) => `<li>${esc(n)}</li>`).join("");
+  $("tcSignalsCard").hidden = false;
+}
+
+async function findClips() {
+  const s = state.source; if (!s || state.analyzing) return;
+  const useModels = $("tcUseModels").checked, useVisual = $("tcUseVisual").checked; savePrefs();
+  const hooks = window.__moxieHooks || {};
+  state.analyzing = true; state.analyzeAbort = new AbortController();
+  $("tcFind").disabled = true; $("tcAnalyzeCancel").hidden = false; $("tcAnalyzeProgress").hidden = false; $("tcAnalyzeProgress").value = 0;
+  const weights = { audio: [0, 0.05], transcript: [0.05, 0.4], picture: [0.45, 0.25], voice: [0.7, 0.08], language: [0.78, 0.14], interaction: [0.92, 0.04], moments: [0.96, 0.04] };
   try {
-    const { transcribePcm } = await import("./clip-transcribe.js");
-    if (!state.pcm) { $("tcTranscribeStatus").textContent = "Reading the audio…"; state.pcm = (await decodeMono16k(s.blob)).samples; }
-    const lines = await transcribePcm(state.pcm, { onStatus: (t) => { $("tcTranscribeStatus").textContent = t; }, onProgress: (p) => { $("tcTranscribeStatus").textContent = `Transcribing… ${Math.round(p * 100)}%`; } });
-    s.lines = lines;
-    $("tcTranscribeStatus").textContent = `Transcribed ${lines.length} segments on this computer (no speaker names).`;
-    $("tcTranscriptNote").textContent = `${lines.length} transcript lines.`;
-  } catch (error) { $("tcTranscribeStatus").textContent = `Transcription failed: ${error?.message || error}`; }
-  finally { btn.disabled = false; }
+    const res = await analyzeRecording({
+      blob: s.blob, lines: s.lines, id: s.id, source: s.id.startsWith("upload-") ? "upload" : "studio", knownDuration: s.duration, signal: state.analyzeAbort.signal,
+      deps: hooks.deps || {},
+      options: { transcribe: useModels, visual: useVisual, tracker: useModels ? "auto" : "off", embedder: { disableModel: !useModels, ...(hooks.embedder || {}) }, worker: hooks.worker, ...(hooks.options || {}) },
+      onProgress: (p) => { const [base, span] = weights[p.stage] || [0, 0]; $("tcAnalyzeProgress").value = Math.min(1, base + span * (p.fraction || 0)); if (p.message) $("tcFindStatus").textContent = p.message; }
+    });
+    if (res.lines?.length && !s.lines.length) { s.lines = res.lines; try { localStorage.setItem(LINES_KEY(s.id), JSON.stringify(res.lines)); } catch (_) {} }
+    state.analysis = res; s.events = [];
+    const fromStudio = (s.bookmarks || []).map((b) => ({ ...b, source: b.source || "live", categories: b.categories || [b.category] }));
+    const merged = [...fromStudio];
+    for (const c of res.clips) if (!fromStudio.some((m) => m.start < c.end && c.start < m.end)) merged.push(c);   // Studio bookmarks win over a Moxie clip on the same stretch
+    merged.sort((a, b) => a.start - b.start);
+    state.clips = merged.map((c) => ({ ...c, selected: c.source === "command" || (c.tier ? c.tier !== "low" : c.score >= 60), spec: specFromRecommendation(c.recommendation) }));
+    // Never leave the list empty because nothing was "strong": the best coherent passages are always offered, labelled as such.
+    if (state.clips.length && !state.clips.some((c) => c.selected)) state.clips[0].selected = true;
+    const usedWords = res.timeline.has("transcript");
+    $("tcFindStatus").textContent = state.clips.length
+      ? `Moxie found ${state.clips.length} moment${state.clips.length === 1 ? "" : "s"}${res.fallback ? ", none of them standing out strongly, so these are the most coherent passages" : ""}${usedWords ? "" : " from sound and picture only (no transcript)"}.`
+      : `Moxie could not analyse this file: ${(res.notes || []).slice(-1)[0] || "there was no readable speech, sound or picture"}. You can still add a clip at the playhead.`;
+    showSignals(res); persistAnalysis();
+    if (state.clips.length) selectClip(0);
+    renderClips();
+    const lineNote = s.lines.length ? `${s.lines.length} transcript lines` : "";
+    if (lineNote) $("tcTranscriptNote").textContent = `${lineNote}.`;
+  } catch (error) {
+    $("tcFindStatus").textContent = error?.name === "AbortError" ? "Analysis cancelled." : (error?.message || String(error));
+  } finally { state.analyzing = false; state.analyzeAbort = null; $("tcFind").disabled = false; $("tcAnalyzeCancel").hidden = true; $("tcAnalyzeProgress").hidden = true; }
+}
+
+function persistAnalysis() {
+  const s = state.source, a = state.analysis; if (!s || !a) return;
+  try { localStorage.setItem(ANALYSIS_KEY(s.id), JSON.stringify({ notes: a.notes, engine: a.engine, fallback: a.fallback, capabilities: a.engine?.capabilities })); } catch (_) {}
+}
+
+function exportTimeline() {
+  const a = state.analysis; if (!a) return;
+  const blob = new Blob([JSON.stringify(a.timeline.toJSON(), null, 1)], { type: "application/json" });
+  const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `${slug(state.source.name)}-behavior-timeline.json`; document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 4000);
 }
 
 async function importTranscript(file) {
   const text = await file.text();
   const lines = parseTranscript(text);
   state.source.lines = lines;
+  try { localStorage.setItem(LINES_KEY(state.source.id), JSON.stringify(lines)); } catch (_) {}
   $("tcTranscriptNote").textContent = lines.length ? `Imported ${lines.length} lines from ${file.name}.` : `Could not find timed lines in ${file.name}. Use SRT, VTT, or lines like [00:12] Name: text.`;
 }
 
 // ---------- clip list ----------
+const TIER_LABEL = { high: "Strong moment", medium: "Good moment", low: "Best available passage" };
 function renderClips() {
   const ol = $("tcClips");
   const n = state.clips.filter((c) => c.selected).length;
   $("tcSummary").textContent = state.clips.length ? `${n} of ${state.clips.length} selected` : "";
   $("tcRender").disabled = !n || state.busy || $("tcRender").dataset.supported !== "1";
-  ol.innerHTML = state.clips.map((c, i) => `
+  ol.innerHTML = state.clips.map((c, i) => {
+    const rec = c.recommendation, ev = c.evidence || [];
+    return `
     <li class="tc-clip${i === state.active ? " is-active" : ""}" data-i="${i}">
       <div class="tc-clip-head">
         <input type="checkbox" data-act="select" ${c.selected ? "checked" : ""} aria-label="Select clip ${i + 1}">
         <input type="text" data-act="title" value="${esc(c.title)}" aria-label="Clip title">
-        <span class="tc-chip">${esc(CLIP_CATEGORIES[c.category] || "Moment")}</span><span class="tc-score" title="Moxie's score">${c.score}</span>
+        <span class="tc-chip">${esc(CATEGORY_LABELS[c.category] || "Moment")}</span>${c.tier ? `<span class="tc-tier is-${c.tier}">${TIER_LABEL[c.tier]}</span>` : ""}<span class="tc-score" title="Moxie's ranking score (0 to 100)">${c.score}</span>
       </div>
-      <div class="tc-clip-meta"><span>${fmt(c.start)} – ${fmt(c.end)} (${Math.round(c.end - c.start)} s)</span><span>${esc(c.reason || "")}</span></div>
+      <div class="tc-clip-meta"><span>${fmt(c.start)} – ${fmt(c.end)} (${Math.round(c.end - c.start)} s)</span></div>
+      <p class="tc-clip-why">${esc(c.explanation || c.reason || "")}</p>
+      ${ev.length ? `<details><summary>Evidence (${ev.length})</summary><ul>${ev.map((e) => `<li>${esc(fmt(e.t))} · ${esc(e.modality)}: ${esc(e.label)}</li>`).join("")}</ul></details>` : ""}
+      ${rec ? `<p class="tc-rec">Recommended: ${esc(rec.aspect)}, ${esc((getTemplate(rec.templateId) || {}).name || rec.templateId)}${rec.captions && rec.captions !== "none" ? `, ${esc(rec.captions)} captions` : ""}. ${esc(rec.reason)}</p>` : ""}
       <div class="tc-clip-actions"><button class="tc-btn tc-ghost" data-act="play" type="button">Play</button><button class="tc-btn tc-ghost" data-act="edit" type="button">Edit</button><button class="tc-btn tc-ghost" data-act="remove" type="button">Remove</button></div>
-    </li>`).join("");
+    </li>`;
+  }).join("");
 }
 
 function selectClip(i) {
@@ -247,7 +310,10 @@ function bind() {
   ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("is-over"); }));
   ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("is-over"); }));
   drop.addEventListener("drop", (e) => { const f = e.dataTransfer?.files?.[0]; if (f && /video|\.(mp4|mov|webm|m4v)$/i.test(f.type + f.name)) setSource({ id: `upload-${f.name}-${f.size}`, name: f.name, blob: f }); });
-  $("tcFind").onclick = findClips; $("tcTranscribe").onclick = transcribe;
+  $("tcFind").onclick = findClips;
+  $("tcAnalyzeCancel").onclick = () => state.analyzeAbort?.abort();
+  $("tcExportTimeline").onclick = exportTimeline;
+  $("tcUseModels").onchange = savePrefs; $("tcUseVisual").onchange = savePrefs;
   $("tcTranscriptFile").onchange = (e) => e.target.files[0] && importTranscript(e.target.files[0]);
   $("tcAddHere").onclick = () => { const v = $("tcVideo"), t = v.currentTime || 0; state.clips.push({ id: `manual-${Date.now()}`, start: Math.max(0, t - 5), end: Math.min(state.source.duration || t + 25, t + 25), title: "My clip", category: "clip-that", score: 100, reason: "Added by you", source: "manual", selected: true, spec: defaultSpec() }); state.clips.sort((a, b) => a.start - b.start); selectClip(state.clips.findIndex((c) => c.source === "manual" && Math.abs(c.start - Math.max(0, t - 5)) < 0.01)); persist(); };
   $("tcClips").onclick = (e) => {
@@ -320,7 +386,7 @@ function persist() {
 }
 function restore() {
   const s = state.source; if (!s) return;
-  try { const saved = JSON.parse(localStorage.getItem(KEY(s.id)) || "null"); if (Array.isArray(saved)) { state.clips = saved.map((c) => ({ ...c, spec: { ...defaultSpec(), ...c.spec } })); if (state.clips.length) { $("tcFindStatus").textContent = `Restored ${state.clips.length} clips from your last visit.`; selectClip(0); } } } catch (_) {}
+  try { const saved = JSON.parse(localStorage.getItem(KEY(s.id)) || "null"); if (Array.isArray(saved)) { state.clips = saved.map((c) => ({ ...c, spec: { ...defaultSpec(), ...c.spec } })); if (state.clips.length) { $("tcFindStatus").textContent = `Restored ${state.clips.length} clips from your last visit.`; selectClip(0); try { const a = JSON.parse(localStorage.getItem(ANALYSIS_KEY(s.id)) || "null"); if (a) showSignals(a); } catch (_) {} } } } catch (_) {}
 }
 
 init();

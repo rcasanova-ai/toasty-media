@@ -6,6 +6,7 @@ on:
   pull_request:
     paths:
       - "js/clip-*.js"
+      - "js/behavior/**"
       - "js/clips-app.js"
       - "js/live-clips.js"
       - "js/audio-events.js"
@@ -19,6 +20,9 @@ on:
       - "studio/director.html"
       - "css/clips.css"
       - "scripts/clip*"
+      - "scripts/behavior-*"
+      - "scripts/moxie-*"
+      - "scripts/lib/behavior-fixtures.mjs"
       - "scripts/live-clips*"
       - "scripts/audio-events-test.mjs"
       - ".github/workflows/clips-quality.yml"
@@ -42,7 +46,7 @@ jobs:
           node-version: 22
       - run: |
           set -euo pipefail
-          for t in clip-detector-test audio-events-test clip-templates-test clip-timeline-test clip-mixer-test clip-music-test transcript-import-test; do
+          for t in clip-detector-test audio-events-test clip-templates-test clip-timeline-test clip-mixer-test clip-music-test transcript-import-test behavior-timeline-test behavior-vocal-test behavior-visual-test behavior-language-test behavior-moments-test behavior-engine-test; do
             echo "== $t"; node "scripts/$t.mjs"
           done
 
@@ -65,6 +69,26 @@ jobs:
           CHROME_PATH: /usr/bin/google-chrome
         run: |
           set -euo pipefail
-          for t in clips-render-browser-test clips-ui-browser-test live-clips-browser-test; do
+          for t in clips-render-browser-test clips-ui-browser-test live-clips-browser-test moxie-clips-browser-test; do
             echo "== $t"; node "scripts/$t.mjs"
           done
+
+  # Needs the public model hosts (jsDelivr, Hugging Face, Google Cloud Storage). It proves the real language model, the MediaPipe
+  # trackers and Whisper load and run in Chrome. A host outage must not block merges, so this job reports but does not gate.
+  models:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          npm install --no-save --no-audit --no-fund playwright-core
+      - env:
+          HEADLESS: "1"
+          CHROME_PATH: /usr/bin/google-chrome
+        run: node scripts/moxie-models-browser-test.mjs
