@@ -6,6 +6,8 @@
 // Output tab or on the user picking it. Remote guests live in cross-origin VDO iframes whose pixels cannot be
 // drawn here, so the caller falls back to Program Output tab capture when guests are connected.
 
+import { createStableMicTrack } from "./stable-mic-track.js";
+
 export const PROGRAM_CANVAS = Object.freeze({ width: 1280, height: 720, fps: 30 });
 
 // Source-rect -> destination-rect fit. "cover" fills (crops), "contain" letterboxes. Pure, for tests.
@@ -52,8 +54,9 @@ function makeTicker(fps, onTick) {
   }
 }
 
-// Returns { stream, dispose, canvas }. getCamera/getScreen return MediaStreams (or null); getMicTrack a track.
-export function createProgramCanvasCapture({ getCamera, getScreen, getMicTrack, documentRef = globalThis.document, fps = PROGRAM_CANVAS.fps } = {}) {
+// Returns { stream, dispose, canvas, mic }. getCamera/getScreen return MediaStreams (or null); getMicTrack a track that
+// may be replaced during the take (mic switched/unplugged): see js/stable-mic-track.js.
+export function createProgramCanvasCapture({ getCamera, getScreen, getMicTrack, documentRef = globalThis.document, fps = PROGRAM_CANVAS.fps, AudioContextImpl, micLatencyHint } = {}) {
   const { width, height } = PROGRAM_CANVAS;
   const canvas = documentRef.createElement("canvas");
   canvas.width = width;
@@ -102,19 +105,19 @@ export function createProgramCanvasCapture({ getCamera, getScreen, getMicTrack, 
       ctx.roundRect ? ctx.roundRect(r.x, r.y, r.w, r.h, 12) : ctx.rect(r.x, r.y, r.w, r.h);
       ctx.stroke();
     }
-    if (micClone && mic) micClone.enabled = mic.enabled && mic.readyState === "live";
+    micTrack.bind();
   };
 
-  const mic = getMicTrack?.() || null;
-  const micClone = mic ? mic.clone() : null;
+  const micTrack = createStableMicTrack({ getMicTrack, ...(AudioContextImpl !== undefined ? { AudioContextImpl } : {}), ...(micLatencyHint !== undefined ? { latencyHint: micLatencyHint } : {}) });
   draw();
   const stream = canvas.captureStream(fps);
-  if (micClone) stream.addTrack(micClone);
+  if (micTrack.track) stream.addTrack(micTrack.track);
   const stopTicker = makeTicker(fps, draw);
   const dispose = () => {
     stopTicker();
+    micTrack.dispose();
     for (const el of Object.values(videos)) { if (el) { el.pause?.(); el.srcObject = null; } }
     // Only our clone and the canvas track are stopped; the camera, mic and screen streams stay untouched.
   };
-  return { stream, dispose, canvas };
+  return { stream, dispose, canvas, mic: micTrack };
 }

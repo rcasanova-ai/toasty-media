@@ -6110,3 +6110,62 @@ body[data-lower-third-mark="hidden"] .lv-lower-third-mark {
 .lv-program-preview[data-layout="screen-speaker"] .po-tile[data-role="featured"] .lv-lower-third-mark,
 .lv-program-preview[data-layout="screen-speaker"] .po-tile[data-role="featured"] .lv-lower-third-role { display: none; }
 .lv-program-preview[data-layout="screen-speaker"] .po-tile[data-role="featured"] .lv-lower-third-name { font-size: 0.6rem; padding: 0.15rem 0.45rem 0.12rem 0.3rem; }
+
+/* Pre-join microphone setup: compact level line + disclosure (js/mic-setup-panel.js).
+   Two short rows (label + state, then the meter) so it fits the narrow Host pre-join card without widening it. */
+.mic-setup, .mic-setup-details { min-width: 0; }
+.mic-setup-details { display: grid; gap: 0.4rem; }
+.mic-setup-details > summary {
+  cursor: pointer;
+  display: grid;
+  gap: 0.3rem 0.6rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  list-style: none;
+}
+.mic-setup-details > summary::-webkit-details-marker { display: none; }
+.mic-setup-title { color: var(--studio-cream-dim); font-size: 0.8rem; white-space: nowrap; }
+.mic-setup-state { color: var(--studio-muted); font-size: 0.75rem; text-align: right; white-space: nowrap; }
+.mic-setup-state[data-state="clipping"], .mic-setup-state[data-state="hot"] { color: var(--studio-red-bright); }
+.mic-setup-state[data-state="quiet"] { color: var(--studio-amber); }
+.mic-setup-state[data-state="good"] { color: var(--studio-green); }
+.mic-setup-details > summary .mic-level { grid-column: 1 / -1; order: 3; }
+.mic-level {
+  background: var(--studio-surface-2);
+  border: 1px solid var(--studio-line);
+  border-radius: 999px;
+  display: block;
+  height: 10px;
+  min-width: 0;
+  overflow: hidden;
+}
+.mic-level-fill {
+  background: var(--studio-green);
+  display: block;
+  height: 100%;
+  transition: width 90ms linear, background-color 160ms ease;
+  width: 0;
+}
+.mic-level[data-state="quiet"] .mic-level-fill { background: var(--studio-amber); }
+.mic-level[data-state="hot"] .mic-level-fill { background: var(--studio-orange); }
+.mic-level[data-state="clipping"] .mic-level-fill { background: var(--studio-red-bright); }
+.mic-level[data-state="silent"] .mic-level-fill { background: var(--studio-muted); }
+
+/* Host microphone setup popover (js/host-mic-panel.js) */
+.lv-mic-panel {
+  background: var(--studio-surface-raised);
+  border: 1px solid var(--studio-line-strong);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  display: grid;
+  gap: 0.5rem;
+  max-width: calc(100vw - 2rem);
+  padding: 0.85rem;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.4rem);
+  width: 320px;
+  z-index: 60;
+}
+.lv-mic-panel[hidden] { display: none; }
+.lv-mic-panel label { color: var(--studio-cream-dim); display: grid; font-size: 0.8rem; gap: 0.25rem; }
+.lv-mic-panel select { max-width: 100%; }

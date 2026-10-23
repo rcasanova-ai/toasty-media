@@ -1,8 +1,26 @@
+import { vdoMicProcessingParams } from "./microphone-capture.js";
 const VDO_ORIGIN = "https://vdo.ninja";
 const IFRAME_ALLOW =
   "camera; microphone; display-capture; autoplay; fullscreen; picture-in-picture; web-share";
 
 const DEFAULT_PARAMS = { api: "1" };
+
+// Pure URL builder (exported so tests and diagnostics can reproduce the exact URL a Toasty frame loads).
+export function buildVdoUrl(params, baseUrl = VDO_ORIGIN) { const url=new URL("/",baseUrl); const merged={...DEFAULT_PARAMS,...params}; Object.entries(merged).forEach(([key,value])=>{ if(value===true)url.searchParams.set(key,""); else if(value!==undefined&&value!==null&&value!==false&&value!=="")url.searchParams.set(key,value); }); return url.toString(); }
+
+// 1-based position of a microphone among a VDO device list's audio inputs, matched by deviceId first and then by
+// label (device ids are salted per origin, so a Toasty-side deviceId usually will not match inside vdo.ninja, but
+// the label does). Returns 0 when it cannot be found.
+export function vdoAudioInputPosition(deviceList, { deviceId = "", label = "" } = {}) {
+  const inputs = (deviceList || []).filter((d) => d?.kind === "audioinput");
+  let index = deviceId ? inputs.findIndex((d) => d.deviceId === deviceId) : -1;
+  if (index < 0 && label) {
+    const wanted = String(label).trim().toLowerCase();
+    index = inputs.findIndex((d) => String(d.label || "").trim().toLowerCase() === wanted);
+    if (index < 0) index = inputs.findIndex((d) => String(d.label || "").toLowerCase().includes(wanted));
+  }
+  return index < 0 ? 0 : index + 1;
+}
 
 export const BackgroundMode = Object.freeze({ NONE:"none", BLUR:"blur", NEWSROOM:"newsroom", LIBRARY:"library", STAGE:"stage" });
 
@@ -59,9 +77,9 @@ export class VideoEngine {
   // LABEL, not its value/deviceId — see normalizeVdoDeviceLabel below. NOT yet confirmed on a real device;
   // this is a documented-behavior-based fix for a documented cross-origin limitation, not a guess, but it
   // still needs the next real Host+Guest test to confirm VDO actually resolves it this way in practice.
-  mountDirectorFrame(container,{roomId,label="Host",videoDeviceLabel,audioDeviceLabel}) {
+  mountDirectorFrame(container,{roomId,label="Host",videoDeviceLabel,audioDeviceLabel,micProcessing}) {
     const streamId=`${roomId}h`;
-    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cleanoutput:"1",cover:"1",autostart:"1",view:true,proaudio:"1",videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel)});
+    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cleanoutput:"1",cover:"1",autostart:"1",view:true,proaudio:"1",...vdoMicProcessingParams(micProcessing),videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel)});
   }
 
   // slots=4 reserves 4 even grid cells regardless of how many are actually filled, and cover=1 crops
@@ -166,7 +184,13 @@ export class VideoEngine {
   // them. Costs nothing (this frame is never shown — see .director-control-frame's 2x2px CSS box) and is
   // not yet confirmed to be the actual cause of "sidebar shows Guest instead of the real name" — flagged
   // as a worth-trying hedge, not a proven fix, pending the next real two-device test.
-  mountDirectorControlFrame(container,{roomId}) { return this.mountFrame(container,"control",{room:roomId,director:roomId,cleanoutput:"1",transparent:"1",showlabels:"1",view:true,muted:"1",mute:"1"}); }
+  // ROOT CAUSE of "the Host never sees a guest who joined" (reproduced against the current vdo.ninja build): this frame was
+  // mounted with a blank &view, and VDO.Ninja's own main.js documents a blank &view as "request no streams to watch". A
+  // director that watches nothing never connects to anyone, so getGuestList() came back empty and no guest seat was ever
+  // created. The fix is to drop &view and add &novideo&noaudio: the director then joins every peer connection (so the
+  // guest list is real) but negotiates no media at all, which was measured as zero inbound audio/video bytes. Without
+  // &novideo&noaudio the same frame would pull a full copy of every guest's camera and microphone just to read a list.
+  mountDirectorControlFrame(container,{roomId}) { return this.mountFrame(container,"control",{room:roomId,director:roomId,cleanoutput:"1",transparent:"1",showlabels:"1",novideo:"1",noaudio:"1",muted:"1",mute:"1"}); }
 
   // Program Output's video layer: VDO.Ninja's own auto-mixed room grid (scene=0), showing whoever is
   // currently live with VDO.Ninja's own name labels. Numbered director-controlled scenes (scene=1+) and
@@ -192,7 +216,7 @@ export class VideoEngine {
     this.frames.set(frameId,iframe);
     return iframe;
   }
-  buildUrl(params) { const url=new URL("/",this.baseUrl); const merged={...DEFAULT_PARAMS,...params}; Object.entries(merged).forEach(([key,value])=>{ if(value===true)url.searchParams.set(key,""); else if(value!==undefined&&value!==null&&value!==false&&value!=="")url.searchParams.set(key,value); }); return url.toString(); }
+  buildUrl(params) { return buildVdoUrl(params,this.baseUrl); }
   send(frameId,command) { const iframe=this.frames.get(frameId); if(!iframe?.contentWindow)return false; iframe.contentWindow.postMessage(command,this.baseUrl); return true; }
   setMicrophone(enabled){return this.send("host",{mic:enabled});}
   setCamera(enabled){return this.send("host",{camera:enabled});}
@@ -310,7 +334,10 @@ export class VideoEngine {
   // deviceId is origin-salted (see mountDirectorFrame's own comment on why a deviceId read on toasty.media
   // never resolves inside vdo.ninja's iframe), so the only way to know what index changeGuestVideoDevice
   // below actually needs is to ask VDO directly, every time — not a cached/assumed value.
-  requestGuestDeviceList(timeoutMs=2500) {
+  requestGuestDeviceList(timeoutMs=2500) { return this.requestDeviceList("guest",timeoutMs); }
+
+  // Same query against any push frame (the Host's publisher is frame "host").
+  requestDeviceList(frameId="guest",timeoutMs=2500) {
     return new Promise((resolve) => {
       const cib = `devicelist-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
       let done = false;
@@ -320,7 +347,7 @@ export class VideoEngine {
         finish(Array.isArray(message.deviceList) ? message.deviceList : []);
       });
       const timer = setTimeout(() => finish([]), timeoutMs);
-      if (!this.send("guest", { getDeviceList: true, cib })) finish([]);
+      if (!this.send(frameId, { getDeviceList: true, cib })) finish([]);
     });
   }
 
@@ -346,7 +373,11 @@ export class VideoEngine {
   // resorting. Computing this from a LIVE requestGuestDeviceList() call, never a cached or assumed index,
   // is what keeps this honest instead of guessing at array position.
   changeGuestVideoDevice(index) { return this.send("guest", { changeVideoDevice: index }); }
-  changeGuestAudioDevice(index) { return this.send("guest", { changeAudioDevice: index }); }
+  // `position` is VDO's 1-based position among its audio INPUT devices (vdo.ninja lib.js changeAudioDevice does
+  // audioSelect[index - 1] over the audio-source checkbox list). Use vdoAudioInputPosition() to compute it from a
+  // device list; passing a 0-based or all-kinds index selects the wrong microphone (or throws for the first one).
+  changeGuestAudioDevice(position) { return this.send("guest", { changeAudioDevice: position }); }
+  changeHostAudioDevice(position) { return this.send("host", { changeAudioDevice: position }); }
   changeGuestAudioOutputDevice(deviceId) { return this.send("guest", { changeAudioOutputDevice: deviceId }); }
 
   // Lets a caller correlate an onMessage callback's event.source against a specific mounted frame — see
@@ -420,7 +451,7 @@ function normalizeGuestListEntries(raw) {
 
 // URL/query surface for one guest publisher. Exported so tests can prove two guests in the same
 // room differ only by push id — no shared password/hash/scene/director/iframe name.
-export function buildGuestPublisherParams({roomId,password,guestName,backgroundMode,videoDeviceLabel,audioDeviceLabel,streamId,micMuted,isMobile}={}) {
+export function buildGuestPublisherParams({roomId,password,guestName,backgroundMode,videoDeviceLabel,audioDeviceLabel,streamId,micMuted,isMobile,micProcessing}={}) {
   const id=streamId||createGuestStreamId(roomId);
   return {
     streamId: id,
@@ -444,6 +475,10 @@ export function buildGuestPublisherParams({roomId,password,guestName,backgroundM
       // Toasty's canonical microphone capture is mono 48 kHz, and duplicating a mono mic into stereo made
       // source recordings harder to inspect and easier to over-process downstream.
       proaudio:"1",
+      // proaudio alone turns echo cancellation, noise suppression and AGC OFF inside VDO's capture. These explicit
+      // params are applied after it, so the person's chosen processing (default: echo cancel + noise suppression
+      // on, AGC off) is what is really published and recorded. See vdoMicProcessingParams.
+      ...vdoMicProcessingParams(micProcessing),
       outboundaudiobitrate:"256",
       videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),
       audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),

@@ -1,5 +1,7 @@
 # Studio recording architecture and cost drivers
 
+Audio quality, processing points and measurements: see [AUDIO_PIPELINE.md](AUDIO_PIPELINE.md).
+
 ## Local-first recording (what is on the producer's machine, what is on Toasty's servers)
 
 | Step | Where it happens | Server involved? |
