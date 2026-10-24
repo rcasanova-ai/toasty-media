@@ -14,7 +14,7 @@ import { drawDirectorFrame, makeSurfaces } from "./draw.js";
 import { judgeRendered, LOUDNESS_TOLERANCE_LU, measureRendered, planClipAudio, TRUE_PEAK_LIMIT_DBTP, TRUE_PEAK_TARGET_DBTP, WARNING_TEXT } from "../clip-loudness.js";
 import { SPEECH_TARGET_LUFS } from "../loudness-plan.js";
 
-const PREROLL = 0.05;                                  // the incoming shot's player starts this early, from this far before the shot (its silent lead-in), so it is at the shot's first frame exactly at the cut
+const PREROLL = 0.075;                                 // a player takes about this long to start producing picture and sound after play() (measured: 70-80 ms), so it is started this early
 
 export async function buildAudioBed(plan) {
   const total = plan.timeline.total;
@@ -60,8 +60,8 @@ async function renderPlanOnce({ source, plan, onProgress, signal, audio = {}, be
     const seekTo = async (v, t) => { v.pause(); v.currentTime = t; if (v.readyState < 2 || Math.abs(v.currentTime - t) > 0.05) await once(v, "seeked").catch(() => {}); };
     const contiguous = (a, b) => Math.abs(segs[b].srcStart - segs[a].srcEnd) < 0.03;
     const nextBreak = (i) => { for (let n = i + 1; n < segs.length; n++) if (!contiguous(n - 1, n)) return n; return -1; };
-    await seekTo(videos[0], Math.max(0, segs[0].srcStart - PREROLL));
-    const nb0 = nextBreak(0); if (nb0 > 0) await seekTo(videos[1], Math.max(0, segs[nb0].srcStart - PREROLL));
+    await seekTo(videos[0], segs[0].srcStart);
+    const nb0 = nextBreak(0); if (nb0 > 0) await seekTo(videos[1], segs[nb0].srcStart);
     let prepared = nb0;                                   // segment index the idle player is seeked to
     drawDirectorFrame(ctx, frameState(plan, 0.001), plan, env);
 
@@ -98,7 +98,7 @@ async function renderPlanOnce({ source, plan, onProgress, signal, audio = {}, be
             }
             curSeg = st.seg; env.video = videos[cur];
             const nb = nextBreak(curSeg);
-            if (nb > 0) { const idle = videos[1 - cur]; idle.pause(); idle.currentTime = Math.max(0, segs[nb].srcStart - PREROLL); prepared = nb; } else prepared = -1;
+            if (nb > 0) { const idle = videos[1 - cur]; idle.pause(); idle.currentTime = segs[nb].srcStart; prepared = nb; } else prepared = -1;
           }
           const v = videos[cur], expected = st.srcTime;
           if (Math.abs(v.currentTime - expected) > 0.25 && !v.seeking) { v.currentTime = expected; drift++; }
