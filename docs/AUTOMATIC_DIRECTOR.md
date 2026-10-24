@@ -107,6 +107,10 @@ of the video that is zoomed, and a cap on simultaneous effects. What does not fi
 | music / accents | chill, minimal | upbeat, full | cinematic, sparse |
 | grade | warm lift, light vignette | warm, saturated | warm, desaturated, strong vignette, letterbox |
 
+Frames from the real exported 16:9 files (top to bottom: Clean Professional, High Energy, Cinematic; same interview, same moments in time):
+
+![The three styles, from exported videos](director-styles-contact-sheet.png)
+
 ## Revisions
 
 `revise.js` is a list of supported instructions, not a language model. Every instruction is answered with what changed or with a plain
