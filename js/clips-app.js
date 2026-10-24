@@ -70,6 +70,7 @@ async function setSource({ id, name, blob, lines = [], bookmarks = [] }) {
   const url = URL.createObjectURL(blob);
   if (!lines.length) { try { const cached = JSON.parse(localStorage.getItem(LINES_KEY(id)) || "null"); if (Array.isArray(cached)) lines = cached; } catch (_) {} }
   state.source = { id, name, blob, url, lines, events: [], duration: 0, bookmarks };
+  state.analysisFor = null;
   state.clips = []; state.active = -1; state.pcm = null; state.results = []; state.analysis = null; showSignals(null);
   const v = $("tcVideo"); v.src = url;
   await new Promise((r) => { v.onloadedmetadata = r; v.onerror = r; setTimeout(r, 8000); });
@@ -80,6 +81,7 @@ async function setSource({ id, name, blob, lines = [], bookmarks = [] }) {
   restore();
   renderClips();
   void showSourceLevel(state.source);
+  document.dispatchEvent(new CustomEvent("toasty:source", { detail: { id, name, duration: state.source.duration } }));
 }
 
 // ---------- analysis ----------
@@ -113,8 +115,8 @@ function showSignals(analysis) {
   $("tcSignalsCard").hidden = false;
 }
 
-async function findClips() {
-  const s = state.source; if (!s || state.analyzing) return;
+async function findClips({ onProgress: extraProgress } = {}) {
+  const s = state.source; if (!s || state.analyzing) return null;
   const useModels = $("tcUseModels").checked, useVisual = $("tcUseVisual").checked; savePrefs();
   const hooks = window.__moxieHooks || {};
   state.analyzing = true; state.analyzeAbort = new AbortController();
@@ -125,7 +127,7 @@ async function findClips() {
       blob: s.blob, lines: s.lines, id: s.id, source: s.id.startsWith("upload-") ? "upload" : "studio", knownDuration: s.duration, signal: state.analyzeAbort.signal,
       deps: hooks.deps || {},
       options: { transcribe: useModels, visual: useVisual, tracker: useModels ? "auto" : "off", embedder: { disableModel: !useModels, ...(hooks.embedder || {}) }, worker: hooks.worker, ...(hooks.options || {}) },
-      onProgress: (p) => { const [base, span] = weights[p.stage] || [0, 0]; $("tcAnalyzeProgress").value = Math.min(1, base + span * (p.fraction || 0)); if (p.message) $("tcFindStatus").textContent = p.message; }
+      onProgress: (p) => { const [base, span] = weights[p.stage] || [0, 0]; const frac = Math.min(1, base + span * (p.fraction || 0)); $("tcAnalyzeProgress").value = frac; if (p.message) $("tcFindStatus").textContent = p.message; extraProgress?.({ fraction: frac, message: p.message || "" }); }
     });
     if (res.lines?.length && !s.lines.length) { s.lines = res.lines; try { localStorage.setItem(LINES_KEY(s.id), JSON.stringify(res.lines)); } catch (_) {} }
     state.analysis = res; s.events = [];
@@ -141,12 +143,16 @@ async function findClips() {
       ? `Moxie found ${state.clips.length} moment${state.clips.length === 1 ? "" : "s"}${res.fallback ? ", none of them standing out strongly, so these are the most coherent passages" : ""}${usedWords ? "" : " from sound and picture only (no transcript)"}.`
       : `Moxie could not analyse this file: ${(res.notes || []).slice(-1)[0] || "there was no readable speech, sound or picture"}. You can still add a clip at the playhead.`;
     showSignals(res); persistAnalysis();
+    state.analysisFor = s.id;
     if (state.clips.length) selectClip(0);
     renderClips();
     const lineNote = s.lines.length ? `${s.lines.length} transcript lines` : "";
     if (lineNote) $("tcTranscriptNote").textContent = `${lineNote}.`;
+    return res;
   } catch (error) {
     $("tcFindStatus").textContent = error?.name === "AbortError" ? "Analysis cancelled." : (error?.message || String(error));
+    if (extraProgress) throw error;
+    return null;
   } finally { state.analyzing = false; state.analyzeAbort = null; $("tcFind").disabled = false; $("tcAnalyzeCancel").hidden = true; $("tcAnalyzeProgress").hidden = true; }
 }
 
@@ -421,5 +427,16 @@ function restore() {
   const s = state.source; if (!s) return;
   try { const saved = JSON.parse(localStorage.getItem(KEY(s.id)) || "null"); if (Array.isArray(saved)) { state.clips = saved.map((c) => ({ ...c, spec: { ...defaultSpec(), ...c.spec } })); if (state.clips.length) { $("tcFindStatus").textContent = `Restored ${state.clips.length} clips from your last visit.`; selectClip(0); try { const a = JSON.parse(localStorage.getItem(ANALYSIS_KEY(s.id)) || "null"); if (a) showSignals(a); } catch (_) {} } } } catch (_) {}
 }
+
+// Handle for the Make My Video panel (js/make-video.js): the same source, analysis and options as the manual workspace.
+window.__toastyClipsApi = {
+  state,
+  setSource: (src) => setSource(src),
+  openRecording: (id) => openRecording(id),
+  refreshLibrary,
+  listLibrary: async () => { const records = (await listMediaRecords({ kind: "master-manifest" })).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))); const out = []; for (const r of records.slice(0, 20)) { let manifest = null; try { manifest = JSON.parse(await (await getMediaBlob(r.id)).text()); } catch (_) {} out.push({ id: r.metadata.recordingId || r.id, label: `${manifest?.startedAt ? new Date(manifest.startedAt).toLocaleString() : (r.updatedAt ? new Date(r.updatedAt).toLocaleString() : "")} · ${manifest?.durationSeconds ? fmt(manifest.durationSeconds).replace(/\.\d$/, "") : "?"}` }); } return out; },
+  analyze: (opts) => findClips(opts),
+  cancelAnalysis: () => state.analyzeAbort?.abort()
+};
 
 init();
