@@ -87,7 +87,9 @@ export async function analyzeTimeline({ lines = [], pcm = null, vocalRunner = an
   return {
     version: ENGINE_VERSION, timeline, clips: result.clips, fallback: result.fallback, notes,
     engine: { semantic: language.semantic.kind, transcript: transcriptSource, speakers: speakerInfo, capabilities: { ...timeline.capabilities } },
-    stats: { units: language.units.length, candidates: result.candidates, duration: timeline.duration }
+    stats: { units: language.units.length, candidates: result.candidates, duration: timeline.duration },
+    // Face positions per sample (fractions of the frame, no landmarks): what the Automatic Director frames crops with.
+    picture: visual?.samples?.length ? visual.samples.map((s) => ({ t: s.t, motion: s.motion, faces: (s.faces || []).map((f) => ({ x: f.x, y: f.y, size: f.size, mouthOpen: f.mouthOpen })) })) : null
   };
 }
 
