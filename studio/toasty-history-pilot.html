@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Toasty History | Studio producer pilot</title>
+<style>
+:root{font-family:system-ui,sans-serif;color:#eee;background:#11101a}*{box-sizing:border-box}body{margin:0;padding:24px;max-width:1120px;margin:auto}h1{font-size:2rem;margin:0 0 8px}.muted{color:#b2b0c6}input,textarea,select,button{font:inherit}input,textarea,select{width:100%;padding:12px;border:1px solid #524e67;background:#211e30;color:white;border-radius:10px}textarea{min-height:126px}button{padding:11px 15px;border:0;border-radius:10px;background:#38c8c5;color:#101218;font-weight:700;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}button.secondary{background:#343044;color:white}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.card{background:#1c1929;padding:20px;border:1px solid #343044;border-radius:16px;margin:16px 0}label{display:block;margin:10px 0 5px;font-weight:650}#clock{font-size:4.5rem;font-weight:800;font-variant-numeric:tabular-nums;color:#38c8c5}#question{font-size:1.7rem;min-height:95px}#answer{color:#eac887}#history{max-height:250px;overflow:auto}small{color:#b2b0c6}.pill{display:inline-block;padding:6px 12px;border:1px solid #5d5679;border-radius:50px;margin:4px}#overlay{background:#241937;border:2px solid #6a4ba3;border-radius:12px;padding:18px;text-align:center}#overlay strong{display:block;font-size:2rem}@media(max-width:720px){.grid{grid-template-columns:1fr}body{padding:12px}#clock{font-size:3.5rem}}
+</style></head><body>
+<h1>🔥 Toasty History</h1><p class="muted">Producer pilot for Toasty Talks Shit. Three 50-second history breaks built from an episode's run of show. All controls work on a single device. No guest setup needed.</p>
+<div class="grid">
+<section class="card"><h2>Episode setup</h2>
+<label for="guest">Guest</label><input id="guest" placeholder="Guest name">
+<label for="ros">Run of show</label><textarea id="ros" placeholder="Paste the episode run of show here. Mention the guest's country, industry, background, and interview themes."></textarea>
+<div class="row"><button id="build">Build rounds from run of show</button><button id="reset" class="secondary">Reset episode</button></div><p id="suggest" class="muted" aria-live="polite"></p>
+<label for="bank">Question bank (editable JSON)</label><textarea id="bank" spellcheck="false" aria-label="Question bank JSON"></textarea>
+<p><small>Format: [{ "question": "...", "answer": "...", "category": "tech" }]. Review dates and answers before air. You can replace the presets with researched questions about the specific guest.</small></p><button id="load" class="secondary">Load edited questions</button><p id="status" aria-live="polite"></p>
+</section>
+<section class="card"><h2>Live producer controls</h2><p id="roundLabel">Round 1 of 3</p><div id="clock" role="timer">00:50</div>
+<div id="overlay"><div>ON SCREEN</div><strong>TOASTY HISTORY</strong><span id="overlaySub">50 seconds. How much do you know?</span></div>
+<p id="question">Load a question bank to begin.</p><p id="answer" hidden></p>
+<div class="row"><button id="start">Start 50 seconds</button><button id="pause" class="secondary">Pause</button><button id="correct">✓ Correct</button><button id="pass" class="secondary">Pass / Wrong</button><button id="reveal" class="secondary">Show answer</button></div>
+<p><span class="pill" id="score">Score 0</span><span class="pill" id="attempts">Answered 0</span></p>
+<div class="row"><button id="next" class="secondary">Next round</button><button id="export" class="secondary">Export episode results</button></div>
+<h3>Round history</h3><div id="history" aria-live="polite"></div>
+</section></div>
+<section class="card"><h2>Run of show integration</h2><p>Opening conversation → Toasty History round 1 → interview → round 2 → interview → round 3 → Toasty Take finale.</p><p class="muted">The question set is suggested from topics present in the pasted run of show. History rounds use verified, editable seed questions. For a real guest, the producer should fact-check and personalize questions before recording. The result export includes the guest, topic cues, per-question scoring, and final score for clip production.</p></section>
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const seeds=[
+{category:'tech',question:'In what year was the World Wide Web proposed by Tim Berners-Lee?',answer:'1989'},
+{category:'tech',question:'Which company introduced the Macintosh computer in 1984?',answer:'Apple'},
+{category:'tech',question:'What does ENIAC stand for?',answer:'Electronic Numerical Integrator and Computer'},
+{category:'tech',question:'Who created the Linux kernel in 1991?',answer:'Linus Torvalds'},
+{category:'tech',question:'What 1956 conference is widely associated with naming artificial intelligence?',answer:'Dartmouth summer research project'},
+{category:'soccer',question:'Which country hosted the first FIFA World Cup in 1930?',answer:'Uruguay'},
+{category:'soccer',question:'Who won the 1966 FIFA World Cup?',answer:'England'},
+{category:'soccer',question:'Which player scored the Hand of God goal in 1986?',answer:'Diego Maradona'},
+{category:'soccer',question:'What year was the Premier League founded?',answer:'1992'},
+{category:'soccer',question:'Which nation won the first Women’s World Cup in 1991?',answer:'United States'},
+{category:'business',question:'In what year did the New York Stock Exchange trace its founding to the Buttonwood Agreement?',answer:'1792'},
+{category:'business',question:'Which company introduced the Model T in 1908?',answer:'Ford'},
+{category:'business',question:'Which economist published The Wealth of Nations in 1776?',answer:'Adam Smith'},
+{category:'business',question:'Which year did the Wall Street crash begin?',answer:'1929'},
+{category:'business',question:'Which company launched the first commercially successful Post-it Notes in 1980?',answer:'3M'},
+{category:'general',question:'In what year did World War II end?',answer:'1945'},
+{category:'general',question:'Which civilization built Machu Picchu?',answer:'The Inca'},
+{category:'general',question:'In what year did Constantinople fall to the Ottoman Empire?',answer:'1453'},
+{category:'general',question:'Who was the first person to walk on the Moon?',answer:'Neil Armstrong'},
+{category:'general',question:'Which empire was ruled by Mansa Musa?',answer:'Mali Empire'}
+];
+let bank=[],pos=0,round=0,seconds=50,running=false,interval=null,score=0,attempts=0,log=[],cues=[];
+const cuesFor=s=>{let t=s.toLowerCase(),out=[];if(/ai|software|computer|startup|technology|engineering|robot|internet|machine learning/.test(t))out.push('tech');if(/soccer|football|fifa|league|player|coach|world cup/.test(t))out.push('soccer');if(/business|founder|executive|sales|entrepreneur|company|finance|ceo/.test(t))out.push('business');out.push('general');return [...new Set(out)]};
+function render(){ $('roundLabel').textContent='Round '+(round+1)+' of 3';$('clock').textContent='00:'+String(seconds).padStart(2,'0');$('question').textContent=bank[pos]?.question||'No more questions. Add more to the question bank.';$('answer').textContent='Answer: '+(bank[pos]?.answer||'');$('answer').hidden=true;$('score').textContent='Score '+score;$('attempts').textContent='Answered '+attempts;$('history').innerHTML='';log.forEach(x=>{const p=document.createElement('p');p.textContent='Round '+x.round+' · '+x.result+' · '+x.question+' ['+x.answer+']';$('history').appendChild(p)});$('overlaySub').textContent=running?'Round '+(round+1)+' · '+seconds+' seconds':'50 seconds. How much do you know?'}
+function stop(){running=false;if(interval)clearInterval(interval);interval=null}
+function advance(result){if(!bank[pos]||!running)return;log.push({round:round+1,result,question:bank[pos].question,answer:bank[pos].answer});attempts++;if(result==='correct')score++;pos++;render()}
+$('build').onclick=()=>{stop();round=0;seconds=50;pos=0;score=0;attempts=0;log=[];cues=cuesFor($('ros').value);bank=cues.flatMap(cat=>seeds.filter(x=>x.category===cat));$('bank').value=JSON.stringify(bank,null,2);$('suggest').textContent='Detected topic categories: '+cues.join(', ')+'. Edit questions for guest-specific history before air.';$('status').textContent='Loaded '+bank.length+' questions. Three 50-second rounds ready.';render()};
+$('load').onclick=()=>{try{let parsed=JSON.parse($('bank').value);if(!Array.isArray(parsed)||!parsed.length||parsed.some(x=>typeof x.question!=='string'||!x.question.trim()||typeof x.answer!=='string'||!x.answer.trim()))throw Error('Expect a nonempty JSON array with question and answer strings.');stop();bank=parsed;pos=0;round=0;seconds=50;score=0;attempts=0;log=[];$('status').textContent='Loaded '+bank.length+' reviewed questions.';render()}catch(e){$('status').textContent=e.message}};
+$('start').onclick=()=>{if(running||round>2||!bank[pos]||seconds===0)return;running=true;render();interval=setInterval(()=>{seconds=Math.max(0,seconds-1);if(!seconds){stop();$('status').textContent='Time! Return to interview or begin next round.'}render()},1000)};
+$('pause').onclick=()=>{stop();render()};
+$('correct').onclick=()=>advance('correct');$('pass').onclick=()=>advance('pass / wrong');$('reveal').onclick=()=>{$('answer').hidden=false};
+$('next').onclick=()=>{if(round>=2){$('status').textContent='All three rounds complete. Finish with Toasty Take.';return}stop();round++;seconds=50;render()};
+$('reset').onclick=()=>{stop();bank=[];round=0;seconds=50;pos=0;score=0;attempts=0;log=[];cues=[];$('bank').value='';$('status').textContent='Episode reset';render()};
+$('export').onclick=()=>{const result={guest:$('guest').value,runOfShow:$('ros').value,topicCues:cues,score,attempts,roundsCompleted:round+1,results:log,toastyTake:'What is one opinion you genuinely believe that most people would disagree with?'};const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(result,null,2)],{type:'application/json'}));a.download='toasty-history-results.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
+render();
+})();
+</script></body></html>
