@@ -6,10 +6,11 @@ import { studioRequest } from "./studio-api.js";
 import { createSession } from "./session-manager.js";
 import { computeSpeakerReadiness, ReadinessItem } from "./speaker-readiness.js";
 import { requiredConsentKeysFor } from "./consent-policy.js";
+import { renderEpisodeStep, renderStoryStep, episodeReviewHtml, isEpisodeMode, enableEpisodeMode, loadShows } from "./episode-planner-steps.js";
 import { SESSION_TEMPLATES, SESSION_TYPES, applyTemplate, emptyLit, emptyHostPrep, emptyBriefing, buildGuestBriefing, buildPrepSummary, splitLines } from "./session-plan-model.js";
 
 // Guided path first (type, information, guests, host preparation, invitations, review), then the optional event extras.
-const STEPS = ["type", "basics", "speakers", "hostprep", "invite", "review", "audience", "sponsors", "assets", "readiness"];
+const STEPS = ["type", "basics", "episode", "story", "speakers", "hostprep", "invite", "review", "audience", "sponsors", "assets", "readiness"];
 const main = document.getElementById("planMain");
 const nav = document.getElementById("stepNav");
 
@@ -98,8 +99,10 @@ async function init() {
   }
   await refreshSpeakers();
   await refreshSponsors();
+  await loadShows();
   wireNav();
-  goToStep(plan.wizardStep && STEPS.includes(plan.wizardStep) ? plan.wizardStep : (plan.template ? "review" : "type"));
+  const requestedStep = new URLSearchParams(window.location.search).get("step");
+  goToStep(requestedStep && STEPS.includes(requestedStep) ? requestedStep : plan.wizardStep && STEPS.includes(plan.wizardStep) ? plan.wizardStep : (plan.template ? "review" : "type"));
 }
 
 function wireNav() {
@@ -108,9 +111,19 @@ function wireNav() {
   });
 }
 
+function episodeContext() {
+  return { main, get plan() { return plan; }, get session() { return session; }, organizationId, goToStep, savePlan, saveTitle };
+}
+
+function syncEpisodeNav() {
+  const on = isEpisodeMode(plan);
+  nav.querySelectorAll("[data-episode-step]").forEach((btn) => { btn.hidden = !on; });
+}
+
 function goToStep(step) {
   currentStep = step;
   plan.wizardStep = step;
+  syncEpisodeNav();
   nav.querySelectorAll("[data-step]").forEach((btn) => btn.classList.toggle("active", btn.dataset.step === step));
   renderStep(step);
 }
@@ -136,7 +149,7 @@ async function refreshSponsors() {
 }
 
 function renderStep(step) {
-  const renderers = { type: renderType, basics: renderBasics, speakers: renderSpeakers, hostprep: renderHostPrep, invite: renderInvite, review: renderReview, audience: renderAudience, sponsors: renderSponsors, assets: renderAssets, readiness: renderReadiness };
+  const renderers = { type: renderType, basics: renderBasics, episode: () => renderEpisodeStep(episodeContext()), story: () => renderStoryStep(episodeContext()), speakers: renderSpeakers, hostprep: renderHostPrep, invite: renderInvite, review: renderReview, audience: renderAudience, sponsors: renderSponsors, assets: renderAssets, readiness: renderReadiness };
   (renderers[step] || renderType)();
 }
 
@@ -167,6 +180,7 @@ function renderBasics() {
     ${field("Objectives", `<textarea id="pObjectives" placeholder="What should this session achieve?">${escapeHtml(plan.objectives)}</textarea>`)}
     ${field("Topics", `<textarea id="pTopics" placeholder="One topic per line">${escapeHtml(plan.topics)}</textarea>`)}
     ${plan.template === "lit" || plan.sessionType === "book_club" ? litPanelHtml() : ""}
+    <div class="plan-check"><input type="checkbox" id="pIsEpisode" ${isEpisodeMode(plan) ? "checked" : ""}> <label for="pIsEpisode">This is an episode of a show (adds show, season and story map steps)</label></div>
     <div class="plan-check"><input type="checkbox" id="pRegistration" ${plan.registrationRequired ? "checked" : ""}> <label for="pRegistration">Registration required</label></div>
     <div class="plan-actions"><button class="xp-btn xp-btn-ghost plan-btn-small" id="basicsBack">Back</button><button class="xp-btn" id="basicsNext">Save & continue</button></div>
     <p class="plan-status" id="basicsStatus"></p>
@@ -186,13 +200,15 @@ function renderBasics() {
     plan.hostName = document.getElementById("pHost").value;
     plan.producerName = document.getElementById("pProducer").value;
     plan.registrationRequired = document.getElementById("pRegistration").checked;
+    const episodeOn = document.getElementById("pIsEpisode").checked;
+    if (episodeOn) enableEpisodeMode(plan); else if (isEpisodeMode(plan)) delete plan.episode;
     const title = document.getElementById("pTitle").value.trim() || "Untitled event";
     const statusEl = document.getElementById("basicsStatus");
     statusEl.textContent = "Saving…";
     try {
       await saveTitle(title);
       await savePlan();
-      goToStep("speakers");
+      goToStep(episodeOn ? "episode" : "speakers");
     } catch (error) {
       statusEl.textContent = error.message;
       statusEl.classList.add("err");
@@ -248,7 +264,7 @@ function renderSpeakers() {
     <div class="plan-actions"><button class="xp-btn xp-btn-ghost plan-btn-small" id="speakersBack">Back</button><button class="xp-btn" id="speakersNext">Continue</button></div>
   `;
   renderSpeakerList();
-  document.getElementById("speakersBack").addEventListener("click", () => goToStep("basics"));
+  document.getElementById("speakersBack").addEventListener("click", () => goToStep(isEpisodeMode(plan) ? "story" : "basics"));
   document.getElementById("speakersNext").addEventListener("click", () => goToStep("hostprep"));
   document.getElementById("addSpeakerBtn").addEventListener("click", async () => {
     const email = document.getElementById("newSpeakerEmail").value.trim();
@@ -530,6 +546,7 @@ function renderType() {
   `;
   main.querySelectorAll("[data-template]").forEach((btn) => btn.addEventListener("click", async () => {
     plan = applyTemplate(plan, btn.dataset.template);
+    if (btn.dataset.template === "story") enableEpisodeMode(plan);
     const statusEl = document.getElementById("typeStatus");
     try { await savePlan(); goToStep("basics"); } catch (error) { statusEl.textContent = error.message; statusEl.classList.add("err"); }
   }));
@@ -671,6 +688,7 @@ function renderReview() {
       <section><div class="plan-review-head"><h2>${escapeHtml(session.title || "Untitled session")}</h2>${edit("basics")}</div>
         <p>${escapeHtml(summary.sessionType.replace(/_/g, " "))}${summary.scheduledAt ? ` · ${escapeHtml(summary.scheduledAt.replace("T", " "))}` : ""}${summary.durationMinutes ? ` · ${summary.durationMinutes} min` : ""}</p>
         ${summary.description ? `<p>${escapeHtml(summary.description)}</p>` : ""}${summary.objectives ? `<p><strong>Objectives:</strong> ${escapeHtml(summary.objectives)}</p>` : ""}</section>
+      ${episodeReviewHtml(plan)}
       ${summary.book ? `<section><div class="plan-review-head"><h3>Book</h3>${edit("basics")}</div><p><strong>${escapeHtml(summary.book.title || "Untitled")}</strong>${summary.book.author ? ` by ${escapeHtml(summary.book.author)}` : ""}</p>${summary.book.synopsis ? `<p>${escapeHtml(summary.book.synopsis)}</p>` : ""}</section>` : ""}
       <section><div class="plan-review-head"><h3>Your preparation</h3>${edit("hostprep")}</div>
         <h4>Topics</h4>${list(summary.topics)}<h4>Opening questions</h4>${list(summary.openingQuestions)}<h4>Talking points</h4>${list(summary.talkingPoints)}

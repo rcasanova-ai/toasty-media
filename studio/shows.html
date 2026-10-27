@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Shows and Seasons — Toasty Studio</title>
+    <link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+    <link rel="stylesheet" href="../css/expertise-platform.css">
+    <style>
+      body{margin:0;background:#0d0c0b;color:#f7f3ed;font-family:Inter,system-ui,sans-serif}
+      .sh-wrap{max-width:900px;margin:0 auto;padding:28px 18px 80px}
+      .sh-wrap h1{font:800 28px Montserrat,sans-serif;margin:8px 0 6px}
+      .sh-card{background:#151310;border:1px solid #2b2723;border-radius:14px;padding:18px;margin:14px 0}
+      .sh-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 0;border-top:1px solid #2b2723}
+      .sh-row:first-of-type{border-top:0}
+      .sh-row .grow{flex:1;min-width:180px}
+      .sh-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 14px}
+      .sh-field{display:grid;gap:5px;margin-bottom:12px}
+      .sh-field label{font-size:12px;font-weight:700;color:#c9bfb5;text-transform:uppercase;letter-spacing:.04em}
+      .sh-field input,.sh-field textarea,.sh-field select,.sh-sel{background:#0d0c0b;border:1px solid #2e2924;color:#eee;border-radius:10px;padding:10px 11px;font:inherit}
+      .sh-pill{padding:3px 10px;border-radius:999px;font-size:11px;font-weight:700;background:#221d19;color:#c9bfb4}
+      .sh-pill.good{background:#17241d;color:#8fd4ae}.sh-pill.warn{background:#2a2118;color:#f1bc83}
+      .sh-muted{color:#8f857b;font-size:13px}.sh-err{color:#e58686}
+      .sh-btn{background:#ff7a29;color:#1a0f08;border:0;border-radius:10px;padding:9px 14px;font-weight:700;cursor:pointer;text-decoration:none;font-size:13px}
+      .sh-btn.ghost{background:transparent;color:#f7f3ed;border:1px solid #3a342e}
+      @media (max-width:640px){.sh-grid{grid-template-columns:1fr}.sh-wrap{padding:18px 14px 60px}}
+    </style>
+  </head>
+  <body>
+    <div class="sh-wrap">
+      <a href="./dashboard.html" class="sh-muted">&larr; Dashboard</a>
+      <h1>Shows and seasons</h1>
+      <p class="sh-muted">Organise episodes into shows and seasons, put them in order, and see which are ready to record or publish. Each episode is planned in the Session Planner.</p>
+      <div id="shMain" aria-live="polite">Loading…</div>
+    </div>
+    <script type="module" src="../js/shows-page.js"></script>
+  </body>
+</html>

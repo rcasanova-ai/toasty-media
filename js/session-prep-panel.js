@@ -3,6 +3,7 @@
 // avoid?" can be answered privately.
 import { studioRequest } from "./studio-api.js";
 import { buildPrepSummary, prepContextForMoxie } from "./session-plan-model.js";
+import { renderEpisodeBlock, watchEpisodeRecording } from "./episode-studio.js";
 
 function el(tag, text, className) {
   const node = document.createElement(tag);
@@ -63,13 +64,17 @@ export async function mountSessionPrep(session, panel) {
   if (!panel || !session?.durableSession?.id) return null;
   const body = panel.querySelector("[data-prep-body]");
   const refreshButton = panel.querySelector("[data-prep-refresh]");
+  let episodeBody = panel.querySelector("[data-episode-body]");
+  if (!episodeBody) { episodeBody = document.createElement("div"); episodeBody.dataset.episodeBody = ""; body.before(episodeBody); }
   const load = async () => {
     let speakers = [];
     try { speakers = (await studioRequest(`/api/sessions/${encodeURIComponent(session.durableSession.id)}/speakers`)).speakers || []; } catch { /* guests may not be loadable for this session; the plan still shows */ }
     const summary = buildPrepSummary(session.durableSession.plan || {}, speakers);
     session.sessionPrep = { summary, contextText: prepContextForMoxie(summary) };
     renderSessionPrep(body, summary);
-    const has = summary.topics.length || summary.guests.length || summary.segments.length || summary.openingQuestions.length || summary.description || summary.book;
+    renderEpisodeBlock(session, episodeBody, summary);
+    if (summary.episode) watchEpisodeRecording(session);
+    const has = summary.episode || summary.topics.length || summary.guests.length || summary.segments.length || summary.openingQuestions.length || summary.description || summary.book;
     panel.hidden = !has;
     return summary;
   };
