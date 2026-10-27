@@ -188,6 +188,58 @@ server {
     }
     # END toasty-managed:human-presence
 
+    # BEGIN toasty-managed:episode-planning
+    # Episode planning in the Session Planner: shows and seasons, plan.episode, the production record and Moxie
+    # episode help. Owner authenticated in Node (toasty_session cookie + CSRF header), like the other session routes.
+    location ~ "^/api/shows(/[a-zA-Z0-9_-]+/delete)?$" {
+        limit_req zone=toasty_settings burst=20 nodelay;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30s;
+        proxy_send_timeout 30s;
+    }
+
+    location ~ "^/api/sessions/[a-zA-Z0-9._-]+/(episode|episode-production|moxie/episode-assist)$" {
+        limit_req zone=toasty_settings burst=20 nodelay;
+
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin $http_origin always;
+            add_header Access-Control-Allow-Credentials true always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type, X-Toasty-CSRF" always;
+            add_header Access-Control-Max-Age 86400 always;
+            add_header Content-Length 0;
+            add_header Content-Type text/plain;
+            return 204;
+        }
+
+        proxy_pass http://127.0.0.1:4174;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 30s;
+        proxy_send_timeout 30s;
+    }
+    # END toasty-managed:episode-planning
+
     location = /api/sessions {
         # LiveSession management (create/list) — Producer-authenticated via the same toasty_session cookie
         # as /auth/*, so needs Allow-Credentials + the CSRF header allowlisted the same way. Human-triggered

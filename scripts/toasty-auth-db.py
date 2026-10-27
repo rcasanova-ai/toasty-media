@@ -954,6 +954,23 @@ def migrate(conn):
     # genuinely 1:1 with a session.
     ensure_columns(conn, "live_sessions", {"plan_json": "TEXT NOT NULL DEFAULT '{}'"})
 
+    # Episode planning: a show (title, branding, defaults, cadence) and its seasons. Episodes are ordinary
+    # sessions whose plan_json carries plan.episode (showId/seasonId/number/...), so nothing about an existing
+    # session changes. data_json holds the show body; the owner column is the only access check.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS episode_shows (
+          id TEXT PRIMARY KEY,
+          owner_user_id TEXT NOT NULL,
+          organization_id TEXT,
+          data_json TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_episode_shows_owner ON episode_shows(owner_user_id)")
+
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS speakers (
@@ -5455,9 +5472,20 @@ def main():
 
     if action == "session_set_plan":
         now = utc_now()
+        new_plan = payload.get("plan") or {}
+        # episodeProduction (marked moments, clips, recordings, exports) is written only by the episode
+        # production actions below, so a planner save from a stale tab can never wipe it.
+        existing = conn.execute(
+            "SELECT * FROM live_sessions WHERE id = ? AND owner_user_id = ?", (payload["id"], payload["ownerUserId"])
+        ).fetchone()
+        kept = session_plan(existing).get("episodeProduction") if existing else None
+        if isinstance(new_plan, dict):
+            new_plan.pop("episodeProduction", None)
+            if kept:
+                new_plan["episodeProduction"] = kept
         conn.execute(
             "UPDATE live_sessions SET plan_json = ?, last_active_at = ? WHERE id = ? AND owner_user_id = ?",
-            (json.dumps(payload.get("plan") or {}), now, payload["id"], payload["ownerUserId"]),
+            (json.dumps(new_plan), now, payload["id"], payload["ownerUserId"]),
         )
         conn.commit()
         row = conn.execute(
@@ -5468,6 +5496,109 @@ def main():
             print(json.dumps({"session": None}))
             return
         print(json.dumps({"session": public_session(row)}))
+        return
+
+    # ---- Episode planning ----
+
+    if action == "session_set_episode":
+        row = conn.execute(
+            "SELECT * FROM live_sessions WHERE id = ? AND owner_user_id = ?", (payload["id"], payload["ownerUserId"])
+        ).fetchone()
+        if not row:
+            print(json.dumps({"session": None}))
+            return
+        plan = session_plan(row)
+        plan["episode"] = payload.get("episode") or {}
+        conn.execute(
+            "UPDATE live_sessions SET plan_json = ?, last_active_at = ? WHERE id = ?",
+            (json.dumps(plan), utc_now(), payload["id"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM live_sessions WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"session": public_session(row)}))
+        return
+
+    if action == "session_episode_production":
+        row = conn.execute(
+            "SELECT * FROM live_sessions WHERE id = ? AND owner_user_id = ?", (payload["id"], payload["ownerUserId"])
+        ).fetchone()
+        if not row:
+            print(json.dumps({"session": None}))
+            return
+        plan = session_plan(row)
+        prod = plan.get("episodeProduction") if isinstance(plan.get("episodeProduction"), dict) else {}
+        for key, default in (("moments", []), ("clips", []), ("recordings", []), ("exports", []), ("statusHistory", [])):
+            if not isinstance(prod.get(key), list):
+                prod[key] = list(default)
+        limits = {"moments": 500, "clips": 200, "recordings": 50, "exports": 100, "statusHistory": 60}
+        op = payload.get("op")
+        item = payload.get("item") or {}
+        now = utc_now()
+        if op in ("moments", "clips", "recordings", "exports"):
+            id_field = "recordingId" if op == "recordings" else "id"
+            if id_field == "id":
+                item["id"] = item.get("id") or payload["itemId"]
+            key = item.get(id_field)
+            existing_ids = {x.get(id_field) for x in prod[op] if isinstance(x, dict)}
+            if key and key in existing_ids:
+                prod[op] = [item if x.get(id_field) == key else x for x in prod[op]]
+            elif len(prod[op]) < limits[op]:
+                prod[op].append(item)
+        elif op == "transcript":
+            prod["transcript"] = item
+        elif op == "clip_select":
+            for clip in prod["clips"]:
+                if clip.get("id") == item.get("id"):
+                    clip["selected"] = bool(item.get("selected"))
+        elif op == "remove":
+            kind = item.get("kind")
+            if kind in ("moments", "clips"):
+                prod[kind] = [x for x in prod[kind] if x.get("id") != item.get("id")]
+        elif op == "status":
+            episode = plan.get("episode") if isinstance(plan.get("episode"), dict) else {}
+            if episode.get("status") != item.get("status"):
+                episode["status"] = item.get("status")
+                prod["statusHistory"] = (prod["statusHistory"] + [{"status": item.get("status"), "at": now}])[-limits["statusHistory"]:]
+            plan["episode"] = episode
+        plan["episodeProduction"] = prod
+        conn.execute(
+            "UPDATE live_sessions SET plan_json = ?, last_active_at = ? WHERE id = ?",
+            (json.dumps(plan), now, payload["id"]),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM live_sessions WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"session": public_session(row)}))
+        return
+
+    if action in ("show_list", "show_upsert", "show_delete"):
+        owner = payload["ownerUserId"]
+        def show_out(r):
+            body = _json_or(r["data_json"], {})
+            body = body if isinstance(body, dict) else {}
+            body["id"] = r["id"]
+            body["organizationId"] = r["organization_id"]
+            body["updatedAt"] = r["updated_at"]
+            return body
+        if action == "show_list":
+            rows = conn.execute("SELECT * FROM episode_shows WHERE owner_user_id = ? ORDER BY created_at ASC", (owner,)).fetchall()
+            print(json.dumps({"shows": [show_out(r) for r in rows]}))
+            return
+        if action == "show_delete":
+            conn.execute("DELETE FROM episode_shows WHERE id = ? AND owner_user_id = ?", (payload["id"], owner))
+            conn.commit()
+            print(json.dumps({"ok": True}))
+            return
+        now = utc_now()
+        existing = conn.execute("SELECT id FROM episode_shows WHERE id = ? AND owner_user_id = ?", (payload["id"], owner)).fetchone()
+        if existing:
+            conn.execute("UPDATE episode_shows SET data_json = ?, updated_at = ? WHERE id = ? AND owner_user_id = ?",
+                         (json.dumps(payload["show"]), now, payload["id"], owner))
+        else:
+            conn.execute("INSERT INTO episode_shows (id, owner_user_id, organization_id, data_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                         (payload["id"], owner, payload.get("organizationId"), json.dumps(payload["show"]), now, now))
+        conn.commit()
+        r = conn.execute("SELECT * FROM episode_shows WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"show": show_out(r)}))
         return
 
     # ---- Speakers ----

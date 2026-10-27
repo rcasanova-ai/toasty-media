@@ -998,6 +998,33 @@ const server = createServer(async (req, res) => {
   // (never the raw token) is the only thing stored.
   // ==================================================================================================
 
+  // Episode planning (shows, seasons, plan.episode, production record). Owner-only like every /api/sessions route;
+  // guests never reach these and session_get_public stays a whitelist that excludes plan.episode entirely.
+  if (requestPathname(req) === "/api/shows" && (req.method === "GET" || req.method === "POST")) {
+    if (req.method === "POST" && !requireCsrf(req, res)) return;
+    if (!limit(req, res, "episode-shows", 120, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleShows(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && /^\/api\/shows\/[A-Za-z0-9_-]+\/delete$/.test(requestPathname(req))) {
+    if (!requireCsrf(req, res) || !limit(req, res, "episode-shows", 120, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const id = requestPathname(req).split("/")[3];
+    await db("show_delete", { id, ownerUserId: session.id });
+    sendJson(req, res, 200, { ok: true });
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && (req.url.endsWith("/episode") || req.url.endsWith("/episode-production"))) {
+    if (!requireCsrf(req, res) || !limit(req, res, "session-episode", 240, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    if (req.url.endsWith("/episode-production")) await handleEpisodeProduction(req, res, session); else await handleEpisodeSet(req, res, session);
+    return;
+  }
+
   if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/plan")) {
     if (!requireCsrf(req, res) || !limit(req, res, "session-plan-set", 60, 15 * 60 * 1000)) return;
     const session = await requireSession(req, res);
@@ -1258,6 +1285,14 @@ const server = createServer(async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
     await handleMoxieSpeakerBriefing(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/moxie/episode-assist")) {
+    if (!COST_SAFETY_SWITCHES.ai) return sendJson(req, res, 503, { error: "AI features are temporarily disabled by the platform safety switch." });
+    if (!requireCsrf(req, res) || !limit(req, res, "moxie-episode-assist", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMoxieEpisodeAssist(req, res, session);
     return;
   }
   if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/moxie/session-research")) {
@@ -6047,6 +6082,92 @@ async function handleSessionSetPlan(req, res, authSession) {
   sendJson(req, res, 200, { session: result.session });
 }
 
+// ---------- Episode planning ----------
+const EPISODE_STATUS_IDS = new Set(["draft", "planned", "ready_to_record", "recorded", "editing", "ready_to_publish", "published"]);
+const EPISODE_FORMAT_IDS = new Set(["solo", "interview", "co_host", "panel"]);
+const EPISODE_CADENCE_IDS = new Set(["", "weekly", "biweekly", "monthly", "irregular"]);
+const episodeSafeId = (v) => (/^[A-Za-z0-9_-]{1,80}$/.test(String(v || "")) ? String(v) : "");
+const episodeLines = (v, n, len) => (Array.isArray(v) ? v : String(v ?? "").split(/\r?\n/)).map((l) => String(l ?? "").trim().slice(0, len)).filter(Boolean).slice(0, n);
+const episodeDate = (v) => (/^\d{4}-\d{2}-\d{2}/.test(String(v || "")) ? String(v).slice(0, 10) : "");
+
+function sanitizeEpisode(e) {
+  e = e && typeof e === "object" ? e : {};
+  const number = Number(e.number), minutes = Number(e.plannedMinutes);
+  return {
+    showId: episodeSafeId(e.showId), seasonId: episodeSafeId(e.seasonId),
+    number: Number.isInteger(number) && number > 0 && number < 10000 ? number : null,
+    workingTitle: sessionText(e.workingTitle, 160), description: sessionText(e.description, 4000),
+    format: EPISODE_FORMAT_IDS.has(e.format) ? e.format : "interview",
+    plannedMinutes: Number.isFinite(minutes) && minutes >= 1 && minutes <= 600 ? Math.round(minutes) : 60,
+    status: EPISODE_STATUS_IDS.has(e.status) ? e.status : "draft",
+    releaseDate: episodeDate(e.releaseDate), interviewer: sessionText(e.interviewer, 160), openingHook: sessionText(e.openingHook, 2000),
+    topics: episodeLines(e.topics, 40, 300), storyBeats: episodeLines(e.storyBeats, 80, 600), questions: episodeLines(e.questions, 80, 500),
+    importantDetails: episodeLines(e.importantDetails, 60, 500), factsToVerify: episodeLines(e.factsToVerify, 60, 500), sensitiveDetails: episodeLines(e.sensitiveDetails, 60, 500),
+    privateNotes: sessionText(e.privateNotes, 8000)
+  };
+}
+
+function sanitizeShow(s) {
+  s = s && typeof s === "object" ? s : {};
+  const minutes = Number(s.defaultMinutes), brand = s.brand && typeof s.brand === "object" ? s.brand : {};
+  return {
+    title: sessionText(s.title, 160), description: sessionText(s.description, 2000),
+    brand: { skin: sessionText(brand.skin, 60), accent: /^#[0-9a-fA-F]{6}$/.test(brand.accent || "") ? brand.accent : "", tagline: sessionText(brand.tagline, 160) },
+    defaultMinutes: Number.isFinite(minutes) && minutes >= 1 && minutes <= 600 ? Math.round(minutes) : 60,
+    defaultFormat: EPISODE_FORMAT_IDS.has(s.defaultFormat) ? s.defaultFormat : "interview",
+    cadence: EPISODE_CADENCE_IDS.has(s.cadence) ? s.cadence : "",
+    seasons: (Array.isArray(s.seasons) ? s.seasons : []).slice(0, 50).map((x, i) => {
+      const buffer = Number(x?.bufferTarget);
+      return {
+        id: episodeSafeId(x?.id) || newId("season"), title: sessionText(x?.title, 120) || `Season ${i + 1}`,
+        releaseCadence: EPISODE_CADENCE_IDS.has(x?.releaseCadence) ? x.releaseCadence : "", launchDate: episodeDate(x?.launchDate),
+        bufferTarget: Number.isInteger(buffer) && buffer >= 0 && buffer <= 50 ? buffer : 0,
+        episodeOrder: (Array.isArray(x?.episodeOrder) ? x.episodeOrder : []).map(episodeSafeId).filter(Boolean).slice(0, 500)
+      };
+    })
+  };
+}
+
+async function handleShows(req, res, authSession) {
+  if (req.method === "GET") {
+    const result = await db("show_list", { ownerUserId: authSession.id });
+    return sendJson(req, res, 200, { shows: result.shows || [] });
+  }
+  const body = await readJson(req);
+  const show = sanitizeShow(body.show);
+  if (!show.title) throw httpError(400, "A show needs a title.");
+  const id = episodeSafeId(body.show?.id) || newId("show");
+  const result = await db("show_upsert", { id, ownerUserId: authSession.id, organizationId: sessionText(body.organizationId, 80) || null, show });
+  sendJson(req, res, 200, { show: result.show });
+}
+
+async function handleEpisodeSet(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/episode");
+  const body = await readJson(req);
+  const result = await db("session_set_episode", { id: session.id, ownerUserId: authSession.id, episode: sanitizeEpisode(body.episode) });
+  sendJson(req, res, 200, { session: result.session });
+}
+
+// The only writer of plan.episodeProduction: append-only moments/clips/recordings/exports plus status changes.
+async function handleEpisodeProduction(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/episode-production");
+  const body = await readJson(req);
+  const op = sessionText(body.op, 20), raw = body.item && typeof body.item === "object" ? body.item : {};
+  const at = new Date().toISOString();
+  let item;
+  if (op === "moments") item = { id: episodeSafeId(raw.id), kind: ["clip", "important", "fact_check"].includes(raw.kind) ? raw.kind : "clip", label: sessionText(raw.label, 240), atSeconds: Math.max(0, Number(raw.atSeconds) || 0), recordingId: sessionText(raw.recordingId, 80), createdAt: at };
+  else if (op === "clips") item = { id: episodeSafeId(raw.id), label: sessionText(raw.label, 240), startSeconds: Math.max(0, Number(raw.startSeconds) || 0), endSeconds: Math.max(0, Number(raw.endSeconds) || 0), source: ["moxie", "marker", "manual"].includes(raw.source) ? raw.source : "manual", selected: Boolean(raw.selected), recordingId: sessionText(raw.recordingId, 80) };
+  else if (op === "recordings") { item = { recordingId: sessionText(raw.recordingId, 80), durationSeconds: Math.max(0, Number(raw.durationSeconds) || 0), recordedAt: at }; if (!item.recordingId) throw httpError(400, "recordingId is required."); }
+  else if (op === "exports") item = { id: episodeSafeId(raw.id), kind: sessionText(raw.kind, 40), label: sessionText(raw.label, 160), completedAt: at };
+  else if (op === "transcript") item = { recordingId: sessionText(raw.recordingId, 80), lineCount: Math.max(0, Number(raw.lineCount) || 0), speakers: episodeLines(raw.speakers, 12, 80), savedAt: at };
+  else if (op === "clip_select") item = { id: episodeSafeId(raw.id), selected: Boolean(raw.selected) };
+  else if (op === "remove") item = { kind: ["moments", "clips"].includes(raw.kind) ? raw.kind : "", id: episodeSafeId(raw.id) };
+  else if (op === "status") { if (!EPISODE_STATUS_IDS.has(raw.status)) throw httpError(400, "Unknown episode status."); item = { status: raw.status }; }
+  else throw httpError(400, "Unknown production operation.");
+  const result = await db("session_episode_production", { id: session.id, ownerUserId: authSession.id, op, item, itemId: newId("ep") });
+  sendJson(req, res, 200, { session: result.session });
+}
+
 async function handleSpeakerList(req, res, authSession) {
   const session = await requireOwnedSession(req, res, authSession, "/speakers");
   const result = await db("speaker_list", { sessionId: session.id });
@@ -6862,6 +6983,36 @@ async function handleMoxieSpeakerBriefing(req, res, authSession) {
     feature: "moxie_speaker_briefing"
   });
   sendJson(req, res, 200, { briefing: summary });
+}
+
+// Episode planning help. Moxie only organises and questions what the host wrote in plan.episode; it never supplies
+// events, quotes, diagnoses or motives. Host-only: the private notes are sent to the model but only ever returned to
+// the owner of the session.
+const EPISODE_ASSIST_TASKS = {
+  questions: "Suggest up to 8 discussion questions the host has NOT already prepared, based only on the facts given. Open-ended, respectful, no leading or accusatory wording.",
+  gaps: "List what context a listener would need that the host has not written down yet, as questions TO the host (for example 'What year was this?'). Do not answer them yourself.",
+  chronology: "Read the story beats in the host's order. Point out anything that looks out of sequence, unclear or missing a transition. Do not add events.",
+  structure: "Suggest how to structure the conversation (opening, middle, close) using only the listed beats and topics. Do not add beats.",
+  hook: "Point to up to 3 of the host's own beats or details that could work as an opening hook, quoting the host's wording. Do not write new story content.",
+  clips: "Say which of the host's beats are most likely to make strong 30 to 60 second clips and why. State plainly that this is a guess made before the recording exists."
+};
+
+async function handleMoxieEpisodeAssist(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/moxie/episode-assist");
+  const body = await readJson(req);
+  const task = sessionText(body.task, 20);
+  if (!EPISODE_ASSIST_TASKS[task]) throw httpError(400, "Unknown episode assist task.");
+  const episode = session.plan?.episode ? sanitizeEpisode(session.plan.episode) : null;
+  if (!episode || (!episode.storyBeats.length && !episode.topics.length && !episode.description)) throw httpError(400, "Add a description, topics or story beats to the episode first.");
+  const credential = await requireMoxieCredential(req, res, session, authSession);
+  if (!credential) return;
+  const facts = { episodeTitle: episode.workingTitle, format: episode.format, plannedMinutes: episode.plannedMinutes, description: episode.description, openingHook: episode.openingHook, storyBeats: episode.storyBeats, topics: episode.topics, preparedQuestions: episode.questions, importantDetails: episode.importantDetails, notYetVerified: episode.factsToVerify, sensitive: episode.sensitiveDetails, privateNotes: episode.privateNotes };
+  const result = await callMoxie({
+    session, credential, feature: "moxie_episode_assist",
+    systemPrompt: `You are Moxie, Toasty's production assistant, helping a creator prepare a personal storytelling episode. The JSON facts are the creator's own words. ${EPISODE_ASSIST_TASKS[task]} Hard rules: never invent events, quotes, names, medical or legal claims, or motives; never present speculation as fact; items under notYetVerified must not be stated as true; treat sensitive items gently and never push the creator to disclose more. Label anything that is your suggestion as a suggestion. Respond with plain text bullet points, one per line starting with '- ', no markdown headers, no JSON.`,
+    userContent: `EPISODE FACTS:\n${JSON.stringify(facts)}`
+  });
+  sendJson(req, res, 200, { task, result });
 }
 
 // (B') Session research: prep angles/questions from the session's own topic + speaker/sponsor roster —
