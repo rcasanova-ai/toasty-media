@@ -151,12 +151,12 @@ console.log("\nAbout: recognition, uniform book cards, portfolio");
   assert(/based between Thailand and Canada/.test(html) && !/Bay Area|corridor/i.test(html), "location is Thailand and Canada without corridor references");
   assert(/id="recognition"[\s\S]*?<\/section>\s*<section class="ts-section" id="projects">/.test(html), "portfolio immediately follows Recognition");
   const cards = [...html.matchAll(/<a class="about-project ts-reveal"[^>]*>[\s\S]*?<\/a>/g)].map(m => m[0]);
-  assert(cards.length === 5 && cards.every(c => /<img /.test(c) && /alt="[^"]+ logo"/.test(c) && /<h3>/.test(c)), "all five complete portfolio cards are links with project logos");
+  assert(cards.length === 9 && cards.every(c => /<h3>/.test(c) && (/<img /.test(c) && /alt="[^"]+ logo"/.test(c) || /<strong>/.test(c))), "all nine portfolio cards link to projects with a logo or wordmark");
   const books = [...html.matchAll(/<article class="about-book[^"]*[^>]*>([\s\S]*?)<\/article>/g)].map((m) => m[1]);
   assert(books.length === 4 && books.every((b) => /<div class="about-book__cover/.test(b) && /<span class="ts-badge/.test(b) && /<h3>/.test(b) && /<p>/.test(b)), "all four book cards share the same structure and cover container");
   assert(/<h3>Upcoming AI Book<\/h3>/.test(html), "the AI book placeholder reads Upcoming AI Book");
-  const projects = html.match(/<div class="about-projects">[\s\S]*?<\/div>\s*<\/div>\s*<\/section>/)?.[0] || "";
-  for (const name of ["8ALTA", "Santati", "Get Thai'd Down", "Toasty Studio", "Toasty Peeps"]) assert(projects.includes(`<h3>${name}</h3>`), `portfolio lists ${name}`);
-  assert(/https:\/\/www\.8alta\.com/.test(projects) && /https:\/\/www\.santaticrm\.com/.test(projects) && /https:\/\/getthaiddown\.vercel\.app/.test(projects), "each portfolio company links to its real site");
+  const projects = html.match(/<section class="ts-section" id="projects">[\s\S]*?<\/section>/)?.[0] || "";
+  for (const name of ["8ALTA", "Santati CRM", "Get Thai'd Down", "Toasty Studio", "Toasty Peeps"]) assert(projects.includes(`<h3>${name}</h3>`), `portfolio lists ${name}`);
+  assert(/https:\/\/(?:www\.)?8alta\.com/.test(projects) && /https:\/\/(?:www\.)?santaticrm\.com/.test(projects) && /https:\/\/getthaiddown\.vercel\.app/.test(projects), "each portfolio company links to its real site");
 }
 console.log("\nALL PASSED: the public site pages are consistent, on brand and fully linked.");
