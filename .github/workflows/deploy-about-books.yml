@@ -5,6 +5,7 @@ on:
     paths:
       - 'about/**'
       - 'books/**'
+      - 'site/assets/images/books/**'
       - 'css/about-page.css'
       - 'shared/brand/clients/optimai/**'
       - '.github/workflows/deploy-about-books.yml'
@@ -41,8 +42,8 @@ jobs:
           ROOT=/home/fmxgijyvpq/toasty.media
           DEST="$SSH_USER@$SSH_HOST"
           SSH=(ssh -i ~/.ssh/toasty_github_deploy -p "$SSH_PORT")
-          "${SSH[@]}" "$DEST" "set -e; ROOT='$ROOT'; BACKUP=\"\$ROOT/_backups/about-books-\$(date +%Y%m%d-%H%M%S)\"; mkdir -p \"\$BACKUP\"; for p in about books css/about-page.css shared/brand/clients/optimai; do if [ -e \"\$ROOT/\$p\" ]; then mkdir -p \"\$BACKUP/\$(dirname \"\$p\")\"; cp -a \"\$ROOT/\$p\" \"\$BACKUP/\$p\"; fi; done"
-          git archive --format=tar HEAD -- about books css/about-page.css shared/brand/clients/optimai | "${SSH[@]}" "$DEST" "cd '$ROOT' && tar -xf -"
+          "${SSH[@]}" "$DEST" "set -e; ROOT='$ROOT'; BACKUP=\"\$ROOT/_backups/about-books-\$(date +%Y%m%d-%H%M%S)\"; mkdir -p \"\$BACKUP\"; for p in about books css/about-page.css shared/brand/clients/optimai site/assets/images/books; do if [ -e \"\$ROOT/\$p\" ]; then mkdir -p \"\$BACKUP/\$(dirname \"\$p\")\"; cp -a \"\$ROOT/\$p\" \"\$BACKUP/\$p\"; fi; done"
+          git archive --format=tar HEAD -- about books css/about-page.css shared/brand/clients/optimai site/assets/images/books | "${SSH[@]}" "$DEST" "cd '$ROOT' && tar -xf -"
       - name: Verify live pages
         run: |
           set -euo pipefail
@@ -53,3 +54,5 @@ jobs:
           grep -Fq 'Phyll &amp; Wisp' /tmp/books.html
           grep -Fq 'optimai/logo.svg' /tmp/about.html
           grep -Fq '<svg' /tmp/optimai.svg
+          curl --fail --silent --show-error --location 'https://toasty.media/site/assets/images/books/Phyll-and-Wisp-Meet-AI-Front-Cover-PROMO.png' -o /tmp/phyll-cover.png
+          test $(wc -c < /tmp/phyll-cover.png) -gt 1000
