@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { createHmac } from "node:crypto";
 
 const dbPath=process.env.TOASTY_AUTH_DB||"/var/lib/toasty/toasty.sqlite";
-const helper=process.env.TOASTY_AUTH_DB_HELPER;
+const helper=process.env.TOASTY_AUTH_DB_HELPER||"/opt/toasty-render/scripts/toasty-auth-db.py";
 const secret=process.env.TOASTY_SESSION_SECRET||process.env.TOASTY_RENDER_TOKEN||"";
 const port=Number(process.env.TOASTY_RENDER_PORT||4174), base=`http://127.0.0.1:${port}`;
 const email="rcasanova+toastyauditionqa20261031@yegsoccer.com";

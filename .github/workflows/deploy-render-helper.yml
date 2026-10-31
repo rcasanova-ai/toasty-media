@@ -396,5 +396,5 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.production_smoke
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 'set -a; source /etc/toasty-render.env; set +a; node --input-type=module -' < scripts/talk-audition-production-smoke.mjs
+          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 'set -euo pipefail; pid=$(systemctl show -p MainPID --value toasty-render.service); while IFS= read -r -d "" kv; do export "$kv"; done < "/proc/$pid/environ"; node --input-type=module -' < scripts/talk-audition-production-smoke.mjs
           echo
