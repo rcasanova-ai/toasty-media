@@ -1,11 +1,15 @@
 name: Toasty Clips
 
-# Test-only. Unit tests for clip detection, templates, timeline, mixer and music, plus real-Chrome tests that render clips to
-# 16:9, 9:16 and 1:1, drive the Clips workspace, and check Moxie's live clip listening inside the Studio.
+# Test-only. Unit tests for clip detection, templates, timeline, mixer, music and the Automatic Director's planner, plus real-Chrome
+# tests that render clips to 16:9, 9:16 and 1:1, drive the Clips workspace and Make My Video, and check Moxie's live clip listening
+# inside the Studio. The Make My Video test renders real videos in all three styles and measures the exported files.
 on:
   pull_request:
     paths:
       - "js/clip-*.js"
+      - "js/director/**"
+      - "js/make-video.js"
+      - "css/make-video.css"
       - "js/behavior/**"
       - "js/clips-app.js"
       - "js/live-clips.js"
@@ -20,6 +24,8 @@ on:
       - "studio/director.html"
       - "css/clips.css"
       - "scripts/clip*"
+      - "scripts/director-*"
+      - "scripts/lib/director-*"
       - "scripts/behavior-*"
       - "scripts/moxie-*"
       - "scripts/lib/behavior-fixtures.mjs"
@@ -46,7 +52,7 @@ jobs:
           node-version: 22
       - run: |
           set -euo pipefail
-          for t in clip-detector-test audio-events-test clip-templates-test clip-timeline-test clip-mixer-test clip-music-test transcript-import-test behavior-timeline-test behavior-vocal-test behavior-visual-test behavior-language-test behavior-moments-test behavior-engine-test; do
+          for t in clip-detector-test audio-events-test clip-templates-test clip-timeline-test clip-mixer-test clip-music-test director-plan-test transcript-import-test behavior-timeline-test behavior-vocal-test behavior-visual-test behavior-language-test behavior-moments-test behavior-engine-test; do
             echo "== $t"; node "scripts/$t.mjs"
           done
 
@@ -69,7 +75,7 @@ jobs:
           CHROME_PATH: /usr/bin/google-chrome
         run: |
           set -euo pipefail
-          for t in clips-render-browser-test clips-ui-browser-test live-clips-browser-test moxie-clips-browser-test; do
+          for t in clips-render-browser-test clips-ui-browser-test live-clips-browser-test moxie-clips-browser-test director-browser-test; do
             echo "== $t"; node "scripts/$t.mjs"
           done
 

@@ -104,6 +104,12 @@ jobs:
           python3 -m py_compile scripts/toasty-auth-db.py
           node scripts/platform-admin-test.mjs
 
+      - name: Validate Automatic Director planner
+        run: |
+          set -euo pipefail
+          for f in js/director/*.js js/make-video.js; do node --check "$f"; done
+          node scripts/director-plan-test.mjs
+
       - name: Validate AI usage analytics
         run: |
           set -euo pipefail
@@ -238,4 +244,16 @@ jobs:
           curl --silent --show-error --location -o /tmp/clips-page.html -w '%{http_code}' https://toasty.media/studio/clips.html | grep -Eq '^(200|302)$'
           curl --fail --silent --show-error --location https://toasty.media/js/clips-app.js -o /tmp/clips-app.js
           grep -Fq 'behavior/engine.js' /tmp/clips-app.js
+          # Make My Video (the Automatic Director) is actually served: the button on the page, the page script and every engine module.
+          curl --fail --silent --show-error --location https://toasty.media/studio/clips.html -o /tmp/clips-page.html
+          grep -Fq 'id="mmvMake"' /tmp/clips-page.html
+          curl --fail --silent --show-error --location https://toasty.media/js/make-video.js -o /tmp/make-video.js
+          grep -Fq 'director/index.js' /tmp/make-video.js
+          for f in index plan speech words emphasis framing styles revise broll frame-state sfx draw render; do
+            curl --fail --silent --show-error --location "https://toasty.media/js/director/$f.js" -o "/tmp/director-$f.js"
+          done
+          grep -Fq 'toasty.director.plan/1' /tmp/director-plan.js
+          grep -Fq 'renderDirected' /tmp/director-render.js
+          curl --fail --silent --show-error --location https://toasty.media/css/make-video.css -o /tmp/make-video.css
+          grep -Fq '.mmv-big' /tmp/make-video.css
           echo 'Production verification passed.'
