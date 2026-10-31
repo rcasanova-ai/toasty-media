@@ -133,7 +133,7 @@ console.log("\nBranding: Toasty orange, no purple or teal, no em or en dashes, n
   const css = ["css/toasty-site.css", "css/home-landing.css", "css/studio-landing.css", "css/peeps-landing.css", "css/about-page.css"].map(read).join("\n");
   assert(!/#8b7cf6|#6f5ee8|#3dd6c3|#1fb8a6|139, ?124, ?246|61, ?214, ?195|violet|teal/i.test(css), "the site stylesheets contain no purple or teal");
   assert(/--orange-strong: #ff7a29/.test(css) && /--ink-0: #0b0908/.test(css), "uses the Toasty orange and warm near-black from the Studio interface");
-  const publicPages = ["index.html", "studio/index.html", "peeps/index.html", "about/index.html", "books/index.html", "speaking/index.html", "ricardo/index.html", "access/index.html", "thank-you.html", "eloquencebonus/index.html", "peeps/login/index.html", "peeps/demo/index.html", "peeps/demo/data.js", "peeps/demo/demo.js", "js/studio-waitlist.js", "js/site-ui.js", "talks/index.html", "js/talks.js", "talks/shows.json"];
+  const publicPages = ["index.html", "studio/index.html", "peeps/index.html", "about/index.html", "books/index.html", "speaking/index.html", "ricardo/index.html", "access/index.html", "thank-you.html", "eloquencebonus/index.html", "peeps/login/index.html", "peeps/demo/index.html", "peeps/demo/data.js", "peeps/demo/demo.js", "js/studio-waitlist.js", "js/site-ui.js", "talks/index.html", "talks/auditions/index.html", "talks/auditions/record/index.html", "js/talk-audition.js", "js/talk-audition-recorder.js", "js/talks.js", "talks/shows.json"];
   for (const page of publicPages) {
     const text = read(page).replace(/<!--[\s\S]*?-->/g, "").split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\n");
     assert(!/[\u2013\u2014]/.test(text), `${page} has no em or en dashes`);
@@ -153,8 +153,8 @@ console.log("\nAbout: recognition, uniform book cards, portfolio");
   const cards = [...html.matchAll(/<a class="about-project ts-reveal"[^>]*>[\s\S]*?<\/a>/g)].map(m => m[0]);
   assert(cards.length === 9 && cards.every(c => /<h3>/.test(c) && (/<img /.test(c) && /alt="[^"]+ logo"/.test(c) || /<strong>/.test(c))), "all nine portfolio cards link to projects with a logo or wordmark");
   const books = [...html.matchAll(/<article class="about-book[^"]*[^>]*>([\s\S]*?)<\/article>/g)].map((m) => m[1]);
-  assert(books.length === 4 && books.every((b) => /<div class="about-book__cover/.test(b) && /<span class="ts-badge/.test(b) && /<h3>/.test(b) && /<p>/.test(b)), "all four book cards share the same structure and cover container");
-  assert(/<h3>Upcoming AI Book<\/h3>/.test(html), "the AI book placeholder reads Upcoming AI Book");
+  assert(books.length === 6 && books.every((b) => /<div class="about-book__cover/.test(b) && /<span class="ts-badge/.test(b) && /<h3>/.test(b) && /<p>/.test(b)), "all six book cards share the same structure and cover container");
+  assert(/<h3>AI in the Enterprise<\/h3>/.test(html), "the forthcoming AI book is listed by title");
   const projects = html.match(/<section class="ts-section" id="projects">[\s\S]*?<\/section>/)?.[0] || "";
   for (const name of ["8ALTA", "Santati CRM", "Get Thai'd Down", "Toasty Studio", "Toasty Peeps"]) assert(projects.includes(`<h3>${name}</h3>`), `portfolio lists ${name}`);
   assert(/https:\/\/(?:www\.)?8alta\.com/.test(projects) && /https:\/\/(?:www\.)?santaticrm\.com/.test(projects) && /https:\/\/getthaiddown\.vercel\.app/.test(projects), "each portfolio company links to its real site");

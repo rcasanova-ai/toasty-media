@@ -64,6 +64,7 @@ function bindStatic(){
   $("paWaitlistSearch")?.addEventListener("input",renderWaitlist);$("paWaitlistRefresh")?.addEventListener("click",loadWaitlist);
   $("paStudioWaitlistSearch")?.addEventListener("input",renderStudioWaitlist);$("paStudioWaitlistRefresh")?.addEventListener("click",loadStudioWaitlist);
   $("paStudioWaitlistCsv")?.addEventListener("click",downloadStudioWaitlistCsv);
+  $("paAuditionsSearch")?.addEventListener("input",renderAuditions);$("paAuditionsRefresh")?.addEventListener("click",loadAuditions);
 }
 
 function selectPanel(panel){
@@ -72,7 +73,25 @@ function selectPanel(panel){
   document.querySelectorAll(".platform-panel").forEach(p=>p.classList.toggle("is-active",p.dataset.panelView===panel));
   if(panel==="waitlist")loadWaitlist();
   if(panel==="studiowaitlist")loadStudioWaitlist();
+  if(panel==="auditions")loadAuditions();
 }
+
+// ---- Toasty Talks auditions ----
+const auditions={data:null};
+async function loadAuditions(){try{auditions.data=await studioRequest("/api/organizations/platform-admin/talk-auditions");renderAuditions();}catch(error){setMessage(error.message,true);}}
+function renderAuditions(){
+  const d=auditions.data;if(!d)return;
+  $("paAuditionsEmail").textContent=(d.emailTransport==="resend"?"Real email delivery is configured.":"Email is not configured; messages are simulated.")+" Notifications resolve from "+d.notificationRecipients+" verified platform administrator account"+(d.notificationRecipients===1?".":"s.");
+  const keys=["APPLIED","INVITED","SUBMITTED","SHORTLISTED","DECLINED","WITHDRAWN"];
+  $("paAuditionsSummary").innerHTML=[["Total",d.total],...keys.map(k=>[human(k),d.byStatus[k]||0])].map(x=>'<div class="usage-metric"><span>'+esc(x[0])+'</span><strong>'+esc(x[1])+'</strong></div>').join("");
+  const q=($("paAuditionsSearch").value||"").trim().toLowerCase();
+  const list=d.entries.filter(e=>!q||[e.name,e.email,e.location,e.topic].some(v=>String(v||"").toLowerCase().includes(q)));
+  $("paAuditionsTable").querySelector("tbody").innerHTML=list.map(e=>'<tr><td>'+esc(shortDate(e.createdAt))+'</td><td><strong>'+esc(e.name)+'</strong><br><small>'+esc(e.email)+'<br>'+esc(e.location)+'</small></td><td><small><b>About:</b> '+esc(e.about)+'<br><b>Topic:</b> '+esc(e.topic)+(e.links?'<br><b>Links:</b> '+esc(e.links):'')+'</small></td><td><select data-aud-status="'+esc(e.id)+'">'+["APPLIED","INVITED","SUBMITTED","SHORTLISTED","DECLINED","WITHDRAWN"].map(s=>'<option value="'+s+'"'+(s===e.status?' selected':'')+'>'+human(s)+'</option>').join("")+'</select><br><small>Applicant email: '+esc(human(e.confirmationEmailStatus))+'<br>Admin notice: '+esc(human(e.adminEmailStatus))+'</small></td><td>'+(e.submittedAt?'<a class="btn" href="'+esc(studioApiEndpoint())+'/api/organizations/platform-admin/talk-auditions/'+encodeURIComponent(e.id)+'/recording" target="_blank" rel="noopener">Review video</a>':esc(e.invite?.state||"Not invited"))+'</td><td><small>'+esc(e.retentionUntil?shortDate(e.retentionUntil):"Not started")+'</small></td><td>'+(!["SUBMITTED","SHORTLISTED","DECLINED","WITHDRAWN","DELETED"].includes(e.status)?'<button class="btn" data-aud-invite="'+esc(e.id)+'" type="button">'+(e.status==="INVITED"?'Re-invite':'Invite to record')+'</button> ':'')+'<button class="btn" data-aud-delete="'+esc(e.id)+'" type="button">Delete private data</button></td></tr>').join("")||'<tr><td colspan="7" class="hint">No applications yet.</td></tr>';
+  $("paAuditionsTable").querySelectorAll("[data-aud-status]").forEach(el=>el.onchange=()=>auditionAction(el.dataset.audStatus,"status",{status:el.value}));
+  $("paAuditionsTable").querySelectorAll("[data-aud-invite]").forEach(el=>el.onclick=()=>auditionAction(el.dataset.audInvite,"invite"));
+  $("paAuditionsTable").querySelectorAll("[data-aud-delete]").forEach(el=>el.onclick=()=>{if(confirm("Permanently delete this applicant's contact details and private recording?"))auditionAction(el.dataset.audDelete,"delete");});
+}
+async function auditionAction(id,action,body={}){try{const r=await post("/api/organizations/platform-admin/talk-auditions/"+encodeURIComponent(id)+"/"+action,body);setMessage(action==="invite"?(r.emailDelivery==="sent"?"Private recording invitation emailed.":"Invitation created; email delivery: "+r.emailDelivery):"Audition updated.",action==="invite"&&r.emailDelivery!=="sent");await loadAuditions();}catch(error){setMessage(error.message,true);}}
 
 // ---- Studio waitlist (platform-wide) ----
 const swl={data:null};

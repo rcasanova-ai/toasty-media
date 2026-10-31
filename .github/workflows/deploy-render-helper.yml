@@ -24,6 +24,7 @@ on:
       - "scripts/recording-jobs-server-test.mjs"
       - "scripts/recording-recovery-test.mjs"
       - "scripts/studio-waitlist-server-test.mjs"
+      - "scripts/talk-audition-server-test.mjs"
       - "scripts/waitlist-stats-server-test.mjs"
       - ".github/workflows/deploy-render-helper.yml"
 
@@ -68,6 +69,7 @@ jobs:
           node scripts/recording-jobs-server-test.mjs
           node scripts/recording-recovery-test.mjs
           node scripts/studio-waitlist-server-test.mjs
+          node scripts/talk-audition-server-test.mjs
 
       - name: Validate live Studio stability
         run: |
