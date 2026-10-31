@@ -11790,7 +11790,7 @@ async function handleTalkAuditionAdminInvite(req, res, session, id) {
   await db("talk_audition_invite_create", { id, inviteId: newId("audinv"), tokenHash: auditionTokenHash(token), expiresAt, createdByUserId: session.id });
   const inviteUrl = `${APP_BASE_URL.replace(/\/$/, "")}/talks/auditions/record/?token=${encodeURIComponent(token)}`;
   const result = await sendEmail({ to: current.entry.email, subject: "Your private Toasty Talks audition invitation", html: `<p>Hi ${escapeHtml(current.entry.name)},</p><p>We would like to hear your Toasty Talks co-host audition.</p><p><a href="${escapeHtml(inviteUrl)}">Open your private Toasty Studio recorder</a>. This invitation expires ${escapeHtml(expiresAt)} and can be used once.</p><p>Record, review and submit your video from that private page. Do not forward the link.</p>` });
-  sendJson(req, res, 200, { ok: true, expiresAt, emailDelivery: auditionEmailStatus(result), inviteUrl: result.transport === "dev" ? inviteUrl : undefined });
+  sendJson(req, res, 200, { ok: true, expiresAt, emailDelivery: auditionEmailStatus(result), inviteUrl });
 }
 
 async function handleTalkAuditionAdminStatus(req, res, id) {

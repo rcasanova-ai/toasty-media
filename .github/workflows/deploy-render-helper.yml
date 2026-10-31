@@ -9,6 +9,12 @@ name: Deploy render helper and Node server
 # value someone already set). Does not touch the SQLite DB, broadcast, or any other part of the env file.
 on:
   workflow_dispatch:
+    inputs:
+      production_smoke:
+        description: Run the Toasty Talks production audition smoke test
+        required: false
+        default: false
+        type: boolean
   push:
     branches: [main]
     paths:
@@ -385,4 +391,10 @@ jobs:
           ORG_STATUS="$(curl -s -o /dev/null -w '%{http_code}' https://render.toasty.media/api/organizations)"
           test "$ORG_STATUS" = "401"
           curl --fail --silent --show-error https://render.toasty.media/health
+
+      - name: Production audition journey
+        if: github.event_name == 'workflow_dispatch' && inputs.production_smoke
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/toasty_render_deploy -p 22 -o BatchMode=yes root@165.22.57.61 'set -a; source /etc/toasty-render.env; set +a; node --input-type=module -' < scripts/talk-audition-production-smoke.mjs
           echo
