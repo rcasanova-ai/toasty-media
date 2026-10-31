@@ -70,6 +70,7 @@ jobs:
           node scripts/recording-jobs-server-test.mjs
           node scripts/recording-recovery-test.mjs
           node scripts/studio-waitlist-server-test.mjs
+          node scripts/talk-audition-server-test.mjs
 
       - name: Real-browser Studio regression (record, present, Program Output, MP4, downloads, recovery)
         run: |
@@ -224,6 +225,10 @@ jobs:
           grep -Fq 'Who do you want to talk to?' /tmp/guest.html
           curl --fail --silent --show-error --location https://toasty.media/studio/ -o /tmp/studio-landing.html
           grep -Fq 'studioWaitlistForm' /tmp/studio-landing.html
+          curl --fail --silent --show-error --location https://toasty.media/talks/auditions/ -o /tmp/audition.html
+          grep -Fq 'talk-audition.js' /tmp/audition.html
+          curl --fail --silent --show-error --location https://toasty.media/talks/auditions/record/ -o /tmp/audition-record.html
+          grep -Fq 'talk-audition-recorder.js' /tmp/audition-record.html
           curl --fail --silent --show-error --location https://toasty.media/about/ -o /tmp/about.html
           grep -Fq 'Ricardo Casanova' /tmp/about.html
           curl --fail --silent --show-error --location https://toasty.media/css/toasty-site.css -o /tmp/toasty-site.css

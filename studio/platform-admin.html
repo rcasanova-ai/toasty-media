@@ -31,6 +31,7 @@
       <button class="platform-nav-btn" data-panel="integrations">Integrations</button>
       <button class="platform-nav-btn" data-panel="waitlist">Peeps waitlist</button>
       <button class="platform-nav-btn" data-panel="studiowaitlist">Studio waitlist</button>
+      <button class="platform-nav-btn" data-panel="auditions">Talks auditions</button>
     </aside>
 
     <section class="platform-admin-main">
@@ -205,6 +206,11 @@
           </div>
         </section>
 
+
+        <section class="platform-panel" data-panel-view="auditions">
+          <div class="settings-card"><div class="panel-heading"><div><h2>Toasty Talks auditions</h2><p class="hint">Private casting records and recordings. Invitations expire, are single-use and are sent only from this control.</p></div><button id="paAuditionsRefresh" class="btn" type="button">Refresh</button></div><p id="paAuditionsEmail" class="hint"></p><div id="paAuditionsSummary" class="usage-grid"></div></div>
+          <div class="settings-card"><div class="panel-heading"><h3>Applicants</h3><input id="paAuditionsSearch" type="search" placeholder="Search name, email, location…" aria-label="Search auditions"></div><div style="overflow-x:auto"><table class="settings-table" id="paAuditionsTable"><thead><tr><th>Applied</th><th>Applicant</th><th>Application</th><th>Status</th><th>Recording</th><th>Retention</th><th>Actions</th></tr></thead><tbody></tbody></table></div></div>
+        </section>
 
         <section class="platform-panel" data-panel-view="studiowaitlist">
           <div class="settings-card">

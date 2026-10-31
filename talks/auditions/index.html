@@ -39,8 +39,9 @@
 <p class="audition-note"><strong>Before recording:</strong> Studio invitations are sent individually after review. Please do not send recordings through public links. The audition is free; there is no guarantee of selection or payment.</p>
 <h3>Recording and clip release</h3><p>Auditions may become part of the show, trailers, promotional clips or behind-the-scenes content, including those of applicants who are not selected. You control whether to apply and must accept the release below before submitting. The release covers submitted auditions and any follow-up recordings that you separately agree to participate in. We will not use your personal contact details for publicity. Applicants must be 18 or older.</p>
 </div></section>
-<section class="ts-section ts-section--band" id="apply"><div class="ts-wrap audition-wrap"><p class="ts-eyebrow">Get in the mix</p><h2>Apply to <em>co-host.</em></h2><p class="audition-muted">This first step opens a prefilled email in your mail app. You must send it to complete your application. We will reply with a private recording invitation if shortlisted.</p>
+<section class="ts-section ts-section--band" id="apply"><div class="ts-wrap audition-wrap"><p class="ts-eyebrow">Get in the mix</p><h2>Apply to <em>co-host.</em></h2><p class="audition-muted">Submit securely here. We will email a private, expiring Toasty Studio recording invitation if you are selected for the next step.</p>
 <form id="auditionForm" class="audition-form">
+<input name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px">
 <label>Your name<input required name="name" maxlength="120" autocomplete="name"></label>
 <label>Email address<input required type="email" name="email" maxlength="254" autocomplete="email"></label>
 <label>Where are you based?<input required name="location" maxlength="120"></label>
@@ -50,22 +51,11 @@
 <label class="check"><input type="checkbox" name="adult" required><span>I confirm I am 18 or older.</span></label>
 <label class="check"><input type="checkbox" name="release" required><span><strong>Audition recording and publicity release:</strong> I voluntarily grant Toasty Media and its successors a perpetual, worldwide, royalty-free, nonexclusive right to record, edit, reproduce, distribute and publicly display my audition video, voice, likeness and statements in Toasty programs, highlights, advertising, social media and promotions, even if I am not selected. I understand that clips may be edited for length and presentation but not deliberately used to falsely represent my views. I affirm I have the rights to material I submit and will not include third parties without permission. I understand that I will receive no compensation for the use of audition material and that my participation does not guarantee a co-host role. I may withdraw from future recording rounds, but already published material may remain available.</span></label>
 <label class="check"><input type="checkbox" name="privacy" required><span>I consent to Toasty Media contacting me about this audition and processing my application details for casting purposes. My application is not a marketing subscription.</span></label>
-<button class="ts-btn ts-btn--primary" type="submit">Prepare application email</button>
+<button class="ts-btn ts-btn--primary" type="submit">Submit application</button>
 <p id="auditionStatus" role="status" aria-live="polite"></p>
 </form></div></section>
 </main>
 <footer class="ts-footer"><div class="ts-wrap ts-footer__grid"><span>© Toasty Media</span><nav><a href="../">Talks</a><a href="../../studio/">Studio</a><a href="../../">Home</a></nav></div></footer>
 <script src="../../js/site-ui.js" defer></script>
-<script>
-document.getElementById('auditionForm').addEventListener('submit',function(e){
-e.preventDefault();const f=new FormData(this);
-const fields=['name','email','location','about','topic','links'];
-const body=fields.map(k=>k.toUpperCase()+': '+String(f.get(k)||'')).join('\n\n')+
-'\n\nAge 18+: confirmed\nRecording/publicity release: accepted\nCasting privacy consent: accepted\nRelease version: 2026-10-31\nSubmitted at (UTC): '+new Date().toISOString();
-const subject='Toasty Talks co-host audition | '+String(f.get('name'));
-const mail='mailto:hello@toasty.media?subject='+encodeURIComponent(subject)+'&body='+encodeURIComponent(body);
-document.getElementById('auditionStatus').textContent='Your email app should open now. Send the prepared message to finish applying. If it does not open, contact Toasty Media directly.';
-window.location.href=mail;
-});
-</script>
+<script type="module" src="../../js/talk-audition.js"></script>
 </body></html>

@@ -2033,6 +2033,56 @@ def migrate(conn):
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_studio_waitlist_status ON studio_waitlist(status, created_at)")
 
+    # ---- Toasty Talks co-host auditions ----
+    # Applications are private casting records. Public callers can only create one or use an unguessable,
+    # expiring recording token; every read or state change is performed by the server or a platform admin.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS talk_auditions (
+          id TEXT PRIMARY KEY,
+          email TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL,
+          location TEXT NOT NULL,
+          about TEXT NOT NULL,
+          topic TEXT NOT NULL,
+          links TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'APPLIED' CHECK(status IN ('APPLIED','INVITED','SUBMITTED','SHORTLISTED','DECLINED','WITHDRAWN','DELETED')),
+          release_version TEXT NOT NULL,
+          privacy_version TEXT NOT NULL,
+          consent_at TEXT NOT NULL,
+          confirmation_email_status TEXT NOT NULL DEFAULT 'pending',
+          admin_email_status TEXT NOT NULL DEFAULT 'pending',
+          invited_at TEXT,
+          submitted_at TEXT,
+          recording_path TEXT,
+          recording_mime TEXT,
+          recording_bytes INTEGER,
+          recording_sha256 TEXT,
+          retention_until TEXT,
+          deleted_at TEXT,
+          admin_note TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_talk_auditions_status ON talk_auditions(status, created_at)")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS talk_audition_invites (
+          id TEXT PRIMARY KEY,
+          audition_id TEXT NOT NULL REFERENCES talk_auditions(id) ON DELETE CASCADE,
+          token_hash TEXT NOT NULL UNIQUE,
+          expires_at TEXT NOT NULL,
+          used_at TEXT,
+          revoked_at TEXT,
+          created_by_user_id TEXT REFERENCES users(id),
+          created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_talk_audition_invites_app ON talk_audition_invites(audition_id, created_at)")
+
     # Peeps economic events — one row per economic event in a request's lifecycle (today: the
     # introduction authorization payment). `status` says exactly what is true: onchain_verified (a Solana
     # transaction the SERVER confirmed against the RPC), ledger_posted (internal Dough ledger, no chain)
@@ -3556,6 +3606,33 @@ def public_studio_waitlist(row):
         "confirmationEmailStatus": row["confirmation_email_status"], "confirmationEmailAt": row["confirmation_email_at"],
         "createdAt": row["created_at"], "updatedAt": row["updated_at"],
     }
+
+
+def public_talk_audition(row, conn=None):
+    if not row:
+        return None
+    entry = {
+        "id": row["id"], "email": row["email"], "name": row["name"], "location": row["location"],
+        "about": row["about"], "topic": row["topic"], "links": row["links"], "status": row["status"],
+        "releaseVersion": row["release_version"], "privacyVersion": row["privacy_version"], "consentAt": row["consent_at"],
+        "confirmationEmailStatus": row["confirmation_email_status"], "adminEmailStatus": row["admin_email_status"],
+        "invitedAt": row["invited_at"], "submittedAt": row["submitted_at"], "recordingMime": row["recording_mime"],
+        "recordingBytes": row["recording_bytes"], "recordingSha256": row["recording_sha256"],
+        "retentionUntil": row["retention_until"], "deletedAt": row["deleted_at"], "adminNote": row["admin_note"],
+        "createdAt": row["created_at"], "updatedAt": row["updated_at"],
+    }
+    if conn is not None:
+        inv = conn.execute("SELECT * FROM talk_audition_invites WHERE audition_id = ? ORDER BY created_at DESC LIMIT 1", (row["id"],)).fetchone()
+        if inv:
+            try:
+                expired = datetime.fromisoformat(inv["expires_at"].replace("Z", "+00:00")) <= datetime.now(timezone.utc)
+            except ValueError:
+                expired = True
+            entry["invite"] = {"expiresAt": inv["expires_at"], "usedAt": inv["used_at"], "revokedAt": inv["revoked_at"],
+                               "state": "used" if inv["used_at"] else "revoked" if inv["revoked_at"] else "expired" if expired else "pending"}
+        else:
+            entry["invite"] = None
+    return entry
 
 
 def public_peeps_zec(row):
@@ -8282,6 +8359,113 @@ def main():
             (payload["userId"], int(payload.get("limit") or 5)),
         ).fetchall()
         print(json.dumps({"intents": [{**public_dough_funding_intent(r), "paidAt": r["paid_at"]} for r in rows]}))
+        return
+
+    # ---- Toasty Talks audition actions ----
+    if action == "talk_audition_apply":
+        now = utc_now()
+        try:
+            conn.execute(
+                "INSERT INTO talk_auditions (id,email,name,location,about,topic,links,release_version,privacy_version,consent_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (payload["id"], payload["email"], payload["name"], payload["location"], payload["about"], payload["topic"], payload.get("links") or "", payload["releaseVersion"], payload["privacyVersion"], now, now, now),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM talk_auditions WHERE id = ?", (payload["id"],)).fetchone()
+            print(json.dumps({"created": True, "entry": public_talk_audition(row)}))
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            row = conn.execute("SELECT * FROM talk_auditions WHERE email = ?", (payload["email"],)).fetchone()
+            print(json.dumps({"duplicate": True, "entry": public_talk_audition(row)}))
+        return
+
+    if action == "talk_audition_email_status":
+        column = {"confirmation": "confirmation_email_status", "admin": "admin_email_status"}.get(payload.get("kind"))
+        if not column:
+            raise ValueError("Unknown audition email kind")
+        conn.execute(f"UPDATE talk_auditions SET {column} = ?, updated_at = ? WHERE id = ?", (payload["status"], utc_now(), payload["id"]))
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "verified_platform_admin_emails":
+        rows = conn.execute("SELECT email FROM users WHERE platform_role='platform_admin' AND status='active' AND email_verified_at IS NOT NULL ORDER BY created_at").fetchall()
+        print(json.dumps({"emails": [r["email"] for r in rows]}))
+        return
+
+    if action == "talk_audition_list":
+        rows = conn.execute("SELECT * FROM talk_auditions ORDER BY created_at DESC LIMIT ?", (max(1, min(1000, int(payload.get("limit") or 500))),)).fetchall()
+        counts = {r[0]: r[1] for r in conn.execute("SELECT status,COUNT(*) FROM talk_auditions GROUP BY status").fetchall()}
+        print(json.dumps({"total": sum(counts.values()), "byStatus": counts, "entries": [public_talk_audition(r, conn) for r in rows]}))
+        return
+
+    if action == "talk_audition_get":
+        row = conn.execute("SELECT * FROM talk_auditions WHERE id = ?", (payload["id"],)).fetchone()
+        print(json.dumps({"entry": public_talk_audition(row, conn), "recordingPath": row["recording_path"] if row else None}))
+        return
+
+    if action == "talk_audition_invite_create":
+        row = conn.execute("SELECT * FROM talk_auditions WHERE id = ? AND deleted_at IS NULL", (payload["id"],)).fetchone()
+        if not row:
+            print(json.dumps({"error": "not_found"})); return
+        now = utc_now()
+        conn.execute("UPDATE talk_audition_invites SET revoked_at=? WHERE audition_id=? AND used_at IS NULL AND revoked_at IS NULL", (now, payload["id"]))
+        conn.execute("INSERT INTO talk_audition_invites (id,audition_id,token_hash,expires_at,created_by_user_id,created_at) VALUES (?,?,?,?,?,?)", (payload["inviteId"], payload["id"], payload["tokenHash"], payload["expiresAt"], payload.get("createdByUserId"), now))
+        conn.execute("UPDATE talk_auditions SET status='INVITED',invited_at=?,updated_at=? WHERE id=?", (now, now, payload["id"]))
+        conn.commit()
+        print(json.dumps({"entry": public_talk_audition(conn.execute("SELECT * FROM talk_auditions WHERE id=?", (payload["id"],)).fetchone(), conn)}))
+        return
+
+    if action == "talk_audition_invite_lookup":
+        inv = conn.execute("SELECT * FROM talk_audition_invites WHERE token_hash=?", (payload["tokenHash"],)).fetchone()
+        if not inv:
+            print(json.dumps({"state": "invalid"})); return
+        row = conn.execute("SELECT * FROM talk_auditions WHERE id=?", (inv["audition_id"],)).fetchone()
+        try: expired = datetime.fromisoformat(inv["expires_at"].replace("Z", "+00:00")) <= datetime.now(timezone.utc)
+        except ValueError: expired = True
+        state = "deleted" if not row or row["deleted_at"] else "used" if inv["used_at"] else "revoked" if inv["revoked_at"] else "expired" if expired else "valid"
+        print(json.dumps({"state": state, "auditionId": row["id"] if row else None, "name": row["name"] if row else None, "expiresAt": inv["expires_at"]}))
+        return
+
+    if action == "talk_audition_recording_submit":
+        now = utc_now()
+        inv = conn.execute("SELECT * FROM talk_audition_invites WHERE token_hash=?", (payload["tokenHash"],)).fetchone()
+        if not inv or inv["used_at"] or inv["revoked_at"]:
+            print(json.dumps({"error": "invalid"})); return
+        try: expired = datetime.fromisoformat(inv["expires_at"].replace("Z", "+00:00")) <= datetime.now(timezone.utc)
+        except ValueError: expired = True
+        if expired:
+            print(json.dumps({"error": "expired"})); return
+        cur = conn.execute("UPDATE talk_audition_invites SET used_at=? WHERE id=? AND used_at IS NULL AND revoked_at IS NULL", (now, inv["id"]))
+        if cur.rowcount != 1:
+            conn.rollback(); print(json.dumps({"error": "invalid"})); return
+        conn.execute("UPDATE talk_auditions SET status='SUBMITTED',submitted_at=?,recording_path=?,recording_mime=?,recording_bytes=?,recording_sha256=?,retention_until=?,updated_at=? WHERE id=? AND deleted_at IS NULL", (now, payload["path"], payload["mime"], payload["bytes"], payload["sha256"], payload["retentionUntil"], now, inv["audition_id"]))
+        conn.commit()
+        print(json.dumps({"ok": True, "auditionId": inv["audition_id"]}))
+        return
+
+    if action == "talk_audition_set_status":
+        allowed = {"APPLIED","INVITED","SUBMITTED","SHORTLISTED","DECLINED","WITHDRAWN"}
+        if payload.get("status") not in allowed:
+            print(json.dumps({"error": "bad_status"})); return
+        conn.execute("UPDATE talk_auditions SET status=?,admin_note=COALESCE(?,admin_note),updated_at=? WHERE id=? AND deleted_at IS NULL", (payload["status"], payload.get("adminNote"), utc_now(), payload["id"]))
+        conn.commit()
+        print(json.dumps({"ok": True}))
+        return
+
+    if action == "talk_audition_delete":
+        now = utc_now()
+        row = conn.execute("SELECT recording_path FROM talk_auditions WHERE id=?", (payload["id"],)).fetchone()
+        if not row:
+            print(json.dumps({"error": "not_found"})); return
+        conn.execute("UPDATE talk_audition_invites SET revoked_at=COALESCE(revoked_at,?) WHERE audition_id=? AND used_at IS NULL", (now, payload["id"]))
+        conn.execute("UPDATE talk_auditions SET email='deleted+'||id||'@invalid.local',name='Deleted applicant',location='',about='',topic='',links='',status='DELETED',recording_path=NULL,recording_mime=NULL,recording_bytes=NULL,recording_sha256=NULL,deleted_at=?,updated_at=? WHERE id=?", (now, now, payload["id"]))
+        conn.commit()
+        print(json.dumps({"ok": True, "recordingPath": row["recording_path"]}))
+        return
+
+    if action == "talk_audition_expired":
+        rows = conn.execute("SELECT id,recording_path FROM talk_auditions WHERE deleted_at IS NULL AND retention_until IS NOT NULL AND retention_until <= ?", (payload["now"],)).fetchall()
+        print(json.dumps({"entries": [{"id": r["id"], "recordingPath": r["recording_path"]} for r in rows]}))
         return
 
     # ---- Studio waitlist actions ----
