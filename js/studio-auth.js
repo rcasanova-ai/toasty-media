@@ -149,6 +149,11 @@ async function logout() {
 // the lock server-side regardless of what this ever sends, so a tampered/bypassed URL still can't create or
 // change a session to another brand — only the frontend's OWN selector visibility depends on this.
 async function openStudio(branding = { mode: "flexible", brandId: null }, { destination = null, isPlatformAdmin = false } = {}) {
+  // A narrowly scoped return destination. Never redirect arbitrary account users or external URLs.
+  if (isPlatformAdmin && new URLSearchParams(window.location.search).get("next") === "/admin/") {
+    window.location.replace("/admin/");
+    return;
+  }
   els.studioPublicPage.hidden = true;
   els.studioAppShell.hidden = false;
   document.body.classList.add("is-authenticated");
