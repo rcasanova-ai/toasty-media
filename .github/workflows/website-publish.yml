@@ -41,6 +41,10 @@ jobs:
           test -s robots.txt
           test -s resume/index.html
           test -s contact/index.html
+          test -s access/index.html
+          test -s js/my-toasty.js
+          node --check --input-type=module < js/my-toasty.js
+          grep -Fq 'id="accountProducts"' access/index.html
           grep -Fq 'https://toasty.media/contact/' sitemap.xml
       - name: Publish website to Spaceship and verify publicly
         env:
