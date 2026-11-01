@@ -325,6 +325,7 @@ async function loadMembers() {
     `).join("");
     const canManage = state.role === "owner" || state.role === "admin";
     els.inviteForm.querySelector("button[type=submit]").hidden = !canManage;
+    for(const element of els.inviteForm.querySelectorAll("input,select"))element.disabled = !canManage;
   } catch (error) {
     setMessage(els.inviteMessage, error.message, true);
   }
@@ -332,12 +333,12 @@ async function loadMembers() {
 
 function memberRow(member) {
   const canManage = (state.role === "owner" || state.role === "admin");
-  const roles = ["viewer", "member", "admin", "owner"];
+  const roles = state.role === "owner" ? ["viewer", "member", "admin", "owner"] : ["viewer", "member", "admin"];
   const roleOptions = roles.map((role) => `<option value="${role}" ${role === member.role ? "selected" : ""}>${role}</option>`).join("");
-  const roleCell = canManage
-    ? `<select data-role-select="${member.userId}">${roleOptions}</select>`
+  const roleCell = canManage && (state.role === "owner" || member.role !== "owner")
+    ? `<select aria-label="Role for ${escapeHtml(member.userEmail || member.userName)}" data-role-select="${escapeHtml(member.userId)}">${roleOptions}</select>`
     : escapeHtml(member.role);
-  const removeCell = canManage ? `<button class="btn small danger" data-remove-member="${member.userId}" type="button">Remove</button>` : "";
+  const removeCell = canManage && (state.role === "owner" || member.role !== "owner") ? `<button class="btn small danger" data-remove-member="${escapeHtml(member.userId)}" type="button">Remove</button>` : "";
   return `<tr><td>${escapeHtml(member.userName || "—")}</td><td>${escapeHtml(member.userEmail || "—")}</td><td>${roleCell}</td><td>${removeCell}</td></tr>`;
 }
 
@@ -361,6 +362,7 @@ async function updateMemberRole(userId, role) {
   try {
     await studioRequest(orgPath("/members/role"), { method: "POST", body: JSON.stringify({ userId, role }) });
     await loadMembers();
+    setMessage(els.inviteMessage, "Member role updated.", false, true);
   } catch (error) {
     setMessage(els.inviteMessage, error.message, true);
     await loadMembers();
@@ -372,6 +374,7 @@ async function removeMember(userId) {
   try {
     await studioRequest(orgPath("/members/remove"), { method: "POST", body: JSON.stringify({ userId }) });
     await loadMembers();
+    setMessage(els.inviteMessage, "Member removed from this organization.", false, true);
   } catch (error) {
     setMessage(els.inviteMessage, error.message, true);
   }
