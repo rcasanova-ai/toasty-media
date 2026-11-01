@@ -483,13 +483,19 @@ export function buildGuestPublisherParams({roomId,password,guestName,backgroundM
       videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),
       audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),
       effects:effectForBackground(backgroundMode),
+      imagelist:sharedBackgroundImage(backgroundMode)?JSON.stringify([sharedBackgroundImage(backgroundMode)]):undefined,
       muted:micMuted?true:undefined,
       ar:isMobile?"portrait":undefined
     }
   };
 }
 
-function effectForBackground(backgroundMode){if(backgroundMode===BackgroundMode.BLUR)return"3";return"0";}
+export const SHARED_BACKGROUND_IDS = Object.freeze(["newsroom","library","stage"]);
+export function sharedBackgroundImage(mode) {
+  if (!SHARED_BACKGROUND_IDS.includes(mode)) return null;
+  return new URL("../studio/backgrounds/" + mode + ".svg", window.location.href).href;
+}
+function effectForBackground(backgroundMode){if(backgroundMode===BackgroundMode.BLUR)return"3";if(SHARED_BACKGROUND_IDS.includes(backgroundMode))return"5";return"0";}
 // "grid" = today's always-on behavior (uniform cropped 4-slot grid). "screen-dominant" intentionally
 // returns no slots/cover so VDO.Ninja's own auto-layout (speaker+thumbnails) takes over — see the
 // mountRoomFrame/mountProgramFrame comments above for why that's the right way to get a dominant screen
