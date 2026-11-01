@@ -55,6 +55,8 @@ function renderSwitcher(){
 }
 
 function bindStatic(){
+  document.querySelectorAll("[data-go-platform]").forEach(button=>button.addEventListener("click",()=>selectPanel(button.dataset.goPlatform)));
+
   document.querySelectorAll(".platform-nav-btn").forEach(btn=>btn.addEventListener("click",()=>selectPanel(btn.dataset.panel)));
   $("paSaveAccount").onclick=saveAccountControls;$("paResetUsage").onclick=resetUsage;$("paSaveOrg").onclick=saveOrganization;
   $("paSaveDefaults").onclick=saveDefaults;$("paSaveBilling").onclick=saveBilling;$("paNewBrand").onclick=()=>renderBrandEditor(null,true);
@@ -67,10 +69,31 @@ function bindStatic(){
   $("paAuditionsSearch")?.addEventListener("input",renderAuditions);$("paAuditionsRefresh")?.addEventListener("click",loadAuditions);
 }
 
+function renderPortfolioSummary(){
+  const root=$("paPortfolioSummary");if(!root)return;
+  const orgs=state.organizations||[];
+  const active=orgs.filter(o=>o.subscriptionStatus==="active").length;
+  const cards=[
+    ["Toasty organizations",orgs.length,"Existing organization directory"],
+    ["Active subscriptions",active,"Based on recorded subscription status, not verified payments"],
+    ["Studio waitlist","Open section","Existing admin data"],
+    ["Other properties","Connections pending","GA4, Search Console, Wisp and external products"]
+  ];
+  root.replaceChildren();
+  for(const [name,value,description] of cards){
+    const card=document.createElement("article");card.className="settings-card";
+    const title=document.createElement("h3");title.textContent=name;
+    const number=document.createElement("strong");number.textContent=String(value);number.style.fontSize="1.45rem";
+    const note=document.createElement("p");note.className="hint";note.textContent=description;
+    card.append(title,number,note);root.append(card);
+  }
+}
+
 function selectPanel(panel){
   state.panel=panel;
   document.querySelectorAll(".platform-nav-btn").forEach(b=>b.classList.toggle("is-active",b.dataset.panel===panel));
   document.querySelectorAll(".platform-panel").forEach(p=>p.classList.toggle("is-active",p.dataset.panelView===panel));
+  if(panel==="portfolio")renderPortfolioSummary();
   if(panel==="waitlist")loadWaitlist();
   if(panel==="studiowaitlist")loadStudioWaitlist();
   if(panel==="auditions")loadAuditions();
@@ -176,7 +199,7 @@ function renderAll(){
   $("platformOrgMeta").textContent=(o.slug||o.id)+" · "+human(o.plan)+" · "+human(o.subscriptionStatus)+" · "+d.members.length+" member"+(d.members.length===1?"":"s");
   $("platformOpenCustomerDashboard").href="./dashboard.html?org="+encodeURIComponent(o.id);
 
-  renderPlatformStatus();
+  renderPlatformStatus();renderPortfolioSummary();
   fillSelect("paPlan",["demo","creator","pro","enterprise"],o.plan);
   fillSelect("paSubscription",["none","trialing","active","past_due","canceled"],o.subscriptionStatus);
   $("paOnboarding").value=s.onboardingCompletedAt?"complete":"reset";
