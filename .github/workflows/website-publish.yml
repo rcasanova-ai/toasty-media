@@ -13,10 +13,13 @@ on:
       - 'speaking/**'
       - 'ponderings/**'
       - 'articles/**'
+      - 'eloquence/**'
+      - 'books/**'
       - 'css/toasty-site.css'
       - 'js/site-ui.js'
       - 'js/wisp-research.js'
       - 'js/ga4-public.js'
+      - 'js/eloquence-interest.js'
       - 'scripts/publish-website.sh'
       - '.github/workflows/website-publish.yml'
   workflow_dispatch:
