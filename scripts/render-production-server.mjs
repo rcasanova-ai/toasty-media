@@ -373,6 +373,11 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // ---- Public personal contact: existing email transport; never expose inbound mail address ----
+  if (req.method === "POST" && req.url === "/api/organizations/personal-contact") {
+    if (!requireCsrf(req, res) || !limit(req, res, "personal-contact", 5, 60 * 60 * 1000) || !limit(req, res, "personal-contact-burst", 2, 60 * 1000)) return;
+    await handlePersonalContact(req, res); return;
+  }
   // ---- Toasty Talks auditions: public application and token-gated private recording ----
   if (req.method === "POST" && req.url === "/api/organizations/talk-auditions") {
     if (!requireCsrf(req, res) || !limit(req, res, "talk-audition-apply", 10, 60 * 60 * 1000) || !limit(req, res, "talk-audition-apply-burst", 3, 60 * 1000)) return;
@@ -11712,6 +11717,33 @@ function auditionEmailStatus(result) { return result?.ok ? (result.transport ===
 async function talkAuditionAdminRecipients() {
   const result = await db("verified_platform_admin_emails", {});
   return [...new Set((result.emails || []).map(normalizeEmail).filter((email) => EMAIL_PATTERN.test(email)))];
+}
+
+async function handlePersonalContact(req, res) {
+  const body = await readJson(req, 12 * 1024);
+  const name = cleanName(peepsWaitlistCleanText(body.name, 120));
+  const email = normalizeEmail(body.email);
+  const subject = peepsWaitlistCleanText(body.subject, 120);
+  const message = peepsWaitlistCleanText(body.message, 5000);
+  if (peepsWaitlistCleanText(body.website, 200) || Number(body.elapsedMs) < 1500)
+    return sendJson(req, res, 200, {ok: true});
+  if (!name || !email || email.length > 254 || !EMAIL_PATTERN.test(email) || !subject || message.length < 10 || body.consent !== true)
+    throw httpError(400, "Please complete the form and agree to be contacted.");
+  const allowed = ["Business or partnership","Speaking or media","Toasty or podcast","Something interesting","Other"];
+  if (!allowed.includes(subject)) throw httpError(400, "Choose a valid subject.");
+  // Keep contact details on the existing configured mail transport, not a public static site.
+  // Fail closed if delivery isn't configured. Never claim delivery when mail is only simulated.
+  if (!RESEND_API_KEY) throw httpError(503, "Messaging is temporarily unavailable. Please try again later.");
+  const recipient = process.env.TOASTY_CONTACT_EMAIL || process.env.TOASTY_TALK_AUDITION_ADMIN_EMAIL;
+  if (!recipient || !EMAIL_PATTERN.test(recipient)) throw httpError(503, "Contact delivery is not configured.");
+  const result = await sendEmail({
+    to: recipient,
+    subject: "Ricardo website contact: " + subject,
+    html: "<p><strong>From:</strong> " + escapeHtml(name) + " (" + escapeHtml(email) + ")</p><p><strong>Subject:</strong> " + escapeHtml(subject) + "</p><p><strong>Message:</strong></p><p style='white-space:pre-wrap'>" + escapeHtml(message) + "</p><p>Consent to reply: yes</p>",
+    text: "From: " + name + " <" + email + ">\\nSubject: " + subject + "\\n\\n" + message
+  });
+  if (!result.ok || result.transport === "dev") throw httpError(503, "Unable to deliver the message right now.");
+  sendJson(req, res, 200, {ok:true});
 }
 
 async function handleTalkAuditionApply(req, res) {
