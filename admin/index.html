@@ -8,7 +8,9 @@
   <link rel="stylesheet" href="../css/studio-settings.css">
   <link rel="stylesheet" href="../css/platform-admin.css">
   <script type="module" src="../js/platform-admin.js"></script>
-</head>
+<style>
+.mi-dashboard{display:grid;gap:16px;margin-top:16px}.mi-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.mi-metric{padding:14px;border:1px solid #453831;border-radius:12px;background:#211b18;display:grid;gap:7px}.mi-metric span{font-size:12px;color:#c5b8ae}.mi-metric strong{font-size:clamp(19px,2vw,28px);color:#fff}.mi-columns{display:grid;grid-template-columns:1fr 1fr;gap:14px}.mi-section{padding:18px;border:1px solid #453831;border-radius:14px;background:#211b18;min-width:0}.mi-section h3{margin:0 0 15px}.mi-section h4{margin:18px 0 8px}.mi-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.mi-heading span{font-size:12px;color:#c5b8ae}.mi-rows{display:grid;gap:9px}.mi-row{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #3b302b;padding-bottom:7px;font-size:13px}.mi-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mi-row strong{flex-shrink:0}.mi-chart{height:140px;display:flex;align-items:flex-end;gap:3px;border-bottom:1px solid #695346}.mi-chart div{flex:1;background:#ff9b51;border-radius:3px 3px 0 0;min-width:2px}.mi-error{color:#ffb19d;font-size:13px}@media(max-width:850px){.mi-columns{grid-template-columns:1fr}.mi-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style></head>
 <body class="settings-shell">
   <header class="settings-topbar platform-topbar">
     <a href="../">← Toasty Media</a>
@@ -75,9 +77,9 @@
             </div>
           </div>
           <div class="settings-card">
-            <h2>Traffic, clicks and conversions</h2>
-            <p class="hint">Google Analytics 4 and Search Console reports for the last 28 complete days. Data is retrieved from Google, not estimated. Search Console reports may lag by several days.</p>
-            <div class="button-row"><a class="btn primary" id="paConnectGoogle" href="https://render.toasty.media/integrations/google-reporting/oauth/start">Connect Google Analytics &amp; Search Console</a><button class="btn" id="paRefreshGoogle" type="button">Refresh reports</button></div><p class="hint" id="paGoogleConnectionStatus" aria-live="polite"></p><div id="paGoogleReporting" class="usage-grid" aria-live="polite"><article class="settings-card"><h3>Google reporting</h3><p>Loading verified metrics…</p></article></div>
+            <h2>Marketing Intelligence</h2>
+            <p class="hint">Verified Google Analytics and Search Console data. Explore traffic, acquisition, content performance and organic search.</p>
+            <div class="button-row"><a class="btn primary" id="paConnectGoogle" href="https://render.toasty.media/integrations/google-reporting/oauth/start">Connect Google Analytics &amp; Search Console</a><button class="btn" id="paRefreshGoogle" type="button">Refresh reports</button></div><p class="hint" id="paGoogleConnectionStatus" aria-live="polite"></p><div id="paGoogleReporting" class="mi-dashboard" aria-live="polite"><article class="settings-card"><h3>Google reporting</h3><p>Loading verified metrics…</p></article></div>
           </div>
           <div class="settings-card">
             <h2>Across your properties</h2>
