@@ -13,7 +13,12 @@
   <header class="settings-topbar platform-topbar">
     <a href="../">← Toasty Media</a>
     <strong>Toasty Media Platform Admin</strong>
-    <select id="platformOrgSwitcher" aria-label="Organization"></select>
+    <select id="platformOrgSwitcher" aria-label="Organization" hidden></select>
+    <div class="platform-account-actions" style="margin-left:auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span id="platformAccountIdentity" aria-live="polite" style="font-size:.85rem"></span>
+      <a id="platformLogin" class="btn" href="../studio/?next=%2Fadmin%2F" hidden>Sign in</a>
+      <button id="platformLogout" class="btn" type="button" hidden>Sign out</button>
+    </div>
   </header>
 
   <main class="platform-admin-shell">
