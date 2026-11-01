@@ -21,7 +21,7 @@ async function loadModel() {
   notice("Downloading voice model for local playback. First use can take several minutes.");
   modelPromise = (async () => {
     // Dynamic import defers the dependency and model download until the visitor explicitly opts in.
-    const { KokoroTTS } = await import("https://esm.sh/kokoro-js@1.2.1");
+    const { KokoroTTS } = await Promise.race([import("https://esm.sh/kokoro-js@1.2.1"), new Promise((_, reject) => setTimeout(() => reject(new Error("Voice library download timed out")), 20000))]);
     const adapter = await navigator.gpu?.requestAdapter?.().catch(() => null);
     if (adapter) {
       try { return await KokoroTTS.from_pretrained(MODEL, { dtype: "fp32", device: "webgpu" }); }
@@ -49,7 +49,7 @@ async function speak() {
   if (!text || text.length > 350) { notice("Enter between 1 and 350 characters."); return; }
   const voice = $("voiceSelect").value;
   if (!VOICES.some(v => v[0] === voice)) { notice("Choose a supported voice."); return; }
-  busy = true; $("voiceSpeak").disabled = true; releaseAudio();
+  busy = true; $("voiceSpeak").disabled = true; $("voiceSpeak").textContent = "Loading voice…"; notice("Starting neural voice engine…"); releaseAudio();
   try {
     const tts = await loadModel();
     notice("Generating speech locally…");
@@ -63,9 +63,10 @@ async function speak() {
     await $("voiceAudio").play().catch(() => notice("Ready. Tap play to listen."));
   } catch (error) {
     console.error("Eloquence voice failed:", error);
-    notice("Voice model could not load. Check your connection, available device memory and browser, then try again.");
-  } finally { busy = false; $("voiceSpeak").disabled = false; }
+    notice(`Voice generation failed: ${error?.message || "Unknown error"}. Please retry or use a desktop browser.`);
+  } finally { busy = false; $("voiceSpeak").disabled = false; $("voiceSpeak").textContent = "Generate and listen"; }
 }
+window.__eloquenceVoiceReady = true;
 voiceOptions();
 $("voiceSpeak").addEventListener("click", speak);
 $("voiceStop").addEventListener("click", () => { releaseAudio(); notice("Stopped."); });

@@ -31,5 +31,14 @@
 <audio id="voiceAudio" controls hidden></audio>
 </div><p class="voice-note">Powered by Kokoro 82M, Apache 2.0 licensed. Voices are generated locally after the initial model download. No API account or subscription is required. Lower-powered phones may take longer or be unable to run the model.</p>
 <p><a href="./">Back to Eloquence Protocol</a></p></main>
-<script type="module" src="../js/eloquence-voices.js"></script>
+<script>
+document.getElementById("voiceSpeak").addEventListener("click", () => {
+  // Fallback if module loading fails, rather than silently ignoring a tap.
+  if (!window.__eloquenceVoiceReady) {
+    document.getElementById("voiceStatus").textContent =
+      "Voice engine script failed to start. Reload this page. If it still fails, this browser may be blocking the voice library.";
+  }
+});
+</script>
+<script type="module" src="../js/eloquence-voices.js?v=20261101b"></script>
 </body></html>
