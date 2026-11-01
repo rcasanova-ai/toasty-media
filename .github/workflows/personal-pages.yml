@@ -22,3 +22,5 @@ jobs:
           SSH_USER: ${{ secrets.TOASTY_SSH_USER }}
           SSH_PRIVATE_KEY: ${{ secrets.TOASTY_SSH_PRIVATE_KEY }}
         run: bash scripts/publish-personal-pages.sh
+
+# Publishing pipeline for existing Spaceship hosting.
