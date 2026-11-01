@@ -488,6 +488,34 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && req.url?.startsWith("/integrations/google-reporting/oauth/start")) {
+    const session = await requirePlatformAdmin(req, res);
+    if (!session) return;
+    if (!REPORTING_OAUTH_CLIENT_ID || !REPORTING_OAUTH_CLIENT_SECRET) { sendJson(req,res,503,{error:"Reporting OAuth client is not configured on the server."}); return; }
+    const state = randomBytes(24).toString("hex");
+    const verifier = randomBytes(32).toString("base64url");
+    const challenge = createHash("sha256").update(verifier).digest("base64url");
+    reportingOauthStates.set(state, { verifier, expires:Date.now()+600000, userId:session.userId||session.id });
+    const params = new URLSearchParams({client_id:REPORTING_OAUTH_CLIENT_ID,redirect_uri:REPORTING_OAUTH_REDIRECT,response_type:"code",scope:"https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/webmasters.readonly",access_type:"offline",prompt:"consent",state,code_challenge:challenge,code_challenge_method:"S256"});
+    res.writeHead(302,{Location:"https://accounts.google.com/o/oauth2/v2/auth?"+params});res.end();return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/integrations/google-reporting/oauth/callback")) {
+    const u=new URL(req.url,"https://render.toasty.media");
+    const state=u.searchParams.get("state")||"";
+    const pending=reportingOauthStates.get(state);reportingOauthStates.delete(state);
+    if(!pending||pending.expires<Date.now()||!u.searchParams.get("code")){sendJson(req,res,400,{error:"Invalid or expired OAuth authorization."});return;}
+    const session=await requirePlatformAdmin(req,res);if(!session)return;
+    if(pending.userId!==(session.userId||session.id)){sendJson(req,res,403,{error:"OAuth session mismatch."});return;}
+    try{
+      const response=await fetch("https://oauth2.googleapis.com/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({client_id:REPORTING_OAUTH_CLIENT_ID,client_secret:REPORTING_OAUTH_CLIENT_SECRET,code:u.searchParams.get("code"),code_verifier:pending.verifier,grant_type:"authorization_code",redirect_uri:REPORTING_OAUTH_REDIRECT}),signal:AbortSignal.timeout(12000)});
+      const token=await response.json();
+      if(!response.ok||!token.refresh_token)throw Error("Google did not return a refresh token. Reauthorize with consent.");
+      await writeFile(REPORTING_OAUTH_TOKEN_PATH,JSON.stringify({refresh_token:token.refresh_token}),{mode:0o600,flag:"w"});
+      googleReportingToken={value:token.access_token,expires:Date.now()+Number(token.expires_in||3600)*1000};
+      res.writeHead(302,{Location:"https://toasty.media/admin/?google=connected"});res.end();
+    }catch(err){sendJson(req,res,502,{error:"Google reporting authorization failed: "+err.message});}
+    return;
+  }
   if (req.method === "GET" && req.url === "/api/organizations/platform-admin/google-analytics") {
     const session = await requirePlatformAdmin(req, res);
     if (!session) return;
@@ -3822,11 +3850,25 @@ const ORG_ROLE_RANK = { viewer: 1, member: 2, admin: 3, owner: 4 };
 
 // Server-side Google reporting. Service account must have Viewer permission on the GA4
 // property and Restricted/Full access to the Search Console property.
+const REPORTING_OAUTH_CLIENT_ID = process.env.TOASTY_GOOGLE_REPORTING_CLIENT_ID || "790734641185-3ehgmdmkgbmb95rhh06sdoaujulol4jc.apps.googleusercontent.com";
+const REPORTING_OAUTH_CLIENT_SECRET = process.env.TOASTY_GOOGLE_REPORTING_CLIENT_SECRET || "";
+const REPORTING_OAUTH_REDIRECT = "https://render.toasty.media/integrations/google-reporting/oauth/callback";
+const REPORTING_OAUTH_TOKEN_PATH = process.env.TOASTY_GOOGLE_REPORTING_TOKEN_PATH || "/var/lib/toasty/google-reporting-oauth.json";
+const reportingOauthStates = new Map();
 const GOOGLE_REPORTING_ACCOUNT_JSON = process.env.TOASTY_GOOGLE_REPORTING_SERVICE_ACCOUNT_JSON || "";
 const GOOGLE_GA4_PROPERTY_ID = process.env.TOASTY_GA4_PROPERTY_ID || "";
 const GOOGLE_SEARCH_CONSOLE_SITE = process.env.TOASTY_SEARCH_CONSOLE_SITE_URL || "";
 let googleReportingToken = null;
 async function getGoogleReportingToken() {
+  if (googleReportingToken && googleReportingToken.expires > Date.now() + 60000) return googleReportingToken.value;
+  if(REPORTING_OAUTH_CLIENT_SECRET && existsSync(REPORTING_OAUTH_TOKEN_PATH)){
+    const saved=JSON.parse(readFileSync(REPORTING_OAUTH_TOKEN_PATH,"utf8"));
+    const response=await fetch("https://oauth2.googleapis.com/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({client_id:REPORTING_OAUTH_CLIENT_ID,client_secret:REPORTING_OAUTH_CLIENT_SECRET,refresh_token:saved.refresh_token,grant_type:"refresh_token"}),signal:AbortSignal.timeout(12000)});
+    const token=await response.json();
+    if(!response.ok||!token.access_token)throw Error("Google reporting refresh failed ("+response.status+").");
+    googleReportingToken={value:token.access_token,expires:Date.now()+Number(token.expires_in||3600)*1000};
+    return googleReportingToken.value;
+  }
   if (googleReportingToken && googleReportingToken.expires > Date.now() + 60000) return googleReportingToken.value;
   const account = JSON.parse(GOOGLE_REPORTING_ACCOUNT_JSON);
   if (!account.client_email || !account.private_key || account.type !== "service_account") throw new Error("Invalid Google reporting service account configuration.");
@@ -3850,7 +3892,7 @@ async function getGoogleReportingToken() {
   return data.access_token;
 }
 async function handlePlatformGoogleAnalytics(req, res) {
-  const configured = Boolean(GOOGLE_REPORTING_ACCOUNT_JSON);
+  const configured = Boolean(GOOGLE_REPORTING_ACCOUNT_JSON || (REPORTING_OAUTH_CLIENT_SECRET && existsSync(REPORTING_OAUTH_TOKEN_PATH)));
   if (!configured || (!GOOGLE_GA4_PROPERTY_ID && !GOOGLE_SEARCH_CONSOLE_SITE)) {
     sendJson(req, res, 200, { configured: false, ga4: { status: "not_configured" }, searchConsole: { status: "not_configured" } }); return;
   }
