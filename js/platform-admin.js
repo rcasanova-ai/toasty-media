@@ -1,6 +1,6 @@
 import { studioRequest, studioApiEndpoint } from "./studio-api.js";
 
-const state={session:null,status:null,organizations:[],organizationId:null,detail:null,panel:"overview"};
+const state={session:null,status:null,organizations:[],organizationId:null,detail:null,panel:"portfolio"};
 const $=(id)=>document.getElementById(id);
 const esc=(v)=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c]));
 const pretty=(v)=>JSON.stringify(v??{},null,2);
@@ -31,6 +31,7 @@ async function init(){
     renderSwitcher();bindStatic();renderOrganizationDirectory();
     if(!state.organizationId)throw new Error("No organizations exist yet.");
     await loadDetail();
+    selectPanel("portfolio");
     $("platformLoading").hidden=true;$("platformApp").hidden=false;
   }catch(error){$("platformLoading").innerHTML="<h2>Platform Admin unavailable</h2><p class='hint'>"+esc(error.message)+"</p>";}
 }
