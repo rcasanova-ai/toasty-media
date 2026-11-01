@@ -16,7 +16,8 @@ export function createEditDecisionList({ sourceId, duration, clips, transcript =
     if (!finite(clip?.start) || !finite(clip?.end) || clip.start < 0 || clip.end > duration || clip.end <= clip.start) {
       throw new RangeError("Invalid clip bounds at index " + index);
     }
-    const words = captionWords(transcript, clip.start, clip.end)
+    const words = (Array.isArray(clip.captions) ? clip.captions : captionWords(transcript, clip.start, clip.end))
+      .filter(w => finite(w?.start) && finite(w?.end) && w.start >= 0 && w.end <= clip.end - clip.start)
       .map(w => ({ text: clean(w.text, 80), start: round(w.start), end: round(w.end) }))
       .filter(w => w.end > w.start);
     return {
@@ -49,7 +50,7 @@ export function createEditDecisionList({ sourceId, duration, clips, transcript =
 export function validateEditDecisionList(input) {
   if (!input || input.version !== 1 || input.engine !== "toasty") throw new TypeError("Unsupported Toasty EDL version");
   if (!Array.isArray(input.edits) || !input.edits.length) throw new TypeError("Empty EDL");
-  const clips = input.edits.map(e => ({ start: e?.source?.in, end: e?.source?.out, title: e.title, overlays: e.overlays }));
+  const clips = input.edits.map(e => ({ start: e?.source?.in, end: e?.source?.out, title: e.title, overlays: e.overlays, captions: e.captions }));
   return createEditDecisionList({
     sourceId: input.source?.id, duration: input.source?.duration,
     format: input.output?.format, brand: input.brand,
