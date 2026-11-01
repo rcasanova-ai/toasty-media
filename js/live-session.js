@@ -604,7 +604,7 @@ export class LiveSession {
     this._hostDevices = { videoDeviceLabel, audioDeviceLabel };
     if (previewStream) this._hostPreviewStream = previewStream;
     this._showHostNativeVideo();
-    this.engine.mountDirectorFrame(this._containers.hostTransport, { roomId: this.roomId, label, videoDeviceLabel, audioDeviceLabel });
+    this.engine.mountDirectorFrame(this._containers.hostTransport, { roomId: this.roomId, label, videoDeviceLabel, audioDeviceLabel, backgroundMode: document.querySelector("#sharedRoomTheme")?.value || "none" });
     this.participants.upsert(createParticipant({
       participantId: "host",
       role: ParticipantRole.HOST,
