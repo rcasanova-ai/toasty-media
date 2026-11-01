@@ -153,6 +153,16 @@
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg>
             <span class="btn-label">Copy Listener Link</span>
           </button>
+          <div class="lv-shared-room" style="margin-top:12px;padding:12px;border:1px solid #6e5a45;border-radius:10px">
+            <label for="sharedRoomTheme" style="display:block;font-size:.83rem;margin-bottom:8px">Shared guest background</label>
+            <select id="sharedRoomTheme" style="width:100%;padding:9px;background:#1b1816;color:#fff;border:1px solid #7a6550;border-radius:7px">
+              <option value="none">Guests choose their own</option>
+              <option value="newsroom">Broadcast studio</option>
+              <option value="library">Library lounge</option>
+              <option value="stage">Fireside set</option>
+            </select>
+            <p style="font-size:.75rem;line-height:1.4;margin:8px 0 0">Applied to new guest invites when each guest agrees. Camera effects depend on device support.</p>
+          </div>
           <input id="guestInvite" class="invite-url" type="hidden" readonly aria-label="Guest invite link">
           <input id="listenerInvite" class="invite-url" type="hidden" readonly aria-label="Listener invite link">
         </section>
