@@ -26,8 +26,8 @@
 <label for="voiceSelect">Voice<select id="voiceSelect"><option value="af_heart">Heart (American · feminine)</option><option value="af_bella">Bella (American · feminine)</option><option value="af_sarah">Sarah (American · feminine)</option><option value="am_michael">Michael (American · masculine)</option><option value="am_adam">Adam (American · masculine)</option><option value="bf_emma">Emma (British · feminine)</option><option value="bf_isabella">Isabella (British · feminine)</option><option value="bm_george">George (British · masculine)</option><option value="bm_lewis">Lewis (British · masculine)</option></select></label>
 <label for="voiceText">Practice text<textarea id="voiceText" maxlength="350">Good communication starts with listening. Speak with clarity, give yourself time to think, and make every word count.</textarea></label>
 <label for="voiceSpeed">Speaking pace <span>0.8 to 1.2</span><input id="voiceSpeed" type="range" min="0.8" max="1.2" step="0.05" value="1"></label>
-<div class="voice-row"><button id="voiceSpeak" class="ts-btn ts-btn--primary" type="button">Generate and listen</button><button id="voicePreview" class="ts-btn ts-btn--ghost" type="button">Instant device preview</button><button id="voiceStop" class="ts-btn ts-btn--ghost" type="button">Stop</button></div>
-<p id="voiceStatus" role="status" aria-live="polite" class="voice-note">Instant device preview works without a download, but uses your phone’s built-in voice. Generate and listen downloads Kokoro’s smaller quantized model on first use and caches it where the browser allows.</p>
+<div class="voice-row"><button id="voiceSpeak" class="ts-btn ts-btn--primary" type="button">Generate and listen</button><button id="voiceStop" class="ts-btn ts-btn--ghost" type="button">Stop</button></div>
+<p id="voiceStatus" role="status" aria-live="polite" class="voice-note">Generate and listen downloads Kokoro’s quantized voice model on first use and caches it where the browser allows.</p>
 <audio id="voiceAudio" controls hidden></audio>
 </div><p class="voice-note">Powered by Kokoro 82M, Apache 2.0 licensed. Voices are generated locally after the initial model download. No API account or subscription is required. First use downloads approximately 92 MB plus supporting files; later visits normally reuse the browser cache. Your browser may evict cached files. Lower-powered phones may take longer or be unable to run the model.</p>
 <p><a href="./">Back to Eloquence Protocol</a></p></main>
@@ -111,19 +111,7 @@ async function speak() {
 window.__eloquenceVoiceReady = true;
 voiceOptions();
 $("voiceSpeak").addEventListener("click", speak);
-const preview = $("voicePreview");
-preview?.addEventListener("click", () => {
-  if (!("speechSynthesis" in window)) { notice("Quick device voice preview is unavailable in this browser."); return; }
-  speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance("Welcome to Eloquence Protocol. Practice your delivery with confidence.");
-  utterance.lang = $("voiceSelect").value.startsWith("b") ? "en-GB" : "en-US";
-  const candidates = speechSynthesis.getVoices().filter(v => v.lang.toLowerCase().startsWith(utterance.lang.toLowerCase()));
-  if (candidates.length) utterance.voice = candidates[0];
-  utterance.rate = Number($("voiceSpeed").value);
-  notice("Playing a quick device voice sample. This is not the selected Kokoro voice.");
-  speechSynthesis.speak(utterance);
-});
-$("voiceStop").addEventListener("click", () => { releaseAudio(); if ("speechSynthesis" in window) speechSynthesis.cancel(); notice("Stopped."); });
+$("voiceStop").addEventListener("click", () => { releaseAudio(); notice("Stopped."); });
 window.addEventListener("pagehide", releaseAudio);
 
 </script>
