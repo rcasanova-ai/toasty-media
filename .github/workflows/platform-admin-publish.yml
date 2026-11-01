@@ -7,6 +7,7 @@ on:
       - 'js/platform-admin.js'
       - 'css/platform-admin.css'
       - 'studio/platform-admin.html'
+      - 'js/studio-settings.js'
       - 'scripts/publish-platform-admin.sh'
       - '.github/workflows/platform-admin-publish.yml'
   workflow_dispatch:
@@ -21,7 +22,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Verify platform-admin JavaScript syntax
-        run: node --check --input-type=module < js/platform-admin.js
+        run: |
+          node --check --input-type=module < js/platform-admin.js
+          node --check --input-type=module < js/studio-settings.js
       - name: Publish administration UI
         env:
           SSH_HOST: ${{ secrets.TOASTY_SSH_HOST }}
