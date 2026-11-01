@@ -26,6 +26,11 @@
     Header unset Expires
     Header unset ETag
   </FilesMatch>
+  # Permit VDO.Ninja's virtual-background renderer to read the approved set images.
+  <FilesMatch "^(newsroom|library|stage)\\.svg$">
+    Header always set Access-Control-Allow-Origin "https://vdo.ninja"
+    Header always set Cross-Origin-Resource-Policy "cross-origin"
+  </FilesMatch>
   FileETag None
 </IfModule>
 
