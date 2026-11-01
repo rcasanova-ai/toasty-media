@@ -31,6 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/studio-mode-model-test.mjs
+          node scripts/studio-shared-background-test.mjs
           node scripts/master-program-recording-test.mjs
           node scripts/studio-shell-cleanup-test.mjs
           node scripts/studio-screen-share-regression-test.mjs
