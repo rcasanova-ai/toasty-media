@@ -10,7 +10,7 @@ chmod 600 ~/.ssh/toasty_website_key
 ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
 root=/home/fmxgijyvpq/toasty.media
 # Only public website files, never Peeps, Studio or their backends.
-paths=(index.html .htaccess sitemap.xml robots.txt about resume contact speaking ponderings articles eloquence books admin/index.html studio/platform-admin.html css/toasty-site.css js/site-ui.js js/wisp-research.js js/ga4-public.js js/eloquence-interest.js js/platform-admin.js css/platform-admin.css)
+paths=(index.html .htaccess sitemap.xml robots.txt about resume contact speaking ponderings articles eloquence books access admin/index.html studio/platform-admin.html css/toasty-site.css js/site-ui.js js/wisp-research.js js/ga4-public.js js/eloquence-interest.js js/my-toasty.js js/platform-admin.js css/platform-admin.css)
 git archive --format=tar HEAD -- "${paths[@]}" | ssh -i ~/.ssh/toasty_website_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "cd '$root' && tar -xf -"
 ssh -i ~/.ssh/toasty_website_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "test -s '$root/sitemap.xml' && test -s '$root/resume/index.html' && test -s '$root/contact/index.html'"
 for route in sitemap.xml resume/ contact/ about/ speaking/ ponderings/ robots.txt; do
