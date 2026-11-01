@@ -229,6 +229,8 @@ jobs:
           grep -Fq 'talk-audition.js' /tmp/audition.html
           curl --fail --silent --show-error --location https://toasty.media/talks/auditions/record/ -o /tmp/audition-record.html
           grep -Fq 'talk-audition-recorder.js' /tmp/audition-record.html
+          curl --fail --silent --show-error --location https://toasty.media/contact/ -o /tmp/contact.html
+          grep -Fq 'contactForm' /tmp/contact.html
           curl --fail --silent --show-error --location https://toasty.media/resume/ -o /tmp/resume.html
           grep -Fq 'Ricardo' /tmp/resume.html
           grep -Fq 'Download original resume' /tmp/resume.html
