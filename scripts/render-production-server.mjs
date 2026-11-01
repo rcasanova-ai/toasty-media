@@ -488,6 +488,13 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && req.url === "/api/organizations/platform-admin/google-analytics") {
+    const session = await requirePlatformAdmin(req, res);
+    if (!session) return;
+    await handlePlatformGoogleAnalytics(req, res);
+    return;
+  }
+
   // ---- Platform administrator ----
   if (req.method === "GET" && req.url === "/api/organizations/platform-admin/status") {
     const session = await requirePlatformAdmin(req, res);
@@ -3812,6 +3819,69 @@ function authConfigured() {
 // not a 403, for the same reason js/live-session.js's session ownership checks do: a 403 on someone else's
 // organization would confirm that organization id/slug exists to a caller with no business knowing that.
 const ORG_ROLE_RANK = { viewer: 1, member: 2, admin: 3, owner: 4 };
+
+// Server-side Google reporting. Service account must have Viewer permission on the GA4
+// property and Restricted/Full access to the Search Console property.
+const GOOGLE_REPORTING_ACCOUNT_JSON = process.env.TOASTY_GOOGLE_REPORTING_SERVICE_ACCOUNT_JSON || "";
+const GOOGLE_GA4_PROPERTY_ID = process.env.TOASTY_GA4_PROPERTY_ID || "";
+const GOOGLE_SEARCH_CONSOLE_SITE = process.env.TOASTY_SEARCH_CONSOLE_SITE_URL || "";
+let googleReportingToken = null;
+async function getGoogleReportingToken() {
+  if (googleReportingToken && googleReportingToken.expires > Date.now() + 60000) return googleReportingToken.value;
+  const account = JSON.parse(GOOGLE_REPORTING_ACCOUNT_JSON);
+  if (!account.client_email || !account.private_key || account.type !== "service_account") throw new Error("Invalid Google reporting service account configuration.");
+  const now = Math.floor(Date.now() / 1000);
+  const enc = value => Buffer.from(JSON.stringify(value)).toString("base64url");
+  const assertionBody = enc({ alg: "RS256", typ: "JWT" }) + "." + enc({
+    iss: account.client_email, scope: "https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/webmasters.readonly",
+    aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600
+  });
+  const { createSign } = await import("node:crypto");
+  const signer = createSign("RSA-SHA256"); signer.update(assertionBody); signer.end();
+  const assertion = assertionBody + "." + signer.sign(account.private_key, "base64url");
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }),
+    signal: AbortSignal.timeout(12000)
+  });
+  const data = await response.json();
+  if (!response.ok || !data.access_token) throw new Error("Google authorization failed (" + response.status + "). Check reporting account access.");
+  googleReportingToken = { value: data.access_token, expires: Date.now() + (Number(data.expires_in) || 3600) * 1000 };
+  return data.access_token;
+}
+async function handlePlatformGoogleAnalytics(req, res) {
+  const configured = Boolean(GOOGLE_REPORTING_ACCOUNT_JSON);
+  if (!configured || (!GOOGLE_GA4_PROPERTY_ID && !GOOGLE_SEARCH_CONSOLE_SITE)) {
+    sendJson(req, res, 200, { configured: false, ga4: { status: "not_configured" }, searchConsole: { status: "not_configured" } }); return;
+  }
+  let token;
+  try { token = await getGoogleReportingToken(); }
+  catch (err) { sendJson(req, res, 200, { configured: true, ga4: { status: "error", message: err.message }, searchConsole: { status: "error", message: err.message } }); return; }
+  const call = async (url, body) => {
+    const response = await fetch(url, { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(12000) });
+    if (!response.ok) throw new Error("Google API returned " + response.status + ". Verify property access and API enablement.");
+    return response.json();
+  };
+  const ga4 = GOOGLE_GA4_PROPERTY_ID ? await (async () => {
+    try {
+      const d = await call("https://analyticsdata.googleapis.com/v1beta/properties/" + encodeURIComponent(GOOGLE_GA4_PROPERTY_ID) + ":runReport", {
+        dateRanges: [{ startDate: "28daysAgo", endDate: "yesterday" }],
+        metrics: [{ name: "activeUsers" }, { name: "sessions" }, { name: "screenPageViews" }, { name: "keyEvents" }],
+      });
+      return { status: "connected", period: "Last 28 complete days", activeUsers: Number(d.rows?.[0]?.metricValues?.[0]?.value || 0), sessions: Number(d.rows?.[0]?.metricValues?.[1]?.value || 0), views: Number(d.rows?.[0]?.metricValues?.[2]?.value || 0), conversions: Number(d.rows?.[0]?.metricValues?.[3]?.value || 0) };
+    } catch (err) { return { status: "error", message: err.message }; }
+  })() : { status: "not_configured" };
+  const searchConsole = GOOGLE_SEARCH_CONSOLE_SITE ? await (async () => {
+    try {
+      const end = new Date(Date.now() - 3 * 86400000), start = new Date(end.getTime() - 27 * 86400000);
+      const iso = d => d.toISOString().slice(0, 10);
+      const d = await call("https://www.googleapis.com/webmasters/v3/sites/" + encodeURIComponent(GOOGLE_SEARCH_CONSOLE_SITE) + "/searchAnalytics/query", { startDate: iso(start), endDate: iso(end), dimensions: [], rowLimit: 1 });
+      const row = d.rows?.[0] || {};
+      return { status: "connected", period: iso(start) + " to " + iso(end), clicks: row.clicks || 0, impressions: row.impressions || 0, ctr: row.ctr || 0, position: row.position || 0 };
+    } catch (err) { return { status: "error", message: err.message }; }
+  })() : { status: "not_configured" };
+  sendJson(req, res, 200, { configured: true, ga4, searchConsole });
+}
 
 async function handlePlatformStatus(req, res, session) {
   sendJson(req, res, 200, {
