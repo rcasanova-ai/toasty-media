@@ -26,15 +26,16 @@
 <label for="voiceSelect">Voice<select id="voiceSelect"><option value="af_heart">Heart (American · feminine)</option><option value="af_bella">Bella (American · feminine)</option><option value="af_sarah">Sarah (American · feminine)</option><option value="am_michael">Michael (American · masculine)</option><option value="am_adam">Adam (American · masculine)</option><option value="bf_emma">Emma (British · feminine)</option><option value="bf_isabella">Isabella (British · feminine)</option><option value="bm_george">George (British · masculine)</option><option value="bm_lewis">Lewis (British · masculine)</option></select></label>
 <label for="voiceText">Practice text<textarea id="voiceText" maxlength="350">Good communication starts with listening. Speak with clarity, give yourself time to think, and make every word count.</textarea></label>
 <label for="voiceSpeed">Speaking pace <span>0.8 to 1.2</span><input id="voiceSpeed" type="range" min="0.8" max="1.2" step="0.05" value="1"></label>
-<div class="voice-row"><button id="voiceSpeak" class="ts-btn ts-btn--primary" type="button">Generate and listen</button><button id="voiceStop" class="ts-btn ts-btn--ghost" type="button">Stop</button></div>
-<p id="voiceStatus" role="status" aria-live="polite" class="voice-note">The first voice preview downloads an AI model to your browser. A reliable connection and sufficient device memory are required.</p>
+<div class="voice-row"><button id="voiceSpeak" class="ts-btn ts-btn--primary" type="button">Generate and listen</button><button id="voicePreview" class="ts-btn ts-btn--ghost" type="button">Instant device preview</button><button id="voiceStop" class="ts-btn ts-btn--ghost" type="button">Stop</button></div>
+<p id="voiceStatus" role="status" aria-live="polite" class="voice-note">Instant device preview works without a download, but uses your phone’s built-in voice. Generate and listen downloads Kokoro’s smaller quantized model on first use and caches it where the browser allows.</p>
 <audio id="voiceAudio" controls hidden></audio>
-</div><p class="voice-note">Powered by Kokoro 82M, Apache 2.0 licensed. Voices are generated locally after the initial model download. No API account or subscription is required. Lower-powered phones may take longer or be unable to run the model.</p>
+</div><p class="voice-note">Powered by Kokoro 82M, Apache 2.0 licensed. Voices are generated locally after the initial model download. No API account or subscription is required. First use downloads approximately 92 MB plus supporting files; later visits normally reuse the browser cache. Your browser may evict cached files. Lower-powered phones may take longer or be unable to run the model.</p>
 <p><a href="./">Back to Eloquence Protocol</a></p></main>
 <script>
 // Eloquence Protocol: opt-in local English neural voice previews.
 // Model inference occurs on the listener's device. No speech text is posted to Toasty servers.
 const MODEL = "onnx-community/Kokoro-82M-v1.0-ONNX";
+// Quantized CPU model uses substantially less bandwidth than full-precision WebGPU. Cache is handled by Transformers.js.
 const VOICES = Object.freeze([
   ["af_heart", "Heart", "American · feminine"],
   ["af_bella", "Bella", "American · feminine"],
@@ -56,12 +57,19 @@ async function loadModel() {
   modelPromise = (async () => {
     // Dynamic import defers the dependency and model download until the visitor explicitly opts in.
     const { KokoroTTS } = await Promise.race([import("https://esm.sh/kokoro-js@1.2.1"), new Promise((_, reject) => setTimeout(() => reject(new Error("Voice library download timed out")), 20000))]);
-    const adapter = await navigator.gpu?.requestAdapter?.().catch(() => null);
-    if (adapter) {
-      try { return await KokoroTTS.from_pretrained(MODEL, { dtype: "fp32", device: "webgpu" }); }
-      catch (err) { console.warn("Kokoro WebGPU unavailable, falling back to WASM:", err); }
-    }
-    return KokoroTTS.from_pretrained(MODEL, { dtype: "q8", device: "wasm" });
+    const progress = (p) => {
+      if (p?.status === "progress" && Number.isFinite(p.progress)) {
+        notice("Downloading voice files: " + Math.round(p.progress) + "%" + (p.file ? " (" + String(p.file).split("/").pop() + ")" : ""));
+      } else if (p?.status === "initiate") {
+        notice("Checking cached voice files…");
+      } else if (p?.status === "done") {
+        notice("Voice file ready. Initializing…");
+      }
+    };
+    try {
+      if (navigator.storage?.persist) await navigator.storage.persist();
+    } catch (_) { /* browser may deny persistent storage */ }
+    return KokoroTTS.from_pretrained(MODEL, { dtype: "q8", device: "wasm", progress_callback: progress });
   })().catch(e => { modelPromise = null; throw e; });
   return modelPromise;
 }
@@ -86,7 +94,7 @@ async function speak() {
   busy = true; $("voiceSpeak").disabled = true; $("voiceSpeak").textContent = "Loading voice…"; notice("Starting neural voice engine…"); releaseAudio();
   try {
     const tts = await loadModel();
-    notice("Generating speech locally…");
+    notice("Model ready. Generating speech locally…");
     const audio = await tts.generate(text, { voice, speed: Number($("voiceSpeed").value) });
     const blob = await audio.toBlob();
     currentUrl = URL.createObjectURL(blob);
@@ -103,7 +111,19 @@ async function speak() {
 window.__eloquenceVoiceReady = true;
 voiceOptions();
 $("voiceSpeak").addEventListener("click", speak);
-$("voiceStop").addEventListener("click", () => { releaseAudio(); notice("Stopped."); });
+const preview = $("voicePreview");
+preview?.addEventListener("click", () => {
+  if (!("speechSynthesis" in window)) { notice("Quick device voice preview is unavailable in this browser."); return; }
+  speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance("Welcome to Eloquence Protocol. Practice your delivery with confidence.");
+  utterance.lang = $("voiceSelect").value.startsWith("b") ? "en-GB" : "en-US";
+  const candidates = speechSynthesis.getVoices().filter(v => v.lang.toLowerCase().startsWith(utterance.lang.toLowerCase()));
+  if (candidates.length) utterance.voice = candidates[0];
+  utterance.rate = Number($("voiceSpeed").value);
+  notice("Playing a quick device voice sample. This is not the selected Kokoro voice.");
+  speechSynthesis.speak(utterance);
+});
+$("voiceStop").addEventListener("click", () => { releaseAudio(); if ("speechSynthesis" in window) speechSynthesis.cancel(); notice("Stopped."); });
 window.addEventListener("pagehide", releaseAudio);
 
 </script>
