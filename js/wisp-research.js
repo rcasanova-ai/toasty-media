@@ -63,7 +63,7 @@ var wispArea=location.pathname.indexOf('/studio')===0?'studio':location.pathname
   var panel=d.createElement('aside');panel.id='wisp-research-choice';panel.setAttribute('aria-label','Optional usage analytics');
   panel.style.cssText='position:fixed;bottom:16px;left:16px;right:16px;max-width:720px;padding:18px;background:#fff;color:#18202c;border:1px solid #8993a0;border-radius:12px;z-index:10001;box-shadow:0 8px 24px #0003;font:14px/1.5 system-ui';
   var text=d.createElement('p');text.textContent='Allow optional Wisp usage analytics? Approved page views and button interactions go to Santati Research for product improvement, kept for up to 30 days. No page content, messages, answers, recordings or account identifiers are collected. You can withdraw and delete this browser session’s events in Analytics preferences.';panel.appendChild(text);
-  [['Allow analytics','granted'],['Essential only','declined']].forEach(function(a){var b=d.createElement('button');b.type='button';b.textContent=a[0];b.style.cssText='padding:10px;margin:4px;border:1px solid #8993a0;border-radius:6px;background:#fff;color:#18202c;cursor:pointer';b.onclick=function(){write(localStorage,key,a[1]);panel.hidden=true;sync();};panel.appendChild(b);});
+  [['Allow analytics','granted'],['Essential only','declined']].forEach(function(a){var b=d.createElement('button');b.type='button';b.textContent=a[0];b.style.cssText='padding:10px;margin:4px;border:1px solid #8993a0;border-radius:6px;background:#fff;color:#18202c;cursor:pointer';b.onclick=function(){write(localStorage,key,a[1]);panel.hidden=true;sync();w.dispatchEvent(new Event('toasty:analytics-consent'));};panel.appendChild(b);});
   var link=d.createElement('a');link.href=c.notice;link.textContent='Privacy and deletion';link.style.cssText='color:#234d8a;margin:8px';panel.appendChild(link);d.body.appendChild(panel);
   panel.hidden=c.prompt===false || privacy() || read(localStorage,key)!==null;
   var prefs=d.createElement('button');prefs.type='button';prefs.textContent='Analytics preferences';prefs.style.cssText='position:fixed;bottom:2px;right:8px;z-index:10000;background:#fff;color:#18202c;border:1px solid #8993a0;border-radius:5px;padding:5px;font:12px system-ui';prefs.onclick=preferences;d.body.appendChild(prefs);
@@ -77,9 +77,9 @@ var wispArea=location.pathname.indexOf('/studio')===0?'studio':location.pathname
    if(el)track('cta_click','primary_cta');
   });
   (c.events||[]).forEach(function(ev){d.addEventListener(ev,sync);w.addEventListener(ev,sync);});
-  w.addEventListener('storage',function(){sync();});
+  w.addEventListener('storage',function(){sync();w.dispatchEvent(new Event('toasty:analytics-consent'));});
   w.addEventListener('pageshow',sync);
  }
- w.WispResearch=Object.freeze({track:track,sync:sync,openPreferences:preferences,withdraw:function(){if(!c.consent)write(localStorage,key,'declined');stop();}});
+ w.WispResearch=Object.freeze({track:track,sync:sync,openPreferences:preferences,withdraw:function(){if(!c.consent)write(localStorage,key,'declined');stop();w.dispatchEvent(new Event('toasty:analytics-consent'));}});
  if(d.readyState==='loading')d.addEventListener('DOMContentLoaded',init);else init();
 })(window,document);
