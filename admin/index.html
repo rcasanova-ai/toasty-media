@@ -23,6 +23,7 @@
       <button class="platform-nav-btn is-active" data-panel="overview">Accounts & organizations</button>
       <button class="platform-nav-btn" data-panel="settings">Organization</button>
       <button class="platform-nav-btn" data-panel="members">People & access</button>
+      <a class="platform-nav-btn" href="../studio/settings.html">Customer admin view ↗</a>
       <button class="platform-nav-btn" data-panel="brands">Branding</button>
       <button class="platform-nav-btn" data-panel="ai">AI providers</button>
       <button class="platform-nav-btn" data-panel="sessions">Sessions</button>
@@ -155,6 +156,7 @@
               <label>Role<select id="paInviteRole"><option value="member">Member</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></label>
               <label>&nbsp;<button id="paInviteMember" class="btn" type="button">Send invite</button></label>
             </div>
+            <div class="form-grid two"><label>Search people<input id="paMembersSearch" type="search" placeholder="Name or email"></label><label>Account status<select id="paMembersFilter"><option value="all">All accounts</option><option value="active">Active</option><option value="suspended">Suspended</option></select></label></div>
             <div class="table-wrap">
               <table class="settings-table">
                 <thead><tr><th>Person</th><th>Role</th><th>Account</th><th>Actions</th></tr></thead>
