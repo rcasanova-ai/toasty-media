@@ -3922,7 +3922,44 @@ async function handlePlatformGoogleAnalytics(req, res) {
       return { status: "connected", period: iso(start) + " to " + iso(end), clicks: row.clicks || 0, impressions: row.impressions || 0, ctr: row.ctr || 0, position: row.position || 0 };
     } catch (err) { return { status: "error", message: err.message }; }
   })() : { status: "not_configured" };
-  sendJson(req, res, 200, { configured: true, ga4, searchConsole });
+  const details = { queries: [], pages: [], sources: [], trend: [] };
+  if (ga4.status === "connected") {
+    try {
+      const d = await call("https://analyticsdata.googleapis.com/v1beta/properties/" + encodeURIComponent(GOOGLE_GA4_PROPERTY_ID) + ":runReport", {
+        dateRanges: [{ startDate: "28daysAgo", endDate: "yesterday" }],
+        dimensions: [{ name: "sessionDefaultChannelGroup" }],
+        metrics: [{ name: "sessions" }], limit: "8",
+        orderBys: [{ metric: { metricName: "sessions" }, desc: true }]
+      });
+      details.sources = (d.rows || []).map(r => ({ name: r.dimensionValues?.[0]?.value || "Other", value: Number(r.metricValues?.[0]?.value || 0) }));
+    } catch (err) { details.sourcesError = err.message; }
+    try {
+      const d = await call("https://analyticsdata.googleapis.com/v1beta/properties/" + encodeURIComponent(GOOGLE_GA4_PROPERTY_ID) + ":runReport", {
+        dateRanges: [{ startDate: "28daysAgo", endDate: "yesterday" }],
+        dimensions: [{ name: "pagePath" }], metrics: [{ name: "screenPageViews" }], limit: "10",
+        orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }]
+      });
+      details.pages = (d.rows || []).map(r => ({ name: r.dimensionValues?.[0]?.value || "/", value: Number(r.metricValues?.[0]?.value || 0) }));
+    } catch (err) { details.pagesError = err.message; }
+    try {
+      const d = await call("https://analyticsdata.googleapis.com/v1beta/properties/" + encodeURIComponent(GOOGLE_GA4_PROPERTY_ID) + ":runReport", {
+        dateRanges: [{ startDate: "28daysAgo", endDate: "yesterday" }],
+        dimensions: [{ name: "date" }], metrics: [{ name: "sessions" }], limit: "35", orderBys: [{ dimension: { dimensionName: "date" } }]
+      });
+      details.trend = (d.rows || []).map(r => ({ date: r.dimensionValues?.[0]?.value || "", value: Number(r.metricValues?.[0]?.value || 0) }));
+    } catch (err) { details.trendError = err.message; }
+  }
+  if (searchConsole.status === "connected") {
+    try {
+      const end = new Date(Date.now() - 3 * 86400000), start = new Date(end.getTime() - 27 * 86400000);
+      const iso = d => d.toISOString().slice(0, 10);
+      const d = await call("https://www.googleapis.com/webmasters/v3/sites/" + encodeURIComponent(GOOGLE_SEARCH_CONSOLE_SITE) + "/searchAnalytics/query", {
+        startDate: iso(start), endDate: iso(end), dimensions: ["query"], rowLimit: 10
+      });
+      details.queries = (d.rows || []).map(r => ({ name: r.keys?.[0] || "", clicks: r.clicks || 0, impressions: r.impressions || 0, position: r.position || 0 }));
+    } catch (err) { details.queriesError = err.message; }
+  }
+  sendJson(req, res, 200, { configured: true, ga4, searchConsole, details });
 }
 
 async function handlePlatformStatus(req, res, session) {
