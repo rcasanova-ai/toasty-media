@@ -66,6 +66,8 @@ function bindStatic(){
   $("paWaitlistSearch")?.addEventListener("input",renderWaitlist);$("paWaitlistRefresh")?.addEventListener("click",loadWaitlist);
   $("paStudioWaitlistSearch")?.addEventListener("input",renderStudioWaitlist);$("paStudioWaitlistRefresh")?.addEventListener("click",loadStudioWaitlist);
   $("paStudioWaitlistCsv")?.addEventListener("click",downloadStudioWaitlistCsv);
+  $("paMembersSearch")?.addEventListener("input",renderMembers);
+  $("paMembersFilter")?.addEventListener("change",renderMembers);
   $("paAuditionsSearch")?.addEventListener("input",renderAuditions);$("paAuditionsRefresh")?.addEventListener("click",loadAuditions);
 }
 
@@ -223,12 +225,14 @@ function renderPlatformStatus(){
 }
 
 function renderMembers(){
-  $("paMembers").innerHTML=(state.detail.members||[]).map(m=>
+  const query=($("paMembersSearch")?.value||"").trim().toLowerCase(),filter=$("paMembersFilter")?.value||"all";
+  const members=(state.detail.members||[]).filter(m=>(filter==="all"||m.userStatus===filter)&&(!query||[m.userName,m.userEmail,m.userId].some(value=>String(value||"").toLowerCase().includes(query))));
+  $("paMembers").innerHTML=members.map(m=>
     '<tr><td><strong>'+esc(m.userName||"User")+'</strong><br><small>'+esc(m.userEmail||m.userId)+'</small></td>'+
     '<td><select data-member-role="'+esc(m.userId)+'">'+["viewer","member","admin","owner"].map(r=>'<option value="'+r+'" '+(r===m.role?'selected':'')+'>'+human(r)+'</option>').join("")+'</select></td>'+
     '<td><select data-member-status="'+esc(m.userId)+'"><option value="active" '+(m.userStatus==="active"?'selected':'')+'>Active</option><option value="suspended" '+(m.userStatus==="suspended"?'selected':'')+'>Suspended</option></select></td>'+
     '<td class="platform-row-actions"><button class="btn" data-save-member="'+esc(m.userId)+'" type="button">Save</button>'+(m.userPlatformRole==="platform_admin"?'':'<button class="btn" data-reset-member="'+esc(m.userId)+'" type="button">Reset password</button>')+'<button class="btn" data-remove-member="'+esc(m.userId)+'" type="button">Remove</button></td></tr>'
-  ).join("");
+  ).join("")||'<tr><td colspan="4">No matching accounts.</td></tr>';
   document.querySelectorAll("[data-save-member]").forEach(b=>b.onclick=()=>saveMember(b.dataset.saveMember));
   document.querySelectorAll("[data-reset-member]").forEach(b=>b.onclick=()=>resetMemberPassword(b.dataset.resetMember));
   document.querySelectorAll("[data-remove-member]").forEach(b=>b.onclick=()=>removeMember(b.dataset.removeMember));
@@ -251,9 +255,10 @@ async function resetMemberPassword(userId){
 }
 
 async function saveMember(userId){
+  const m=memberById(userId);
   const role=document.querySelector('[data-member-role="'+CSS.escape(userId)+'"]').value;
   const status=document.querySelector('[data-member-status="'+CSS.escape(userId)+'"]').value;
-  try{setMessage("Updating member…");await post(orgPath("/member-role"),{userId,role});await post(orgPath("/member-status"),{userId,status});await loadDetail();setMessage("Member updated.");}catch(e){setMessage(e.message,true);}
+  try{setMessage("Updating member…");if(role!==m?.role)await post(orgPath("/member-role"),{userId,role});if(status!==m?.userStatus)await post(orgPath("/member-status"),{userId,status});await loadDetail();setMessage("Member updated.");}catch(e){setMessage(e.message,true);}
 }
 async function removeMember(userId){
   const m=memberById(userId);if(!confirm("Remove "+(m?.userEmail||"this member")+" from this organization?"))return;
@@ -385,7 +390,7 @@ async function inviteMember(){
   try{
     await post(orgPath("/member-invite"),{email,role});
     $("paInviteEmail").value="";
-    setMessage("Invitation sent.");
+    await loadDetail();setMessage("Invitation submitted. Check the pending invitation and email delivery status.");
   }catch(e){setMessage(e.message,true);}
 }
 
