@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Toasty Platform Admin</title>
+  <title>Command Center | Toasty Media</title>
   <link rel="stylesheet" href="../css/studio-public.css">
   <link rel="stylesheet" href="../css/studio-settings.css">
   <link rel="stylesheet" href="../css/platform-admin.css">
@@ -19,11 +19,13 @@
   <main class="platform-admin-shell">
     <aside class="platform-admin-nav">
       <p class="eyebrow">TOASTY MEDIA ADMIN</p>
-      <button class="platform-nav-btn" data-panel="portfolio">Command Center</button>
-      <button class="platform-nav-btn is-active" data-panel="overview">Accounts & organizations</button>
+      <button class="platform-nav-btn is-active" data-panel="portfolio">Command Center</button>
+      <p class="platform-nav-group">OPERATIONS</p>
+      <button class="platform-nav-btn" data-panel="overview">Accounts & organizations</button>
       <button class="platform-nav-btn" data-panel="settings">Organization</button>
       <button class="platform-nav-btn" data-panel="members">People & access</button>
       <a class="platform-nav-btn" href="../studio/settings.html">Customer admin view ↗</a>
+      <p class="platform-nav-group">PRODUCT & CONFIGURATION</p>
       <button class="platform-nav-btn" data-panel="brands">Branding</button>
       <button class="platform-nav-btn" data-panel="ai">AI providers</button>
       <button class="platform-nav-btn" data-panel="sessions">Sessions</button>
@@ -31,6 +33,7 @@
       <button class="platform-nav-btn" data-panel="economics">Studio economics</button>
       <button class="platform-nav-btn" data-panel="billing">Billing</button>
       <button class="platform-nav-btn" data-panel="integrations">Integrations</button>
+      <p class="platform-nav-group">AUDIENCE</p>
       <button class="platform-nav-btn" data-panel="waitlist">Peeps waitlist</button>
       <button class="platform-nav-btn" data-panel="studiowaitlist">Studio waitlist</button>
       <button class="platform-nav-btn" data-panel="auditions">Talks auditions</button>
@@ -50,7 +53,7 @@
 
         <p id="platformMessage" class="settings-message" role="status"></p>
 
-        <section class="platform-panel" data-panel-view="portfolio">
+        <section class="platform-panel is-active" data-panel-view="portfolio">
           <div class="settings-card">
             <h2>Daily command center</h2>
             <p class="hint">Your existing platform administrator account is the only entry point. These panels distinguish verified data from connections still being configured.</p>
