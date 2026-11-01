@@ -56,7 +56,7 @@ async function loadModel() {
   notice("Downloading voice model for local playback. First use can take several minutes.");
   modelPromise = (async () => {
     // Dynamic import defers the dependency and model download until the visitor explicitly opts in.
-    const { KokoroTTS } = await Promise.race([import("https://esm.sh/kokoro-js@1.2.1"), new Promise((_, reject) => setTimeout(() => reject(new Error("Voice library download timed out")), 20000))]);
+    const { KokoroTTS } = await Promise.race([import("https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kokoro.web.js"), new Promise((_, reject) => setTimeout(() => reject(new Error("Voice library download timed out")), 20000))]);
     const progress = (p) => {
       if (p?.status === "progress" && Number.isFinite(p.progress)) {
         notice("Downloading voice files: " + Math.round(p.progress) + "%" + (p.file ? " (" + String(p.file).split("/").pop() + ")" : ""));
@@ -105,7 +105,7 @@ async function speak() {
     await $("voiceAudio").play().catch(() => notice("Ready. Tap play to listen."));
   } catch (error) {
     console.error("Eloquence voice failed:", error);
-    notice(`Voice generation failed: ${error?.message || "Unknown error"}. Please retry or use a desktop browser.`);
+    notice(`Voice generation failed: ${error?.message || "Unknown error"}.`);
   } finally { busy = false; $("voiceSpeak").disabled = false; $("voiceSpeak").textContent = "Generate and listen"; }
 }
 window.__eloquenceVoiceReady = true;
