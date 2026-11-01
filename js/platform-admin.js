@@ -80,6 +80,7 @@ function bindStatic(){
   $("paSaveAccount").onclick=saveAccountControls;$("paResetUsage").onclick=resetUsage;$("paSaveOrg").onclick=saveOrganization;
   $("paSaveDefaults").onclick=saveDefaults;$("paSaveBilling").onclick=saveBilling;$("paNewBrand").onclick=()=>renderBrandEditor(null,true);
   $("paInviteMember").onclick=inviteMember;$("paCreateMember").onclick=createMember;$("paSaveAiKey").onclick=saveAiKey;
+  $("paRefreshGoogle")?.addEventListener("click",loadGoogleReporting);
   $("paOrgSearch")?.addEventListener("input",renderOrganizationDirectory);
   $("paEvalCreate")?.addEventListener("click",createEvaluationAccounts);
   $("paWaitlistSearch")?.addEventListener("input",renderWaitlist);$("paWaitlistRefresh")?.addEventListener("click",loadWaitlist);
@@ -95,6 +96,8 @@ async function loadGoogleReporting(){
   const card=(title,body)=>'<article class="settings-card"><h3>'+esc(title)+'</h3><p>'+esc(body)+'</p></article>';
   try{
     const data=await studioRequest("/api/organizations/platform-admin/google-analytics");
+    const status=$("paGoogleConnectionStatus");
+    if(status)status.textContent=data.configured?"Google reporting authorized. Metrics reflect Google API results.":"Google reporting is not authorized yet. Use Connect Google above.";
     const ga=data.ga4||{},sc=data.searchConsole||{};
     const fmt=n=>Number(n||0).toLocaleString();
     root.innerHTML=[
