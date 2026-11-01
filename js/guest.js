@@ -59,6 +59,7 @@ const state = {
   previewStream: null,
   guestLogoUrl: null,
   selectedBackground: BackgroundMode.NONE,
+  hostSuggestedBackground: new URLSearchParams(window.location.search).get("sharedBackground") || "none",
   micMuted: false,
   cameraOff: false,
   screenSharing: false,
@@ -192,11 +193,34 @@ async function init() {
   void startGuestDebugMedia();
 }
 
+function initSharedBackgroundConsent() {
+  const suggested = state.hostSuggestedBackground;
+  if (!["newsroom", "library", "stage"].includes(suggested)) return;
+  const row = document.querySelector("#sharedBackgroundConsentRow");
+  const checkbox = document.querySelector("#sharedBackgroundConsent");
+  const note = document.querySelector("#sharedBackgroundInfo");
+  const labels = { newsroom:"Broadcast studio", library:"Library lounge", stage:"Fireside set" };
+  if (!row || !checkbox || !note) return;
+  row.style.display = "flex";
+  note.textContent = "Host suggests: " + labels[suggested] + ". You can choose your own background instead.";
+  checkbox.addEventListener("change", () => {
+    if (checkbox.checked) {
+      state.selectedBackground = suggested;
+      document.querySelectorAll(".bg-swatch").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.background === suggested)));
+      elements.previewStage.dataset.background = suggested;
+    }
+  });
+}
+
 function bindControls() {
+  initSharedBackgroundConsent();
   document.querySelectorAll(".bg-swatch").forEach((button) => {
     button.addEventListener("click", () => {
       document.querySelectorAll(".bg-swatch").forEach((other) => other.setAttribute("aria-pressed", "false"));
       button.setAttribute("aria-pressed", "true");
+      if (document.querySelector("#sharedBackgroundConsent")?.checked) {
+        document.querySelector("#sharedBackgroundConsent").checked = false;
+      }
       state.selectedBackground = button.dataset.background;
       elements.previewStage.dataset.background = button.dataset.background;
     });
