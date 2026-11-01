@@ -15,11 +15,13 @@ on:
       - 'articles/**'
       - 'eloquence/**'
       - 'books/**'
+      - 'access/**'
       - 'css/toasty-site.css'
       - 'js/site-ui.js'
       - 'js/wisp-research.js'
       - 'js/ga4-public.js'
       - 'js/eloquence-interest.js'
+      - 'js/my-toasty.js'
       - 'scripts/publish-website.sh'
       - '.github/workflows/website-publish.yml'
   workflow_dispatch:
