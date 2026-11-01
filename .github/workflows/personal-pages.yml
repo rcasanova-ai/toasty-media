@@ -1,0 +1,19 @@
+name: Publish personal pages
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'resume/**'
+      - 'contact/**'
+      - 'about/**'
+      - 'ponderings/**'
+      - 'speaking/**'
+      - '.github/workflows/personal-pages.yml'
+  workflow_dispatch:
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish site pages
+        run: bash scripts/publish-personal-pages.sh
