@@ -11,3 +11,5 @@ check(html.includes('id="sharedBackgroundConsent"'),"guest opt-in exists");
 check(guest.includes('checkbox.checked') && guest.includes('state.selectedBackground = suggested'),"guest must opt in to override");
 check(transport.includes('return"5"') && transport.includes('imagelist:sharedBackgroundImage'),"VDO replacement effect configured");
 for(const name of ["newsroom","library","stage"])check(get("studio/backgrounds/"+name+".svg").startsWith("<svg"),name+" image present");
+check(get("js/live-session.js").includes('backgroundMode: document.querySelector("#sharedRoomTheme")'),"host publisher receives selected background");
+check(get(".htaccess").includes('Access-Control-Allow-Origin "https://vdo.ninja"'),"hosted scene images allow VDO rendering");
