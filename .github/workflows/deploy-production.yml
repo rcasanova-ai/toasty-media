@@ -131,7 +131,7 @@ jobs:
         id: changes
         run: |
           set -euo pipefail
-          FILTER='^(\.htaccess$|index\.html$|wisp-privacy\.html$|site/|ricardo/|about/|resume/|contact/|ponderings/|command/|talks/|studio/|admin/|app/|experts/|peeps/|css/|js/|shared/|assets/|articles/|eloquencebonus/|thank-you\.html$|5-Day Executive Program\.pdf$|Eloquence Cheat Sheet\.pdf$|casanova_case_study\.pdf$|ricardo_casanova_resumeJune2026\.pdf$)'
+          FILTER='^(\.htaccess$|index\.html$|wisp-privacy\.html$|site/|ricardo/|about/|resume/|contact/|ponderings/|command/|speaking/|talks/|studio/|admin/|app/|experts/|peeps/|css/|js/|shared/|assets/|articles/|eloquencebonus/|thank-you\.html$|5-Day Executive Program\.pdf$|Eloquence Cheat Sheet\.pdf$|casanova_case_study\.pdf$|ricardo_casanova_resumeJune2026\.pdf$)'
           # scripts/ is intentionally excluded: this job SSHes to the LiteSpeed static host
           # (toasty.media). The canonical auth helper belongs on the Ubuntu render host
           # (render.toasty.media → 127.0.0.1:4174). Shipping Python onto the public web root
@@ -145,6 +145,9 @@ jobs:
             BASE="${{ github.event.before }}"
             if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then BASE="HEAD^"; fi
             git diff --name-only --diff-filter=ACMRT "$BASE" HEAD | grep -E "$FILTER" > /tmp/deploy-files.txt || true
+            # Reconcile previously skipped directories even if older commits introduced them.
+            git ls-files 'about/*' 'resume/*' 'contact/*' 'ponderings/*' 'command/*' 'speaking/*' 'talks/auditions/*' 'robots.txt' 'sitemap.xml' >> /tmp/deploy-files.txt
+            sort -u -o /tmp/deploy-files.txt /tmp/deploy-files.txt
           fi
           echo "Files selected:"
           cat /tmp/deploy-files.txt || true
@@ -229,6 +232,12 @@ jobs:
           grep -Fq 'talk-audition.js' /tmp/audition.html
           curl --fail --silent --show-error --location https://toasty.media/talks/auditions/record/ -o /tmp/audition-record.html
           grep -Fq 'talk-audition-recorder.js' /tmp/audition-record.html
+          curl --fail --silent --show-error --location https://toasty.media/speaking/ -o /tmp/speaking.html
+          grep -Fq '../contact/' /tmp/speaking.html
+          curl --fail --silent --show-error --location https://toasty.media/command/ -o /tmp/command.html
+          grep -Fq 'Personal command center' /tmp/command.html
+          curl --fail --silent --show-error --location https://toasty.media/sitemap.xml -o /tmp/sitemap.xml
+          grep -Fq 'https://toasty.media/resume/' /tmp/sitemap.xml
           curl --fail --silent --show-error --location https://toasty.media/contact/ -o /tmp/contact.html
           grep -Fq 'contactForm' /tmp/contact.html
           curl --fail --silent --show-error --location https://toasty.media/resume/ -o /tmp/resume.html
