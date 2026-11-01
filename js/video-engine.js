@@ -77,9 +77,9 @@ export class VideoEngine {
   // LABEL, not its value/deviceId — see normalizeVdoDeviceLabel below. NOT yet confirmed on a real device;
   // this is a documented-behavior-based fix for a documented cross-origin limitation, not a guess, but it
   // still needs the next real Host+Guest test to confirm VDO actually resolves it this way in practice.
-  mountDirectorFrame(container,{roomId,label="Host",videoDeviceLabel,audioDeviceLabel,micProcessing}) {
+  mountDirectorFrame(container,{roomId,label="Host",videoDeviceLabel,audioDeviceLabel,micProcessing,backgroundMode="none"}) {
     const streamId=`${roomId}h`;
-    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cleanoutput:"1",cover:"1",autostart:"1",view:true,proaudio:"1",...vdoMicProcessingParams(micProcessing),videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel)});
+    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cleanoutput:"1",cover:"1",autostart:"1",view:true,proaudio:"1",...vdoMicProcessingParams(micProcessing),videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),effects:effectForBackground(backgroundMode),imagelist:sharedBackgroundImage(backgroundMode)?JSON.stringify([sharedBackgroundImage(backgroundMode)]):undefined});
   }
 
   // slots=4 reserves 4 even grid cells regardless of how many are actually filled, and cover=1 crops
