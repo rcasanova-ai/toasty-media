@@ -1,0 +1,46 @@
+name: Publish Toasty website
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - '.htaccess'
+      - 'sitemap.xml'
+      - 'robots.txt'
+      - 'about/**'
+      - 'resume/**'
+      - 'contact/**'
+      - 'speaking/**'
+      - 'ponderings/**'
+      - 'articles/**'
+      - 'css/toasty-site.css'
+      - 'js/site-ui.js'
+      - 'js/wisp-research.js'
+      - 'js/ga4-public.js'
+      - 'scripts/publish-website.sh'
+      - '.github/workflows/website-publish.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toasty-website-publish
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check website content
+        run: |
+          test -s sitemap.xml
+          test -s robots.txt
+          test -s resume/index.html
+          test -s contact/index.html
+          grep -Fq 'https://toasty.media/contact/' sitemap.xml
+      - name: Publish website to Spaceship and verify publicly
+        env:
+          SSH_HOST: ${{ secrets.TOASTY_SSH_HOST }}
+          SSH_PORT: ${{ secrets.TOASTY_SSH_PORT }}
+          SSH_USER: ${{ secrets.TOASTY_SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.TOASTY_SSH_PRIVATE_KEY }}
+        run: bash scripts/publish-website.sh
