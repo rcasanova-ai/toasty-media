@@ -1,5 +1,6 @@
 User-agent: *
 Allow: /
 Disallow: /admin/
+Disallow: /command/
 Disallow: /access/
 Sitemap: https://toasty.media/sitemap.xml
