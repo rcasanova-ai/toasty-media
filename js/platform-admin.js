@@ -197,7 +197,7 @@ function renderAll(){
   const d=state.detail,o=d.organization,s=d.settings||{};
   $("platformOrgName").textContent=o.name||"Organization";
   $("platformOrgMeta").textContent=(o.slug||o.id)+" · "+human(o.plan)+" · "+human(o.subscriptionStatus)+" · "+d.members.length+" member"+(d.members.length===1?"":"s");
-  $("platformOpenCustomerDashboard").href="./dashboard.html?org="+encodeURIComponent(o.id);
+  $("platformOpenCustomerDashboard").href="../studio/dashboard.html?org="+encodeURIComponent(o.id);
 
   renderPlatformStatus();renderPortfolioSummary();
   fillSelect("paPlan",["demo","creator","pro","enterprise"],o.plan);
