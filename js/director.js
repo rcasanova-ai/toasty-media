@@ -376,6 +376,7 @@ function jumpProducerPanel(target) {
 }
 
 function bindRailControls() {
+  document.querySelector("#sharedRoomTheme")?.addEventListener("change", updateInviteFields);
   elements.inviteGuestBtn.addEventListener("click", inviteGuest);
   elements.copyInvite.addEventListener("click", copyInvite);
   elements.copyListenerInvite.addEventListener("click", copyListenerInvite);
@@ -664,7 +665,10 @@ function sceneLabel(scene) {
 
 function updateInviteFields() {
   const urls = session.inviteUrls();
-  elements.guestInvite.value = urls.guest;
+  const guestUrl = new URL(urls.guest);
+  const selection = document.querySelector("#sharedRoomTheme")?.value || "none";
+  if (["newsroom", "library", "stage"].includes(selection)) guestUrl.searchParams.set("sharedBackground", selection);
+  elements.guestInvite.value = guestUrl.toString();
   elements.listenerInvite.value = urls.listener;
 }
 
