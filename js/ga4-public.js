@@ -11,7 +11,7 @@
     box.textContent="GA4 "+id+" | consent: "+(allowed()?"granted":"not granted")+" | tag: "+tagState+" | page: "+location.pathname;
   }
   function allowed(){
-    if(navigator.globalPrivacyControl===true||navigator.doNotTrack==="1"||w.doNotTrack==="1")return false;
+    // Explicit opt-in permits measurement only; all advertising storage and personalization remain denied.
     try{return localStorage.getItem(key)==="granted";}catch(_){return false;}
   }
   function sync(){
