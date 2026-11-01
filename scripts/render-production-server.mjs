@@ -11734,7 +11734,8 @@ async function handlePersonalContact(req, res) {
   // Keep contact details on the existing configured mail transport, not a public static site.
   // Fail closed if delivery isn't configured. Never claim delivery when mail is only simulated.
   if (!RESEND_API_KEY) throw httpError(503, "Messaging is temporarily unavailable. Please try again later.");
-  const recipient = process.env.TOASTY_CONTACT_EMAIL || process.env.TOASTY_TALK_AUDITION_ADMIN_EMAIL;
+  const admins = await talkAuditionAdminRecipients();
+  const recipient = process.env.TOASTY_CONTACT_EMAIL || admins[0];
   if (!recipient || !EMAIL_PATTERN.test(recipient)) throw httpError(503, "Contact delivery is not configured.");
   const result = await sendEmail({
     to: recipient,
