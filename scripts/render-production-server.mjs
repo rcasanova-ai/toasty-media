@@ -3866,7 +3866,7 @@ async function handlePlatformGoogleAnalytics(req, res) {
     try {
       const d = await call("https://analyticsdata.googleapis.com/v1beta/properties/" + encodeURIComponent(GOOGLE_GA4_PROPERTY_ID) + ":runReport", {
         dateRanges: [{ startDate: "28daysAgo", endDate: "yesterday" }],
-        metrics: [{ name: "activeUsers" }, { name: "sessions" }, { name: "screenPageViews" }, { name: "conversions" }],
+        metrics: [{ name: "activeUsers" }, { name: "sessions" }, { name: "screenPageViews" }, { name: "keyEvents" }],
       });
       return { status: "connected", period: "Last 28 complete days", activeUsers: Number(d.rows?.[0]?.metricValues?.[0]?.value || 0), sessions: Number(d.rows?.[0]?.metricValues?.[1]?.value || 0), views: Number(d.rows?.[0]?.metricValues?.[2]?.value || 0), conversions: Number(d.rows?.[0]?.metricValues?.[3]?.value || 0) };
     } catch (err) { return { status: "error", message: err.message }; }
