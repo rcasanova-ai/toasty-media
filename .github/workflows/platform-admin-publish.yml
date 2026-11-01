@@ -1,0 +1,31 @@
+name: Publish Toasty platform admin
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'admin/index.html'
+      - 'js/platform-admin.js'
+      - 'css/platform-admin.css'
+      - 'studio/platform-admin.html'
+      - 'scripts/publish-platform-admin.sh'
+      - '.github/workflows/platform-admin-publish.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: toasty-platform-admin
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify platform-admin JavaScript syntax
+        run: node --check --input-type=module < js/platform-admin.js
+      - name: Publish administration UI
+        env:
+          SSH_HOST: ${{ secrets.TOASTY_SSH_HOST }}
+          SSH_PORT: ${{ secrets.TOASTY_SSH_PORT }}
+          SSH_USER: ${{ secrets.TOASTY_SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.TOASTY_SSH_PRIVATE_KEY }}
+        run: bash scripts/publish-platform-admin.sh
