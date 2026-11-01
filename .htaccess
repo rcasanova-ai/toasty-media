@@ -35,6 +35,10 @@
 </IfModule>
 
 RewriteEngine On
+# Canonical host: keep all paths, query strings and HTTPS.
+RewriteCond %{HTTP_HOST} ^www\.toasty\.media$ [NC]
+RewriteRule ^ https://toasty.media%{REQUEST_URI} [R=301,L,NE]
+
 # The separate walkthrough page was removed; old links land in the real Peeps app (request id preserved).
 RewriteCond %{QUERY_STRING} (?:^|&)request=([A-Za-z0-9_]+)
 RewriteRule ^peeps/app/golden-path\.html$ /peeps/app/outcome.html?request=%1 [R=302,L]
