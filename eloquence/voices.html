@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Natural Voice Lab | Eloquence Protocol</title>
+<meta name="description" content="Explore naturally spoken English practice voices in Eloquence Protocol.">
+<link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+<link rel="stylesheet" href="../css/toasty-site.css"><link rel="stylesheet" href="../css/home-landing.css">
+<style>
+.voice-workspace{max-width:780px;margin:0 auto;padding:4rem 1.25rem 6rem}
+.voice-card{background:#211a18;color:#fff;border:1px solid #67554a;border-radius:18px;padding:clamp(1.25rem,4vw,2rem);display:grid;gap:1.2rem}
+.voice-card label{display:grid;gap:.45rem;font-weight:700}
+.voice-card select,.voice-card textarea,.voice-card input{width:100%;font:inherit;padding:.8rem;border-radius:8px;border:1px solid #95857a;color:#20160f;background:#fff}
+.voice-card textarea{min-height:130px;resize:vertical}
+.voice-row{display:flex;gap:.75rem;flex-wrap:wrap;align-items:center}
+.voice-row button{cursor:pointer}
+.voice-card audio{width:100%}
+.voice-note{line-height:1.5;color:#f4d8b5}
+</style></head>
+<body class="ts home-landing"><header class="ts-nav"><div class="ts-wrap ts-nav__bar">
+<a class="ts-brand" href="../"><img src="../shared/brand/toasty-media/ToastyTransparent.png" alt=""><span>Toasty Media</span></a>
+<nav class="ts-nav__links" aria-label="Navigation"><a href="./">Eloquence</a><a href="../studio/">Studio</a><a href="../peeps/">Peeps</a></nav>
+</div></header>
+<main id="main" class="voice-workspace"><p class="ts-eyebrow">Eloquence Protocol · Voice Lab</p>
+<h1>Find your <em>practice voice.</em></h1>
+<p class="ts-lede">Preview natural English voices for guided communication exercises. American and British voices are available. Your text stays on your device.</p>
+<div class="voice-card">
+<label for="voiceSelect">Voice<select id="voiceSelect"></select></label>
+<label for="voiceText">Practice text<textarea id="voiceText" maxlength="350">Good communication starts with listening. Speak with clarity, give yourself time to think, and make every word count.</textarea></label>
+<label for="voiceSpeed">Speaking pace <span>0.8 to 1.2</span><input id="voiceSpeed" type="range" min="0.8" max="1.2" step="0.05" value="1"></label>
+<div class="voice-row"><button id="voiceSpeak" class="ts-btn ts-btn--primary" type="button">Generate and listen</button><button id="voiceStop" class="ts-btn ts-btn--ghost" type="button">Stop</button></div>
+<p id="voiceStatus" role="status" aria-live="polite" class="voice-note">The first voice preview downloads an AI model to your browser. A reliable connection and sufficient device memory are required.</p>
+<audio id="voiceAudio" controls hidden></audio>
+</div><p class="voice-note">Powered by Kokoro 82M, Apache 2.0 licensed. Voices are generated locally after the initial model download. No API account or subscription is required. Lower-powered phones may take longer or be unable to run the model.</p>
+<p><a href="./">Back to Eloquence Protocol</a></p></main>
+<script type="module" src="../js/eloquence-voices.js"></script>
+</body></html>
