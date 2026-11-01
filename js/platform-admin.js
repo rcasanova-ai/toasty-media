@@ -118,7 +118,7 @@ async function auditionAction(id,action,body={}){try{const r=await post("/api/or
 
 // ---- Studio waitlist (platform-wide) ----
 const swl={data:null};
-async async function loadStudioWaitlist(){
+async function loadStudioWaitlist(){
   try{swl.data=await studioRequest("/api/organizations/platform-admin/studio-waitlist");renderStudioWaitlist();}
   catch(error){setMessage(error.message,true);}
 }
@@ -149,7 +149,7 @@ async function downloadStudioWaitlistCsv(event){
 
 // ---- Peeps waitlist (platform-wide, not per organization) ----
 const wl={data:null};
-async async function loadWaitlist(){
+async function loadWaitlist(){
   try{wl.data=await studioRequest("/api/organizations/platform-admin/peeps-waitlist");renderWaitlist();}
   catch(error){setMessage(error.message,true);}
 }
@@ -234,7 +234,7 @@ function renderMembers(){
   document.querySelectorAll("[data-remove-member]").forEach(b=>b.onclick=()=>removeMember(b.dataset.removeMember));
 }
 
-async async function createMember(){
+async function createMember(){
   const name=$("paCreateName").value.trim(),email=$("paCreateEmail").value.trim(),password=$("paCreatePassword").value,role=$("paCreateRole").value;
   try{
     setMessage("Creating customer login…");
