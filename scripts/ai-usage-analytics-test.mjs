@@ -7,7 +7,7 @@ const db=read("scripts/toasty-auth-db.py");
 const producer=read("js/ai-producer.js");
 const live=read("js/live-session.js");
 const admin=read("js/platform-admin.js");
-const adminHtml=read("studio/platform-admin.html");
+const adminHtml=read("admin/index.html");
 const growth=read("js/session-growth.js");
 const growthHtml=read("studio/session-growth.html");
 
