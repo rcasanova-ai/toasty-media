@@ -67,6 +67,11 @@
           </div>
           <div id="guestMicSetup"></div>
 
+          <label id="sharedBackgroundConsentRow" style="display:none;gap:10px;align-items:flex-start;padding:13px;border:1px solid #756653;border-radius:8px;margin:12px 0">
+            <input id="sharedBackgroundConsent" type="checkbox" style="margin-top:5px">
+            <span>Allow the host to select my virtual background for this session. I can decline and keep my own setting. The effect may not work on every device.</span>
+          </label>
+          <p id="sharedBackgroundInfo" aria-live="polite"></p>
           <button
             id="joinStudio"
             class="btn btn-primary full-width"
