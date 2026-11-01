@@ -20,7 +20,24 @@ document.addEventListener("DOMContentLoaded",init);
 async function init(){
   try{
     state.session=await studioRequest("/auth/session");
-    if(!state.session.authenticated||!state.session.user?.isPlatformAdmin)throw new Error("Platform administrator access is required.");
+    if(!state.session.authenticated){
+      $("platformLogin").hidden=false;
+      $("platformLoading").innerHTML="<h2>Sign in to Toasty Media</h2><p class='hint'>Use your existing Toasty account to access platform administration.</p><a class='btn primary' href='../studio/?next=%2Fadmin%2F'>Sign in</a>";
+      return;
+    }
+    const user=state.session.user||{};
+    $("platformAccountIdentity").textContent=[user.name,user.email].filter(Boolean).join(" · ")||"Signed in";
+    $("platformLogout").hidden=false;
+    $("platformLogout").onclick=async()=>{
+      const btn=$("platformLogout");btn.disabled=true;btn.textContent="Signing out…";
+      try{await studioRequest("/auth/logout",{method:"POST",body:"{}"});location.replace("../studio/");}
+      catch(error){btn.disabled=false;btn.textContent="Sign out";$("platformLoading").hidden=false;$("platformLoading").textContent="Could not sign out: "+error.message;}
+    };
+    if(!user.isPlatformAdmin){
+      $("platformLoading").innerHTML="<h2>Administrator access required</h2><p class='hint'>This account does not have Platform Administrator permissions. Sign out and use an authorized account, or contact the platform owner.</p>";
+      return;
+    }
+    $("platformOrgSwitcher").hidden=false;
     const pair=await Promise.all([
       studioRequest("/api/organizations/platform-admin/status"),
       studioRequest("/api/organizations/platform-admin/organizations")
