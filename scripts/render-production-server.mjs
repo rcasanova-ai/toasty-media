@@ -3901,7 +3901,7 @@ async function handlePlatformGoogleAnalytics(req, res) {
   catch (err) { sendJson(req, res, 200, { configured: true, ga4: { status: "error", message: err.message }, searchConsole: { status: "error", message: err.message } }); return; }
   const call = async (url, body) => {
     const response = await fetch(url, { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(12000) });
-    if (!response.ok) throw new Error("Google API returned " + response.status + ". Verify property access and API enablement.");
+    if (!response.ok) { const details = await response.json().catch(() => ({})); const reason = details?.error?.details?.flatMap(d => d?.reason ? [d.reason] : (d?.metadata?.service ? ["service: " + d.metadata.service] : [])).join(", ") || details?.error?.status || ""; const explanation = String(details?.error?.message || "").replace(/https?:\/\/\S+/g, "[Google documentation]").slice(0, 450); throw new Error("Google API " + response.status + (reason ? " (" + reason + ")" : "") + ": " + explanation); }
     return response.json();
   };
   const ga4 = GOOGLE_GA4_PROPERTY_ID ? await (async () => {
