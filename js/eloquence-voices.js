@@ -32,13 +32,16 @@ async function loadModel() {
   return modelPromise;
 }
 function voiceOptions() {
-  for (const [id, name, descriptor] of VOICES) {
+  if (!$("voiceSelect").options.length) for (const [id, name, descriptor] of VOICES) {
     const option = document.createElement("option");
     option.value = id; option.textContent = name + " (" + descriptor + ")";
     $("voiceSelect").append(option);
   }
-  $("voiceSelect").value = localStorage.getItem("eloquence.voice") || "af_heart";
-  $("voiceSpeed").value = localStorage.getItem("eloquence.speed") || "1";
+  try {
+    const stored = localStorage.getItem("eloquence.voice");
+    if (stored && VOICES.some(v => v[0] === stored)) $("voiceSelect").value = stored;
+    $("voiceSpeed").value = localStorage.getItem("eloquence.speed") || "1";
+  } catch (_) { /* blocked storage must not break voice controls */ }
 }
 async function speak() {
   if (busy) return;
@@ -55,8 +58,7 @@ async function speak() {
     currentUrl = URL.createObjectURL(blob);
     $("voiceAudio").src = currentUrl;
     $("voiceAudio").hidden = false;
-    localStorage.setItem("eloquence.voice", voice);
-    localStorage.setItem("eloquence.speed", $("voiceSpeed").value);
+    try { localStorage.setItem("eloquence.voice", voice); localStorage.setItem("eloquence.speed", $("voiceSpeed").value); } catch (_) {}
     notice("Ready. Speech generated on this device.");
     await $("voiceAudio").play().catch(() => notice("Ready. Tap play to listen."));
   } catch (error) {
