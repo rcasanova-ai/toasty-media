@@ -1016,7 +1016,7 @@ function getBackgroundNote(background) {
     return "Joined with VDO.Ninja blur requested. Browser support depends on VDO.Ninja and device capability.";
   }
   if (background !== BackgroundMode.NONE) {
-    return "Joined. Preset backgrounds are preview-only in this hosted VDO.Ninja MVP; production replacement needs hosted image-list support.";
+    return "Joined with virtual background replacement requested. Check your live video; the effect depends on your browser and device.";
   }
   return "";
 }
