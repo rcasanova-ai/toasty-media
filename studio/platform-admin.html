@@ -19,7 +19,8 @@
   <main class="platform-admin-shell">
     <aside class="platform-admin-nav">
       <p class="eyebrow">PLATFORM</p>
-      <button class="platform-nav-btn is-active" data-panel="overview">Overview</button>
+      <button class="platform-nav-btn" data-panel="portfolio">Command Center</button>
+      <button class="platform-nav-btn is-active" data-panel="overview">Platform overview</button>
       <button class="platform-nav-btn" data-panel="settings">Organization</button>
       <button class="platform-nav-btn" data-panel="members">Members & access</button>
       <button class="platform-nav-btn" data-panel="brands">Branding</button>
@@ -47,6 +48,44 @@
         </section>
 
         <p id="platformMessage" class="settings-message" role="status"></p>
+
+        <section class="platform-panel" data-panel-view="portfolio">
+          <div class="settings-card">
+            <h2>Daily command center</h2>
+            <p class="hint">Your existing platform administrator account is the only entry point. These panels distinguish verified data from connections still being configured.</p>
+            <div class="usage-grid" id="paPortfolioSummary"></div>
+          </div>
+          <div class="settings-card">
+            <h2>New signups and waitlists</h2>
+            <p class="hint">The existing Toasty organization directory, Studio waitlist, Peeps waitlist and auditions remain under their current secured administrator sections. External property feeds will be connected independently without exposing customer data.</p>
+            <div class="button-row">
+              <button class="btn" type="button" data-go-platform="overview">Customers</button>
+              <button class="btn" type="button" data-go-platform="studiowaitlist">Studio waitlist</button>
+              <button class="btn" type="button" data-go-platform="waitlist">Peeps waitlist</button>
+              <button class="btn" type="button" data-go-platform="auditions">Auditions</button>
+            </div>
+          </div>
+          <div class="settings-card">
+            <h2>Traffic, clicks and conversions</h2>
+            <p class="hint">Google Analytics 4, Search Console and Wisp aggregate feeds will appear here after authenticated connections are configured. No invented visitor counts, attribution or reasons for abandonment.</p>
+            <div class="usage-grid">
+              <article class="settings-card"><h3>Visitors and referrals</h3><p>GA4 connection pending</p></article>
+              <article class="settings-card"><h3>Clicks and journeys</h3><p>Consent-aware event mapping pending</p></article>
+              <article class="settings-card"><h3>Conversions</h3><p>Cross-project event feeds pending</p></article>
+              <article class="settings-card"><h3>Search and AI visibility</h3><p>Search Console and AEO monitoring pending</p></article>
+            </div>
+          </div>
+          <div class="settings-card">
+            <h2>Across your properties</h2>
+            <p class="hint">External links for navigation. Cross-project account data will only be added through approved, access-controlled integrations.</p>
+            <div class="button-row">
+              <a class="btn" href="../ponderings/">Ponderings</a>
+              <a class="btn" href="../about/">Toasty Media</a>
+              <a class="btn" href="https://8alta.com" rel="noopener noreferrer" target="_blank">8ALTA</a>
+              <a class="btn" href="https://santaticrm.com" rel="noopener noreferrer" target="_blank">Santati CRM</a>
+            </div>
+          </div>
+        </section>
 
         <section class="platform-panel is-active" data-panel-view="overview">
           <div class="settings-card platform-customer-directory">
