@@ -93,24 +93,32 @@ function bindStatic(){
 
 async function loadGoogleReporting(){
   const root=$("paGoogleReporting");if(!root)return;
-  const card=(title,body)=>'<article class="settings-card"><h3>'+esc(title)+'</h3><p>'+esc(body)+'</p></article>';
+  const escape=esc, fmt=n=>Number(n||0).toLocaleString();
+  const metric=(label,value)=>'<div class="mi-metric"><span>'+escape(label)+'</span><strong>'+escape(String(value))+'</strong></div>';
+  const rows=(items,valueKey,empty)=>items.length?'<div class="mi-rows">'+items.map(item=>'<div class="mi-row"><span title="'+escape(item.name)+'">'+escape(item.name)+'</span><strong>'+escape(String(item[valueKey]))+'</strong></div>').join("")+'</div>':'<p class="hint">'+escape(empty)+'</p>';
   try{
     const data=await studioRequest("/api/organizations/platform-admin/google-analytics");
+    const ga=data.ga4||{},sc=data.searchConsole||{},d=data.details||{};
     const status=$("paGoogleConnectionStatus");
-    if(status)status.textContent=data.configured?"Google reporting authorized. Metrics reflect Google API results.":"Google reporting is not authorized yet. Use Connect Google above.";
-    const ga=data.ga4||{},sc=data.searchConsole||{};
-    const fmt=n=>Number(n||0).toLocaleString();
-    root.innerHTML=[
-      card("GA4 · Active users",ga.status==="connected"?fmt(ga.activeUsers):ga.status==="error"?"Connection error: "+ga.message:"GA4 reporting property not configured"),
-      card("GA4 · Sessions",ga.status==="connected"?fmt(ga.sessions):"No verified data"),
-      card("GA4 · Page views",ga.status==="connected"?fmt(ga.views):"No verified data"),
-      card("GA4 · Conversions",ga.status==="connected"?fmt(ga.conversions):"No verified data"),
-      card("Search Console · Clicks",sc.status==="connected"?fmt(sc.clicks):sc.status==="error"?"Connection error: "+sc.message:"Search Console property not configured"),
-      card("Search Console · Impressions",sc.status==="connected"?fmt(sc.impressions):"No verified data"),
-      card("Search Console · CTR",sc.status==="connected"?(Number(sc.ctr)*100).toFixed(2)+"%":"No verified data"),
-      card("Search Console · Avg. position",sc.status==="connected"?Number(sc.position).toFixed(1):"No verified data")
-    ].join("");
-  }catch(err){root.innerHTML=card("Google reporting unavailable",err.message);}
+    if(status)status.textContent=data.configured?"Connected to Google · Last 28 complete days":"Google reporting not connected";
+    const connect=$("paConnectGoogle");if(connect)connect.textContent=data.configured?"Reconnect Google":"Connect Google";
+    const gaOk=ga.status==="connected",scOk=sc.status==="connected";
+    const summary='<div class="mi-summary">'+
+      metric("Active users",gaOk?fmt(ga.activeUsers):"Unavailable")+
+      metric("Sessions",gaOk?fmt(ga.sessions):"Unavailable")+
+      metric("Page views",gaOk?fmt(ga.views):"Unavailable")+
+      metric("Conversions",gaOk?fmt(ga.conversions):"Unavailable")+'</div>';
+    const search='<section class="mi-section"><div class="mi-heading"><h3>Search Console</h3><span>Organic Google Search · reporting delay ~3 days</span></div>'+
+      '<div class="mi-summary">'+metric("Clicks",scOk?fmt(sc.clicks):"Unavailable")+metric("Impressions",scOk?fmt(sc.impressions):"Unavailable")+metric("Click-through rate",scOk?(Number(sc.ctr)*100).toFixed(2)+"%":"Unavailable")+metric("Average position",scOk&&sc.impressions?Number(sc.position).toFixed(1):"N/A")+'</div>'+
+      (sc.status==="error"?'<p class="mi-error">'+escape(sc.message)+'</p>':'')+
+      '<h4>Search queries</h4>'+rows(d.queries||[],"clicks","No search queries reported yet. Google may still be indexing the site.")+'</section>';
+    const trend=d.trend||[],max=Math.max(1,...trend.map(x=>x.value));
+    const chart=trend.length?'<div class="mi-chart" role="img" aria-label="Daily sessions for the last 28 days">'+trend.map(x=>'<div title="'+escape(x.date)+': '+escape(String(x.value))+' sessions" style="height:'+Math.max(3,Math.round(x.value/max*100))+'%"></div>').join("")+'</div>':'<p class="hint">Daily traffic will appear when Google has enough data.</p>';
+    root.innerHTML=summary+(ga.status==="error"?'<p class="mi-error">'+escape(ga.message)+'</p>':'')+
+      '<div class="mi-columns"><section class="mi-section"><h3>Traffic trend</h3>'+chart+'</section>'+
+      '<section class="mi-section"><h3>Acquisition channels</h3>'+rows(d.sources||[],"value","No channel data yet.")+'</section></div>'+
+      '<div class="mi-columns"><section class="mi-section"><h3>Top pages</h3>'+rows(d.pages||[],"value","No page data yet.")+'</section>'+search+'</div>';
+  }catch(err){root.textContent="Google reporting unavailable: "+err.message;}
 }
 
 function renderPortfolioSummary(){
