@@ -22,6 +22,7 @@
 //   PLAY_AUDIO timeline, plus a frame-accurate Program video encode. Same manifest schema.
 //   In-progress recordings survive tab close via chunked/resumable upload of MediaRecorder timeslices.
 
+import { guardCaptureAudio } from "./capture-audio-guard.js";
 import { saveMediaBlob, getMediaBlob, deleteMediaBlob } from "./media-store.js";
 import { serializeProgramAsset } from "./program-asset.js";
 
@@ -571,6 +572,8 @@ export function assembleMasterPackage({
       audio: "program-output-tab",
       surfaceLabel: captureResult.surfaceLabel || ""
     },
+    // What, if anything, was done to the audio between capture and encode (see js/capture-audio-guard.js).
+    audioProcessing: captureResult.audioLimiter || { applied: false, reason: "not-reported" },
     notes: [
       "Master Program Recording is Program Output tab capture (the audience picture and sound).",
       "Isolated Host getUserMedia recordings are source tapes, not this master.",
@@ -809,10 +812,12 @@ export class MasterProgramRecorder {
     if (inspection.looksLikeProgramOutput === false) {
       this.status?.("That share does not look like Program Output. Stop and select “Toasty Studio — Program Output”.");
     }
-    // Record the Program Output capture exactly as the browser provides it. Microphone cleanup now
-    // happens at the authoritative capture edge; adding a compressor/limiter here bakes processing into
-    // the source WebM and makes the recording impossible to diagnose.
-    this.masterStream = capture;
+    // The Program Output capture is recorded as the browser provides it, with ONE exception: a transparent peak limiter on the
+    // audio (js/capture-audio-guard.js). It does nothing below -1 dBFS and exists only so two loud talkers summing past full
+    // scale are not hard-clipped by the encoder. No compressor, gain or EQ is added here. Fail-open: if it cannot start, the
+    // raw capture is recorded and the manifest says so.
+    this.audioGuard = await guardCaptureAudio(capture);
+    this.masterStream = this.audioGuard.stream;
     capture.getVideoTracks()[0]?.addEventListener?.("ended", () => {
       if (this.recorder?.state === "recording") this.stop().catch(() => {});
     });
@@ -893,7 +898,15 @@ export class MasterProgramRecorder {
         this.captureStream = null;
         this.chunks = [];
         this.status?.("SAVING RECORDING…");
-        resolve(result);
+        const guard = this.audioGuard;
+        this.audioGuard = null;
+        Promise.resolve(guard?.stats?.()).catch(() => null).then((stats) => {
+          result.audioLimiter = guard
+            ? { applied: guard.applied, reason: guard.reason || "", ceilingDb: guard.ceilingDb ?? null, maxReductionDb: stats ? Math.round(stats.maxReductionDb * 10) / 10 : null, activeSeconds: stats ? Math.round(stats.activeSeconds * 100) / 100 : null }
+            : { applied: false, reason: "not-created" };
+          try { guard?.dispose?.(); } catch (_) {}
+          resolve(result);
+        });
       };
       this.recorder.addEventListener("stop", finish, { once: true });
       this.recorder.addEventListener("error", () => reject(new Error("Master recorder failed.")), { once: true });

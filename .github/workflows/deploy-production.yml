@@ -35,6 +35,11 @@ jobs:
           node scripts/studio-shell-cleanup-test.mjs
           node scripts/studio-screen-share-regression-test.mjs
           node scripts/studio-record-canvas-regression-test.mjs
+          node scripts/audio-analysis-test.mjs
+          node scripts/streaming-limiter-test.mjs
+          node scripts/stable-mic-track-test.mjs
+          node scripts/capture-audio-guard-test.mjs
+          node scripts/microphone-capture-chain-test.mjs
           node scripts/site-pages-test.mjs
 
       - name: Install ffmpeg for broadcast and MP4 tests

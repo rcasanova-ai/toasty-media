@@ -148,15 +148,28 @@ console.log("\nAbout: recognition, uniform book cards, portfolio");
   assert([...html.matchAll(/<article class="honour /g)].length === 3 && /jubilee-medal\.jpg/.test(html) && /jubilee-pin\.jpg/.test(html) && /jubilee-certificate\.jpg/.test(html), "Recognition shows the medal, certificate and pin photos in matching cards");
   assert(!/alongside the day job/i.test(html), "no day-job framing");
   assert(/worked for organizations serving government/.test(html) && /worked extensively with government directly/.test(html), "background describes both government-facing organizations and direct government work");
-  assert(/based between Thailand and Canada/.test(html) && !/Bay Area|corridor/i.test(html), "location is Thailand and Canada without corridor references");
+  assert(/based between Thailand and Canada/i.test(html) && !/Bay Area|corridor/i.test(html), "location is Thailand and Canada without corridor references");
   assert(/id="recognition"[\s\S]*?<\/section>\s*<section class="ts-section" id="projects">/.test(html), "portfolio immediately follows Recognition");
-  const cards = [...html.matchAll(/<a class="about-project ts-reveal"[^>]*>[\s\S]*?<\/a>/g)].map(m => m[0]);
-  assert(cards.length === 5 && cards.every(c => /<img /.test(c) && /alt="[^"]+ logo"/.test(c) && /<h3>/.test(c)), "all five complete portfolio cards are links with project logos");
+  assert(/about-portfolio__section--primary[\s\S]*?Primary ventures/.test(html) && /Products &amp; platforms/.test(html) && /Explorations &amp; R&amp;D/.test(html), "portfolio has primary, product and research sections");
+  const cards = [...html.matchAll(/<a class="about-project[^>]*>[\s\S]*?<\/a>/g)].map(m => m[0]);
+  assert(cards.length === 8 && cards.every(c => /<div class="about-project__brand/.test(c) && /<h4>/.test(c) && /<p>/.test(c) && /<span class="ts-link">/.test(c)), "all eight portfolio cards have logos, descriptions and links");
+  assert(/8ALTA Research/.test(html) && /Santati Embode/.test(html) && /href="https:\/\/slo\.th\//.test(html), "research cards and external links are present");
+  const groups = [
+    ["primary-ventures", ["8ALTA", "Santati", "Toasty Peeps"]],
+    ["products-platforms", ["Toasty Studio", "Get Thai'd Down"]],
+    ["explorations-rd", ["8ALTA Research", "Santati Embode", "slo.th"]]
+  ];
+  for (const [id, names] of groups) {
+    const group = html.match(new RegExp(`<section[^>]+aria-labelledby="${id}"[\\s\\S]*?<\\/section>`))?.[0] || "";
+    const actual = [...group.matchAll(/<h4>([^<]+)<\/h4>/g)].map(m => m[1]);
+    assert(JSON.stringify(actual) === JSON.stringify(names), `${id} contains the correct projects`);
+  }
+  const documentary = html.match(/<section[^>]+id="documentary"[\s\S]*?<\/section>/)?.[0] || "";
+  assert(/The YEG Soccer Project/.test(documentary) && /TELUS STORYHIVE/.test(documentary) && /href="https:\/\/www\.youtube\.com\/watch\?v=jeh7vvsuRC4"/.test(documentary), "the YEG Soccer documentary and its original video link are preserved alongside the grouped portfolio");
   const books = [...html.matchAll(/<article class="about-book[^"]*[^>]*>([\s\S]*?)<\/article>/g)].map((m) => m[1]);
   assert(books.length === 4 && books.every((b) => /<div class="about-book__cover/.test(b) && /<span class="ts-badge/.test(b) && /<h3>/.test(b) && /<p>/.test(b)), "all four book cards share the same structure and cover container");
   assert(/<h3>Upcoming AI Book<\/h3>/.test(html), "the AI book placeholder reads Upcoming AI Book");
-  const projects = html.match(/<div class="about-projects">[\s\S]*?<\/div>\s*<\/div>\s*<\/section>/)?.[0] || "";
-  for (const name of ["8ALTA", "Santati", "Get Thai'd Down", "Toasty Studio", "Toasty Peeps"]) assert(projects.includes(`<h3>${name}</h3>`), `portfolio lists ${name}`);
-  assert(/https:\/\/www\.8alta\.com/.test(projects) && /https:\/\/www\.santaticrm\.com/.test(projects) && /https:\/\/getthaiddown\.vercel\.app/.test(projects), "each portfolio company links to its real site");
+  for (const name of ["8ALTA", "Santati", "Get Thai'd Down", "Toasty Studio", "Toasty Peeps", "8ALTA Research", "Santati Embode", "slo.th"]) assert(html.includes(`<h4>${name}</h4>`), `portfolio lists ${name}`);
+  assert(/https:\/\/8alta\.com\//.test(html) && /https:\/\/santaticrm\.com\//.test(html) && /https:\/\/getthaiddown\.vercel\.app\//.test(html), "each portfolio company links to its real site");
 }
 console.log("\nALL PASSED: the public site pages are consistent, on brand and fully linked.");

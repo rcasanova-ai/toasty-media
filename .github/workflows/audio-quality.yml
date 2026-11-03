@@ -1,0 +1,104 @@
+name: Studio audio quality
+
+# Test-only. No deploy, no secrets. Runs the audio measurement suite on pull requests that touch the audio path:
+#   - pure unit tests (measurement, enhancement, limiter, stable microphone track, recording guard)
+#   - real-Chrome tests: a known programme is played in as the microphone, recorded by the real Studio recorder, and
+#     measured at every stage (levels, clipping, dropouts, loudness, sync, microphone switching, offline interruption)
+# The two tests that need the public internet (VDO.Ninja transport and the two-person session) run as informational jobs
+# because a third-party service being slow must never block a merge.
+on:
+  pull_request:
+    paths:
+      - "js/microphone-capture.js"
+      - "js/mic-setup-panel.js"
+      - "js/host-mic-panel.js"
+      - "js/host-prejoin.js"
+      - "js/guest.js"
+      - "js/video-engine.js"
+      - "js/live-session.js"
+      - "js/program-canvas-capture.js"
+      - "js/program-recording.js"
+      - "js/stable-mic-track.js"
+      - "js/capture-audio-guard.js"
+      - "js/limiter-worklet.js"
+      - "js/streaming-limiter.js"
+      - "js/audio-*.js"
+      - "scripts/audio-*"
+      - "scripts/lib/**"
+      - ".github/workflows/audio-quality.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audio-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+      - name: Audio unit tests
+        run: |
+          set -euo pipefail
+          for t in audio-analysis-test streaming-limiter-test stable-mic-track-test capture-audio-guard-test microphone-capture-chain-test master-program-recording-test; do
+            echo "== $t"; node "scripts/$t.mjs"
+          done
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install ffmpeg and Chrome tooling
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          npm install --no-save --no-audit --no-fund playwright-core
+      - name: Real-browser audio tests (blocking)
+        env:
+          HEADLESS: "1"
+          CHROME_PATH: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          for t in audio-limiter-browser-test audio-av-sync-browser-test audio-pipeline-browser-test audio-scenarios-browser-test; do
+            echo "== $t"; node "scripts/$t.mjs"
+          done
+
+  network:
+    # Informational: needs vdo.ninja. Skips itself when it cannot be reached.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install ffmpeg and Chrome tooling
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          npm install --no-save --no-audit --no-fund playwright-core
+      - name: VDO.Ninja transport and two-person session
+        env:
+          HEADLESS: "1"
+          CHROME_PATH: /usr/bin/google-chrome
+          SECONDS: "20"
+        run: |
+          set -euo pipefail
+          node scripts/audio-vdo-transport-test.mjs
+          node scripts/audio-multiparty-browser-test.mjs

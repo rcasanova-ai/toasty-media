@@ -1,4 +1,4 @@
-import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId, createGuestStreamId, createScreenStreamId } from "./video-engine.js";
+import { BackgroundMode, VideoEngine, getRoomIdFromUrl, isValidRoomId, createGuestStreamId, createScreenStreamId, vdoAudioInputPosition } from "./video-engine.js";
 import { applyBrandTheme, getInitialBrandTheme, normalizeBrandTheme } from "./brand-themes.js";
 import { ensureOrgTheme } from "./org-brand.js";
 import { startDevicePreview, selectedDeviceLabel, classifyCameraFacing } from "./device-picker.js";
@@ -14,6 +14,7 @@ import { createAudioActivityMeter, activityFromVdoDetailedState } from "./audio-
 import { createTranscriptionProvider } from "./transcription.js";
 import { ParticipantTranscriptionUplink } from "./transcript-event.js";
 import { cleanMicSettings, createCleanMicMeterPair } from "./microphone-capture.js";
+import { mountMicSetup } from "./mic-setup-panel.js";
 
 const MAX_GUESTS_PER_ROOM = 3;
 
@@ -82,7 +83,8 @@ const state = {
   publisher: emptyPublisherSignals(),
   executedCommandIds: new Set(),
   mediaRequest: null,
-  micMeters: null
+  micMeters: null,
+  micSetup: null
 };
 
 const engine = new VideoEngine();
@@ -202,6 +204,8 @@ function bindControls() {
 
   elements.cameraSelect.addEventListener("change", startPreview);
   elements.microphoneSelect.addEventListener("change", startPreview);
+  // Changing the processing preset re-acquires the mic with the new constraints, same as changing the device.
+  state.micSetup = mountMicSetup(document.querySelector("#guestMicSetup"), { onProcessingChange: startPreview });
   // Local-only for now: there is no metadata side-channel from guest to director yet (VDO.Ninja's
   // label field, the only thing that round-trips, can't carry an image). Kept on state so it's at
   // least available to this page and ready to wire up once a real channel exists.
@@ -241,6 +245,7 @@ async function startPreview() {
     if (micTrack) {
       console.info("[StudioAudio] actual guest microphone capture", cleanMicSettings(micTrack));
       startGuestMicMeters(state.previewStream);
+      state.micSetup?.attachStream(state.previewStream);
     }
     try {
       await elements.cameraPreview.play();
@@ -1151,8 +1156,9 @@ async function changeLiveMicrophone() {
   const list = await engine.requestGuestDeviceList();
   const inputs = list.filter((d) => d.kind === "audioinput");
   const chosen = inputs[Number(elements.guestLiveMicrophone?.value || 0)];
-  const fullIndex = list.findIndex((d) => d.deviceId === chosen?.deviceId);
-  if (fullIndex >= 0) engine.changeGuestAudioDevice(fullIndex);
+  // VDO wants the 1-based position among audio inputs, not an index into the all-kinds list (see vdoAudioInputPosition).
+  const position = vdoAudioInputPosition(list, { deviceId: chosen?.deviceId, label: chosen?.label });
+  if (position > 0) engine.changeGuestAudioDevice(position);
 }
 
 async function changeLiveSpeaker() {

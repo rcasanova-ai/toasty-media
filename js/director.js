@@ -6,6 +6,7 @@ import { AIProductionController } from "./ai-production.js";
 import { GoLivePanel } from "./go-live-panel.js";
 import { LiveSession } from "./live-session.js";
 import { HostView } from "./host-view.js";
+import { HostMicPanel } from "./host-mic-panel.js";
 import { ProducerView } from "./producer-view.js";
 import { HostPrejoin } from "./host-prejoin.js";
 import { HostState } from "./host-state.js";
@@ -193,6 +194,7 @@ async function initStudio() {
   });
 
   new HostView({ session }).init();
+  new HostMicPanel({ session }).init();
   new ProducerView({ session }).init();
   session.loadAssetCatalogue().catch((error) => {
     console.error("[Toasty] Asset Catalogue failed to load", error);

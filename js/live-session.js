@@ -5,6 +5,7 @@ import {
   getGuestInviteUrl,
   getListenerInviteUrl,
   createScreenStreamId,
+  vdoAudioInputPosition
 } from "./video-engine.js";
 import {
   applyBrandTheme,
@@ -71,7 +72,7 @@ import { createResearchProvider } from "./hottie-research.js";
 import { ParticipantRegistry, createParticipant, ParticipantRole, ConnectionStatus, SourceKind } from "./participant-registry.js";
 import { HostState } from "./host-state.js";
 import { RoomPresence } from "./room-presence.js";
-import { cleanMicSettings, createCleanMicMeterPair } from "./microphone-capture.js";
+import { cleanMicAudioConstraint, cleanMicSettings, createCleanMicMeterPair } from "./microphone-capture.js";
 import {
   buildCanonicalState,
   serializeControlParticipant,
@@ -616,6 +617,7 @@ export class LiveSession {
     this.presence.start(transportSourceId);
     this._startHostActivityMeter();
     this._startHostCleanMicMeters();
+    this._watchHostMicrophone(this._hostPreviewStream?.getAudioTracks?.()[0]);
     // Do NOT feed the Host's live microphone into the Producer/Director ProgramAudioBus.
     // ProgramAudioBus monitors to the local speakers when resumed (for example by soundboard playback).
     // Routing the live Host mic into that graph creates a direct speaker -> mic -> VDO feedback loop.
@@ -1904,6 +1906,57 @@ export class LiveSession {
     });
   }
 
+  // ---- Host microphone: live switching and loss handling ----
+
+  // Switch the Host's microphone while joined or recording. The recorded audio track is a stable Web Audio output
+  // (js/stable-mic-track.js) so the take continues across the switch; VDO's publisher is moved with its own device
+  // command so guests and Program Output hear the new microphone too.
+  async switchHostMicrophone({ deviceId = "", label = "" } = {}) {
+    const stream = this._hostPreviewStream;
+    if (!stream) throw new Error("Join the Studio before changing the microphone.");
+    const fresh = await navigator.mediaDevices.getUserMedia({ audio: cleanMicAudioConstraint(deviceId) });
+    const next = fresh.getAudioTracks()[0];
+    if (!next) throw new Error("That microphone did not provide any audio.");
+    next.enabled = !this.av.micMuted;
+    const previous = stream.getAudioTracks()[0];
+    this._hostMicSwitching = true;
+    stream.addTrack(next);
+    if (previous) { stream.removeTrack(previous); previous.stop(); }
+    this._hostMicSwitching = false;
+    this._watchHostMicrophone(next);
+    this._hostDevices = { ...(this._hostDevices || {}), audioDeviceLabel: next.label };
+    this._startHostActivityMeter();
+    this._startHostCleanMicMeters();
+    console.info("[StudioAudio] Host microphone switched", cleanMicSettings(next));
+    let vdoSwitched = false;
+    try {
+      const list = await this.engine.requestDeviceList("host");
+      const position = vdoAudioInputPosition(list, { label: next.label || label });
+      if (position > 0) { this.engine.changeHostAudioDevice(position); vdoSwitched = true; }
+    } catch (_) {}
+    this.emit("recording-status", `Microphone: ${next.label || "selected device"}${vdoSwitched ? "" : " (guests may still hear the previous microphone until you rejoin)"}`);
+    this.emit("mic-device", { label: next.label, deviceId: next.getSettings?.().deviceId || "", vdoSwitched });
+    return { label: next.label, vdoSwitched };
+  }
+
+  // If the microphone disappears (unplugged, Bluetooth drop, OS revoked it) the track ends without any event from the
+  // page's own code. Tell the producer immediately and try the default microphone once, so a recording does not go
+  // quietly silent for the rest of the take.
+  _watchHostMicrophone(track) {
+    if (!track?.addEventListener) return;
+    track.addEventListener("ended", async () => {
+      if (this._hostMicSwitching || this._hostPreviewStream?.getAudioTracks?.()[0] !== track) return;
+      this.emit("recording-status", "Your microphone disconnected. Trying the default microphone…");
+      this.emit("mic-lost", { label: track.label });
+      try {
+        await this.switchHostMicrophone({});
+        this.emit("recording-status", "Your microphone disconnected. Switched to the default microphone.");
+      } catch (error) {
+        this.emit("recording-status", "Your microphone disconnected and no other microphone is available. Plug it back in, then choose it in Mic settings.");
+      }
+    }, { once: true });
+  }
+
   _stopHostCleanMicMeters() {
     this._hostCleanMicMeters?.pre?.stop?.();
     this._hostCleanMicMeters?.post?.stop?.();
@@ -2070,11 +2123,14 @@ export class LiveSession {
       this._programCaptureKind = "canvas";
       this._guestWarned = false;
       this.emit("recording-status", "Recording the Program canvas…");
-      return createProgramCanvasCapture({
+      const capture = createProgramCanvasCapture({
         getCamera: () => this._hostPreviewStream,
         getScreen: () => (this.screenShare?.active ? this.screenShare.stream : null),
         getMicTrack: () => this._hostPreviewStream?.getAudioTracks?.()[0] || null
       });
+      this._programCaptureMicKind = capture.mic?.kind || "none";
+      this._programCaptureMicSwaps = () => capture.mic?.swaps ?? 0;
+      return capture;
     }
     // Open/refresh Program Output from the same producer gesture if it is not already ready.
     // The browser's native capture picker remains the final source-selection boundary.

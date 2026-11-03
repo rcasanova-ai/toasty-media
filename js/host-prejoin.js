@@ -11,6 +11,7 @@
 import { startDevicePreview } from "./device-picker.js";
 import { HostState } from "./host-state.js";
 import { cleanMicSettings, createCleanMicMeterPair } from "./microphone-capture.js";
+import { mountMicSetup } from "./mic-setup-panel.js";
 
 function log(...args) { console.debug("[HostPrejoin]", ...args); }
 
@@ -27,7 +28,8 @@ export class HostPrejoin {
       camera: root.querySelector("#lvHostPrejoinCamera"),
       mic: root.querySelector("#lvHostPrejoinMic"),
       status: root.querySelector("#lvHostPrejoinStatus"),
-      join: root.querySelector("#lvHostPrejoinJoin")
+      join: root.querySelector("#lvHostPrejoinJoin"),
+      micSetup: root.querySelector("#lvHostMicSetup")
     };
     for (const [key, el] of Object.entries(this.elements)) {
       if (!el) log("MISSING element for key:", key, "— a stale/mismatched director.html would explain a silent init failure");
@@ -41,6 +43,8 @@ export class HostPrejoin {
     this.elements.camera.addEventListener("change", () => this.startPreview());
     this.elements.mic.addEventListener("change", () => this.startPreview());
     this.elements.join.addEventListener("click", () => this.join());
+    // Changing the processing preset re-acquires the mic with the new constraints, same as changing the device.
+    this._micSetup = mountMicSetup(this.elements.micSetup, { onProcessingChange: () => this.startPreview() });
     await this.startPreview();
     log("init() finished, hostState:", this.session.hostState);
   }
@@ -65,6 +69,7 @@ export class HostPrejoin {
       if (micTrack) {
         console.info("[StudioAudio] actual microphone capture", cleanMicSettings(micTrack));
         this._startMicMeters(this._previewStream);
+        this._micSetup?.attachStream(this._previewStream);
       }
       try {
         await this.elements.preview.play();
