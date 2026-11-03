@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { wavBytes } from "./synth-programme.mjs";
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-export const BASE = "http://127.0.0.1:4173";
+export const BASE = process.env.TEST_BASE || "http://127.0.0.1:4173";
 export const API = "http://127.0.0.1:4174";
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const H = { "Content-Type": "application/json", "X-Toasty-CSRF": "1" };
@@ -29,6 +29,7 @@ export function findChrome() {
 
 export async function startServers(scratch) {
   const children = [];
+  if (process.env.TEST_BASE) return children;   // testing a deployed site: nothing to start
   process.on("exit", () => children.forEach((c) => { try { c.kill("SIGKILL"); } catch (_) {} }));
   if (!process.env.SKIP_SERVERS) {
     children.push(spawn("python3", ["-m", "http.server", "4173", "--bind", "127.0.0.1"], { cwd: ROOT, stdio: "ignore" }));
