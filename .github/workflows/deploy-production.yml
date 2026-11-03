@@ -236,7 +236,7 @@ jobs:
           curl --fail --silent --show-error --location https://toasty.media/speaking/ -o /tmp/speaking.html
           grep -Fq '../contact/' /tmp/speaking.html
           curl --fail --silent --show-error --location https://toasty.media/command/ -o /tmp/command.html
-          grep -Fq 'Personal command center' /tmp/command.html
+          grep -Fq 'Toasty Platform Admin' /tmp/command.html
           curl --fail --silent --show-error --location https://toasty.media/sitemap.xml -o /tmp/sitemap.xml
           grep -Fq 'https://toasty.media/resume/' /tmp/sitemap.xml
           curl --fail --silent --show-error --location https://toasty.media/contact/ -o /tmp/contact.html
