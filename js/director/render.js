@@ -42,7 +42,7 @@ async function renderPlanOnce({ source, plan, onProgress, signal, audio = {}, be
     const dest = actx.createMediaStreamDestination(); dest.channelCount = 2; dest.channelCountMode = "explicit";
     mixer.connect(dest);
     // each shot player feeds the mixer and a tap that lets the renderer hear when speech actually becomes audible
-    const taps = videos.map((v) => { v.muted = false; v.volume = 1; const src = actx.createMediaElementSource(v); src.connect(mixer, 0, 0); const an = actx.createAnalyser(); an.fftSize = 1024; src.connect(an); return an; });
+    const taps = videos.map((v) => { v.muted = false; v.volume = 1; const src = actx.createMediaElementSource(v), gain = actx.createGain(); src.connect(gain); gain.connect(mixer, 0, 0); const an = actx.createAnalyser(); an.fftSize = 1024; src.connect(an); v.__gain = gain; return an; });
     const tapBuf = new Float32Array(1024);
     // test hook: delay every player start, to prove the timing holds on a slow machine
     const startPlayer = (v) => { const d = Number(globalThis.__directorTestStartDelayMs) || 0; if (d > 0) { if (v.__startPending) return; v.__startPending = true; setTimeout(() => { v.__startPending = false; v.play().catch(() => {}); }, d); } else v.play().catch(() => {}); };
@@ -69,6 +69,27 @@ async function renderPlanOnce({ source, plan, onProgress, signal, audio = {}, be
     let prepared = nb0;                                   // segment index the idle player is seeked to
     drawDirectorFrame(ctx, frameState(plan, 0.001), plan, env);
 
+    // Silent warm-up: before anything is recorded, play the first spoken word of the edit with the sound muted into the mix and time how long the player takes to make
+    // it audible. That is this machine's player start latency, known before the first shot (and before the first caption).
+    let PREROLL = PREROLL_DEFAULT, warmLatency = null;
+    try {
+      const w0 = plan.words[0], v = videos[1], an = taps[1];
+      if (w0 && !globalThis.__directorTestNoLagCompensation) {
+        const lead = Math.min(0.25, w0.srcStart), startPos = w0.srcStart - lead;
+        v.__gain.gain.value = 0; await seekTo(v, startPos);
+        const floorSamples = []; const level = () => { an.getFloatTimeDomainData(tapBuf); let e = 0; for (let i = 0; i < tapBuf.length; i++) e += tapBuf[i] * tapBuf[i]; return 10 * Math.log10(e / tapBuf.length + 1e-12); };
+        const tPlay = performance.now(); startPlayer(v); let heard = null;
+        while (performance.now() - tPlay < 1800) {
+          await new Promise((r) => setTimeout(r, 12)); const db = level();
+          if (performance.now() - tPlay < 60) floorSamples.push(db);
+          else if (db > Math.max(-50, Math.min(...floorSamples, -50) + 14)) { heard = performance.now(); break; }
+        }
+        v.pause(); v.__gain.gain.value = 1;
+        if (heard != null) { warmLatency = Math.max(0, Math.min(0.45, (heard - tPlay) / 1000 - lead - 0.03)); PREROLL = Math.max(0.04, Math.min(0.35, warmLatency)); }
+        if (nb0 > 0) await seekTo(v, segs[nb0].srcStart);
+      }
+    } catch (_) { /* the default pre-roll is used */ }
+
     const stream = canvas.captureStream(30);
     stream.addTrack(dest.stream.getAudioTracks()[0]);
     const { mime, container } = pickRenderMime();
@@ -77,7 +98,7 @@ async function renderPlanOnce({ source, plan, onProgress, signal, audio = {}, be
     const stopped = new Promise((res) => { recorder.onstop = res; });
     await actx.resume();
 
-    let finished = false, lastBoost = null, drift = 0, startedFirst = false, PREROLL = PREROLL_DEFAULT, overlayLag = 0;
+    let finished = false, lastBoost = null, drift = 0, startedFirst = false, overlayLag = 0;
     // Player start latency is the machine's, not the plan's: a player takes 40 to 260 ms to start producing sound after play(). The first spoken word of each
     // shot is expected at a known time (the plan's words), so when the tap hears speech begin, the difference is the lag. It moves the caption, typography and
     // graphics clock to where the speech actually is, and makes later shots start earlier by that amount.
@@ -149,7 +170,7 @@ async function renderPlanOnce({ source, plan, onProgress, signal, audio = {}, be
     recorder.stop(); await stopped;
     const blob = new Blob(out, { type: mime.split(";")[0] });
     if (!blob.size) throw new Error("The render produced no data.");
-    return { blob, mimeType: mime, container, width: W, height: H, seconds: total, aspect: plan.aspect, diagnostics: { speechLag: { measured: lags, overlayLag: +overlayLag.toFixed(3), preroll: +PREROLL.toFixed(3) }, driftCorrections: drift, switches: timing, mixer: mixerStats } };
+    return { blob, mimeType: mime, container, width: W, height: H, seconds: total, aspect: plan.aspect, diagnostics: { speechLag: { warmUp: warmLatency, measured: lags, overlayLag: +overlayLag.toFixed(3), preroll: +PREROLL.toFixed(3) }, driftCorrections: drift, switches: timing, mixer: mixerStats } };
   } finally {
     cleanup.forEach((fn) => { try { fn(); } catch (_) {} });
     try { await actx.close(); } catch (_) {}
