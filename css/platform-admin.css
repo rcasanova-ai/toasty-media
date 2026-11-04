@@ -16,3 +16,40 @@
 
 .platform-customer-directory .panel-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.platform-customer-directory input[type="search"]{max-width:320px}.platform-org-directory{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-top:14px}.platform-org-card{display:flex;flex-direction:column;align-items:flex-start;gap:8px;text-align:left;padding:14px;border:1px solid rgba(255,255,255,.09);border-radius:12px;background:rgba(255,255,255,.025);color:inherit;cursor:pointer}.platform-org-card:hover,.platform-org-card.is-selected{border-color:var(--brand-primary,#ff7a29);background:rgba(255,122,41,.08)}.platform-org-card span:first-child{display:flex;flex-direction:column;gap:3px}.platform-org-card small{opacity:.65}.platform-org-card-meta{font-size:.78rem;opacity:.75}
 @media(max-width:700px){.platform-customer-directory .panel-heading{align-items:stretch;flex-direction:column}.platform-customer-directory input[type="search"]{max-width:none}}
+
+
+/* Toasty control room, consistent desktop and mobile system */
+:root{--admin-accent:#ff9d55;--admin-border:rgba(255,255,255,.11);--admin-surface:#171311}
+body.settings-shell{background:radial-gradient(ellipse 70% 35% at 80% -10%,rgba(255,127,58,.10),transparent),#0c0b0b}
+.platform-topbar{position:sticky;top:0;z-index:40;min-height:78px;padding:16px clamp(18px,3vw,48px);background:rgba(12,11,11,.94);backdrop-filter:blur(20px);border-bottom:1px solid var(--admin-border)}
+.platform-topbar strong{font-size:1rem;letter-spacing:.015em}.platform-topbar>a{text-decoration:none;color:#f9ad7b;font-size:.88rem}
+.platform-topbar select{min-width:min(310px,45vw);max-width:100%;min-height:42px;padding:0 14px;border:1px solid var(--admin-border);border-radius:12px;background:#201b19;color:#fff}
+.platform-admin-shell{grid-template-columns:252px minmax(0,1fr);max-width:1720px;padding:26px clamp(16px,2.5vw,40px);gap:28px}
+.platform-admin-nav{top:105px;max-height:calc(100vh - 122px);overflow-y:auto;padding:20px 12px;gap:4px;background:linear-gradient(165deg,rgba(37,28,25,.95),rgba(19,17,17,.96));border:1px solid var(--admin-border);border-radius:20px;scrollbar-width:thin}
+.platform-admin-nav .eyebrow{padding:4px 12px 12px;margin:0;color:#f5b681;font-size:.7rem;letter-spacing:.12em}
+.platform-nav-btn{display:flex;align-items:center;min-height:42px;width:100%;padding:10px 14px;border-radius:11px;font-size:.89rem;font-weight:600;text-decoration:none;color:#c5beb8;transition:background .18s,color .18s,border-color .18s;border:1px solid transparent}
+.platform-nav-btn:hover{color:#fff;background:rgba(255,255,255,.065)}
+.platform-nav-btn.is-active{color:#fff;background:rgba(255,144,80,.14);border-color:rgba(255,144,80,.24);box-shadow:inset 3px 0 #ff9557}
+.platform-org-heading{padding:6px 0 20px;border-bottom:1px solid var(--admin-border);margin-bottom:22px;align-items:center}
+.platform-org-heading h1{font-size:clamp(1.5rem,2.7vw,2.25rem);letter-spacing:-.035em;margin:5px 0}.platform-org-heading .eyebrow{color:#f0a46c;font-size:.7rem;letter-spacing:.12em}
+.platform-panel>.settings-card,.platform-admin-main>.settings-card{background:linear-gradient(145deg,#1c1816,#141211);border:1px solid var(--admin-border);border-radius:18px;padding:clamp(18px,2.3vw,30px);box-shadow:0 10px 35px rgba(0,0,0,.12);margin-bottom:20px}
+.platform-panel .settings-card h2{font-size:1.2rem;letter-spacing:-.02em}.platform-panel .settings-card h3{font-size:1rem}
+.platform-panel .hint,.platform-org-heading .hint{color:#b9aaa3;line-height:1.55}
+.platform-panel input,.platform-panel textarea,.platform-panel select{min-height:43px;border:1px solid rgba(255,255,255,.17);border-radius:10px;background:#100e0d;color:#fff;padding:10px 12px;max-width:100%}
+.platform-panel textarea{resize:vertical;min-height:100px}
+.platform-panel input:focus-visible,.platform-panel select:focus-visible,.platform-panel textarea:focus-visible,.platform-nav-btn:focus-visible,.platform-panel button:focus-visible{outline:2px solid #f8ad71;outline-offset:2px}
+.platform-panel .btn,.platform-org-heading .btn{border-radius:10px;transition:transform .15s,background .15s}
+.platform-panel .btn:hover:not(:disabled),.platform-org-heading .btn:hover{transform:translateY(-1px)}
+.platform-panel .btn.primary{background:linear-gradient(130deg,#ff9750,#f7b45c);color:#19100b;border-color:transparent}
+.platform-panel .settings-table{min-width:580px}.platform-panel .settings-table th{background:rgba(255,255,255,.035);padding:14px 12px}.platform-panel .settings-table td{padding:14px 12px}
+.platform-panel .settings-table tr:hover td{background:rgba(255,255,255,.025)}
+.platform-panel .usage-metric{border:1px solid var(--admin-border);border-radius:14px;padding:18px;background:#130f0e}.platform-panel .usage-metric strong{font-size:1.3rem}
+.platform-row,.brand-admin-card,.platform-org-card{border-radius:14px;background:rgba(255,255,255,.022)}
+#platformMessage:not(:empty){position:sticky;top:88px;z-index:30;background:#302118;color:#fff0e4;border:1px solid #9c6444;border-radius:12px;padding:14px 18px;margin:0 0 18px;box-shadow:0 12px 24px #0006}
+#platformMessage.is-error{background:#3b191a;border-color:#bb5858}
+@media(max-width:1000px){.platform-admin-shell{grid-template-columns:1fr;gap:18px}.platform-admin-nav{position:static;max-height:none;display:flex;flex-direction:row;overflow-x:auto;flex-wrap:nowrap;padding:10px;border-radius:14px}.platform-admin-nav .eyebrow{display:none}.platform-nav-btn{width:auto;flex:0 0 auto;white-space:nowrap}.platform-org-heading{flex-wrap:wrap}}
+@media(max-width:600px){.platform-topbar{position:relative;flex-wrap:wrap;min-height:0;padding:14px 16px}.platform-topbar select{width:100%;min-width:0}.platform-admin-shell{padding:12px}.platform-panel>.settings-card{padding:18px}.platform-org-heading{padding:14px 4px}.form-grid.two,.form-grid.three,.form-grid.four{grid-template-columns:1fr}.platform-org-directory{grid-template-columns:1fr}.platform-panel .usage-grid{grid-template-columns:1fr}#platformMessage:not(:empty){top:8px}}
+@media(prefers-reduced-motion:reduce){.platform-nav-btn,.platform-panel .btn{transition:none}}
+
+.platform-nav-group{padding:17px 12px 5px;margin:0;color:#b79782;font-size:.65rem;letter-spacing:.12em;font-weight:800}
+@media(max-width:1000px){.platform-nav-group{display:none}}

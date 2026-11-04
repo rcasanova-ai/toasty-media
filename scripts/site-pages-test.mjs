@@ -29,7 +29,7 @@ for (const [page, route] of Object.entries(PAGES)) {
   assert(/<html lang="en"/.test(html) && /<a class="ts-skip"/.test(html) && /<main id="main">/.test(html), "has lang, a skip link and a main landmark");
   const nav = html.match(/<nav class="ts-nav__links"[\s\S]*?<\/nav>/)?.[0] || "";
   const labels = [...nav.matchAll(/<a [^>]*>([^<]+)<\/a>/g)].map((m) => m[1]);
-  assert(JSON.stringify(labels) === JSON.stringify(["Studio", "Peeps", "Talks", "About", "Contact"]), `navigation is exactly Studio, Peeps, Talks, About, Contact (${labels.join(", ")})`);
+  assert(JSON.stringify(labels) === JSON.stringify(["Studio", "Peeps", "Talks", "Eloquence"]), `navigation is exactly Studio, Peeps, Talks, Eloquence (${labels.join(", ")})`);
   assert(/css\/toasty-site\.css/.test(html) && /js\/site-ui\.js/.test(html), "uses the shared design system and UI script");
   assert(!/<h1[\s>]/.test(html.replace(/<h1[\s\S]*?<\/h1>/, "")), "exactly one h1");
   const imgs = [...html.matchAll(/<img [^>]*>/g)].map((m) => m[0]);
@@ -133,7 +133,7 @@ console.log("\nBranding: Toasty orange, no purple or teal, no em or en dashes, n
   const css = ["css/toasty-site.css", "css/home-landing.css", "css/studio-landing.css", "css/peeps-landing.css", "css/about-page.css"].map(read).join("\n");
   assert(!/#8b7cf6|#6f5ee8|#3dd6c3|#1fb8a6|139, ?124, ?246|61, ?214, ?195|violet|teal/i.test(css), "the site stylesheets contain no purple or teal");
   assert(/--orange-strong: #ff7a29/.test(css) && /--ink-0: #0b0908/.test(css), "uses the Toasty orange and warm near-black from the Studio interface");
-  const publicPages = ["index.html", "studio/index.html", "peeps/index.html", "about/index.html", "books/index.html", "speaking/index.html", "ricardo/index.html", "access/index.html", "thank-you.html", "eloquencebonus/index.html", "peeps/login/index.html", "peeps/demo/index.html", "peeps/demo/data.js", "peeps/demo/demo.js", "js/studio-waitlist.js", "js/site-ui.js", "talks/index.html", "js/talks.js", "talks/shows.json"];
+  const publicPages = ["index.html", "studio/index.html", "peeps/index.html", "about/index.html", "books/index.html", "speaking/index.html", "ricardo/index.html", "access/index.html", "thank-you.html", "eloquencebonus/index.html", "peeps/login/index.html", "peeps/demo/index.html", "peeps/demo/data.js", "peeps/demo/demo.js", "js/studio-waitlist.js", "js/site-ui.js", "talks/index.html", "talks/auditions/index.html", "talks/auditions/record/index.html", "js/talk-audition.js", "js/talk-audition-recorder.js", "js/talks.js", "talks/shows.json"];
   for (const page of publicPages) {
     const text = read(page).replace(/<!--[\s\S]*?-->/g, "").split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\n");
     assert(!/[\u2013\u2014]/.test(text), `${page} has no em or en dashes`);
@@ -147,16 +147,16 @@ console.log("\nAbout: recognition, uniform book cards, portfolio");
   assert(/Queen Elizabeth II’s Platinum Jubilee Medal \(Alberta\)/.test(html) && /Platinum Jubilee Pin of Her Majesty Queen Elizabeth II/.test(html) && /Federal pin/.test(html), "the Alberta (provincial) medal and the federal pin are listed under Recognition");
   assert([...html.matchAll(/<article class="honour /g)].length === 3 && /jubilee-medal\.jpg/.test(html) && /jubilee-pin\.jpg/.test(html) && /jubilee-certificate\.jpg/.test(html), "Recognition shows the medal, certificate and pin photos in matching cards");
   assert(!/alongside the day job/i.test(html), "no day-job framing");
-  assert(/worked for organizations serving government/.test(html) && /worked extensively with government directly/.test(html), "background describes both government-facing organizations and direct government work");
-  assert(/based between Thailand and Canada/.test(html) && !/Bay Area|corridor/i.test(html), "location is Thailand and Canada without corridor references");
+  assert(/helping large enterprises navigate and adopt complex technologies/.test(html) && /government procurement and RFP strategy/.test(html), "background leads with large-enterprise technology adoption and includes government RFP work");
+  assert(/Working across Canada and Thailand/.test(html) && !/Bay Area|corridor/i.test(html), "location is Thailand and Canada without corridor references");
   assert(/id="recognition"[\s\S]*?<\/section>\s*<section class="ts-section" id="projects">/.test(html), "portfolio immediately follows Recognition");
   const cards = [...html.matchAll(/<a class="about-project ts-reveal"[^>]*>[\s\S]*?<\/a>/g)].map(m => m[0]);
-  assert(cards.length === 5 && cards.every(c => /<img /.test(c) && /alt="[^"]+ logo"/.test(c) && /<h3>/.test(c)), "all five complete portfolio cards are links with project logos");
+  assert(cards.length === 10 && cards.every(c => /<h3>/.test(c) && (/<img /.test(c) && /alt="[^"]+ logo"/.test(c) || /<strong>/.test(c))), "all ten portfolio cards link to projects with a logo or wordmark");
   const books = [...html.matchAll(/<article class="about-book[^"]*[^>]*>([\s\S]*?)<\/article>/g)].map((m) => m[1]);
-  assert(books.length === 4 && books.every((b) => /<div class="about-book__cover/.test(b) && /<span class="ts-badge/.test(b) && /<h3>/.test(b) && /<p>/.test(b)), "all four book cards share the same structure and cover container");
-  assert(/<h3>Upcoming AI Book<\/h3>/.test(html), "the AI book placeholder reads Upcoming AI Book");
-  const projects = html.match(/<div class="about-projects">[\s\S]*?<\/div>\s*<\/div>\s*<\/section>/)?.[0] || "";
-  for (const name of ["8ALTA", "Santati", "Get Thai'd Down", "Toasty Studio", "Toasty Peeps"]) assert(projects.includes(`<h3>${name}</h3>`), `portfolio lists ${name}`);
-  assert(/https:\/\/www\.8alta\.com/.test(projects) && /https:\/\/www\.santaticrm\.com/.test(projects) && /https:\/\/getthaiddown\.vercel\.app/.test(projects), "each portfolio company links to its real site");
+  assert(books.length === 6 && books.every((b) => /<div class="about-book__cover/.test(b) && /<span class="ts-badge/.test(b) && /<h3>/.test(b) && /<p>/.test(b)), "all six book cards share the same structure and cover container");
+  assert(/<h3>AI in the Enterprise<\/h3>/.test(html), "the forthcoming AI book is listed by title");
+  const projects = html.match(/<section class="ts-section" id="projects">[\s\S]*?<\/section>/)?.[0] || "";
+  for (const name of ["8ALTA", "Santati CRM", "Get Thai'd Down", "Toasty Studio", "Toasty Peeps"]) assert(projects.includes(`<h3>${name}</h3>`), `portfolio lists ${name}`);
+  assert(/https:\/\/(?:www\.)?8alta\.com/.test(projects) && /https:\/\/(?:www\.)?santaticrm\.com/.test(projects) && /https:\/\/getthaiddown\.vercel\.app/.test(projects), "each portfolio company links to its real site");
 }
 console.log("\nALL PASSED: the public site pages are consistent, on brand and fully linked.");

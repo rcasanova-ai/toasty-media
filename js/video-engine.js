@@ -77,9 +77,9 @@ export class VideoEngine {
   // LABEL, not its value/deviceId — see normalizeVdoDeviceLabel below. NOT yet confirmed on a real device;
   // this is a documented-behavior-based fix for a documented cross-origin limitation, not a guess, but it
   // still needs the next real Host+Guest test to confirm VDO actually resolves it this way in practice.
-  mountDirectorFrame(container,{roomId,label="Host",videoDeviceLabel,audioDeviceLabel,micProcessing}) {
+  mountDirectorFrame(container,{roomId,label="Host",videoDeviceLabel,audioDeviceLabel,micProcessing,backgroundMode="none"}) {
     const streamId=`${roomId}h`;
-    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cleanoutput:"1",cover:"1",autostart:"1",view:true,proaudio:"1",...vdoMicProcessingParams(micProcessing),videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel)});
+    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cleanoutput:"1",cover:"1",autostart:"1",view:true,proaudio:"1",...vdoMicProcessingParams(micProcessing),videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),effects:effectForBackground(backgroundMode),imagelist:sharedBackgroundImage(backgroundMode)?JSON.stringify([sharedBackgroundImage(backgroundMode)]):undefined});
   }
 
   // slots=4 reserves 4 even grid cells regardless of how many are actually filled, and cover=1 crops
@@ -483,13 +483,19 @@ export function buildGuestPublisherParams({roomId,password,guestName,backgroundM
       videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),
       audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),
       effects:effectForBackground(backgroundMode),
+      imagelist:sharedBackgroundImage(backgroundMode)?JSON.stringify([sharedBackgroundImage(backgroundMode)]):undefined,
       muted:micMuted?true:undefined,
       ar:isMobile?"portrait":undefined
     }
   };
 }
 
-function effectForBackground(backgroundMode){if(backgroundMode===BackgroundMode.BLUR)return"3";return"0";}
+export const SHARED_BACKGROUND_IDS = Object.freeze(["newsroom","library","stage"]);
+export function sharedBackgroundImage(mode) {
+  if (!SHARED_BACKGROUND_IDS.includes(mode)) return null;
+  return new URL("../studio/backgrounds/" + mode + ".svg", window.location.href).href;
+}
+function effectForBackground(backgroundMode){if(backgroundMode===BackgroundMode.BLUR)return"3";if(SHARED_BACKGROUND_IDS.includes(backgroundMode))return"5";return"0";}
 // "grid" = today's always-on behavior (uniform cropped 4-slot grid). "screen-dominant" intentionally
 // returns no slots/cover so VDO.Ninja's own auto-layout (speaker+thumbnails) takes over — see the
 // mountRoomFrame/mountProgramFrame comments above for why that's the right way to get a dominant screen

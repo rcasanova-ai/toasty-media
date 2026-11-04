@@ -183,3 +183,15 @@ buffers request bodies and applies `proxy_read_timeout`, which ends such a strea
 - Node + auth-db helper ship via **Deploy render helper and Node server** (the host needs `ffmpeg`).
 - Tests: `scripts/studio-mode-model-test.mjs` (Backstage/Record/Live model) and
   `scripts/studio-broadcast-server-test.mjs` (real ffmpeg + local RTMP sink, streams past 30s).
+
+## Optional Wisp usage analytics — 2026-10-28
+
+Public Media, Studio and Peeps pages and the core Studio/Peeps application
+shells load `/js/wisp-research.js`. Analytics consent is optional and separate
+from recording, transcription, research participation, marketing and login.
+Only fixed project/page/interaction codes reach the existing Santati Research
+API after opt-in. No conversation content, recordings, profile attributes,
+search requests, account ids, payments, or full URLs are read or transmitted.
+The privacy notice `/wisp-privacy.html` is included in the production workflow.
+Withdrawal stops capture and deletes this tab/project's events. The three
+products use isolated project identifiers and distinct consent capabilities.

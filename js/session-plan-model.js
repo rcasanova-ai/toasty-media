@@ -1,3 +1,5 @@
+import { buildEpisodeSummary, episodeContextForMoxie } from "./episode-model.js";
+
 // Pure model for the Session Planner wizard and for the preparation Studio shows during a session.
 // No DOM, no network: the planner page, the Studio prep panel, Moxie's show context and the tests all use these.
 
@@ -7,6 +9,7 @@ export const SESSION_TEMPLATES = Object.freeze([
   { id: "panel", sessionType: "panel", title: "Panel discussion", blurb: "Several guests, a moderator and a shared set of questions.", segments: [["Introductions", 0], ["Moderated discussion", 8], ["Audience questions", 40], ["Closing round", 52]] },
   { id: "lit", sessionType: "book_club", title: "Book club", blurb: "Toasty Lit style: two hosts, a rotating guest and a concise book briefing.", segments: [["Welcome and introductions", 0], ["The book in brief", 5], ["Discussion", 12], ["Favourite moments", 40], ["Closing thoughts", 52]] },
   { id: "livestream", sessionType: "livestream", title: "Livestream", blurb: "A live show to your channels with guests, audience and a tight schedule.", segments: [["Starting soon", 0], ["Show open", 2], ["Main segment", 8], ["Audience questions", 40], ["Sign off", 55]] },
+  { id: "story", sessionType: "podcast", title: "Storytelling episode", blurb: "An episode of a show: story beats, interview questions and private notes, never a script.", segments: [["Opening", 0], ["The story", 5], ["Reflection and close", 50]] },
   { id: "custom", sessionType: "custom", title: "Custom session", blurb: "Start from a blank plan and build exactly what you need.", segments: [] }
 ]);
 
@@ -95,6 +98,7 @@ export function buildPrepSummary(plan = {}, speakers = []) {
       mainCharacters: lines(lit.mainCharacters), majorThemes: lines(lit.majorThemes), discussionTopics: lines(lit.discussionTopics),
       suggestedQuestions: lines(lit.suggestedQuestions), hostNotes: lit.hostNotes || ""
     } : null,
+    episode: buildEpisodeSummary(plan, plan.episodeProduction),
     guests: speakers.map((s) => ({
       id: s.id, name: s.displayName || s.email || "Guest", role: s.sessionRole || "", background: s.hostBackground || "",
       title: s.title || "", company: s.company || "", bio: s.bioShort || s.bioLong || "", pronunciation: s.pronunciationNotes || "",
@@ -122,5 +126,7 @@ export function prepContextForMoxie(summary) {
     const bits = [g.role && `role ${g.role}`, g.background && `background: ${g.background}`, g.expertise && `expertise: ${g.expertise}`, g.preferredIntro && `introduce as: ${g.preferredIntro}`, g.pronunciation && `pronunciation: ${g.pronunciation}`, g.topicsToDiscuss.length && `wants to discuss: ${g.topicsToDiscuss.join("; ")}`, g.topicsToAvoid.length && `prefers to avoid: ${g.topicsToAvoid.join("; ")}`].filter(Boolean);
     out.push(`Guest ${g.name}${bits.length ? ` (${bits.join(", ")})` : ""}`);
   }
-  return out.join("\n").slice(0, 6000);
+  const base = out.join("\n").slice(0, 6000);
+  const episode = episodeContextForMoxie(summary.episode);
+  return episode ? `${base}\n${episode}` : base;
 }

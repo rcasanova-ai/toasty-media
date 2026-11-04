@@ -91,6 +91,7 @@ function render(){
   // switcher currently has selected — never the owner-role default resolveOrganizationForSession()
   // falls back to. There is deliberately no second org selector inside either destination page.
   el("planSessionBtn").href=`./plan.html?${orgParam}`;
+  el("showsBtn").href=`./shows.html?${orgParam}`;
   [["membersLink","members"],["billingLink","billing"],["usageLink","usage"],["aiLink","ai-providers"],["brandLink","brand-profiles"],["securityLink","security"]].forEach(([id,hash])=>{el(id).href=`./settings.html?${orgParam}#${hash}`;});
 
   const active=state.sessions.filter(isLive);

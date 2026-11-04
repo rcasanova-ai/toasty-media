@@ -51,4 +51,5 @@ document.getElementById("cryptoFundConfirm").addEventListener("click",async()=>{
 document.getElementById("withdrawForm").addEventListener("submit",async e=>{e.preventDefault();const s=document.getElementById("withdrawStatus");s.textContent="Requesting payout…";try{const r=await requestDoughWithdrawal(Number(document.getElementById("withdrawAmount").value),document.getElementById("withdrawMethod").value,document.getElementById("withdrawDestination").value);s.textContent=`${r.note||""} (${r.payoutStatus})`;await refresh();}catch(x){s.textContent=x.message}});
 if(new URLSearchParams(location.search).get("funded")==="pending")document.getElementById("fundStatus").textContent="Payment received — crediting your balance now. Refresh in a few seconds if it doesn't appear.";
 refresh().catch(e=>document.getElementById("activity").innerHTML=`<p class="muted">${esc(e.message)}</p>`);
-</script></body></html>
+</script><script defer src="/js/wisp-research.js?v=wisp-20261028"></script>
+</body></html>

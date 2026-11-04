@@ -1,6 +1,6 @@
 import { studioRequest, studioApiEndpoint } from "./studio-api.js";
 
-const state={session:null,status:null,organizations:[],organizationId:null,detail:null,panel:"overview"};
+const state={session:null,status:null,organizations:[],organizationId:null,detail:null,panel:"portfolio"};
 const $=(id)=>document.getElementById(id);
 const esc=(v)=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c]));
 const pretty=(v)=>JSON.stringify(v??{},null,2);
@@ -20,7 +20,24 @@ document.addEventListener("DOMContentLoaded",init);
 async function init(){
   try{
     state.session=await studioRequest("/auth/session");
-    if(!state.session.authenticated||!state.session.user?.isPlatformAdmin)throw new Error("Platform administrator access is required.");
+    if(!state.session.authenticated){
+      $("platformLogin").hidden=false;
+      $("platformLoading").innerHTML="<h2>Sign in to Toasty Media</h2><p class='hint'>Use your existing Toasty account to access platform administration.</p><a class='btn primary' href='../studio/?next=%2Fadmin%2F'>Sign in</a>";
+      return;
+    }
+    const user=state.session.user||{};
+    $("platformAccountIdentity").textContent=[user.name,user.email].filter(Boolean).join(" · ")||"Signed in";
+    $("platformLogout").hidden=false;
+    $("platformLogout").onclick=async()=>{
+      const btn=$("platformLogout");btn.disabled=true;btn.textContent="Signing out…";
+      try{await studioRequest("/auth/logout",{method:"POST",body:"{}"});location.replace("../studio/");}
+      catch(error){btn.disabled=false;btn.textContent="Sign out";$("platformLoading").hidden=false;$("platformLoading").textContent="Could not sign out: "+error.message;}
+    };
+    if(!user.isPlatformAdmin){
+      $("platformLoading").innerHTML="<h2>Administrator access required</h2><p class='hint'>This account does not have Platform Administrator permissions. Sign out and use an authorized account, or contact the platform owner.</p>";
+      return;
+    }
+    $("platformOrgSwitcher").hidden=false;
     const pair=await Promise.all([
       studioRequest("/api/organizations/platform-admin/status"),
       studioRequest("/api/organizations/platform-admin/organizations")
@@ -31,6 +48,8 @@ async function init(){
     renderSwitcher();bindStatic();renderOrganizationDirectory();
     if(!state.organizationId)throw new Error("No organizations exist yet.");
     await loadDetail();
+    selectPanel("portfolio");
+    loadGoogleReporting();
     $("platformLoading").hidden=true;$("platformApp").hidden=false;
   }catch(error){$("platformLoading").innerHTML="<h2>Platform Admin unavailable</h2><p class='hint'>"+esc(error.message)+"</p>";}
 }
@@ -55,24 +74,99 @@ function renderSwitcher(){
 }
 
 function bindStatic(){
+  document.querySelectorAll("[data-go-platform]").forEach(button=>button.addEventListener("click",()=>selectPanel(button.dataset.goPlatform)));
+
   document.querySelectorAll(".platform-nav-btn").forEach(btn=>btn.addEventListener("click",()=>selectPanel(btn.dataset.panel)));
   $("paSaveAccount").onclick=saveAccountControls;$("paResetUsage").onclick=resetUsage;$("paSaveOrg").onclick=saveOrganization;
   $("paSaveDefaults").onclick=saveDefaults;$("paSaveBilling").onclick=saveBilling;$("paNewBrand").onclick=()=>renderBrandEditor(null,true);
   $("paInviteMember").onclick=inviteMember;$("paCreateMember").onclick=createMember;$("paSaveAiKey").onclick=saveAiKey;
+  $("paRefreshGoogle")?.addEventListener("click",loadGoogleReporting);
   $("paOrgSearch")?.addEventListener("input",renderOrganizationDirectory);
   $("paEvalCreate")?.addEventListener("click",createEvaluationAccounts);
   $("paWaitlistSearch")?.addEventListener("input",renderWaitlist);$("paWaitlistRefresh")?.addEventListener("click",loadWaitlist);
   $("paStudioWaitlistSearch")?.addEventListener("input",renderStudioWaitlist);$("paStudioWaitlistRefresh")?.addEventListener("click",loadStudioWaitlist);
   $("paStudioWaitlistCsv")?.addEventListener("click",downloadStudioWaitlistCsv);
+  $("paMembersSearch")?.addEventListener("input",renderMembers);
+  $("paMembersFilter")?.addEventListener("change",renderMembers);
+  $("paAuditionsSearch")?.addEventListener("input",renderAuditions);$("paAuditionsRefresh")?.addEventListener("click",loadAuditions);
+}
+
+async function loadGoogleReporting(){
+  const root=$("paGoogleReporting");if(!root)return;
+  const escape=esc, fmt=n=>Number(n||0).toLocaleString();
+  const metric=(label,value)=>'<div class="mi-metric"><span>'+escape(label)+'</span><strong>'+escape(String(value))+'</strong></div>';
+  const rows=(items,valueKey,empty)=>items.length?'<div class="mi-rows">'+items.map(item=>'<div class="mi-row"><span title="'+escape(item.name)+'">'+escape(item.name)+'</span><strong>'+escape(String(item[valueKey]))+'</strong></div>').join("")+'</div>':'<p class="hint">'+escape(empty)+'</p>';
+  try{
+    const data=await studioRequest("/api/organizations/platform-admin/google-analytics");
+    const ga=data.ga4||{},sc=data.searchConsole||{},d=data.details||{};
+    const status=$("paGoogleConnectionStatus");
+    if(status)status.textContent=data.configured?"Connected to Google · Last 28 complete days":"Google reporting not connected";
+    const connect=$("paConnectGoogle");if(connect)connect.textContent=data.configured?"Reconnect Google":"Connect Google";
+    const gaOk=ga.status==="connected",scOk=sc.status==="connected";
+    const summary='<div class="mi-summary">'+
+      metric("Active users",gaOk?fmt(ga.activeUsers):"Unavailable")+
+      metric("Sessions",gaOk?fmt(ga.sessions):"Unavailable")+
+      metric("Page views",gaOk?fmt(ga.views):"Unavailable")+
+      metric("Conversions",gaOk?fmt(ga.conversions):"Unavailable")+'</div>';
+    const search='<section class="mi-section"><div class="mi-heading"><h3>Search Console</h3><span>Organic Google Search · reporting delay ~3 days</span></div>'+
+      '<div class="mi-summary">'+metric("Clicks",scOk?fmt(sc.clicks):"Unavailable")+metric("Impressions",scOk?fmt(sc.impressions):"Unavailable")+metric("Click-through rate",scOk?(Number(sc.ctr)*100).toFixed(2)+"%":"Unavailable")+metric("Average position",scOk&&sc.impressions?Number(sc.position).toFixed(1):"N/A")+'</div>'+
+      (sc.status==="error"?'<p class="mi-error">'+escape(sc.message)+'</p>':'')+
+      '<h4>Search queries</h4>'+rows(d.queries||[],"clicks","No search queries reported yet. Google may still be indexing the site.")+'</section>';
+    const trend=d.trend||[],max=Math.max(1,...trend.map(x=>x.value));
+    const chart=trend.length?'<div class="mi-chart" role="img" aria-label="Daily sessions for the last 28 days">'+trend.map(x=>'<div title="'+escape(x.date)+': '+escape(String(x.value))+' sessions" style="height:'+Math.max(3,Math.round(x.value/max*100))+'%"></div>').join("")+'</div>':'<p class="hint">Daily traffic will appear when Google has enough data.</p>';
+    root.innerHTML=summary+(ga.status==="error"?'<p class="mi-error">'+escape(ga.message)+'</p>':'')+
+      '<div class="mi-columns"><section class="mi-section"><h3>Traffic trend</h3>'+chart+'</section>'+
+      '<section class="mi-section"><h3>Acquisition channels</h3>'+rows(d.sources||[],"value","No channel data yet.")+'</section></div>'+
+      '<div class="mi-columns"><section class="mi-section"><h3>Top pages</h3>'+rows(d.pages||[],"value","No page data yet.")+'</section>'+search+'</div>';
+  }catch(err){root.textContent="Google reporting unavailable: "+err.message;}
+}
+
+function renderPortfolioSummary(){
+  const root=$("paPortfolioSummary");if(!root)return;
+  const orgs=state.organizations||[];
+  const active=orgs.filter(o=>o.subscriptionStatus==="active").length;
+  const cards=[
+    ["Toasty organizations",orgs.length,"Existing organization directory"],
+    ["Active subscriptions",active,"Based on recorded subscription status, not verified payments"],
+    ["Studio waitlist","Open section","Existing admin data"],
+    ["Other properties","Connections pending","GA4, Search Console, Wisp and external products"]
+  ];
+  root.replaceChildren();
+  for(const [name,value,description] of cards){
+    const card=document.createElement("article");card.className="settings-card";
+    const title=document.createElement("h3");title.textContent=name;
+    const number=document.createElement("strong");number.textContent=String(value);number.style.fontSize="1.45rem";
+    const note=document.createElement("p");note.className="hint";note.textContent=description;
+    card.append(title,number,note);root.append(card);
+  }
 }
 
 function selectPanel(panel){
   state.panel=panel;
   document.querySelectorAll(".platform-nav-btn").forEach(b=>b.classList.toggle("is-active",b.dataset.panel===panel));
   document.querySelectorAll(".platform-panel").forEach(p=>p.classList.toggle("is-active",p.dataset.panelView===panel));
+  if(panel==="portfolio")renderPortfolioSummary();
   if(panel==="waitlist")loadWaitlist();
   if(panel==="studiowaitlist")loadStudioWaitlist();
+  if(panel==="auditions")loadAuditions();
 }
+
+// ---- Toasty Talks auditions ----
+const auditions={data:null};
+async function loadAuditions(){try{auditions.data=await studioRequest("/api/organizations/platform-admin/talk-auditions");renderAuditions();}catch(error){setMessage(error.message,true);}}
+function renderAuditions(){
+  const d=auditions.data;if(!d)return;
+  $("paAuditionsEmail").textContent=(d.emailTransport==="resend"?"Real email delivery is configured.":"Email is not configured; messages are simulated.")+" Notifications resolve from "+d.notificationRecipients+" verified platform administrator account"+(d.notificationRecipients===1?".":"s.");
+  const keys=["APPLIED","INVITED","SUBMITTED","SHORTLISTED","DECLINED","WITHDRAWN"];
+  $("paAuditionsSummary").innerHTML=[["Total",d.total],...keys.map(k=>[human(k),d.byStatus[k]||0])].map(x=>'<div class="usage-metric"><span>'+esc(x[0])+'</span><strong>'+esc(x[1])+'</strong></div>').join("");
+  const q=($("paAuditionsSearch").value||"").trim().toLowerCase();
+  const list=d.entries.filter(e=>!q||[e.name,e.email,e.location,e.topic].some(v=>String(v||"").toLowerCase().includes(q)));
+  $("paAuditionsTable").querySelector("tbody").innerHTML=list.map(e=>'<tr><td>'+esc(shortDate(e.createdAt))+'</td><td><strong>'+esc(e.name)+'</strong><br><small>'+esc(e.email)+'<br>'+esc(e.location)+'</small></td><td><small><b>About:</b> '+esc(e.about)+'<br><b>Topic:</b> '+esc(e.topic)+(e.links?'<br><b>Links:</b> '+esc(e.links):'')+'</small></td><td><select data-aud-status="'+esc(e.id)+'">'+["APPLIED","INVITED","SUBMITTED","SHORTLISTED","DECLINED","WITHDRAWN"].map(s=>'<option value="'+s+'"'+(s===e.status?' selected':'')+'>'+human(s)+'</option>').join("")+'</select><br><small>Applicant email: '+esc(human(e.confirmationEmailStatus))+'<br>Admin notice: '+esc(human(e.adminEmailStatus))+'</small></td><td>'+(e.submittedAt?'<a class="btn" href="'+esc(studioApiEndpoint())+'/api/organizations/platform-admin/talk-auditions/'+encodeURIComponent(e.id)+'/recording" target="_blank" rel="noopener">Review video</a>':esc(e.invite?.state||"Not invited"))+'</td><td><small>'+esc(e.retentionUntil?shortDate(e.retentionUntil):"Not started")+'</small></td><td>'+(!["SUBMITTED","SHORTLISTED","DECLINED","WITHDRAWN","DELETED"].includes(e.status)?'<button class="btn" data-aud-invite="'+esc(e.id)+'" type="button">'+(e.status==="INVITED"?'Re-invite':'Invite to record')+'</button> ':'')+'<button class="btn" data-aud-delete="'+esc(e.id)+'" type="button">Delete private data</button></td></tr>').join("")||'<tr><td colspan="7" class="hint">No applications yet.</td></tr>';
+  $("paAuditionsTable").querySelectorAll("[data-aud-status]").forEach(el=>el.onchange=()=>auditionAction(el.dataset.audStatus,"status",{status:el.value}));
+  $("paAuditionsTable").querySelectorAll("[data-aud-invite]").forEach(el=>el.onclick=()=>auditionAction(el.dataset.audInvite,"invite"));
+  $("paAuditionsTable").querySelectorAll("[data-aud-delete]").forEach(el=>el.onclick=()=>{if(confirm("Permanently delete this applicant's contact details and private recording?"))auditionAction(el.dataset.audDelete,"delete");});
+}
+async function auditionAction(id,action,body={}){try{const r=await post("/api/organizations/platform-admin/talk-auditions/"+encodeURIComponent(id)+"/"+action,body);setMessage(action==="invite"?(r.emailDelivery==="sent"?"Private recording invitation emailed.":"Invitation created; email delivery: "+r.emailDelivery):"Audition updated.",action==="invite"&&r.emailDelivery!=="sent");await loadAuditions();}catch(error){setMessage(error.message,true);}}
 
 // ---- Studio waitlist (platform-wide) ----
 const swl={data:null};
@@ -155,9 +249,9 @@ function renderAll(){
   const d=state.detail,o=d.organization,s=d.settings||{};
   $("platformOrgName").textContent=o.name||"Organization";
   $("platformOrgMeta").textContent=(o.slug||o.id)+" · "+human(o.plan)+" · "+human(o.subscriptionStatus)+" · "+d.members.length+" member"+(d.members.length===1?"":"s");
-  $("platformOpenCustomerDashboard").href="./dashboard.html?org="+encodeURIComponent(o.id);
+  $("platformOpenCustomerDashboard").href="../studio/dashboard.html?org="+encodeURIComponent(o.id);
 
-  renderPlatformStatus();
+  renderPlatformStatus();renderPortfolioSummary();
   fillSelect("paPlan",["demo","creator","pro","enterprise"],o.plan);
   fillSelect("paSubscription",["none","trialing","active","past_due","canceled"],o.subscriptionStatus);
   $("paOnboarding").value=s.onboardingCompletedAt?"complete":"reset";
@@ -181,12 +275,14 @@ function renderPlatformStatus(){
 }
 
 function renderMembers(){
-  $("paMembers").innerHTML=(state.detail.members||[]).map(m=>
+  const query=($("paMembersSearch")?.value||"").trim().toLowerCase(),filter=$("paMembersFilter")?.value||"all";
+  const members=(state.detail.members||[]).filter(m=>(filter==="all"||m.userStatus===filter)&&(!query||[m.userName,m.userEmail,m.userId].some(value=>String(value||"").toLowerCase().includes(query))));
+  $("paMembers").innerHTML=members.map(m=>
     '<tr><td><strong>'+esc(m.userName||"User")+'</strong><br><small>'+esc(m.userEmail||m.userId)+'</small></td>'+
     '<td><select data-member-role="'+esc(m.userId)+'">'+["viewer","member","admin","owner"].map(r=>'<option value="'+r+'" '+(r===m.role?'selected':'')+'>'+human(r)+'</option>').join("")+'</select></td>'+
     '<td><select data-member-status="'+esc(m.userId)+'"><option value="active" '+(m.userStatus==="active"?'selected':'')+'>Active</option><option value="suspended" '+(m.userStatus==="suspended"?'selected':'')+'>Suspended</option></select></td>'+
     '<td class="platform-row-actions"><button class="btn" data-save-member="'+esc(m.userId)+'" type="button">Save</button>'+(m.userPlatformRole==="platform_admin"?'':'<button class="btn" data-reset-member="'+esc(m.userId)+'" type="button">Reset password</button>')+'<button class="btn" data-remove-member="'+esc(m.userId)+'" type="button">Remove</button></td></tr>'
-  ).join("");
+  ).join("")||'<tr><td colspan="4">No matching accounts.</td></tr>';
   document.querySelectorAll("[data-save-member]").forEach(b=>b.onclick=()=>saveMember(b.dataset.saveMember));
   document.querySelectorAll("[data-reset-member]").forEach(b=>b.onclick=()=>resetMemberPassword(b.dataset.resetMember));
   document.querySelectorAll("[data-remove-member]").forEach(b=>b.onclick=()=>removeMember(b.dataset.removeMember));
@@ -209,9 +305,10 @@ async function resetMemberPassword(userId){
 }
 
 async function saveMember(userId){
+  const m=memberById(userId);
   const role=document.querySelector('[data-member-role="'+CSS.escape(userId)+'"]').value;
   const status=document.querySelector('[data-member-status="'+CSS.escape(userId)+'"]').value;
-  try{setMessage("Updating member…");await post(orgPath("/member-role"),{userId,role});await post(orgPath("/member-status"),{userId,status});await loadDetail();setMessage("Member updated.");}catch(e){setMessage(e.message,true);}
+  try{setMessage("Updating member…");if(role!==m?.role)await post(orgPath("/member-role"),{userId,role});if(status!==m?.userStatus)await post(orgPath("/member-status"),{userId,status});await loadDetail();setMessage("Member updated.");}catch(e){setMessage(e.message,true);}
 }
 async function removeMember(userId){
   const m=memberById(userId);if(!confirm("Remove "+(m?.userEmail||"this member")+" from this organization?"))return;
@@ -343,7 +440,7 @@ async function inviteMember(){
   try{
     await post(orgPath("/member-invite"),{email,role});
     $("paInviteEmail").value="";
-    setMessage("Invitation sent.");
+    await loadDetail();setMessage("Invitation submitted. Check the pending invitation and email delivery status.");
   }catch(e){setMessage(e.message,true);}
 }
 

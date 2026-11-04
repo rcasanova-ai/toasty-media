@@ -2,7 +2,7 @@
 import { createServer } from "node:http";
 import { Readable, Transform } from "node:stream";
 import { createReadStream, createWriteStream, existsSync, readFileSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { dirname, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -119,6 +119,10 @@ const EMAIL_FROM = process.env.TOASTY_EMAIL_FROM || "Toasty Studio <studio@toast
 const APP_BASE_URL = process.env.TOASTY_APP_BASE_URL || "https://toasty.media";
 const EMAIL_VERIFICATION_TOKEN_TTL_MS = Number(process.env.TOASTY_EMAIL_VERIFICATION_TTL_MS || 24 * 60 * 60 * 1000);
 const PASSWORD_RESET_TOKEN_TTL_MS = Number(process.env.TOASTY_PASSWORD_RESET_TTL_MS || 60 * 60 * 1000);
+const TALK_AUDITION_INVITE_TTL_DAYS = Math.max(1, Number(process.env.TOASTY_TALK_AUDITION_INVITE_TTL_DAYS || 7));
+const TALK_AUDITION_RETENTION_DAYS = Math.max(30, Number(process.env.TOASTY_TALK_AUDITION_RETENTION_DAYS || 180));
+const TALK_AUDITION_MAX_BYTES = Math.min(250 * 1024 * 1024, Math.max(5 * 1024 * 1024, Number(process.env.TOASTY_TALK_AUDITION_MAX_BYTES || 100 * 1024 * 1024)));
+const TALK_AUDITION_RECORDINGS_DIR = process.env.TOASTY_TALK_AUDITION_RECORDINGS_DIR || "/var/lib/toasty/talk-auditions";
 // Per-IP signup throttle is the existing `limit(..., "register", ...)` call; this is a SEPARATE, tighter
 // per-email throttle so one address can't be used to spam verification/reset emails from many IPs.
 const EMAIL_ACTION_WINDOW_MS = 15 * 60 * 1000;
@@ -369,6 +373,28 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // ---- Public personal contact: existing email transport; never expose inbound mail address ----
+  if (req.method === "POST" && req.url === "/api/organizations/personal-contact") {
+    if (!requireCsrf(req, res) || !limit(req, res, "personal-contact", 5, 60 * 60 * 1000) || !limit(req, res, "personal-contact-burst", 2, 60 * 1000)) return;
+    await handlePersonalContact(req, res); return;
+  }
+  // ---- Toasty Talks auditions: public application and token-gated private recording ----
+  if (req.method === "POST" && req.url === "/api/organizations/talk-auditions") {
+    if (!requireCsrf(req, res) || !limit(req, res, "talk-audition-apply", 10, 60 * 60 * 1000) || !limit(req, res, "talk-audition-apply-burst", 3, 60 * 1000)) return;
+    await handleTalkAuditionApply(req, res); return;
+  }
+  {
+    const match = String(req.url || "").split("?")[0].match(/^\/api\/organizations\/talk-auditions\/invite\/([A-Za-z0-9_-]{20,80})(\/submit)?$/);
+    if (match) {
+      if (!limit(req, res, "talk-audition-invite", 30, 15 * 60 * 1000)) return;
+      if (req.method === "GET" && !match[2]) { await handleTalkAuditionInviteGet(req, res, match[1]); return; }
+      if (req.method === "POST" && match[2]) {
+        if (!requireCsrf(req, res)) return;
+        await handleTalkAuditionRecordingSubmit(req, res, match[1]); return;
+      }
+    }
+  }
+
   // ---- Santati consolidated waitlist dashboard: read-only counts, server-to-server only ----
   // Bearer token (TOASTY_WAITLIST_STATS_TOKEN), never a browser session. Disabled (503) until the token is configured.
   if (req.method === "GET" && String(req.url || "").split("?")[0] === "/api/organizations/waitlist-stats") {
@@ -462,6 +488,41 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && req.url?.startsWith("/integrations/google-reporting/oauth/start")) {
+    const session = await requirePlatformAdmin(req, res);
+    if (!session) return;
+    if (!REPORTING_OAUTH_CLIENT_ID || !REPORTING_OAUTH_CLIENT_SECRET) { sendJson(req,res,503,{error:"Reporting OAuth client is not configured on the server."}); return; }
+    const state = randomBytes(24).toString("hex");
+    const verifier = randomBytes(32).toString("base64url");
+    const challenge = createHash("sha256").update(verifier).digest("base64url");
+    reportingOauthStates.set(state, { verifier, expires:Date.now()+600000, userId:session.userId||session.id });
+    const params = new URLSearchParams({client_id:REPORTING_OAUTH_CLIENT_ID,redirect_uri:REPORTING_OAUTH_REDIRECT,response_type:"code",scope:"https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/webmasters.readonly",access_type:"offline",prompt:"consent",state,code_challenge:challenge,code_challenge_method:"S256"});
+    res.writeHead(302,{Location:"https://accounts.google.com/o/oauth2/v2/auth?"+params});res.end();return;
+  }
+  if (req.method === "GET" && req.url?.startsWith("/integrations/google-reporting/oauth/callback")) {
+    const u=new URL(req.url,"https://render.toasty.media");
+    const state=u.searchParams.get("state")||"";
+    const pending=reportingOauthStates.get(state);reportingOauthStates.delete(state);
+    if(!pending||pending.expires<Date.now()||!u.searchParams.get("code")){sendJson(req,res,400,{error:"Invalid or expired OAuth authorization."});return;}
+    const session=await requirePlatformAdmin(req,res);if(!session)return;
+    if(pending.userId!==(session.userId||session.id)){sendJson(req,res,403,{error:"OAuth session mismatch."});return;}
+    try{
+      const response=await fetch("https://oauth2.googleapis.com/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({client_id:REPORTING_OAUTH_CLIENT_ID,client_secret:REPORTING_OAUTH_CLIENT_SECRET,code:u.searchParams.get("code"),code_verifier:pending.verifier,grant_type:"authorization_code",redirect_uri:REPORTING_OAUTH_REDIRECT}),signal:AbortSignal.timeout(12000)});
+      const token=await response.json();
+      if(!response.ok||!token.refresh_token)throw Error("Google did not return a refresh token. Reauthorize with consent.");
+      await writeFile(REPORTING_OAUTH_TOKEN_PATH,JSON.stringify({refresh_token:token.refresh_token}),{mode:0o600,flag:"w"});
+      googleReportingToken={value:token.access_token,expires:Date.now()+Number(token.expires_in||3600)*1000};
+      res.writeHead(302,{Location:"https://toasty.media/admin/?google=connected"});res.end();
+    }catch(err){sendJson(req,res,502,{error:"Google reporting authorization failed: "+err.message});}
+    return;
+  }
+  if (req.method === "GET" && req.url === "/api/organizations/platform-admin/google-analytics") {
+    const session = await requirePlatformAdmin(req, res);
+    if (!session) return;
+    await handlePlatformGoogleAnalytics(req, res);
+    return;
+  }
+
   // ---- Platform administrator ----
   if (req.method === "GET" && req.url === "/api/organizations/platform-admin/status") {
     const session = await requirePlatformAdmin(req, res);
@@ -489,6 +550,26 @@ const server = createServer(async (req, res) => {
     if (!session) return;
     await handleStudioWaitlistAdminList(req, res);
     return;
+  }
+  if (req.method === "GET" && req.url === "/api/organizations/platform-admin/talk-auditions") {
+    if (!limit(req, res, "platform-admin-read", 120, 15 * 60 * 1000)) return;
+    const session = await requirePlatformAdmin(req, res); if (!session) return;
+    await handleTalkAuditionAdminList(req, res); return;
+  }
+  {
+    const match = String(req.url || "").split("?")[0].match(/^\/api\/organizations\/platform-admin\/talk-auditions\/([^/]+)\/(invite|status|recording|delete)$/);
+    if (match) {
+      const session = await requirePlatformAdmin(req, res); if (!session) return;
+      const id = decodeURIComponent(match[1]);
+      if (req.method === "POST" && match[2] !== "recording") {
+        if (!requireCsrf(req, res) || !limit(req, res, "platform-admin-write", 60, 15 * 60 * 1000)) return;
+        if (match[2] === "invite") await handleTalkAuditionAdminInvite(req, res, session, id);
+        else if (match[2] === "status") await handleTalkAuditionAdminStatus(req, res, id);
+        else await handleTalkAuditionAdminDelete(req, res, id);
+        return;
+      }
+      if (req.method === "GET" && match[2] === "recording") { await handleTalkAuditionAdminRecording(req, res, id); return; }
+    }
   }
   {
     const swMatch = String(req.url || "").match(/^\/api\/organizations\/platform-admin\/studio-waitlist\/([^/]+)\/status$/);
@@ -998,6 +1079,33 @@ const server = createServer(async (req, res) => {
   // (never the raw token) is the only thing stored.
   // ==================================================================================================
 
+  // Episode planning (shows, seasons, plan.episode, production record). Owner-only like every /api/sessions route;
+  // guests never reach these and session_get_public stays a whitelist that excludes plan.episode entirely.
+  if (requestPathname(req) === "/api/shows" && (req.method === "GET" || req.method === "POST")) {
+    if (req.method === "POST" && !requireCsrf(req, res)) return;
+    if (!limit(req, res, "episode-shows", 120, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleShows(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && /^\/api\/shows\/[A-Za-z0-9_-]+\/delete$/.test(requestPathname(req))) {
+    if (!requireCsrf(req, res) || !limit(req, res, "episode-shows", 120, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const id = requestPathname(req).split("/")[3];
+    await db("show_delete", { id, ownerUserId: session.id });
+    sendJson(req, res, 200, { ok: true });
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && (req.url.endsWith("/episode") || req.url.endsWith("/episode-production"))) {
+    if (!requireCsrf(req, res) || !limit(req, res, "session-episode", 240, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    if (req.url.endsWith("/episode-production")) await handleEpisodeProduction(req, res, session); else await handleEpisodeSet(req, res, session);
+    return;
+  }
+
   if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/plan")) {
     if (!requireCsrf(req, res) || !limit(req, res, "session-plan-set", 60, 15 * 60 * 1000)) return;
     const session = await requireSession(req, res);
@@ -1258,6 +1366,14 @@ const server = createServer(async (req, res) => {
     const session = await requireSession(req, res);
     if (!session) return;
     await handleMoxieSpeakerBriefing(req, res, session);
+    return;
+  }
+  if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/moxie/episode-assist")) {
+    if (!COST_SAFETY_SWITCHES.ai) return sendJson(req, res, 503, { error: "AI features are temporarily disabled by the platform safety switch." });
+    if (!requireCsrf(req, res) || !limit(req, res, "moxie-episode-assist", 30, 15 * 60 * 1000)) return;
+    const session = await requireSession(req, res);
+    if (!session) return;
+    await handleMoxieEpisodeAssist(req, res, session);
     return;
   }
   if (req.method === "POST" && req.url?.startsWith("/api/sessions/") && req.url.endsWith("/moxie/session-research")) {
@@ -3732,6 +3848,120 @@ function authConfigured() {
 // organization would confirm that organization id/slug exists to a caller with no business knowing that.
 const ORG_ROLE_RANK = { viewer: 1, member: 2, admin: 3, owner: 4 };
 
+// Server-side Google reporting. Service account must have Viewer permission on the GA4
+// property and Restricted/Full access to the Search Console property.
+const REPORTING_OAUTH_CLIENT_ID = process.env.TOASTY_GOOGLE_REPORTING_CLIENT_ID || "790734641185-3ehgmdmkgbmb95rhh06sdoaujulol4jc.apps.googleusercontent.com";
+const REPORTING_OAUTH_CLIENT_SECRET = process.env.TOASTY_GOOGLE_REPORTING_CLIENT_SECRET || "";
+const REPORTING_OAUTH_REDIRECT = "https://render.toasty.media/integrations/google-reporting/oauth/callback";
+const REPORTING_OAUTH_TOKEN_PATH = process.env.TOASTY_GOOGLE_REPORTING_TOKEN_PATH || "/var/lib/toasty/google-reporting-oauth.json";
+const reportingOauthStates = new Map();
+const GOOGLE_REPORTING_ACCOUNT_JSON = process.env.TOASTY_GOOGLE_REPORTING_SERVICE_ACCOUNT_JSON || "";
+const GOOGLE_GA4_PROPERTY_ID = process.env.TOASTY_GA4_PROPERTY_ID || "";
+const GOOGLE_SEARCH_CONSOLE_SITE = process.env.TOASTY_SEARCH_CONSOLE_SITE_URL || "";
+let googleReportingToken = null;
+async function getGoogleReportingToken() {
+  if (googleReportingToken && googleReportingToken.expires > Date.now() + 60000) return googleReportingToken.value;
+  if(REPORTING_OAUTH_CLIENT_SECRET && existsSync(REPORTING_OAUTH_TOKEN_PATH)){
+    const saved=JSON.parse(readFileSync(REPORTING_OAUTH_TOKEN_PATH,"utf8"));
+    const response=await fetch("https://oauth2.googleapis.com/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({client_id:REPORTING_OAUTH_CLIENT_ID,client_secret:REPORTING_OAUTH_CLIENT_SECRET,refresh_token:saved.refresh_token,grant_type:"refresh_token"}),signal:AbortSignal.timeout(12000)});
+    const token=await response.json();
+    if(!response.ok||!token.access_token)throw Error("Google reporting refresh failed ("+response.status+").");
+    googleReportingToken={value:token.access_token,expires:Date.now()+Number(token.expires_in||3600)*1000};
+    return googleReportingToken.value;
+  }
+  if (googleReportingToken && googleReportingToken.expires > Date.now() + 60000) return googleReportingToken.value;
+  const account = JSON.parse(GOOGLE_REPORTING_ACCOUNT_JSON);
+  if (!account.client_email || !account.private_key || account.type !== "service_account") throw new Error("Invalid Google reporting service account configuration.");
+  const now = Math.floor(Date.now() / 1000);
+  const enc = value => Buffer.from(JSON.stringify(value)).toString("base64url");
+  const assertionBody = enc({ alg: "RS256", typ: "JWT" }) + "." + enc({
+    iss: account.client_email, scope: "https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/webmasters.readonly",
+    aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600
+  });
+  const { createSign } = await import("node:crypto");
+  const signer = createSign("RSA-SHA256"); signer.update(assertionBody); signer.end();
+  const assertion = assertionBody + "." + signer.sign(account.private_key, "base64url");
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion }),
+    signal: AbortSignal.timeout(12000)
+  });
+  const data = await response.json();
+  if (!response.ok || !data.access_token) throw new Error("Google authorization failed (" + response.status + "). Check reporting account access.");
+  googleReportingToken = { value: data.access_token, expires: Date.now() + (Number(data.expires_in) || 3600) * 1000 };
+  return data.access_token;
+}
+async function handlePlatformGoogleAnalytics(req, res) {
+  const configured = Boolean(GOOGLE_REPORTING_ACCOUNT_JSON || (REPORTING_OAUTH_CLIENT_SECRET && existsSync(REPORTING_OAUTH_TOKEN_PATH)));
+  if (!configured || (!GOOGLE_GA4_PROPERTY_ID && !GOOGLE_SEARCH_CONSOLE_SITE)) {
+    sendJson(req, res, 200, { configured: false, ga4: { status: "not_configured" }, searchConsole: { status: "not_configured" } }); return;
+  }
+  let token;
+  try { token = await getGoogleReportingToken(); }
+  catch (err) { sendJson(req, res, 200, { configured: true, ga4: { status: "error", message: err.message }, searchConsole: { status: "error", message: err.message } }); return; }
+  const call = async (url, body) => {
+    const response = await fetch(url, { method: "POST", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(12000) });
+    if (!response.ok) { const details = await response.json().catch(() => ({})); const reason = details?.error?.details?.flatMap(d => d?.reason ? [d.reason] : (d?.metadata?.service ? ["service: " + d.metadata.service] : [])).join(", ") || details?.error?.status || ""; const explanation = String(details?.error?.message || "").replace(/https?:\/\/\S+/g, "[Google documentation]").slice(0, 450); throw new Error("Google API " + response.status + (reason ? " (" + reason + ")" : "") + ": " + explanation); }
+    return response.json();
+  };
+  const ga4 = GOOGLE_GA4_PROPERTY_ID ? await (async () => {
+    try {
+      const d = await call("https://analyticsdata.googleapis.com/v1beta/properties/" + encodeURIComponent(GOOGLE_GA4_PROPERTY_ID) + ":runReport", {
+        dateRanges: [{ startDate: "28daysAgo", endDate: "yesterday" }],
+        metrics: [{ name: "activeUsers" }, { name: "sessions" }, { name: "screenPageViews" }, { name: "keyEvents" }],
+      });
+      return { status: "connected", period: "Last 28 complete days", activeUsers: Number(d.rows?.[0]?.metricValues?.[0]?.value || 0), sessions: Number(d.rows?.[0]?.metricValues?.[1]?.value || 0), views: Number(d.rows?.[0]?.metricValues?.[2]?.value || 0), conversions: Number(d.rows?.[0]?.metricValues?.[3]?.value || 0) };
+    } catch (err) { return { status: "error", message: err.message }; }
+  })() : { status: "not_configured" };
+  const searchConsole = GOOGLE_SEARCH_CONSOLE_SITE ? await (async () => {
+    try {
+      const end = new Date(Date.now() - 3 * 86400000), start = new Date(end.getTime() - 27 * 86400000);
+      const iso = d => d.toISOString().slice(0, 10);
+      const d = await call("https://www.googleapis.com/webmasters/v3/sites/" + encodeURIComponent(GOOGLE_SEARCH_CONSOLE_SITE) + "/searchAnalytics/query", { startDate: iso(start), endDate: iso(end), dimensions: [], rowLimit: 1 });
+      const row = d.rows?.[0] || {};
+      return { status: "connected", period: iso(start) + " to " + iso(end), clicks: row.clicks || 0, impressions: row.impressions || 0, ctr: row.ctr || 0, position: row.position || 0 };
+    } catch (err) { return { status: "error", message: err.message }; }
+  })() : { status: "not_configured" };
+  const details = { queries: [], pages: [], sources: [], trend: [] };
+  if (ga4.status === "connected") {
+    try {
+      const d = await call("https://analyticsdata.googleapis.com/v1beta/properties/" + encodeURIComponent(GOOGLE_GA4_PROPERTY_ID) + ":runReport", {
+        dateRanges: [{ startDate: "28daysAgo", endDate: "yesterday" }],
+        dimensions: [{ name: "sessionDefaultChannelGroup" }],
+        metrics: [{ name: "sessions" }], limit: "8",
+        orderBys: [{ metric: { metricName: "sessions" }, desc: true }]
+      });
+      details.sources = (d.rows || []).map(r => ({ name: r.dimensionValues?.[0]?.value || "Other", value: Number(r.metricValues?.[0]?.value || 0) }));
+    } catch (err) { details.sourcesError = err.message; }
+    try {
+      const d = await call("https://analyticsdata.googleapis.com/v1beta/properties/" + encodeURIComponent(GOOGLE_GA4_PROPERTY_ID) + ":runReport", {
+        dateRanges: [{ startDate: "28daysAgo", endDate: "yesterday" }],
+        dimensions: [{ name: "pagePath" }], metrics: [{ name: "screenPageViews" }], limit: "10",
+        orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }]
+      });
+      details.pages = (d.rows || []).map(r => ({ name: r.dimensionValues?.[0]?.value || "/", value: Number(r.metricValues?.[0]?.value || 0) }));
+    } catch (err) { details.pagesError = err.message; }
+    try {
+      const d = await call("https://analyticsdata.googleapis.com/v1beta/properties/" + encodeURIComponent(GOOGLE_GA4_PROPERTY_ID) + ":runReport", {
+        dateRanges: [{ startDate: "28daysAgo", endDate: "yesterday" }],
+        dimensions: [{ name: "date" }], metrics: [{ name: "sessions" }], limit: "35", orderBys: [{ dimension: { dimensionName: "date" } }]
+      });
+      details.trend = (d.rows || []).map(r => ({ date: r.dimensionValues?.[0]?.value || "", value: Number(r.metricValues?.[0]?.value || 0) }));
+    } catch (err) { details.trendError = err.message; }
+  }
+  if (searchConsole.status === "connected") {
+    try {
+      const end = new Date(Date.now() - 3 * 86400000), start = new Date(end.getTime() - 27 * 86400000);
+      const iso = d => d.toISOString().slice(0, 10);
+      const d = await call("https://www.googleapis.com/webmasters/v3/sites/" + encodeURIComponent(GOOGLE_SEARCH_CONSOLE_SITE) + "/searchAnalytics/query", {
+        startDate: iso(start), endDate: iso(end), dimensions: ["query"], rowLimit: 10
+      });
+      details.queries = (d.rows || []).map(r => ({ name: r.keys?.[0] || "", clicks: r.clicks || 0, impressions: r.impressions || 0, position: r.position || 0 }));
+    } catch (err) { details.queriesError = err.message; }
+  }
+  sendJson(req, res, 200, { configured: true, ga4, searchConsole, details });
+}
+
 async function handlePlatformStatus(req, res, session) {
   sendJson(req, res, 200, {
     platformRole: session.platformRole || "platform_admin",
@@ -6047,6 +6277,92 @@ async function handleSessionSetPlan(req, res, authSession) {
   sendJson(req, res, 200, { session: result.session });
 }
 
+// ---------- Episode planning ----------
+const EPISODE_STATUS_IDS = new Set(["draft", "planned", "ready_to_record", "recorded", "editing", "ready_to_publish", "published"]);
+const EPISODE_FORMAT_IDS = new Set(["solo", "interview", "co_host", "panel"]);
+const EPISODE_CADENCE_IDS = new Set(["", "weekly", "biweekly", "monthly", "irregular"]);
+const episodeSafeId = (v) => (/^[A-Za-z0-9_-]{1,80}$/.test(String(v || "")) ? String(v) : "");
+const episodeLines = (v, n, len) => (Array.isArray(v) ? v : String(v ?? "").split(/\r?\n/)).map((l) => String(l ?? "").trim().slice(0, len)).filter(Boolean).slice(0, n);
+const episodeDate = (v) => (/^\d{4}-\d{2}-\d{2}/.test(String(v || "")) ? String(v).slice(0, 10) : "");
+
+function sanitizeEpisode(e) {
+  e = e && typeof e === "object" ? e : {};
+  const number = Number(e.number), minutes = Number(e.plannedMinutes);
+  return {
+    showId: episodeSafeId(e.showId), seasonId: episodeSafeId(e.seasonId),
+    number: Number.isInteger(number) && number > 0 && number < 10000 ? number : null,
+    workingTitle: sessionText(e.workingTitle, 160), description: sessionText(e.description, 4000),
+    format: EPISODE_FORMAT_IDS.has(e.format) ? e.format : "interview",
+    plannedMinutes: Number.isFinite(minutes) && minutes >= 1 && minutes <= 600 ? Math.round(minutes) : 60,
+    status: EPISODE_STATUS_IDS.has(e.status) ? e.status : "draft",
+    releaseDate: episodeDate(e.releaseDate), interviewer: sessionText(e.interviewer, 160), openingHook: sessionText(e.openingHook, 2000),
+    topics: episodeLines(e.topics, 40, 300), storyBeats: episodeLines(e.storyBeats, 80, 600), questions: episodeLines(e.questions, 80, 500),
+    importantDetails: episodeLines(e.importantDetails, 60, 500), factsToVerify: episodeLines(e.factsToVerify, 60, 500), sensitiveDetails: episodeLines(e.sensitiveDetails, 60, 500),
+    privateNotes: sessionText(e.privateNotes, 8000)
+  };
+}
+
+function sanitizeShow(s) {
+  s = s && typeof s === "object" ? s : {};
+  const minutes = Number(s.defaultMinutes), brand = s.brand && typeof s.brand === "object" ? s.brand : {};
+  return {
+    title: sessionText(s.title, 160), description: sessionText(s.description, 2000),
+    brand: { skin: sessionText(brand.skin, 60), accent: /^#[0-9a-fA-F]{6}$/.test(brand.accent || "") ? brand.accent : "", tagline: sessionText(brand.tagline, 160) },
+    defaultMinutes: Number.isFinite(minutes) && minutes >= 1 && minutes <= 600 ? Math.round(minutes) : 60,
+    defaultFormat: EPISODE_FORMAT_IDS.has(s.defaultFormat) ? s.defaultFormat : "interview",
+    cadence: EPISODE_CADENCE_IDS.has(s.cadence) ? s.cadence : "",
+    seasons: (Array.isArray(s.seasons) ? s.seasons : []).slice(0, 50).map((x, i) => {
+      const buffer = Number(x?.bufferTarget);
+      return {
+        id: episodeSafeId(x?.id) || newId("season"), title: sessionText(x?.title, 120) || `Season ${i + 1}`,
+        releaseCadence: EPISODE_CADENCE_IDS.has(x?.releaseCadence) ? x.releaseCadence : "", launchDate: episodeDate(x?.launchDate),
+        bufferTarget: Number.isInteger(buffer) && buffer >= 0 && buffer <= 50 ? buffer : 0,
+        episodeOrder: (Array.isArray(x?.episodeOrder) ? x.episodeOrder : []).map(episodeSafeId).filter(Boolean).slice(0, 500)
+      };
+    })
+  };
+}
+
+async function handleShows(req, res, authSession) {
+  if (req.method === "GET") {
+    const result = await db("show_list", { ownerUserId: authSession.id });
+    return sendJson(req, res, 200, { shows: result.shows || [] });
+  }
+  const body = await readJson(req);
+  const show = sanitizeShow(body.show);
+  if (!show.title) throw httpError(400, "A show needs a title.");
+  const id = episodeSafeId(body.show?.id) || newId("show");
+  const result = await db("show_upsert", { id, ownerUserId: authSession.id, organizationId: sessionText(body.organizationId, 80) || null, show });
+  sendJson(req, res, 200, { show: result.show });
+}
+
+async function handleEpisodeSet(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/episode");
+  const body = await readJson(req);
+  const result = await db("session_set_episode", { id: session.id, ownerUserId: authSession.id, episode: sanitizeEpisode(body.episode) });
+  sendJson(req, res, 200, { session: result.session });
+}
+
+// The only writer of plan.episodeProduction: append-only moments/clips/recordings/exports plus status changes.
+async function handleEpisodeProduction(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/episode-production");
+  const body = await readJson(req);
+  const op = sessionText(body.op, 20), raw = body.item && typeof body.item === "object" ? body.item : {};
+  const at = new Date().toISOString();
+  let item;
+  if (op === "moments") item = { id: episodeSafeId(raw.id), kind: ["clip", "important", "fact_check"].includes(raw.kind) ? raw.kind : "clip", label: sessionText(raw.label, 240), atSeconds: Math.max(0, Number(raw.atSeconds) || 0), recordingId: sessionText(raw.recordingId, 80), createdAt: at };
+  else if (op === "clips") item = { id: episodeSafeId(raw.id), label: sessionText(raw.label, 240), startSeconds: Math.max(0, Number(raw.startSeconds) || 0), endSeconds: Math.max(0, Number(raw.endSeconds) || 0), source: ["moxie", "marker", "manual"].includes(raw.source) ? raw.source : "manual", selected: Boolean(raw.selected), recordingId: sessionText(raw.recordingId, 80) };
+  else if (op === "recordings") { item = { recordingId: sessionText(raw.recordingId, 80), durationSeconds: Math.max(0, Number(raw.durationSeconds) || 0), recordedAt: at }; if (!item.recordingId) throw httpError(400, "recordingId is required."); }
+  else if (op === "exports") item = { id: episodeSafeId(raw.id), kind: sessionText(raw.kind, 40), label: sessionText(raw.label, 160), completedAt: at };
+  else if (op === "transcript") item = { recordingId: sessionText(raw.recordingId, 80), lineCount: Math.max(0, Number(raw.lineCount) || 0), speakers: episodeLines(raw.speakers, 12, 80), savedAt: at };
+  else if (op === "clip_select") item = { id: episodeSafeId(raw.id), selected: Boolean(raw.selected) };
+  else if (op === "remove") item = { kind: ["moments", "clips"].includes(raw.kind) ? raw.kind : "", id: episodeSafeId(raw.id) };
+  else if (op === "status") { if (!EPISODE_STATUS_IDS.has(raw.status)) throw httpError(400, "Unknown episode status."); item = { status: raw.status }; }
+  else throw httpError(400, "Unknown production operation.");
+  const result = await db("session_episode_production", { id: session.id, ownerUserId: authSession.id, op, item, itemId: newId("ep") });
+  sendJson(req, res, 200, { session: result.session });
+}
+
 async function handleSpeakerList(req, res, authSession) {
   const session = await requireOwnedSession(req, res, authSession, "/speakers");
   const result = await db("speaker_list", { sessionId: session.id });
@@ -6862,6 +7178,36 @@ async function handleMoxieSpeakerBriefing(req, res, authSession) {
     feature: "moxie_speaker_briefing"
   });
   sendJson(req, res, 200, { briefing: summary });
+}
+
+// Episode planning help. Moxie only organises and questions what the host wrote in plan.episode; it never supplies
+// events, quotes, diagnoses or motives. Host-only: the private notes are sent to the model but only ever returned to
+// the owner of the session.
+const EPISODE_ASSIST_TASKS = {
+  questions: "Suggest up to 8 discussion questions the host has NOT already prepared, based only on the facts given. Open-ended, respectful, no leading or accusatory wording.",
+  gaps: "List what context a listener would need that the host has not written down yet, as questions TO the host (for example 'What year was this?'). Do not answer them yourself.",
+  chronology: "Read the story beats in the host's order. Point out anything that looks out of sequence, unclear or missing a transition. Do not add events.",
+  structure: "Suggest how to structure the conversation (opening, middle, close) using only the listed beats and topics. Do not add beats.",
+  hook: "Point to up to 3 of the host's own beats or details that could work as an opening hook, quoting the host's wording. Do not write new story content.",
+  clips: "Say which of the host's beats are most likely to make strong 30 to 60 second clips and why. State plainly that this is a guess made before the recording exists."
+};
+
+async function handleMoxieEpisodeAssist(req, res, authSession) {
+  const session = await requireOwnedSession(req, res, authSession, "/moxie/episode-assist");
+  const body = await readJson(req);
+  const task = sessionText(body.task, 20);
+  if (!EPISODE_ASSIST_TASKS[task]) throw httpError(400, "Unknown episode assist task.");
+  const episode = session.plan?.episode ? sanitizeEpisode(session.plan.episode) : null;
+  if (!episode || (!episode.storyBeats.length && !episode.topics.length && !episode.description)) throw httpError(400, "Add a description, topics or story beats to the episode first.");
+  const credential = await requireMoxieCredential(req, res, session, authSession);
+  if (!credential) return;
+  const facts = { episodeTitle: episode.workingTitle, format: episode.format, plannedMinutes: episode.plannedMinutes, description: episode.description, openingHook: episode.openingHook, storyBeats: episode.storyBeats, topics: episode.topics, preparedQuestions: episode.questions, importantDetails: episode.importantDetails, notYetVerified: episode.factsToVerify, sensitive: episode.sensitiveDetails, privateNotes: episode.privateNotes };
+  const result = await callMoxie({
+    session, credential, feature: "moxie_episode_assist",
+    systemPrompt: `You are Moxie, Toasty's production assistant, helping a creator prepare a personal storytelling episode. The JSON facts are the creator's own words. ${EPISODE_ASSIST_TASKS[task]} Hard rules: never invent events, quotes, names, medical or legal claims, or motives; never present speculation as fact; items under notYetVerified must not be stated as true; treat sensitive items gently and never push the creator to disclose more. Label anything that is your suggestion as a suggestion. Respond with plain text bullet points, one per line starting with '- ', no markdown headers, no JSON.`,
+    userContent: `EPISODE FACTS:\n${JSON.stringify(facts)}`
+  });
+  sendJson(req, res, 200, { task, result });
 }
 
 // (B') Session research: prep angles/questions from the session's own topic + speaker/sponsor roster —
@@ -11510,6 +11856,161 @@ async function handleJamSettle(req, res, authSession) {
 // Email honesty: every send records what really happened — sent (provider accepted it), simulated (no
 // RESEND_API_KEY: console only, NOT delivered) or failed — and the admin view shows it.
 // ====================================================================================================
+// ---- Toasty Talks co-host auditions ----
+const TALK_AUDITION_RELEASE_VERSION = "talks-audition-release-2026-10-31-v1";
+const TALK_AUDITION_PRIVACY_VERSION = "talks-audition-privacy-2026-10-31-v1";
+
+function auditionTokenHash(token) { return createHash("sha256").update(String(token)).digest("hex"); }
+function auditionEmailStatus(result) { return result?.ok ? (result.transport === "resend" ? "sent" : "simulated") : "failed"; }
+
+async function talkAuditionAdminRecipients() {
+  const result = await db("verified_platform_admin_emails", {});
+  return [...new Set((result.emails || []).map(normalizeEmail).filter((email) => EMAIL_PATTERN.test(email)))];
+}
+
+async function handlePersonalContact(req, res) {
+  const body = await readJson(req, 12 * 1024);
+  const name = cleanName(peepsWaitlistCleanText(body.name, 120));
+  const email = normalizeEmail(body.email);
+  const subject = peepsWaitlistCleanText(body.subject, 120);
+  const message = peepsWaitlistCleanText(body.message, 5000);
+  if (peepsWaitlistCleanText(body.website, 200) || Number(body.elapsedMs) < 1500)
+    return sendJson(req, res, 200, {ok: true});
+  if (!name || !email || email.length > 254 || !EMAIL_PATTERN.test(email) || !subject || message.length < 10 || body.consent !== true)
+    throw httpError(400, "Please complete the form and agree to be contacted.");
+  const allowed = ["Business or partnership","Speaking or media","Toasty or podcast","Something interesting","Other"];
+  if (!allowed.includes(subject)) throw httpError(400, "Choose a valid subject.");
+  // Keep contact details on the existing configured mail transport, not a public static site.
+  // Fail closed if delivery isn't configured. Never claim delivery when mail is only simulated.
+  if (!RESEND_API_KEY) throw httpError(503, "Messaging is temporarily unavailable. Please try again later.");
+  const admins = await talkAuditionAdminRecipients();
+  const recipient = process.env.TOASTY_CONTACT_EMAIL || admins[0];
+  if (!recipient || !EMAIL_PATTERN.test(recipient)) throw httpError(503, "Contact delivery is not configured.");
+  const result = await sendEmail({
+    to: recipient,
+    subject: "Ricardo website contact: " + subject,
+    html: "<p><strong>From:</strong> " + escapeHtml(name) + " (" + escapeHtml(email) + ")</p><p><strong>Subject:</strong> " + escapeHtml(subject) + "</p><p><strong>Message:</strong></p><p style='white-space:pre-wrap'>" + escapeHtml(message) + "</p><p>Consent to reply: yes</p>",
+    text: "From: " + name + " <" + email + ">\\nSubject: " + subject + "\\n\\n" + message
+  });
+  if (!result.ok || result.transport === "dev") throw httpError(503, "Unable to deliver the message right now.");
+  sendJson(req, res, 200, {ok:true});
+}
+
+async function handleTalkAuditionApply(req, res) {
+  const body = await readJson(req, 16 * 1024);
+  const uniform = () => sendJson(req, res, 200, { ok: true, message: "Application received. Check your email for confirmation." });
+  if (peepsWaitlistCleanText(body.website, 200) || Number(body.elapsedMs) < PEEPS_WAITLIST_MIN_FILL_MS) return uniform();
+  const name = cleanName(peepsWaitlistCleanText(body.name, 120));
+  const email = normalizeEmail(body.email);
+  const location = peepsWaitlistCleanText(body.location, 120);
+  const about = peepsWaitlistCleanText(body.about, 1500);
+  const topic = peepsWaitlistCleanText(body.topic, 1000);
+  const links = peepsWaitlistCleanText(body.links, 400);
+  if (!name || !location || !about || !topic) throw httpError(400, "Complete every required application field.");
+  if (!email || email.length > 254 || !EMAIL_PATTERN.test(email) || /[\s,;<>\"]/.test(email)) throw httpError(400, "Enter a valid email address.");
+  if (body.adult !== true || body.release !== true || body.privacy !== true) throw httpError(400, "Age confirmation, recording release and casting privacy consent are required.");
+  const joined = await db("talk_audition_apply", { id: newId("aud"), email, name, location, about, topic, links, releaseVersion: TALK_AUDITION_RELEASE_VERSION, privacyVersion: TALK_AUDITION_PRIVACY_VERSION });
+  if (!joined.created) return uniform();
+  const entry = joined.entry;
+  let confirmation = "failed", adminStatus = "failed";
+  try {
+    confirmation = auditionEmailStatus(await sendEmail({ to: entry.email, subject: "We received your Toasty Talks co-host application", html: `<p>Hi ${escapeHtml(entry.name)},</p><p>We received your application to audition for <b>Toasty Talks &amp; Takes</b>.</p><p>If selected for the next step, you will receive a private, expiring Toasty Studio recording invitation. You do not need to send a recording now.</p><p>Your application is used only for casting. To request access, correction, withdrawal or deletion, reply to this email.</p>` }));
+  } catch (error) { console.error("[Toasty Talks] applicant confirmation failed", error); }
+  await db("talk_audition_email_status", { id: entry.id, kind: "confirmation", status: confirmation });
+  const admins = await talkAuditionAdminRecipients();
+  if (admins.length) {
+    const results = await Promise.allSettled(admins.map((to) => sendEmail({ to, subject: `New Toasty Talks co-host application: ${entry.name}`, html: `<p>A new co-host application was securely saved.</p><p><b>${escapeHtml(entry.name)}</b><br>${escapeHtml(entry.email)}<br>${escapeHtml(entry.location)}</p><p>Review it in Toasty Platform Admin. Do not forward applicant details.</p>` })));
+    adminStatus = results.some((r) => r.status === "fulfilled" && r.value?.ok) ? (RESEND_API_KEY ? "sent" : "simulated") : "failed";
+  } else console.error("[Toasty Talks] no verified platform administrator email is available for audition notifications");
+  await db("talk_audition_email_status", { id: entry.id, kind: "admin", status: adminStatus });
+  return uniform();
+}
+
+async function handleTalkAuditionInviteGet(req, res, token) {
+  const result = await db("talk_audition_invite_lookup", { tokenHash: auditionTokenHash(token) });
+  if (result.state === "invalid" || result.state === "deleted") throw httpError(404, "This recording invitation is not valid.");
+  if (result.state !== "valid") return sendJson(req, res, 410, { state: result.state, error: `This recording invitation is ${result.state}.` });
+  sendJson(req, res, 200, { state: "valid", name: result.name, expiresAt: result.expiresAt, maxBytes: TALK_AUDITION_MAX_BYTES });
+}
+
+async function handleTalkAuditionRecordingSubmit(req, res, token) {
+  const tokenHash = auditionTokenHash(token);
+  const lookup = await db("talk_audition_invite_lookup", { tokenHash });
+  if (lookup.state !== "valid") throw httpError(lookup.state === "invalid" ? 404 : 410, "This recording invitation is no longer valid.");
+  const mime = String(req.headers["content-type"] || "").split(";")[0].toLowerCase();
+  if (!new Set(["video/webm", "video/mp4", "video/quicktime"]).has(mime)) throw httpError(415, "Upload a WebM, MP4 or QuickTime video.");
+  const declared = Number(req.headers["content-length"] || 0);
+  if (declared && declared > TALK_AUDITION_MAX_BYTES) throw httpError(413, "The recording is too large.");
+  await mkdir(TALK_AUDITION_RECORDINGS_DIR, { recursive: true, mode: 0o700 });
+  const ext = mime === "video/mp4" ? ".mp4" : mime === "video/quicktime" ? ".mov" : ".webm";
+  const fileName = `${lookup.auditionId}-${randomUUID()}${ext}`;
+  const finalPath = join(TALK_AUDITION_RECORDINGS_DIR, fileName), tempPath = `${finalPath}.upload`;
+  let bytes = 0; const hash = createHash("sha256");
+  const limiter = new Transform({ transform(chunk, _encoding, callback) { bytes += chunk.length; if (bytes > TALK_AUDITION_MAX_BYTES) return callback(httpError(413, "The recording is too large.")); hash.update(chunk); callback(null, chunk); } });
+  try { await pipeline(req, limiter, createWriteStream(tempPath, { mode: 0o600 })); await rename(tempPath, finalPath); }
+  catch (error) { await rm(tempPath, { force: true }); throw error; }
+  if (!bytes) { await rm(finalPath, { force: true }); throw httpError(400, "The recording was empty."); }
+  const retentionUntil = new Date(Date.now() + TALK_AUDITION_RETENTION_DAYS * 86400000).toISOString();
+  const saved = await db("talk_audition_recording_submit", { tokenHash, path: finalPath, mime, bytes, sha256: hash.digest("hex"), retentionUntil });
+  if (!saved.ok) { await rm(finalPath, { force: true }); throw httpError(saved.error === "expired" ? 410 : 409, "This recording invitation is no longer valid."); }
+  const entry = (await db("talk_audition_get", { id: saved.auditionId })).entry;
+  const admins = await talkAuditionAdminRecipients();
+  await Promise.allSettled(admins.map((to) => sendEmail({ to, subject: `Toasty Talks audition submitted: ${entry.name}`, html: `<p><b>${escapeHtml(entry.name)}</b> submitted a private audition recording.</p><p>Review it in Toasty Platform Admin. The recording is retained until ${escapeHtml(retentionUntil.slice(0,10))} unless deleted sooner.</p>` })));
+  sendJson(req, res, 201, { ok: true, message: "Your audition was submitted securely." });
+}
+
+async function handleTalkAuditionAdminList(req, res) {
+  const result = await db("talk_audition_list", { limit: 1000 });
+  sendJson(req, res, 200, { ...result, releaseVersion: TALK_AUDITION_RELEASE_VERSION, privacyVersion: TALK_AUDITION_PRIVACY_VERSION, notificationRecipients: (await talkAuditionAdminRecipients()).length, emailTransport: RESEND_API_KEY ? "resend" : "dev_not_delivered" });
+}
+
+async function handleTalkAuditionAdminInvite(req, res, session, id) {
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid audition.");
+  const current = await db("talk_audition_get", { id }); if (!current.entry) throw httpError(404, "Audition not found.");
+  const token = randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + TALK_AUDITION_INVITE_TTL_DAYS * 86400000).toISOString();
+  await db("talk_audition_invite_create", { id, inviteId: newId("audinv"), tokenHash: auditionTokenHash(token), expiresAt, createdByUserId: session.id });
+  const inviteUrl = `${APP_BASE_URL.replace(/\/$/, "")}/talks/auditions/record/?token=${encodeURIComponent(token)}`;
+  const result = await sendEmail({ to: current.entry.email, subject: "Your private Toasty Talks audition invitation", html: `<p>Hi ${escapeHtml(current.entry.name)},</p><p>We would like to hear your Toasty Talks co-host audition.</p><p><a href="${escapeHtml(inviteUrl)}">Open your private Toasty Studio recorder</a>. This invitation expires ${escapeHtml(expiresAt)} and can be used once.</p><p>Record, review and submit your video from that private page. Do not forward the link.</p>` });
+  sendJson(req, res, 200, { ok: true, expiresAt, emailDelivery: auditionEmailStatus(result), inviteUrl });
+}
+
+async function handleTalkAuditionAdminStatus(req, res, id) {
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid audition.");
+  const body = await readJson(req, 4 * 1024);
+  const result = await db("talk_audition_set_status", { id, status: String(body.status || ""), adminNote: body.adminNote == null ? null : peepsWaitlistCleanText(body.adminNote, 500) });
+  if (result.error) throw httpError(400, "Unknown audition status.");
+  sendJson(req, res, 200, { ok: true });
+}
+
+async function handleTalkAuditionAdminRecording(req, res, id) {
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid audition.");
+  const result = await db("talk_audition_get", { id });
+  if (!result.entry || !result.recordingPath || !existsSync(result.recordingPath)) throw httpError(404, "Recording not found.");
+  const size = (await stat(result.recordingPath)).size;
+  setCors(req, res); res.writeHead(200, { "Content-Type": result.entry.recordingMime || "application/octet-stream", "Content-Length": size, "Content-Disposition": `inline; filename="audition-${id}.${result.entry.recordingMime === "video/mp4" ? "mp4" : result.entry.recordingMime === "video/quicktime" ? "mov" : "webm"}`, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" });
+  await pipeline(createReadStream(result.recordingPath), res).catch(() => {});
+}
+
+async function handleTalkAuditionAdminDelete(req, res, id) {
+  if (!SAFE_ID.test(id)) throw httpError(400, "Invalid audition.");
+  const result = await db("talk_audition_delete", { id }); if (result.error) throw httpError(404, "Audition not found.");
+  if (result.recordingPath) await rm(result.recordingPath, { force: true });
+  sendJson(req, res, 200, { ok: true });
+}
+
+async function purgeExpiredTalkAuditions() {
+  try {
+    const result = await db("talk_audition_expired", { now: new Date().toISOString() });
+    for (const entry of result.entries || []) {
+      await db("talk_audition_delete", { id: entry.id });
+      if (entry.recordingPath) await rm(entry.recordingPath, { force: true });
+    }
+  } catch (error) { console.error("[Toasty Talks] retention sweep failed", error); }
+}
+setTimeout(purgeExpiredTalkAuditions, 10_000).unref?.();
+setInterval(purgeExpiredTalkAuditions, 6 * 60 * 60 * 1000).unref?.();
+
 // ---- Toasty Studio public waitlist ----
 // Interest registration from the public Studio page. Same trust model as the Peeps waitlist: no account, no access,
 // uniform success responses (a bot learns nothing), a hidden-field trap, a minimum fill time, rate limits, explicit

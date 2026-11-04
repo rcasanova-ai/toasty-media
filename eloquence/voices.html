@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Natural Voice Lab | Eloquence Protocol</title>
+<meta name="description" content="Explore naturally spoken English practice voices in Eloquence Protocol.">
+<link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png">
+<link rel="stylesheet" href="../css/toasty-site.css"><link rel="stylesheet" href="../css/home-landing.css">
+<style>
+.voice-workspace{max-width:780px;margin:0 auto;padding:4rem 1.25rem 6rem}
+.voice-card{background:#211a18;color:#fff;border:1px solid #67554a;border-radius:18px;padding:clamp(1.25rem,4vw,2rem);display:grid;gap:1.2rem}
+.voice-card label{display:grid;gap:.45rem;font-weight:700}
+.voice-card select,.voice-card textarea,.voice-card input{width:100%;font:inherit;padding:.8rem;border-radius:8px;border:1px solid #95857a;color:#20160f;background:#fff}
+.voice-card textarea{min-height:130px;resize:vertical}
+.voice-row{display:flex;gap:.75rem;flex-wrap:wrap;align-items:center}
+.voice-row button{cursor:pointer}
+.voice-card audio{width:100%}
+.voice-note{line-height:1.5;color:#f4d8b5}
+</style></head>
+<body class="ts home-landing"><header class="ts-nav"><div class="ts-wrap ts-nav__bar">
+<a class="ts-brand" href="../"><img src="../shared/brand/toasty-media/ToastyTransparent.png" alt=""><span>Toasty Media</span></a>
+<nav class="ts-nav__links" aria-label="Navigation"><a href="./">Eloquence</a><a href="../studio/">Studio</a><a href="../peeps/">Peeps</a></nav>
+</div></header>
+<main id="main" class="voice-workspace"><p class="ts-eyebrow">Eloquence Protocol · Voice Lab</p>
+<h1>Find your <em>practice voice.</em></h1>
+<p class="ts-lede">Preview natural English voices for guided communication exercises. American and British voices are available. Your text stays on your device.</p>
+<div class="voice-card">
+<label for="voiceSelect">Voice<select id="voiceSelect"><option value="af_heart">Heart (American · feminine)</option><option value="af_bella">Bella (American · feminine)</option><option value="af_sarah">Sarah (American · feminine)</option><option value="am_michael">Michael (American · masculine)</option><option value="am_adam">Adam (American · masculine)</option><option value="bf_emma">Emma (British · feminine)</option><option value="bf_isabella">Isabella (British · feminine)</option><option value="bm_george">George (British · masculine)</option><option value="bm_lewis">Lewis (British · masculine)</option></select></label>
+<label for="voiceText">Practice text<textarea id="voiceText" maxlength="350">Good communication starts with listening. Speak with clarity, give yourself time to think, and make every word count.</textarea></label>
+<label for="voiceSpeed">Speaking pace <span>0.8 to 1.2</span><input id="voiceSpeed" type="range" min="0.8" max="1.2" step="0.05" value="1"></label>
+<div class="voice-row"><button id="voiceSpeak" class="ts-btn ts-btn--primary" type="button">Generate and listen</button><button id="voiceStop" class="ts-btn ts-btn--ghost" type="button">Stop</button></div>
+<p id="voiceStatus" role="status" aria-live="polite" class="voice-note">Generate and listen downloads Kokoro’s quantized voice model on first use and caches it where the browser allows.</p>
+<audio id="voiceAudio" controls hidden></audio>
+</div><p class="voice-note">Powered by Kokoro 82M, Apache 2.0 licensed. Voices are generated locally after the initial model download. No API account or subscription is required. First use downloads approximately 92 MB plus supporting files; later visits normally reuse the browser cache. Your browser may evict cached files. Lower-powered phones may take longer or be unable to run the model.</p>
+<p><a href="./">Back to Eloquence Protocol</a></p></main>
+<script>
+// Eloquence Protocol: opt-in local English neural voice previews.
+// Model inference occurs on the listener's device. No speech text is posted to Toasty servers.
+const MODEL = "onnx-community/Kokoro-82M-v1.0-ONNX";
+// Quantized CPU model uses substantially less bandwidth than full-precision WebGPU. Cache is handled by Transformers.js.
+const VOICES = Object.freeze([
+  ["af_heart", "Heart", "American · feminine"],
+  ["af_bella", "Bella", "American · feminine"],
+  ["af_sarah", "Sarah", "American · feminine"],
+  ["am_michael", "Michael", "American · masculine"],
+  ["am_adam", "Adam", "American · masculine"],
+  ["bf_emma", "Emma", "British · feminine"],
+  ["bf_isabella", "Isabella", "British · feminine"],
+  ["bm_george", "George", "British · masculine"],
+  ["bm_lewis", "Lewis", "British · masculine"]
+]);
+const $ = id => document.getElementById(id);
+let modelPromise = null, currentUrl = null, busy = false;
+const notice = msg => { $("voiceStatus").textContent = msg; };
+function releaseAudio() { $("voiceAudio").pause(); if (currentUrl) URL.revokeObjectURL(currentUrl); currentUrl = null; $("voiceAudio").removeAttribute("src"); $("voiceAudio").load(); }
+async function loadModel() {
+  if (modelPromise) return modelPromise;
+  notice("Downloading voice model for local playback. First use can take several minutes.");
+  modelPromise = (async () => {
+    // Dynamic import defers the dependency and model download until the visitor explicitly opts in.
+    const { KokoroTTS } = await Promise.race([import("https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kokoro.web.js"), new Promise((_, reject) => setTimeout(() => reject(new Error("Voice library download timed out")), 20000))]);
+    const progress = (p) => {
+      if (p?.status === "progress" && Number.isFinite(p.progress)) {
+        notice("Downloading voice files: " + Math.round(p.progress) + "%" + (p.file ? " (" + String(p.file).split("/").pop() + ")" : ""));
+      } else if (p?.status === "initiate") {
+        notice("Checking cached voice files…");
+      } else if (p?.status === "done") {
+        notice("Voice file ready. Initializing…");
+      }
+    };
+    try {
+      if (navigator.storage?.persist) await navigator.storage.persist();
+    } catch (_) { /* browser may deny persistent storage */ }
+    return KokoroTTS.from_pretrained(MODEL, { dtype: "q8", device: "wasm", progress_callback: progress });
+  })().catch(e => { modelPromise = null; throw e; });
+  return modelPromise;
+}
+function voiceOptions() {
+  if (!$("voiceSelect").options.length) for (const [id, name, descriptor] of VOICES) {
+    const option = document.createElement("option");
+    option.value = id; option.textContent = name + " (" + descriptor + ")";
+    $("voiceSelect").append(option);
+  }
+  try {
+    const stored = localStorage.getItem("eloquence.voice");
+    if (stored && VOICES.some(v => v[0] === stored)) $("voiceSelect").value = stored;
+    $("voiceSpeed").value = localStorage.getItem("eloquence.speed") || "1";
+  } catch (_) { /* blocked storage must not break voice controls */ }
+}
+async function speak() {
+  if (busy) return;
+  const text = $("voiceText").value.trim();
+  if (!text || text.length > 350) { notice("Enter between 1 and 350 characters."); return; }
+  const voice = $("voiceSelect").value;
+  if (!VOICES.some(v => v[0] === voice)) { notice("Choose a supported voice."); return; }
+  busy = true; $("voiceSpeak").disabled = true; $("voiceSpeak").textContent = "Loading voice…"; notice("Starting neural voice engine…"); releaseAudio();
+  try {
+    const tts = await loadModel();
+    notice("Model ready. Generating speech locally…");
+    const audio = await tts.generate(text, { voice, speed: Number($("voiceSpeed").value) });
+    const blob = await audio.toBlob();
+    currentUrl = URL.createObjectURL(blob);
+    $("voiceAudio").src = currentUrl;
+    $("voiceAudio").hidden = false;
+    try { localStorage.setItem("eloquence.voice", voice); localStorage.setItem("eloquence.speed", $("voiceSpeed").value); } catch (_) {}
+    notice("Ready. Speech generated on this device.");
+    await $("voiceAudio").play().catch(() => notice("Ready. Tap play to listen."));
+  } catch (error) {
+    console.error("Eloquence voice failed:", error);
+    notice(`Voice generation failed: ${error?.message || "Unknown error"}.`);
+  } finally { busy = false; $("voiceSpeak").disabled = false; $("voiceSpeak").textContent = "Generate and listen"; }
+}
+window.__eloquenceVoiceReady = true;
+voiceOptions();
+$("voiceSpeak").addEventListener("click", speak);
+$("voiceStop").addEventListener("click", () => { releaseAudio(); notice("Stopped."); });
+window.addEventListener("pagehide", releaseAudio);
+
+</script>
+</body></html>

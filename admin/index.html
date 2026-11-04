@@ -1,1 +1,381 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Toasty Admin</title><link rel="icon" href="../shared/brand/toasty-media/ToastyTransparent.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="../css/expertise-platform.css"><script type="module" src="../js/expertise-admin.js"></script></head><body class="xp-admin-shell"><aside class="xp-admin-side"><a class="xp-app-brand" href="../"><img src="../shared/brand/toasty-media/ToastyMediaStudio.png" alt="Toasty Media"><span>Admin</span></a><nav><button class="active" data-admin-view="overview">Overview</button><button data-admin-view="workspaces">Workspace</button><button data-admin-view="users">People & Access</button><button data-admin-view="modules">Modules</button><button data-admin-view="studio">Studio Settings</button><button data-admin-view="branding">Branding</button><button data-admin-view="integrations">Integrations</button><button data-admin-view="billing">Billing & Plan</button><button data-admin-view="settings">Account Settings</button><button data-admin-view="system">System</button></nav><div class="xp-side-foot"><a href="../studio/">Open client Studio</a><a href="../">Public sales site</a></div></aside><main class="xp-admin-main"><header class="xp-app-top"><div><small>TOASTY ADMINISTRATION</small><h1 id="adminTitle">Overview</h1></div></header><section id="adminContent"></section></main></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Command Center | Toasty Media</title>
+  <link rel="stylesheet" href="../css/studio-public.css">
+  <link rel="stylesheet" href="../css/studio-settings.css">
+  <link rel="stylesheet" href="../css/platform-admin.css">
+  <script type="module" src="../js/platform-admin.js"></script>
+<style>
+.mi-dashboard{display:grid;gap:16px;margin-top:16px}.mi-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.mi-metric{padding:14px;border:1px solid #453831;border-radius:12px;background:#211b18;display:grid;gap:7px}.mi-metric span{font-size:12px;color:#c5b8ae}.mi-metric strong{font-size:clamp(19px,2vw,28px);color:#fff}.mi-columns{display:grid;grid-template-columns:1fr 1fr;gap:14px}.mi-section{padding:18px;border:1px solid #453831;border-radius:14px;background:#211b18;min-width:0}.mi-section h3{margin:0 0 15px}.mi-section h4{margin:18px 0 8px}.mi-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.mi-heading span{font-size:12px;color:#c5b8ae}.mi-rows{display:grid;gap:9px}.mi-row{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #3b302b;padding-bottom:7px;font-size:13px}.mi-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mi-row strong{flex-shrink:0}.mi-chart{height:140px;display:flex;align-items:flex-end;gap:3px;border-bottom:1px solid #695346}.mi-chart div{flex:1;background:#ff9b51;border-radius:3px 3px 0 0;min-width:2px}.mi-error{color:#ffb19d;font-size:13px}@media(max-width:850px){.mi-columns{grid-template-columns:1fr}.mi-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style></head>
+<body class="settings-shell">
+  <header class="settings-topbar platform-topbar">
+    <a href="../">← Toasty Media</a>
+    <strong>Toasty Media Platform Admin</strong>
+    <select id="platformOrgSwitcher" aria-label="Organization" hidden></select>
+    <div class="platform-account-actions" style="margin-left:auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span id="platformAccountIdentity" aria-live="polite" style="font-size:.85rem"></span>
+      <a id="platformLogin" class="btn" href="../studio/?next=%2Fadmin%2F" hidden>Sign in</a>
+      <button id="platformLogout" class="btn" type="button" hidden>Sign out</button>
+    </div>
+  </header>
+
+  <main class="platform-admin-shell">
+    <aside class="platform-admin-nav">
+      <p class="eyebrow">TOASTY MEDIA ADMIN</p>
+      <button class="platform-nav-btn is-active" data-panel="portfolio">Command Center</button>
+      <p class="platform-nav-group">OPERATIONS</p>
+      <button class="platform-nav-btn" data-panel="overview">Accounts & organizations</button>
+      <button class="platform-nav-btn" data-panel="settings">Organization</button>
+      <button class="platform-nav-btn" data-panel="members">People & access</button>
+      <a class="platform-nav-btn" href="../studio/settings.html">Customer admin view ↗</a>
+      <p class="platform-nav-group">PRODUCT & CONFIGURATION</p>
+      <button class="platform-nav-btn" data-panel="brands">Branding</button>
+      <button class="platform-nav-btn" data-panel="ai">AI providers</button>
+      <button class="platform-nav-btn" data-panel="sessions">Sessions</button>
+      <button class="platform-nav-btn" data-panel="usage">Usage & safety</button>
+      <button class="platform-nav-btn" data-panel="economics">Studio economics</button>
+      <button class="platform-nav-btn" data-panel="billing">Billing</button>
+      <button class="platform-nav-btn" data-panel="integrations">Integrations</button>
+      <p class="platform-nav-group">AUDIENCE</p>
+      <button class="platform-nav-btn" data-panel="waitlist">Peeps waitlist</button>
+      <button class="platform-nav-btn" data-panel="studiowaitlist">Studio waitlist</button>
+      <button class="platform-nav-btn" data-panel="auditions">Talks auditions</button>
+      <p class="platform-nav-group">LEARNING & PUBLISHING</p>
+      <button class="platform-nav-btn" data-panel="wonderverse">Wonderverse</button>
+    </aside>
+
+    <section class="platform-admin-main">
+      <div id="platformLoading" class="settings-card"><h2>Loading platform controls…</h2></div>
+      <div id="platformApp" hidden>
+        <section class="platform-org-heading">
+          <div>
+            <p class="eyebrow">ORGANIZATION</p>
+            <h1 id="platformOrgName">Organization</h1>
+            <p id="platformOrgMeta" class="hint"></p>
+          </div>
+          <a id="platformOpenCustomerDashboard" class="btn" href="../studio/dashboard.html">Open my dashboard</a>
+        </section>
+
+        <p id="platformMessage" class="settings-message" role="status"></p>
+
+        
+        <section class="platform-panel" data-panel-view="wonderverse">
+          <div class="settings-card"><div class="panel-heading"><div><p class="eyebrow">TOASTY MEDIA · PRODUCT OPERATIONS</p><h2>Wonderverse</h2><p class="hint">Phyll & Wisp interactive learning. This overview is available to authorized Toasty platform administrators.</p></div><a class="btn primary" href="../wonderverse/" target="_blank" rel="noopener">Open public experience ↗</a></div>
+            <div class="usage-grid">
+              <article class="usage-metric"><span>Adventure catalogue</span><strong>1 playable</strong></article>
+              <article class="usage-metric"><span>Learning challenges</span><strong>3</strong></article>
+              <article class="usage-metric"><span>Parent accounts</span><strong>Not enabled</strong></article>
+              <article class="usage-metric"><span>Child data collection</span><strong>None in MVP</strong></article>
+            </div>
+          </div>
+          <div class="settings-card"><h2>Product surfaces</h2><p class="hint">The public page is the customer-facing discovery and interactive adventure surface. The parent view shows progress stored on the same device. No cross-device records or child profiles are available yet.</p><div class="button-row"><a class="btn primary" href="../wonderverse/" target="_blank" rel="noopener">Public product page ↗</a><a class="btn" href="../wonderverse/parents/" target="_blank" rel="noopener">Parent experience ↗</a><a class="btn" href="../wonderverse/#adventure" target="_blank" rel="noopener">Playable Chapter 1 ↗</a></div></div>
+          <div class="settings-card"><h2>Learning content</h2><div class="platform-stack"><div class="settings-card"><strong>Chapter 1: The Missing Star Seeds</strong><p class="hint">Three scripted challenges: recognize a repeating pattern, assess a possible solution, and evaluate a claim. Narration uses browser speech synthesis when supported.</p><span class="hint">Published in repository · release status depends on deployment</span></div></div></div>
+          <div class="settings-card"><h2>Operations & safety</h2><p class="hint">No freeform AI interaction, paid plans, child accounts, or data ingestion are enabled. Child activity is not available to this dashboard because progress remains in each visitor's browser.</p><p class="hint">Before adding parental accounts, content CRUD, usage metrics, or subscriptions, Wonderverse needs secured server-side storage, parental verification and consent handling, and purpose-specific child-data protections. Controls will only appear here when backed by working platform APIs.</p></div>
+        </section>
+
+        <section class="platform-panel is-active" data-panel-view="portfolio">
+          <div class="settings-card">
+            <h2>Daily command center</h2>
+            <p class="hint">Your existing platform administrator account is the only entry point. These panels distinguish verified data from connections still being configured.</p>
+            <div class="usage-grid" id="paPortfolioSummary"></div>
+          </div>
+          <div class="settings-card">
+            <h2>New signups and waitlists</h2>
+            <p class="hint">The existing Toasty organization directory, Studio waitlist, Peeps waitlist and auditions remain under their current secured administrator sections. External property feeds will be connected independently without exposing customer data.</p>
+            <div class="button-row">
+              <button class="btn" type="button" data-go-platform="overview">Customers</button>
+              <button class="btn" type="button" data-go-platform="studiowaitlist">Studio waitlist</button>
+              <button class="btn" type="button" data-go-platform="waitlist">Peeps waitlist</button>
+              <button class="btn" type="button" data-go-platform="auditions">Auditions</button>
+            </div>
+          </div>
+          <div class="settings-card">
+            <h2>Marketing Intelligence</h2>
+            <p class="hint">Verified Google Analytics and Search Console data. Explore traffic, acquisition, content performance and organic search.</p>
+            <div class="button-row"><a class="btn primary" id="paConnectGoogle" href="https://render.toasty.media/integrations/google-reporting/oauth/start">Connect Google Analytics &amp; Search Console</a><button class="btn" id="paRefreshGoogle" type="button">Refresh reports</button></div><p class="hint" id="paGoogleConnectionStatus" aria-live="polite"></p><div id="paGoogleReporting" class="mi-dashboard" aria-live="polite"><article class="settings-card"><h3>Google reporting</h3><p>Loading verified metrics…</p></article></div>
+          </div>
+          <div class="settings-card">
+            <h2>Across your properties</h2>
+            <p class="hint">External links for navigation. Cross-project account data will only be added through approved, access-controlled integrations.</p>
+            <div class="button-row">
+              <a class="btn" href="../ponderings/">Ponderings</a>
+              <a class="btn" href="../about/">Toasty Media</a>
+              <a class="btn" href="https://8alta.com" rel="noopener noreferrer" target="_blank">8ALTA</a>
+              <a class="btn" href="https://santaticrm.com" rel="noopener noreferrer" target="_blank">Santati CRM</a>
+            </div>
+          </div>
+        </section>
+
+        <section class="platform-panel is-active" data-panel-view="overview">
+          <div class="settings-card platform-customer-directory">
+            <div class="panel-heading">
+              <div><h2>Customers & organizations</h2><p class="hint">Select any customer to inspect and manage their Studio configuration.</p></div>
+              <input id="paOrgSearch" type="search" placeholder="Search customers…" aria-label="Search customers">
+            </div>
+            <div id="paOrganizationDirectory" class="platform-org-directory"></div>
+          </div>
+          <div id="platformStatus" class="usage-grid"></div>
+          <div class="settings-card">
+            <h2>Account controls</h2>
+            <div class="form-grid four">
+              <label>Plan<select id="paPlan"></select></label>
+              <label>Subscription status<select id="paSubscription"></select></label>
+              <label>Onboarding<select id="paOnboarding"><option value="complete">Complete</option><option value="reset">Needs onboarding</option></select></label>
+              <label>Active brand<select id="paActiveBrand"></select></label>
+            </div>
+            <div class="button-row">
+              <button id="paSaveAccount" class="btn primary" type="button">Save account controls</button>
+              <button id="paResetUsage" class="btn" type="button">Reset all usage</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="settings">
+          <div class="settings-card">
+            <h2>Organization identity</h2>
+            <div class="form-grid two">
+              <label>Name<input id="paOrgName" type="text"></label>
+              <label>Slug<input id="paOrgSlug" type="text"></label>
+              <label>Website<input id="paWebsite" type="url"></label>
+              <label>Booking URL<input id="paBooking" type="url"></label>
+              <label>Support email<input id="paSupportEmail" type="email"></label>
+              <label>Timezone<input id="paTimezone" type="text"></label>
+            </div>
+            <button id="paSaveOrg" class="btn primary" type="button">Save organization</button>
+          </div>
+
+          <div class="settings-card">
+            <h2>Organization defaults</h2>
+            <p class="hint">Structured JSON used by the existing customer settings surfaces. Editing here changes the same underlying settings.</p>
+            <label>Default session settings<textarea id="paDefaultSession" rows="7"></textarea></label>
+            <label>Default CTA<textarea id="paDefaultCTA" rows="7"></textarea></label>
+            <label>Default end screen<textarea id="paDefaultEndCard" rows="7"></textarea></label>
+            <label>Social links<textarea id="paSocialLinks" rows="7"></textarea></label>
+            <label>Custom domain foundation<textarea id="paDomainConfig" rows="7"></textarea></label>
+            <button id="paSaveDefaults" class="btn primary" type="button">Save defaults</button>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="members">
+          <div class="settings-card">
+            <div class="panel-heading"><div><h2>People & access</h2><p class="hint">Roles and account status are platform-authoritative here.</p></div></div>
+            <h3>Create login now</h3>
+            <p class="hint">Create a customer member immediately with a temporary password. Their account is locked to this customer's Studio brand.</p>
+            <div class="form-grid four">
+              <label>Name<input id="paCreateName" type="text" placeholder="Customer name"></label>
+              <label>Email<input id="paCreateEmail" type="email" placeholder="name@example.com"></label>
+              <label>Temporary password<input id="paCreatePassword" type="password" autocomplete="new-password" placeholder="10+ characters"></label>
+              <label>Role<select id="paCreateRole"><option value="admin">Admin</option><option value="member">Member</option><option value="viewer">Viewer</option></select></label>
+            </div>
+            <button id="paCreateMember" class="btn primary" type="button">Create customer login</button>
+            <h3>Or send an invite</h3>
+            <div class="form-grid three">
+              <label>Invite email<input id="paInviteEmail" type="email" placeholder="name@example.com"></label>
+              <label>Role<select id="paInviteRole"><option value="member">Member</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></label>
+              <label>&nbsp;<button id="paInviteMember" class="btn" type="button">Send invite</button></label>
+            </div>
+            <div class="form-grid two"><label>Search people<input id="paMembersSearch" type="search" placeholder="Name or email"></label><label>Account status<select id="paMembersFilter"><option value="all">All accounts</option><option value="active">Active</option><option value="suspended">Suspended</option></select></label></div>
+            <div class="table-wrap">
+              <table class="settings-table">
+                <thead><tr><th>Person</th><th>Role</th><th>Account</th><th>Actions</th></tr></thead>
+                <tbody id="paMembers"></tbody>
+              </table>
+            </div>
+            <h3>Pending invites</h3>
+            <div id="paPendingInvites" class="platform-stack"></div>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="brands">
+          <div class="settings-card">
+            <div class="panel-heading"><div><h2>Brand profiles</h2><p class="hint">Edit the same organization-owned BrandProfiles used throughout Toasty.</p></div><button id="paNewBrand" class="btn" type="button">New profile</button></div>
+            <div id="paBrands" class="platform-stack"></div>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="ai">
+          <div class="settings-card">
+            <h2>AI providers</h2>
+            <p class="hint">You can add, replace, activate, revoke or delete customer BYOK credentials. Saved keys are never revealed here. Your founder DeepSeek key remains a platform-admin-only fallback for your own requests.</p>
+            <div class="form-grid three">
+              <label>Provider<select id="paAiProvider"><option value="deepseek">DeepSeek</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Gemini</option></select></label>
+              <label>API key<input id="paAiKey" type="password" autocomplete="new-password" placeholder="Paste key"></label>
+              <label>&nbsp;<button id="paSaveAiKey" class="btn primary" type="button">Save / replace key</button></label>
+            </div>
+            <div id="paAiProviders" class="platform-stack"></div>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="sessions">
+          <div class="settings-card">
+            <h2>Sessions</h2>
+            <div class="table-wrap">
+              <table class="settings-table">
+                <thead><tr><th>Session</th><th>Status</th><th>Created</th><th>Owner</th><th>Action</th></tr></thead>
+                <tbody id="paSessions"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="usage">
+          <div id="paUsageCards" class="usage-grid"></div>
+
+          <div class="settings-card">
+            <h2>AI model usage</h2>
+            <p class="hint">Actual provider/model telemetry from customer BYOK calls and founder-authorized AI calls. Estimated cost is informational and depends on provider usage metadata.</p>
+            <div id="paAiUsageCards" class="usage-grid"></div>
+            <div class="table-wrap">
+              <table class="settings-table">
+                <thead><tr><th>Provider / model</th><th>Calls</th><th>Input</th><th>Output</th><th>Total tokens</th><th>Est. cost</th><th>Avg latency</th></tr></thead>
+                <tbody id="paAiModels"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <h2>AI usage by session</h2>
+            <p class="hint">Compare sessions directly, including sessions with zero recorded model usage.</p>
+            <div class="table-wrap">
+              <table class="settings-table">
+                <thead><tr><th>Session</th><th>Status</th><th>Calls</th><th>Input</th><th>Output</th><th>Total tokens</th><th>Est. cost</th><th>vs avg</th></tr></thead>
+                <tbody id="paAiSessions"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <h2>AI usage by feature</h2>
+            <div id="paAiFeatures" class="platform-stack"></div>
+          </div>
+
+          <div class="settings-card">
+            <h2>Recent AI calls</h2>
+            <div class="table-wrap">
+              <table class="settings-table">
+                <thead><tr><th>When</th><th>Session</th><th>Feature</th><th>Provider / model</th><th>Tokens</th><th>Est. cost</th><th>Latency</th></tr></thead>
+                <tbody id="paAiRecent"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <h2>Platform safety switches</h2>
+            <div id="paSafety" class="platform-stack"></div>
+          </div>
+        </section>
+
+
+        <section class="platform-panel" data-panel-view="auditions">
+          <div class="settings-card"><div class="panel-heading"><div><h2>Toasty Talks auditions</h2><p class="hint">Private casting records and recordings. Invitations expire, are single-use and are sent only from this control.</p></div><button id="paAuditionsRefresh" class="btn" type="button">Refresh</button></div><p id="paAuditionsEmail" class="hint"></p><div id="paAuditionsSummary" class="usage-grid"></div></div>
+          <div class="settings-card"><div class="panel-heading"><h3>Applicants</h3><input id="paAuditionsSearch" type="search" placeholder="Search name, email, location…" aria-label="Search auditions"></div><div style="overflow-x:auto"><table class="settings-table" id="paAuditionsTable"><thead><tr><th>Applied</th><th>Applicant</th><th>Application</th><th>Status</th><th>Recording</th><th>Retention</th><th>Actions</th></tr></thead><tbody></tbody></table></div></div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="studiowaitlist">
+          <div class="settings-card">
+            <div class="panel-heading"><div><h2>Studio waitlist</h2><p class="hint">Private. Visible only to platform administrators. People who registered interest from the public Studio page, each with the consent they gave and when. A waitlist entry is not an account.</p></div><div><button id="paStudioWaitlistRefresh" class="btn" type="button">Refresh</button> <a id="paStudioWaitlistCsv" class="btn" href="#" download="studio-waitlist.csv">Export CSV</a></div></div>
+            <p id="paStudioWaitlistEmail" class="hint"></p>
+            <div id="paStudioWaitlistSummary" class="usage-grid"></div>
+            <div id="paStudioWaitlistBreakdown" class="hint"></div>
+          </div>
+          <div class="settings-card">
+            <div class="panel-heading"><h3>Registrations</h3><input id="paStudioWaitlistSearch" type="search" placeholder="Search name, email, company…" aria-label="Search Studio waitlist"></div>
+            <div style="overflow-x:auto"><table class="settings-table" id="paStudioWaitlistTable"><thead><tr><th>Registered</th><th>Name / email</th><th>Company</th><th>Interest</th><th>Status</th><th>Consent</th><th>Confirmation email</th></tr></thead><tbody></tbody></table></div>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="waitlist">
+          <div class="settings-card">
+            <div class="panel-heading"><div><h2>Peeps waitlist</h2><p class="hint">Private. Visible only to platform administrators. A waitlist entry is not an account and grants no access until you invite the person and they accept.</p></div><button id="paWaitlistRefresh" class="btn" type="button">Refresh</button></div>
+            <p id="paWaitlistEmail" class="hint"></p>
+            <div id="paWaitlistSummary" class="usage-grid"></div>
+          </div>
+          <div class="settings-card">
+            <h3>By interest and country</h3>
+            <div id="paWaitlistBreakdown" class="hint"></div>
+          </div>
+          <div class="settings-card">
+            <div class="panel-heading"><h3>Registrations</h3><input id="paWaitlistSearch" type="search" placeholder="Search name, email, country…" aria-label="Search waitlist"></div>
+            <div style="overflow-x:auto"><table class="settings-table" id="paWaitlistTable"><thead><tr><th>Registered</th><th>Name / email</th><th>Country · city</th><th>Interest</th><th>Access</th><th>Invitation</th><th>Confirmation email</th><th></th></tr></thead><tbody></tbody></table></div>
+          </div>
+          <div class="settings-card">
+            <div class="panel-heading"><div><h3>Colosseum evaluation accounts</h3><p class="hint">Ordinary Peeps accounts with no admin access, one per judge so sessions never mix. Passwords are shown once below; copy them now, they are not stored in readable form.</p></div></div>
+            <label class="hint">How many accounts (colosseum@, colosseum2@ … @toasty.media) <input id="paEvalCount" type="number" min="1" max="10" value="1" style="width:5rem"></label>
+            <label class="hint"><input id="paEvalReset" type="checkbox"> Reset passwords of existing evaluation accounts</label>
+            <button class="btn" id="paEvalCreate" type="button">Create evaluation accounts</button>
+            <pre id="paEvalOut" class="hint" style="white-space:pre-wrap;user-select:all"></pre>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="economics">
+          <div id="paEconomicsCards" class="usage-grid"></div>
+
+          <div class="settings-card">
+            <div class="panel-heading">
+              <div>
+                <h2>Studio cost meter</h2>
+                <p class="hint">Platform-only marginal cost telemetry. Browser-local recording is not billed as server media usage. Live broadcasts record actual ingress, RTMP egress, encoder time and AI cost.</p>
+              </div>
+            </div>
+            <div id="paEconomicsRates" class="platform-stack"></div>
+          </div>
+
+          <div class="settings-card">
+            <h2>Cost by session</h2>
+            <div class="table-wrap">
+              <table class="settings-table">
+                <thead><tr><th>Session</th><th>Broadcast time</th><th>Destinations</th><th>Ingress</th><th>Egress</th><th>Encoder</th><th>Broadcast cost</th><th>AI cost</th><th>Total</th></tr></thead>
+                <tbody id="paEconomicsSessions"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <h2>Recent broadcasts</h2>
+            <div class="table-wrap">
+              <table class="settings-table">
+                <thead><tr><th>Ended</th><th>Session</th><th>Destinations</th><th>Duration</th><th>Ingress</th><th>Egress</th><th>Est. cost</th></tr></thead>
+                <tbody id="paEconomicsRecent"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="billing">
+          <div class="settings-card">
+            <h2>Billing account</h2>
+            <div class="form-grid three">
+              <label>Billing email<input id="paBillingEmail" type="email"></label>
+              <label>Currency<input id="paCurrency" type="text"></label>
+              <label>Preferred payment method<input id="paPaymentMethod" type="text"></label>
+            </div>
+            <p class="hint" id="paStripeCustomer"></p>
+            <button id="paSaveBilling" class="btn primary" type="button">Save billing account</button>
+          </div>
+          <div class="settings-card">
+            <h2>Subscriptions</h2>
+            <div id="paSubscriptions" class="platform-stack"></div>
+          </div>
+          <div class="settings-card">
+            <h2>Payment intents</h2>
+            <div id="paPaymentIntents" class="platform-stack"></div>
+          </div>
+        </section>
+
+        <section class="platform-panel" data-panel-view="integrations">
+          <div class="settings-card">
+            <h2>Integrations</h2>
+            <div class="integration-row"><div><strong>Santati</strong><p class="hint">CRM & relationship intelligence</p></div><span>Coming soon: Connect Santati</span></div>
+            <div class="integration-row"><div><strong>Google Drive</strong><p class="hint">User-level connection. Platform Admin does not expose OAuth tokens.</p></div><span>Managed by the connected user</span></div>
+            <div class="integration-row"><div><strong>Custom domains</strong><p class="hint">Foundation data only. No fake provisioning state.</p></div><span>Coming soon</span></div>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
