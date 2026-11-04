@@ -137,7 +137,7 @@ peaks above -1 dBTP it is re-rendered once with the error corrected, and the pag
 Silence handling is dead-air removal (above). Synchronization is preserved because audio and picture come from the same media element;
 cuts that remove no time keep the same element playing, and shots that jump are prepared on the second element before they are needed.
 
-Each shot's player is started 75 ms before its cut because a player needs 70 to 80 ms to start producing sound. That latency is machine dependent: measured shot audio sits 20 to 60 ms from the plan on a laptop and up to 120 ms on a shared CI runner (picture and sound stay within about 65 ms of each other). The test therefore gates on shot-to-shot jitter and on picture/sound agreement, and only reports the absolute offset.
+Each shot's player is started 75 ms before its cut because a player needs 70 to 80 ms to start producing sound. That latency is machine dependent: measured shot audio sits 20 to 60 ms from the plan on a laptop and up to 120 ms on a shared CI runner (picture and sound stay within about 65 ms of each other). Captions, graphics and typography follow the plan clock, so on a slow machine they can lead the speech by that start latency (up to about a quarter of a second on the slowest CI runner seen). Calibrating the player start latency at run time is a known follow-up; reading `currentTime` is not a reliable measure of it, because position advances before sound is audible. The test therefore gates on shot-to-shot jitter and on picture/sound agreement, and only reports the absolute offset.
 
 Sound accents and music are synthesized in the browser (OfflineAudioContext). There is no sample library, so nothing to license.
 
