@@ -86,7 +86,7 @@ export function onsets(envDb, hopMs, { riseDb = 9, floorDb = -62, minGapS = 0.25
 // Speech intelligibility and sync, shot by shot. For every shot of the plan, the voice-band level pattern (20 ms) of the export is
 // compared with the same stretch of the ORIGINAL voice, allowing a small search in time. A high correlation means the voice reaches the
 // listener intact under the music and accents; the best offset is how far the shot's audio sits from where the plan put it.
-export function alignShots({ ref, out, plan, sr = 16000, hopMs = 20, search = 8, floorDb = -50 }) {
+export function alignShots({ ref, out, plan, sr = 16000, hopMs = 20, search = 15, floorDb = -50 }) {
   const intro = plan.timeline.intro, hop = hopMs / 1000;
   const parts = plan.segments.map((s) => ref.subarray(Math.floor(s.srcStart * sr), Math.floor(s.srcEnd * sr)));
   const join = new Float32Array(parts.reduce((n, q) => n + q.length, 0)); { let o = 0; for (const q of parts) { join.set(q, o); o += q.length; } }
