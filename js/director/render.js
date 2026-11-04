@@ -14,7 +14,7 @@ import { drawDirectorFrame, makeSurfaces } from "./draw.js";
 import { judgeRendered, LOUDNESS_TOLERANCE_LU, measureRendered, planClipAudio, TRUE_PEAK_LIMIT_DBTP, TRUE_PEAK_TARGET_DBTP, WARNING_TEXT } from "../clip-loudness.js";
 import { SPEECH_TARGET_LUFS } from "../loudness-plan.js";
 
-const PREROLL = 0.075;                                 // a player takes about this long to start producing picture and sound after play() (measured: 70-80 ms), so it is started this early
+const PREROLL_DEFAULT = 0.075;                                 // a player takes about this long to start producing picture and sound after play() (measured: 70-80 ms), so it is started this early at first; then the latency measured on this machine is used
 
 export async function buildAudioBed(plan) {
   const total = plan.timeline.total;
@@ -41,7 +41,11 @@ async function renderPlanOnce({ source, plan, onProgress, signal, audio = {}, be
     const mixer = new AudioWorkletNode(actx, "toasty-clip-mixer", { numberOfInputs: 3, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { enhance: plan.audio.enhance !== false, musicGainDb: m ? m.gainDb : -60, duckDb: m ? m.duckDb : -14, preGainDb: audio.preGainDb, noiseReduction: audio.noiseReduction === true, ceilingDb: audio.ceilingDb, targetRmsDb: audio.targetRmsDb } });
     const dest = actx.createMediaStreamDestination(); dest.channelCount = 2; dest.channelCountMode = "explicit";
     mixer.connect(dest);
-    videos.forEach((v) => { v.muted = false; v.volume = 1; actx.createMediaElementSource(v).connect(mixer, 0, 0); });
+    // each shot player feeds the mixer and a tap that lets the renderer hear when speech actually becomes audible
+    const taps = videos.map((v) => { v.muted = false; v.volume = 1; const src = actx.createMediaElementSource(v); src.connect(mixer, 0, 0); const an = actx.createAnalyser(); an.fftSize = 1024; src.connect(an); return an; });
+    const tapBuf = new Float32Array(1024);
+    // test hook: delay every player start, to prove the timing holds on a slow machine
+    const startPlayer = (v) => { const d = Number(globalThis.__directorTestStartDelayMs) || 0; if (d > 0) { if (v.__startPending) return; v.__startPending = true; setTimeout(() => { v.__startPending = false; v.play().catch(() => {}); }, d); } else v.play().catch(() => {}); };
     const { musicBuf, fxBuf } = bed || await buildAudioBed(plan);
     let musicNode = null, fxNode = null;
     if (musicBuf) { musicNode = actx.createBufferSource(); musicNode.buffer = musicBuf; musicNode.connect(mixer, 0, 1); }
@@ -73,7 +77,13 @@ async function renderPlanOnce({ source, plan, onProgress, signal, audio = {}, be
     const stopped = new Promise((res) => { recorder.onstop = res; });
     await actx.resume();
 
-    let finished = false, lastBoost = null, drift = 0, startedFirst = false;
+    let finished = false, lastBoost = null, drift = 0, startedFirst = false, PREROLL = PREROLL_DEFAULT, overlayLag = 0;
+    // Player start latency is the machine's, not the plan's: a player takes 40 to 260 ms to start producing sound after play(). The first spoken word of each
+    // shot is expected at a known time (the plan's words), so when the tap hears speech begin, the difference is the lag. It moves the caption, typography and
+    // graphics clock to where the speech actually is, and makes later shots start earlier by that amount.
+    const firstWord = new Map(); for (const w of plan.words) if (!firstWord.has(w.seg)) firstWord.set(w.seg, w.start);
+    const lags = [], measured = new Set(), ring = [];
+    const clampN = (v, a, b) => Math.max(a, Math.min(b, v)), median = (a) => { const q = [...a].sort((x, y) => x - y); return q.length ? q[Math.floor(q.length / 2)] : 0; };
     const timing = [];                                    // for diagnostics: planned vs actual source time at each switch
     const t0 = performance.now();
     recorder.start(1000); musicNode?.start(); fxNode?.start();
@@ -86,23 +96,33 @@ async function renderPlanOnce({ source, plan, onProgress, signal, audio = {}, be
           const c = st.c, seg = segs[st.seg];
           // start the incoming player slightly early; switch exactly at the cut
           const ahead = curSeg >= 0 ? nextBreak(curSeg) : -1;
-          if (ahead > 0 && prepared === ahead && prerolled !== ahead && c >= segs[ahead].outStart - PREROLL && c < segs[ahead].outStart) { prerolled = ahead; videos[1 - cur].play().catch(() => {}); }
+          if (ahead > 0 && prepared === ahead && prerolled !== ahead && c >= segs[ahead].outStart - PREROLL && c < segs[ahead].outStart) { prerolled = ahead; startPlayer(videos[1 - cur]); }
           if (st.seg !== curSeg) {
-            if (curSeg < 0) { cur = 0; if (videos[0].paused) videos[0].play().catch(() => {}); }
+            if (curSeg < 0) { cur = 0; if (videos[0].paused) startPlayer(videos[0]); }
             else if (!contiguous(curSeg, st.seg)) {
               videos[cur].pause(); cur = 1 - cur;
               const v = videos[cur];
               if (prepared !== st.seg) { v.currentTime = Math.max(0, seg.srcStart + (c - seg.outStart)); }
-              if (v.paused) v.play().catch(() => {});
+              if (v.paused) startPlayer(v);
               timing.push({ seg: st.seg, at: +c.toFixed(3), expected: +seg.srcStart.toFixed(3), actual: +v.currentTime.toFixed(3) });
             }
             curSeg = st.seg; env.video = videos[cur];
             const nb = nextBreak(curSeg);
             if (nb > 0) { const idle = videos[1 - cur]; idle.pause(); idle.currentTime = segs[nb].srcStart; prepared = nb; } else prepared = -1;
           }
+          taps[cur].getFloatTimeDomainData(tapBuf); let e2 = 0; for (let i = 0; i < tapBuf.length; i++) e2 += tapBuf[i] * tapBuf[i];
+          const db = 10 * Math.log10(e2 / tapBuf.length + 1e-12); ring.push(db); if (ring.length > 45) ring.shift();
+          const E = firstWord.get(st.seg);
+          if (E != null && !measured.has(st.seg) && (st.seg === 0 || !contiguous(st.seg - 1, st.seg))) {
+            if (c > E + 1) measured.add(st.seg);
+            else if (db > Math.max(-50, Math.min(...ring) + 14)) {
+              measured.add(st.seg); const lag = clampN(c - E - 0.03, 0, 0.45); lags.push({ seg: st.seg, lag: +lag.toFixed(3) });
+              if (!globalThis.__directorTestNoLagCompensation) { overlayLag = median(lags.slice(-3).map((q) => q.lag)); PREROLL = clampN(PREROLL + lag * 0.8, 0.04, 0.35); }       // (the switch is a test hook: a negative control for the alignment test)
+            }
+          }
           const v = videos[cur], expected = st.srcTime;
-          if (Math.abs(v.currentTime - expected) > 0.25 && !v.seeking) { v.currentTime = expected; drift++; }
-        } else if (st.phase === "intro" && introT - st.T <= PREROLL && videos[0].paused && !startedFirst) { startedFirst = true; videos[0].play().catch(() => {}); }
+          if (Math.abs(v.currentTime - expected) > 0.25 && !v.seeking && !v.paused) { v.currentTime = expected; drift++; }
+        } else if (st.phase === "intro" && introT - st.T <= PREROLL && videos[0].paused && !startedFirst) { startedFirst = true; startPlayer(videos[0]); }
         else if (st.phase === "outro") videos.forEach((v) => { if (!v.paused) v.pause(); });
         env.video = videos[cur];
         if (st.phase === "content") for (const b of plan.broll || []) {
@@ -111,7 +131,9 @@ async function renderPlanOnce({ source, plan, onProgress, signal, audio = {}, be
           else if (s0 === "ready" && st.c >= b.start) { v.play().catch(() => {}); brollState.set(key, "playing"); }
           else if (s0 === "playing" && st.c > b.end) { v.pause(); brollState.set(key, "done"); }
         }
-        drawDirectorFrame(ctx, st, plan, env);
+        let stDraw = st;
+        if (st.phase === "content" && overlayLag > 0.01) { const o = frameState(plan, Math.min(total, st.T - overlayLag)); if (o.phase === "content") stDraw = { ...st, c: o.c, captions: o.captions, typography: o.typography, graphics: o.graphics }; }
+        drawDirectorFrame(ctx, stDraw, plan, env);
         // no voice in the cards: lift the music a little there
         const boost = st.phase === "content" ? 0 : 6;
         if (boost !== lastBoost) { lastBoost = boost; mixer.port.postMessage({ musicBoostDb: boost }); }
@@ -127,7 +149,7 @@ async function renderPlanOnce({ source, plan, onProgress, signal, audio = {}, be
     recorder.stop(); await stopped;
     const blob = new Blob(out, { type: mime.split(";")[0] });
     if (!blob.size) throw new Error("The render produced no data.");
-    return { blob, mimeType: mime, container, width: W, height: H, seconds: total, aspect: plan.aspect, diagnostics: { driftCorrections: drift, switches: timing, mixer: mixerStats } };
+    return { blob, mimeType: mime, container, width: W, height: H, seconds: total, aspect: plan.aspect, diagnostics: { speechLag: { measured: lags, overlayLag: +overlayLag.toFixed(3), preroll: +PREROLL.toFixed(3) }, driftCorrections: drift, switches: timing, mixer: mixerStats } };
   } finally {
     cleanup.forEach((fn) => { try { fn(); } catch (_) {} });
     try { await actx.close(); } catch (_) {}
