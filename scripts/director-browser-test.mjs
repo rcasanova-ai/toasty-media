@@ -214,13 +214,13 @@ if (!VERIFY_ONLY && want("align")) {
   const slow = await measure("player starts 250 ms late, energy 16:9", "energy", "16:9", 250);
   const drift = slow.signed - normal.signed;
   assert(slow.errs.length >= 4 && Math.abs(drift) <= 0.1 && slow.p90 <= 0.45, `and when every player starts 250 ms late the captions still sit with the speech: ${(drift * 1000).toFixed(0)} ms from the normal render (limit 100 ms), 90th percentile |error| ${(slow.p90 * 1000).toFixed(0)} ms`);
-  assert(slow.diag.speechLag.overlayLag >= 0.1, `the renderer measured the late start itself (overlay lag ${slow.diag.speechLag.overlayLag} s, pre-roll raised to ${slow.diag.speechLag.preroll} s)`);
+  assert((slow.diag.speechLag.warmUp ?? 0) >= 0.15 && slow.diag.speechLag.preroll >= 0.2, `the renderer measured the late start itself before recording (warm-up latency ${slow.diag.speechLag.warmUp} s, pre-roll raised from 0.075 to ${slow.diag.speechLag.preroll} s, residual overlay lag ${slow.diag.speechLag.overlayLag} s)`);
   const control = await measure("negative control, 250 ms late and no compensation", "energy", "16:9", 250, true);
   const cdrift = control.signed - normal.signed;
   assert(Math.abs(cdrift) > 0.1, `negative control: with the compensation switched off the same late start moves the captions ${(cdrift * 1000).toFixed(0)} ms away from the speech, so this test would catch the problem`);
   const slowClean = await measure("player starts 250 ms late, clean 16:9", "clean", "16:9", 250);
   assert(slowClean.errs.length >= 3 && slowClean.med <= 0.4, `the same holds for Clean Professional captions (median |error| ${(slowClean.med * 1000).toFixed(0)} ms over ${slowClean.errs.length} shots)`);
-  report.alignment = { normal: { medianMs: Math.round(normal.med * 1000), p90Ms: Math.round(normal.p90 * 1000), n: normal.errs.length }, slow250: { driftFromNormalMs: Math.round(drift * 1000), negativeControlDriftMs: Math.round(cdrift * 1000), medianMs: Math.round(slow.med * 1000), p90Ms: Math.round(slow.p90 * 1000), n: slow.errs.length, overlayLag: slow.diag.speechLag.overlayLag }, slow250clean: { medianMs: Math.round(slowClean.med * 1000), n: slowClean.errs.length } };
+  report.alignment = { normal: { medianMs: Math.round(normal.med * 1000), p90Ms: Math.round(normal.p90 * 1000), n: normal.errs.length }, slow250: { warmUp: slow.diag.speechLag.warmUp, preroll: slow.diag.speechLag.preroll, driftFromNormalMs: Math.round(drift * 1000), negativeControlDriftMs: Math.round(cdrift * 1000), medianMs: Math.round(slow.med * 1000), p90Ms: Math.round(slow.p90 * 1000), n: slow.errs.length, overlayLag: slow.diag.speechLag.overlayLag }, slow250clean: { medianMs: Math.round(slowClean.med * 1000), n: slowClean.errs.length } };
   await page.evaluate(() => { window.__directorTestStartDelayMs = 0; });
 }
 
