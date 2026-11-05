@@ -85,7 +85,7 @@ async function renderPlanOnce({ source, plan, onProgress, signal, audio = {}, be
           else if (db > Math.max(-50, Math.min(...floorSamples, -50) + 14)) { heard = performance.now(); break; }
         }
         v.pause(); v.__gain.gain.value = 1;
-        if (heard != null) { warmLatency = Math.max(0, Math.min(0.45, (heard - tPlay) / 1000 - lead - 0.03)); PREROLL = Math.max(0.04, Math.min(0.35, warmLatency)); }
+        if (heard != null) { warmLatency = Math.max(0, Math.min(0.45, (heard - tPlay) / 1000 - lead - 0.03)); PREROLL = Math.max(PREROLL_DEFAULT, Math.min(0.35, warmLatency)); }
         if (nb0 > 0) await seekTo(v, segs[nb0].srcStart);
       }
     } catch (_) { /* the default pre-roll is used */ }
@@ -138,7 +138,7 @@ async function renderPlanOnce({ source, plan, onProgress, signal, audio = {}, be
             if (c > E + 1) measured.add(st.seg);
             else if (db > Math.max(-50, Math.min(...ring) + 14)) {
               measured.add(st.seg); const lag = clampN(c - E - 0.03, 0, 0.45); lags.push({ seg: st.seg, lag: +lag.toFixed(3) });
-              if (!globalThis.__directorTestNoLagCompensation) { overlayLag = median(lags.slice(-3).map((q) => q.lag)); PREROLL = clampN(PREROLL + lag * 0.8, 0.04, 0.35); }       // (the switch is a test hook: a negative control for the alignment test)
+              if (!globalThis.__directorTestNoLagCompensation) { overlayLag = median(lags.slice(-3).map((q) => q.lag)); PREROLL = clampN(PREROLL + lag * 0.8, PREROLL_DEFAULT, 0.35); }       // (the switch is a test hook: a negative control for the alignment test)
             }
           }
           const v = videos[cur], expected = st.srcTime;
