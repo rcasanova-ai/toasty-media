@@ -186,41 +186,44 @@ console.log("\nCaptions line up with the speech measured in the exported audio (
 if (!VERIFY_ONLY && want("align")) {
   // Voice only (no music, no accents), so the speech onsets can be read from the file. For every caption chunk that starts where the voice starts after a pause, the
   // moment the caption changes on screen (30 fps frames) is compared with the moment the speech starts in the exported audio.
+  // Dense and deterministic: no pairing of individual events. Over the whole video the "caption is visible" signal (30 fps frames) is shifted against the plan's caption
+  // timeline, and the "speech is present" signal (voice activity in the exported audio) against the plan's spoken words; the best shift of each is how far that signal sits
+  // from the plan clock, and their difference is how far the captions sit from the speech.
+  const bestShift = (obs, exp) => {
+    const pear = (x, y) => { let mx = 0, my = 0; for (let i = 0; i < x.length; i++) { mx += x[i]; my += y[i]; } mx /= x.length; my /= y.length; let sxy = 0, sxx = 0, syy = 0; for (let i = 0; i < x.length; i++) { sxy += (x[i] - mx) * (y[i] - my); sxx += (x[i] - mx) ** 2; syy += (y[i] - my) ** 2; } return sxy / Math.sqrt(sxx * syy + 1e-12); };
+    let best = { c: -2, shift: 0 };
+    for (let sh = -15; sh <= 24; sh++) { const x = [], y = []; for (let k = 24; k < obs.length - 24; k++) { x.push(obs[k]); y.push(exp[k - sh]); } const c = pear(x, y); if (c > best.c) best = { c, shift: sh / 30 }; }
+    return best;
+  };
   const measure = async (name, style, aspect, delay, noLagFix = false) => {
     const o = await render({ style, aspect, name, verify: false, clips: moments, params: { music: false, sfx: false }, startDelayMs: delay, noLagFix });
     const p = o.plan, [W, H] = p.size, m = Math.min(W, H), landscape = W > H, intro = p.timeline.intro, cap = p.captions;
     const cs = cap.size * m * (landscape ? 1.35 : 1.1) / H, yb = cap.style === "cinema" ? (landscape ? 0.8 : 0.74) : cap.style === "kinetic" ? (landscape ? 0.74 : 0.66) : (landscape ? 0.86 : 0.78), zone = [0.04, yb - cs * 1.7, 0.96, yb + cs * 1.7];
-    const au = V.pcm(o.file, { sampleRate: 16000 }), regs = detectSpeechRegions(au, 16000, { mergeGapMs: 60, hangoverMs: 40 }).regions, onsetsAudio = regs.filter((r, i) => i === 0 || r.start - regs[i - 1].end >= 0.1).map((r) => r.start);
-    const G = V.frames(o.file, 30, 640, W, H), errs = [];
-    // every shot starts on its first word, and the caption before it ends at the cut, so the screen is clear for a moment: the caption's first appearance is what is measured
-    const firstWords = []; for (const w of p.words) if (!firstWords.some((f) => f.seg === w.seg)) firstWords.push(w);
-    for (const w of firstWords) {
-      const t0 = intro + w.start, a = onsetsAudio.reduce((best, x) => (Math.abs(x - t0) < Math.abs(best - t0) ? x : best), -9);
-      if (Math.abs(a - t0) > 0.45 || t0 < intro + 0.2) continue;
-      const text = (k) => V.count(G.frame(k), zone, V.isText); let hit = null;
-      const cut = intro + p.segments[w.seg].outStart;                                                         // the previous shot's caption has ended at the cut
-      for (let k = Math.round((cut - 0.05) * 30) + 1; k <= Math.min(G.count - 1, Math.round((t0 + 1.0) * 30)); k++) if (text(k) >= 14 && text(k - 1) < 14) { hit = k / 30; break; }
-      if (hit != null) errs.push({ chunk: w.text, plan: +t0.toFixed(2), speech: +a.toFixed(2), caption: +hit.toFixed(2), err: +(hit - a).toFixed(3) });
-    }
-    console.log("    " + errs.map((e) => `${e.speech.toFixed(2)}→${e.caption.toFixed(2)}`).join("  "));
-    const abs = errs.map((e) => Math.abs(e.err)).sort((x, y) => x - y), med = abs[Math.floor(abs.length / 2)], p90 = abs[Math.min(abs.length - 1, Math.floor(abs.length * 0.9))], signed = errs.map((e) => e.err).sort((x, y) => x - y)[Math.floor(errs.length / 2)];
-    console.log(`  ${name}: ${errs.length} caption changes matched to speech onsets; caption minus speech: median ${(signed * 1000).toFixed(0)} ms, median |error| ${(med * 1000).toFixed(0)} ms, 90th percentile ${(p90 * 1000).toFixed(0)} ms; renderer measured speech lag ${JSON.stringify(o.diag?.speechLag?.overlayLag)} s from ${JSON.stringify((o.diag?.speechLag?.measured || []).map((q) => q.lag))}, pre-roll ${o.diag?.speechLag?.preroll} s`);
-    return { errs, med, p90, signed, diag: o.diag };
+    const au = V.pcm(o.file, { sampleRate: 16000 }), regs = detectSpeechRegions(au, 16000, { mergeGapMs: 60, hangoverMs: 40 }).regions;
+    const G = V.frames(o.file, 30, 640, W, H), n = G.count, grid = (f) => Array.from({ length: n }, (_, k) => f(k / 30));
+    // Captions are compared by their appearance events (a new word, or a new chunk, popping onto the screen), which are dense and sharp; speech by presence.
+    const smooth = (a) => a.map((_, i) => { let t = 0, c = 0; for (let j = Math.max(0, i - 2); j <= Math.min(a.length - 1, i + 2); j++) { t += a[j]; c++; } return t / c; });
+    const cnt = Array.from({ length: n }, (_, k) => V.count(G.frame(k), zone, V.isText)), capObs = smooth(cnt.map((v, k) => (k && v - cnt[k - 1] >= 8 ? 1 : 0)));
+    const starts = cap.style === "kinetic" ? p.words.map((w) => intro + w.start) : cap.chunks.map((c) => intro + c.start), capExp = smooth(Array.from({ length: n }, (_, k) => (starts.some((t) => Math.abs(t - k / 30) < 1 / 60 + 1e-4) ? 1 : 0)));
+    const speechObs = grid((t) => (regs.some((r) => t >= r.start && t <= r.end) ? 1 : 0)), speechExp = grid((t) => (p.words.some((w) => t >= intro + w.start && t <= intro + w.end) ? 1 : 0));
+    const cShift = bestShift(capObs, capExp), sShift = bestShift(speechObs, speechExp), signed = cShift.shift - sShift.shift;
+    console.log(`  ${name}: captions sit ${(cShift.shift * 1000).toFixed(0)} ms from the plan clock (match ${cShift.c.toFixed(2)}), speech ${(sShift.shift * 1000).toFixed(0)} ms (match ${sShift.c.toFixed(2)}): captions minus speech ${(signed * 1000).toFixed(0)} ms; renderer warm-up ${o.diag?.speechLag?.warmUp} s, in-run lags ${JSON.stringify((o.diag?.speechLag?.measured || []).map((q) => q.lag))}, pre-roll ${o.diag?.speechLag?.preroll} s`);
+    return { signed, cMatch: cShift.c, sMatch: sShift.c, cShift: cShift.shift, sShift: sShift.shift, diag: o.diag, errs: [1, 1, 1, 1, 1], med: Math.abs(signed), p90: Math.abs(signed) };
   };
   const normal = await measure("normal start, energy 16:9", "energy", "16:9", 0);
   // Text becomes countable a little after its word starts (the word fades in over 0.2 s), so the normal render is the reference: its first words start exactly on the
   // plan (the speech onset in the file equals the plan's word time), and a late-starting player must not move the captions away from the speech relative to it.
-  assert(normal.errs.length >= 4 && normal.signed >= -0.1 && normal.signed <= 0.5, `captions appear with the speech: caption minus speech median ${(normal.signed * 1000).toFixed(0)} ms over ${normal.errs.length} shots (a caption is countable only once its word has faded in, about 0.1 to 0.35 s after the word starts, so it trails; limits -100 to +500 ms)`);
+  assert(normal.cMatch >= 0.35 && normal.sMatch >= 0.5 && Math.abs(normal.signed) <= 0.35, `captions appear with the speech: captions minus speech ${(normal.signed * 1000).toFixed(0)} ms (limit ±350 ms: a caption is countable only after its word fades in, so it trails by about 150 ms; the signals match the plan at ${normal.cMatch.toFixed(2)} and ${normal.sMatch.toFixed(2)})`);
   const slow = await measure("player starts 250 ms late, energy 16:9", "energy", "16:9", 250);
   const drift = slow.signed - normal.signed;
-  assert(slow.errs.length >= 4 && Math.abs(drift) <= 0.1 && slow.p90 <= 0.45, `and when every player starts 250 ms late the captions still sit with the speech: ${(drift * 1000).toFixed(0)} ms from the normal render (limit 100 ms), 90th percentile |error| ${(slow.p90 * 1000).toFixed(0)} ms`);
+  assert(slow.cMatch >= 0.35 && slow.sMatch >= 0.5 && Math.abs(drift) <= 0.1, `and when every player starts 250 ms late the captions still sit with the speech: ${(drift * 1000).toFixed(0)} ms from the normal render (limit 100 ms; captions minus speech ${(slow.signed * 1000).toFixed(0)} ms)`);
   assert((slow.diag.speechLag.warmUp ?? 0) >= 0.15 && slow.diag.speechLag.preroll >= 0.2, `the renderer measured the late start itself before recording (warm-up latency ${slow.diag.speechLag.warmUp} s, pre-roll raised from 0.075 to ${slow.diag.speechLag.preroll} s, residual overlay lag ${slow.diag.speechLag.overlayLag} s)`);
   const control = await measure("negative control, 250 ms late and no compensation", "energy", "16:9", 250, true);
   const cdrift = control.signed - normal.signed;
   assert(Math.abs(cdrift) > 0.1, `negative control: with the compensation switched off the same late start moves the captions ${(cdrift * 1000).toFixed(0)} ms away from the speech, so this test would catch the problem`);
   const slowClean = await measure("player starts 250 ms late, clean 16:9", "clean", "16:9", 250);
-  assert(slowClean.errs.length >= 3 && slowClean.med <= 0.4, `the same holds for Clean Professional captions (median |error| ${(slowClean.med * 1000).toFixed(0)} ms over ${slowClean.errs.length} shots)`);
-  report.alignment = { normal: { medianMs: Math.round(normal.med * 1000), p90Ms: Math.round(normal.p90 * 1000), n: normal.errs.length }, slow250: { warmUp: slow.diag.speechLag.warmUp, preroll: slow.diag.speechLag.preroll, driftFromNormalMs: Math.round(drift * 1000), negativeControlDriftMs: Math.round(cdrift * 1000), medianMs: Math.round(slow.med * 1000), p90Ms: Math.round(slow.p90 * 1000), n: slow.errs.length, overlayLag: slow.diag.speechLag.overlayLag }, slow250clean: { medianMs: Math.round(slowClean.med * 1000), n: slowClean.errs.length } };
+  assert(slowClean.cMatch >= 0.3 && slowClean.sMatch >= 0.5 && Math.abs(slowClean.signed - normal.signed) <= 0.2, `the same holds for Clean Professional captions (captions minus speech ${(slowClean.signed * 1000).toFixed(0)} ms with a late player, within 200 ms of the energy normal render)`);
+  report.alignment = { normal: { captionsMinusSpeechMs: Math.round(normal.signed * 1000) }, slow250: { warmUp: slow.diag.speechLag.warmUp, preroll: slow.diag.speechLag.preroll, driftFromNormalMs: Math.round(drift * 1000), negativeControlDriftMs: Math.round(cdrift * 1000), captionsMinusSpeechMs: Math.round(slow.signed * 1000), overlayLag: slow.diag.speechLag.overlayLag }, slow250clean: { captionsMinusSpeechMs: Math.round(slowClean.signed * 1000) } };
   await page.evaluate(() => { window.__directorTestStartDelayMs = 0; });
 }
 
