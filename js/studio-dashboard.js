@@ -64,7 +64,7 @@ function render(){
   const org=state.organization||{};
   const role=String(state.role||"member").toLowerCase();
   const canAdmin=role==="owner"||role==="admin";
-  const platformAdmin=Boolean(state.session?.user?.isPlatformAdmin||["owner","admin"].includes(String(state.session?.user?.platformRole||"").toLowerCase()));
+
 
   const name=org.name||"Your organization";
   el("orgName").textContent=name;
@@ -76,7 +76,7 @@ function render(){
   el("orgStatus").textContent=humanStatus(org.subscriptionStatus||"demo");
   el("planLabel").textContent=capitalize(org.plan||"demo");
   el("orgHealth").textContent=org.subscriptionStatus==="active"?"Plan active":"Usage limits enforced";
-  el("platformAdminSection").hidden=!platformAdmin;
+  // Platform controls belong in the separate master admin, not the creator dashboard.
   document.querySelectorAll(".admin-only").forEach(node=>{node.hidden=!canAdmin;});
   // A locked (organization-owned) account never sees billing administration — hidden regardless of role,
   // same "hide other organizations, skins, Platform Admin, billing administration, operator controls"
@@ -150,6 +150,9 @@ function studioUrl(sessionId){
   if(brand)q.set("brand",brand);
   if(brandLocked)q.set("brandLocked",brandLocked);
   if(sessionId)q.set("session",sessionId);
+  // Standalone dashboard visits must re-enter the authenticated Studio shell.
+  // The director is designed to run inside its iframe and redirects top-level visits.
+  if(window.top===window.self)return `./sessions.html${q.toString()?"?"+q.toString():""}`;
   return `./director.html${q.toString()?"?"+q.toString():""}`;
 }
 
