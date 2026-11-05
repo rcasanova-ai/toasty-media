@@ -19,7 +19,7 @@
   # own allow="display-capture" attribute is necessary but browsers may still block getDisplayMedia when
   # the top-level document's Permissions-Policy does not delegate display capture to that origin.
   # Delegate only the media features Studio actually uses, and only to self + VDO.Ninja.
-  Header always set Permissions-Policy "camera=(self \"https://vdo.ninja\"), microphone=(self \"https://vdo.ninja\"), display-capture=(self \"https://vdo.ninja\")"
+  Header always set Permissions-Policy 'camera=(self "https://vdo.ninja"), microphone=(self "https://vdo.ninja"), display-capture=(self "https://vdo.ninja")'
 
   <FilesMatch "\.(html|htm|js|css)$">
     Header set Cache-Control "no-store, no-cache, must-revalidate"
