@@ -23,7 +23,8 @@ class ToastyClipMixer extends AudioWorkletProcessor {
     if (this.silence.length < n) this.silence = new Float32Array(n);
     const voice = inputs[0]?.length ? inputs[0] : [this.silence, this.silence];
     const music = inputs[1]?.length ? inputs[1] : [this.silence, this.silence];
-    this.mixer.process([voice[0], voice[1] || voice[0]], [music[0], music[1] || music[0]], [out[0], out[1] || out[0]]);
+    const fx = inputs[2]?.length ? inputs[2] : null;
+    this.mixer.process([voice[0], voice[1] || voice[0]], [music[0], music[1] || music[0]], [out[0], out[1] || out[0]], null, fx ? [fx[0], fx[1] || fx[0]] : null);
     return true;
   }
 }

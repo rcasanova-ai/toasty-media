@@ -29,9 +29,9 @@ class Highpass {
 export class ClipMixer {
   constructor(sampleRate, {
     channels = 2, enhance = true, musicGainDb = -20, duckDb = -14, targetRmsDb = null, maxBoostDb = 12, ceilingDb = -2.5,
-    preGainDb = null, noiseReduction = false, compress = null
+    preGainDb = null, noiseReduction = false, compress = null, fxDuckRatio = 0.5
   } = {}) {
-    Object.assign(this, { sampleRate, channels, enhance, musicGainDb, duckDb, targetRmsDb, maxBoostDb });
+    Object.assign(this, { sampleRate, channels, enhance, musicGainDb, duckDb, targetRmsDb, maxBoostDb, fxDuckRatio });
     const planned = Number.isFinite(preGainDb);
     // The leveler's 400 ms RMS (pauses included) sits about 6.6 dB under the gated loudness; with a plan the voice is already at -16 LUFS, so -22.6.
     targetRmsDb = Number.isFinite(targetRmsDb) ? targetRmsDb : (planned ? -22.6 : -20);
@@ -65,7 +65,9 @@ export class ClipMixer {
 
   // voice: array of Float32Array (null/empty allowed), music: same, out: array of Float32Array to fill.
   // dry (optional): arrays to receive the mix as it enters the limiter, for measuring how hard the limiter works (js/clip-loudness.js).
-  process(voice, music, out, dry = null) {
+  // fx (optional): sound accents. They duck under the voice too, but only by a fraction of the music's duck (fxDuckRatio), so a whoosh
+  // stays audible between words and is still pushed well under speech.
+  process(voice, music, out, dry = null, fx = null) {
     const frames = out[0].length, sr = this.sampleRate;
     this._ensure(frames);
     const envA = Math.exp(-1 / (0.08 * sr)), envR = Math.exp(-1 / (0.5 * sr));
@@ -91,10 +93,10 @@ export class ClipMixer {
       this.env = vdb > this.env ? this.env * envA + vdb * (1 - envA) : this.env * envR + vdb * (1 - envR);
       const targetDuck = this.env > -46 ? this.duckDb : 0;
       this.duckNow += (targetDuck - this.duckNow) * (targetDuck < this.duckNow ? 1 - envA : 1 - envR);
-      const mg = dbToLin(musicBase + this.duckNow);
+      const mg = dbToLin(musicBase + this.duckNow), fg = dbToLin(this.duckNow * this.fxDuckRatio);
       for (let c = 0; c < this.channels; c++) {
         const m = music?.[c]?.[i] ?? music?.[0]?.[i] ?? 0;
-        inF[c] = v[c][i] + m * mg;
+        inF[c] = v[c][i] + m * mg + (fx ? (fx[c]?.[i] ?? fx[0]?.[i] ?? 0) * fg : 0);
       }
       if (dry) for (let c = 0; c < this.channels; c++) dry[c][i] = inF[c];
       lim._step(inF, outF);

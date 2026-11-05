@@ -2,7 +2,7 @@
 // Nothing here decides timing; it only knows how to draw each styled element.
 import { EASE } from "./clip-timeline.js";
 
-const FONTS = {
+export const FONTS = {
   sans: "'Montserrat','Helvetica Neue',Arial,sans-serif",
   display: "Impact,'Arial Black','Helvetica Neue',sans-serif",
   serif: "Georgia,'Times New Roman',serif",
@@ -10,12 +10,12 @@ const FONTS = {
 };
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
-function roundRect(ctx, x, y, w, h, r) {
+export function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h);
 }
 
-function wrapLines(ctx, text, maxWidth) {
+export function wrapLines(ctx, text, maxWidth) {
   const words = String(text).split(/\s+/), lines = [];
   let cur = "";
   for (const w of words) { const t = cur ? cur + " " + w : w; if (ctx.measureText(t).width > maxWidth && cur) { lines.push(cur); cur = w; } else cur = t; }
@@ -43,7 +43,7 @@ function drawLogo(ctx, logo, x, y, maxW, maxH, alpha = 1) {
   return true;
 }
 
-function drawIntro(ctx, f, tpl, W, H, assets) {
+export function drawIntro(ctx, f, tpl, W, H, assets) {
   const it = f.intro, th = tpl.theme, font = FONTS[th.font];
   ctx.fillStyle = th.bg; ctx.fillRect(0, 0, W, H);
   // accent shapes sweep in
@@ -71,7 +71,7 @@ function drawIntro(ctx, f, tpl, W, H, assets) {
   }
 }
 
-function drawOutro(ctx, f, tpl, W, H, assets) {
+export function drawOutro(ctx, f, tpl, W, H, assets) {
   const o = f.outro, th = tpl.theme, font = FONTS[th.font];
   ctx.fillStyle = th.bg; ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = th.accent; ctx.globalAlpha = 0.18; ctx.beginPath(); ctx.arc(W * 0.85, H * 0.15, Math.min(W, H) * (0.25 + 0.05 * o.k), 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1;

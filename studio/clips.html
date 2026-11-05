@@ -9,7 +9,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../css/clips.css">
+  <link rel="stylesheet" href="../css/make-video.css">
   <script type="module" src="../js/clips-app.js"></script>
+  <script type="module" src="../js/make-video.js"></script>
 </head>
 <body>
   <header class="tc-top">
@@ -18,6 +20,61 @@
     <a class="tc-link" href="./director.html">Back to Studio</a>
   </header>
 
+
+  <section class="mmv" id="mmv" aria-labelledby="mmvTitle">
+    <div class="mmv-head">
+      <h2 id="mmvTitle">Make My Video</h2>
+      <p class="mmv-sub">Moxie is the editor. You are the director. Pick a recording, choose a style, and Moxie cuts, frames, captions, scores and exports it. Nothing is uploaded.</p>
+    </div>
+    <div class="mmv-grid">
+      <div class="mmv-card" id="mmvStep1">
+        <h3><span>1</span> Your recording</h3>
+        <p id="mmvSource" class="mmv-source" role="status">No recording chosen yet.</p>
+        <label class="mmv-drop" id="mmvDrop"><input id="mmvFile" type="file" accept="video/*,.mp4,.mov,.webm,.m4v"><strong>Choose a video</strong><small>or drop it here</small></label>
+        <details class="mmv-more"><summary>Or use a Studio recording</summary><ul id="mmvLibrary" class="tc-list"><li class="tc-muted">Looking for recordings…</li></ul></details>
+        <details class="mmv-more"><summary>Optional: B-roll from my own files</summary>
+          <p class="tc-muted">Used only where a word you say matches a file's tags. Never used to fill a gap.</p>
+          <label class="tc-btn tc-ghost">Add B-roll videos<input id="mmvBroll" type="file" accept="video/*" multiple hidden></label>
+          <ul id="mmvBrollList" class="mmv-broll"></ul>
+        </details>
+      </div>
+      <div class="mmv-card" id="mmvStep2">
+        <h3><span>2</span> Pick a style</h3>
+        <div id="mmvStyles" class="mmv-styles" role="radiogroup" aria-label="Editing style"></div>
+        <div class="mmv-format" role="radiogroup" aria-label="Format">
+          <label><input type="radio" name="mmvAspect" value="16:9" checked> Landscape 16:9</label>
+          <label><input type="radio" name="mmvAspect" value="9:16"> Vertical 9:16</label>
+          <label><input type="radio" name="mmvAspect" value="1:1"> Square 1:1</label>
+        </div>
+      </div>
+      <div class="mmv-card" id="mmvStep3">
+        <h3><span>3</span> Tell Moxie what you want <em>(optional)</em></h3>
+        <textarea id="mmvInstruction" rows="3" placeholder="Make a punchy 60-second vertical video. Turn this interview into three polished clips. Make this more cinematic, but keep the editing subtle. Remove awkward pauses and make the audio sound professional."></textarea>
+        <label class="tc-check"><input id="mmvModels" type="checkbox" checked> Use open models on this computer for speech and meaning (about 60 MB, downloaded once). Turn this off to skip the download. Your video never leaves either way.</label>
+      </div>
+    </div>
+    <div class="mmv-go">
+      <button id="mmvMake" class="tc-btn tc-primary mmv-big" type="button" disabled>Make My Video</button>
+      <button id="mmvCancel" class="tc-btn tc-ghost" type="button" hidden>Cancel</button>
+      <span id="mmvSupport" class="tc-muted"></span>
+    </div>
+    <progress id="mmvProgress" max="1" value="0" hidden></progress>
+    <p id="mmvStatus" class="mmv-status" role="status" aria-live="polite"></p>
+    <ul id="mmvReply" class="tc-understood" aria-live="polite"></ul>
+
+    <div class="mmv-result" id="mmvResult" hidden>
+      <h3><span>5</span> Your video</h3>
+      <div id="mmvVideos" class="mmv-videos"></div>
+      <div class="mmv-revise">
+        <label for="mmvRevision">Want a change? Tell Moxie.</label>
+        <div class="tc-row"><input id="mmvRevision" type="text" placeholder="Less zooming. Make the captions bigger. Remove the music. Make it faster. Make it 30 seconds…" aria-label="Revision instruction"><button id="mmvRevise" class="tc-btn tc-ghost" type="button">Revise</button></div>
+        <ul id="mmvRevisionReply" class="tc-understood" aria-live="polite"></ul>
+      </div>
+      <details class="mmv-more" id="mmvPlanBox"><summary>Why Moxie edited it this way</summary><div id="mmvPlanSummary"></div><ol id="mmvDecisions" class="mmv-decisions"></ol><button id="mmvPlanJson" class="tc-btn tc-ghost" type="button">Download the edit plan (JSON)</button></details>
+    </div>
+  </section>
+
+  <h2 class="mmv-manual">Or edit by hand: choose clips, trim and style them yourself</h2>
   <main class="tc-grid">
     <section class="tc-col tc-source" aria-label="Source">
       <h2>1. Pick a video</h2>

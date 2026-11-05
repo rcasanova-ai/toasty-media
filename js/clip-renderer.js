@@ -32,7 +32,7 @@ export function renderCapabilities() {
 }
 
 // 30 fps timer that keeps running in a background tab (a worker is not throttled like setInterval on the page).
-function makeTicker(fps, onTick) {
+export function makeTicker(fps, onTick) {
   try {
     const url = URL.createObjectURL(new Blob([`setInterval(()=>postMessage(0),${Math.round(1000 / fps)})`], { type: "text/javascript" }));
     const worker = new Worker(url); worker.onmessage = onTick;
@@ -40,7 +40,7 @@ function makeTicker(fps, onTick) {
   } catch (_) { const id = setInterval(onTick, Math.round(1000 / fps)); return () => clearInterval(id); }
 }
 
-const once = (el, ev) => new Promise((res, rej) => { const ok = () => { el.removeEventListener("error", bad); res(); }, bad = () => { el.removeEventListener(ev, ok); rej(new Error("The video could not be loaded.")); }; el.addEventListener(ev, ok, { once: true }); el.addEventListener("error", bad, { once: true }); });
+export const once = (el, ev) => new Promise((res, rej) => { const ok = () => { el.removeEventListener("error", bad); res(); }, bad = () => { el.removeEventListener(ev, ok); rej(new Error("The video could not be loaded.")); }; el.addEventListener(ev, ok, { once: true }); el.addEventListener("error", bad, { once: true }); });
 
 export async function loadVideo(blobOrUrl) {
   const video = document.createElement("video");
