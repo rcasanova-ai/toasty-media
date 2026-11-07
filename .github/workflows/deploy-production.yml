@@ -138,7 +138,7 @@ jobs:
         id: changes
         run: |
           set -euo pipefail
-          FILTER='^(\.htaccess$|index\.html$|wisp-privacy\.html$|site/|ricardo/|about/|resume/|contact/|ponderings/|command/|speaking/|talks/|studio/|admin/|app/|experts/|peeps/|css/|js/|shared/|assets/|articles/|eloquencebonus/|thank-you\.html$|5-Day Executive Program\.pdf$|Eloquence Cheat Sheet\.pdf$|casanova_case_study\.pdf$|ricardo_casanova_resumeJune2026\.pdf$)'
+          FILTER='^(\.htaccess$|index\.html$|wisp-privacy\.html$|site/|itexecutivepartners/|ricardo/|about/|resume/|contact/|ponderings/|command/|speaking/|talks/|studio/|admin/|app/|experts/|peeps/|css/|js/|shared/|assets/|articles/|eloquencebonus/|thank-you\.html$|5-Day Executive Program\.pdf$|Eloquence Cheat Sheet\.pdf$|casanova_case_study\.pdf$|ricardo_casanova_resumeJune2026\.pdf$)'
           # scripts/ is intentionally excluded: this job SSHes to the LiteSpeed static host
           # (toasty.media). The canonical auth helper belongs on the Ubuntu render host
           # (render.toasty.media → 127.0.0.1:4174). Shipping Python onto the public web root
@@ -153,7 +153,7 @@ jobs:
             if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then BASE="HEAD^"; fi
             git diff --name-only --diff-filter=ACMRT "$BASE" HEAD | grep -E "$FILTER" > /tmp/deploy-files.txt || true
             # Reconcile previously skipped directories even if older commits introduced them.
-            git ls-files 'about/*' 'resume/*' 'contact/*' 'ponderings/*' 'command/*' 'speaking/*' 'talks/auditions/*' 'robots.txt' 'sitemap.xml' >> /tmp/deploy-files.txt
+            git ls-files 'itexecutivepartners/*' 'about/*' 'resume/*' 'contact/*' 'ponderings/*' 'command/*' 'speaking/*' 'talks/auditions/*' 'robots.txt' 'sitemap.xml' >> /tmp/deploy-files.txt
             sort -u -o /tmp/deploy-files.txt /tmp/deploy-files.txt
           fi
           echo "Files selected:"
