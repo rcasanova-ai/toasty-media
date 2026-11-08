@@ -1,0 +1,8 @@
+/* IT Executive Partners: lightweight progressive enhancement, no libraries. */
+(()=>{'use strict';const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const targets=[...document.querySelectorAll('.section,.process,.closing,.process-step,.service,.person')];
+if(!reduce&&'IntersectionObserver'in window){targets.forEach(el=>el.classList.add('reveal-on-scroll'));const reveal=new IntersectionObserver(entries=>entries.forEach(e=>{if(e.isIntersecting){e.target.classList.add('is-visible');reveal.unobserve(e.target)}}),{threshold:.08,rootMargin:'0px 0px -15px 0px'});targets.forEach(el=>reveal.observe(el));}else targets.forEach(el=>el.classList.add('is-visible'));
+const nums=[...document.querySelectorAll('[data-count]')];const fmt=new Intl.NumberFormat('en');
+function animate(el){const to=Number(el.dataset.count)||0,suffix=el.dataset.suffix||'';if(reduce){el.textContent=fmt.format(to)+suffix;return;}const duration=1250,start=performance.now();function tick(now){const p=Math.min(1,(now-start)/duration),ease=1-Math.pow(1-p,3);el.textContent=fmt.format(Math.round(to*ease))+suffix;if(p<1)requestAnimationFrame(tick)}requestAnimationFrame(tick)}
+if('IntersectionObserver'in window){const countObserver=new IntersectionObserver(entries=>entries.forEach(e=>{if(e.isIntersecting){animate(e.target);countObserver.unobserve(e.target)}}),{threshold:.4});nums.forEach(el=>countObserver.observe(el))}else nums.forEach(animate);
+})();
