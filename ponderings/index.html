@@ -39,8 +39,10 @@
 .ponder-hero .ponder-nav{margin-top:0}
 @media(max-width:700px){.ponder-hero-art{aspect-ratio:2.2/1;object-fit:cover;object-position:65% center}.ponder-hero-copy{padding:20px}.ponder-hero .ponder-intro{font-size:1rem}}
 
-/* Hero artwork already carries the Toasty Media brand; avoid duplicate navbar branding on this page. */
-.ts-nav .ts-brand{visibility:hidden}
+/* Keep navigation branding; mask the duplicate logo embedded in the hero artwork. */
+.ponder-hero{isolation:isolate}
+.ponder-hero::before{content:"";position:absolute;z-index:1;left:0;top:0;width:31%;height:24%;pointer-events:none;background:linear-gradient(90deg,#160d0a 0%,#160d0a 34%,rgba(22,13,10,.97) 55%,rgba(22,13,10,0) 100%)}
+@media(max-width:700px){.ponder-hero::before{width:48%;height:23%}}
 </style></head>
 <body class="ts"><a class="ts-skip" href="#main">Skip to content</a>
 <header class="ts-nav" data-open="false"><div class="ts-wrap ts-nav__bar"><a class="ts-brand" href="../" aria-label="Toasty Media home"><img src="../shared/brand/toasty-media/ToastyTransparent.png" alt=""><span>Toasty Media</span></a><button class="ts-nav__toggle" type="button" aria-expanded="false" aria-controls="navPanel">Menu</button><div class="ts-nav__panel" id="navPanel"><nav class="ts-nav__links" aria-label="Primary"><a href="../studio/">Studio</a><a href="../peeps/">Peeps</a><a href="../talks/">Talks</a><a href="../eloquence/">Eloquence</a></nav><div class="ts-nav__cta"><a class="ts-btn ts-btn--ghost ts-btn--sm" href="../access/">Sign in</a></div></div></div></header>
