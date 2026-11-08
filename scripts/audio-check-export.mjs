@@ -6,11 +6,13 @@
 //   node scripts/audio-check-export.mjs --recording studio.mp4           raw Studio recording check: not silent, not below -30 LUFS
 //   options: --target -16  --tolerance 1.5  --max-peak -1.0  --min-lufs -30  --json report.json
 //
+// It also looks for echo: a delayed copy of the voice (acoustic echo, the voice arriving by two paths, looped playback).
 // A file with no audio stream, digital silence, a long dead stretch, or a leading silence of several seconds is reported too.
 import { writeFileSync } from "node:fs";
 import { analyzeFile, ffmpegLoudness } from "./lib/audio-file-analysis.mjs";
 import { analyseSpeechLevel, classifyLevel } from "../js/loudness-plan.js";
 import { loadMono } from "./lib/audio-file-analysis.mjs";
+import { detectEcho } from "../js/audio-analysis.js";
 import { WARNING_TEXT } from "../js/clip-loudness.js";
 
 const args = process.argv.slice(2);
@@ -44,6 +46,9 @@ for (const file of files) {
         if (Math.abs(m.integratedLufs - target) > tolerance) row.problems.push(`Loudness ${m.integratedLufs} LUFS is outside ${target} +/- ${tolerance}.`);
         if (m.truePeakDbfs != null && m.truePeakDbfs > maxPeak) row.problems.push(`True peak ${m.truePeakDbfs} dBTP is above ${maxPeak}.`);
       }
+      const echo = detectEcho(mono.samples, mono.sampleRate);
+      row.echoScore = Math.round(echo.score * 1000) / 1000; row.echoDelayMs = echo.delayMs;
+      if (echo.echo) row.problems.push(`Possible echo or doubled voice: a copy of the voice about ${echo.delayMs} ms later (score ${row.echoScore}, clean speech is under 0.09).`);
       if (verdict.warnings.includes("leading-silence")) row.notes.push(`The audio starts with ${row.leadingSilenceSeconds} s of silence.`);
       if (verdict.warnings.includes("noisy")) row.notes.push("The noise floor is high compared with the voice.");
     }

@@ -447,3 +447,34 @@ export function truePeakDbtp(channels) {
   }
   return toDbfs(peak);
 }
+
+// Echo / doubled-voice detector. A delayed copy of the voice (acoustic echo, the same voice arriving by two paths, a looped
+// playback) shows up as a secondary peak in the autocorrelation at the delay. Natural speech has small peaks there too (pitch and
+// syllable rhythm), so the score is compared with a threshold measured on clean speech: clean recordings score under 0.09 (synthetic and a real
+// close-mic take), a copy 10 dB down at 180 ms scores about 0.28, 16 dB down about 0.15. Looks only at 40 to 600 ms, in the voiced stretches, mono, at 16 kHz.
+export function detectEcho(samples, sampleRate, { minDelayMs = 40, maxDelayMs = 600 } = {}) {
+  // Decimate to ~16 kHz by averaging (cheap anti-alias) and keep the loudest 60 % of 100 ms windows (the voiced parts).
+  const step = Math.max(1, Math.round(sampleRate / 16000)), sr = sampleRate / step;
+  const n0 = Math.floor(samples.length / step), x = new Float32Array(n0);
+  for (let i = 0; i < n0; i++) { let s = 0; for (let k = 0; k < step; k++) s += samples[i * step + k]; x[i] = s / step; }
+  const win = Math.round(sr * 0.1), levels = [];
+  for (let s = 0; s + win <= n0; s += win) { let e = 0; for (let i = s; i < s + win; i++) e += x[i] * x[i]; levels.push(e); }
+  if (levels.length < 20) return { score: 0, delayMs: null, echo: false, reason: "too-short" };
+  const cut = [...levels].sort((a, b) => a - b)[Math.floor(levels.length * 0.4)];
+  const voiced = new Float32Array(n0);
+  levels.forEach((e, w) => { if (e >= cut) for (let i = w * win; i < (w + 1) * win; i++) voiced[i] = x[i]; });
+  // Autocorrelation by direct sum on a subsampled set of lags (every 2 ms) over at most 20 s: fast and enough to find the peak.
+  const len = Math.min(n0, Math.round(sr * 20)), lagStep = Math.max(1, Math.round(sr * 0.002));
+  let r0 = 0; for (let i = 0; i < len; i++) r0 += voiced[i] * voiced[i];
+  if (r0 <= 0) return { score: 0, delayMs: null, echo: false, reason: "silent" };
+  let best = 0, bestLag = 0;
+  for (let lag = Math.round(sr * minDelayMs / 1000); lag <= Math.round(sr * maxDelayMs / 1000); lag += lagStep) {
+    let c = 0; for (let i = 0; i + lag < len; i++) c += voiced[i] * voiced[i + lag];
+    // Search +/- one step for the true peak of the narrow ridge.
+    let local = c;
+    for (let d = 1; d < lagStep; d++) { let c2 = 0; for (let i = 0; i + lag + d < len; i++) c2 += voiced[i] * voiced[i + lag + d]; if (c2 > local) local = c2; }
+    const norm = local / r0;
+    if (norm > best) { best = norm; bestLag = lag; }
+  }
+  return { score: best, delayMs: Math.round(1000 * bestLag / sr), echo: best > 0.13, reason: "" };
+}
