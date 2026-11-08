@@ -1,0 +1,53 @@
+name: GitHub Actions artifact housekeeping
+
+on:
+  schedule:
+    - cron: '37 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  purge-old-artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Delete old transient artifacts while retaining recent copies
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+            const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+              owner, repo, per_page: 100
+            });
+            const grouped = new Map();
+            for (const artifact of artifacts) {
+              const list = grouped.get(artifact.name) ?? [];
+              list.push(artifact);
+              grouped.set(artifact.name, list);
+            }
+            let deleted = 0;
+            let reclaimed = 0;
+            for (const [name, items] of grouped) {
+              items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+              if (/release|production|backup|archive/i.test(name)) {
+                core.info('Preserving protected artifact group: ' + name);
+                continue;
+              }
+              for (const [index, artifact] of items.entries()) {
+                if (index < 3 || new Date(artifact.created_at).getTime() >= cutoff) continue;
+                if (artifact.expired) continue;
+                await github.rest.actions.deleteArtifact({ owner, repo, artifact_id: artifact.id });
+                deleted++;
+                reclaimed += artifact.size_in_bytes || 0;
+              }
+            }
+            core.summary.addHeading('Artifact cleanup')
+              .addRaw('Deleted ' + deleted + ' artifacts, approximately ' +
+                (reclaimed / 1024 / 1024).toFixed(1) + ' MiB. ' +
+                'Kept the newest three of each name, all artifacts under seven days old, and protected artifact groups.')
+              .write();
