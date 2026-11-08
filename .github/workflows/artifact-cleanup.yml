@@ -2,7 +2,7 @@ name: GitHub Actions artifact housekeeping
 
 on:
   schedule:
-    - cron: '37 2 * * *'
+    - cron: '37 2 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -46,7 +46,7 @@ jobs:
                 reclaimed += artifact.size_in_bytes || 0;
               }
             }
-            core.summary.addHeading('Artifact cleanup')
+            await core.summary.addHeading('Artifact cleanup')
               .addRaw('Deleted ' + deleted + ' artifacts, approximately ' +
                 (reclaimed / 1024 / 1024).toFixed(1) + ' MiB. ' +
                 'Kept the newest three of each name, all artifacts under seven days old, and protected artifact groups.')
