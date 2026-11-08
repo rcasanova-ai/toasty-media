@@ -27,101 +27,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate Studio Backstage / Record / Live model
-        run: |
-          set -euo pipefail
-          node scripts/studio-mode-model-test.mjs
-          node scripts/studio-shared-background-test.mjs
-          node scripts/master-program-recording-test.mjs
-          node scripts/studio-shell-cleanup-test.mjs
-          node scripts/studio-screen-share-regression-test.mjs
-          node scripts/studio-record-canvas-regression-test.mjs
-          node scripts/audio-analysis-test.mjs
-          node scripts/streaming-limiter-test.mjs
-          node scripts/stable-mic-track-test.mjs
-          node scripts/capture-audio-guard-test.mjs
-          node scripts/microphone-capture-chain-test.mjs
-          node scripts/clip-detector-test.mjs
-          node scripts/audio-events-test.mjs
-          node scripts/clip-templates-test.mjs
-          node scripts/clip-timeline-test.mjs
-          node scripts/clip-mixer-test.mjs
-          node scripts/loudness-normalize-test.mjs
-          node scripts/clip-music-test.mjs
-          node scripts/transcript-import-test.mjs
-          node scripts/behavior-timeline-test.mjs
-          node scripts/behavior-vocal-test.mjs
-          node scripts/behavior-visual-test.mjs
-          node scripts/behavior-language-test.mjs
-          node scripts/behavior-moments-test.mjs
-          node scripts/behavior-engine-test.mjs
-          node scripts/site-pages-test.mjs
-
-      - name: Install ffmpeg for broadcast and MP4 tests
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
-
-      - name: Validate Studio broadcast backend (real ffmpeg, real RTMP sink, sustained past proxy window)
-        run: |
-          set -euo pipefail
-          node scripts/studio-broadcast-server-test.mjs
-          node scripts/recording-finalization-mp4-test.mjs
-          node scripts/recording-jobs-server-test.mjs
-          node scripts/recording-recovery-test.mjs
-          node scripts/studio-waitlist-server-test.mjs
-          node scripts/talk-audition-server-test.mjs
-
-      - name: Real-browser Studio regression (record, present, Program Output, MP4, downloads, recovery)
-        run: |
-          set -euo pipefail
-          npm install --no-save --no-audit --no-fund playwright-core
-          HEADLESS=1 STUDIO_RECORD_SECONDS=45 CHROME_PATH="$(command -v google-chrome || command -v chromium || true)" node scripts/studio-browser-regression.mjs
-
-      - name: Validate consolidated product surfaces
-        run: |
-          set -euo pipefail
-          node scripts/remaining-work-consolidation-test.mjs
-
-      - name: Validate live Studio stability
-        run: |
-          set -euo pipefail
-          node scripts/live-studio-stability-test.mjs
-
-      - name: Run Studio release gate
-        run: |
-          set -euo pipefail
-          node scripts/studio-release-gate.mjs
-
-      - name: Validate onboarding and End Session
-        run: |
-          set -euo pipefail
-          node scripts/onboarding-end-session-test.mjs
-
-      - name: Validate platform admin founder controls
-        run: |
-          set -euo pipefail
-          node --check js/platform-admin.js
-          python3 -m py_compile scripts/toasty-auth-db.py
-          node scripts/platform-admin-test.mjs
-
-      - name: Validate Automatic Director planner
-        run: |
-          set -euo pipefail
-          for f in js/director/*.js js/make-video.js; do node --check "$f"; done
-          node scripts/director-plan-test.mjs
-
-      - name: Validate AI usage analytics
-        run: |
-          set -euo pipefail
-          node scripts/ai-usage-analytics-test.mjs
-
-      - name: Validate public Peeps roast Dub
-        run: |
-          set -euo pipefail
-          node scripts/peeps-josip-roast-test.mjs
-
       - name: Configure SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.TOASTY_SSH_PRIVATE_KEY }}
@@ -279,3 +184,104 @@ jobs:
           curl --fail --silent --show-error --location https://toasty.media/css/make-video.css -o /tmp/make-video.css
           grep -Fq '.mmv-big' /tmp/make-video.css
           echo 'Production verification passed.'
+
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Validate Studio Backstage / Record / Live model
+        run: |
+          set -euo pipefail
+          node scripts/studio-mode-model-test.mjs
+          node scripts/studio-shared-background-test.mjs
+          node scripts/master-program-recording-test.mjs
+          node scripts/studio-shell-cleanup-test.mjs
+          node scripts/studio-screen-share-regression-test.mjs
+          node scripts/studio-record-canvas-regression-test.mjs
+          node scripts/audio-analysis-test.mjs
+          node scripts/streaming-limiter-test.mjs
+          node scripts/stable-mic-track-test.mjs
+          node scripts/capture-audio-guard-test.mjs
+          node scripts/microphone-capture-chain-test.mjs
+          node scripts/clip-detector-test.mjs
+          node scripts/audio-events-test.mjs
+          node scripts/clip-templates-test.mjs
+          node scripts/clip-timeline-test.mjs
+          node scripts/clip-mixer-test.mjs
+          node scripts/loudness-normalize-test.mjs
+          node scripts/clip-music-test.mjs
+          node scripts/transcript-import-test.mjs
+          node scripts/behavior-timeline-test.mjs
+          node scripts/behavior-vocal-test.mjs
+          node scripts/behavior-visual-test.mjs
+          node scripts/behavior-language-test.mjs
+          node scripts/behavior-moments-test.mjs
+          node scripts/behavior-engine-test.mjs
+          node scripts/site-pages-test.mjs
+
+      - name: Install ffmpeg for broadcast and MP4 tests
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+
+      - name: Validate Studio broadcast backend (real ffmpeg, real RTMP sink, sustained past proxy window)
+        run: |
+          set -euo pipefail
+          node scripts/studio-broadcast-server-test.mjs
+          node scripts/recording-finalization-mp4-test.mjs
+          node scripts/recording-jobs-server-test.mjs
+          node scripts/recording-recovery-test.mjs
+          node scripts/studio-waitlist-server-test.mjs
+          node scripts/talk-audition-server-test.mjs
+
+      - name: Real-browser Studio regression (record, present, Program Output, MP4, downloads, recovery)
+        run: |
+          set -euo pipefail
+          npm install --no-save --no-audit --no-fund playwright-core
+          HEADLESS=1 STUDIO_RECORD_SECONDS=45 CHROME_PATH="$(command -v google-chrome || command -v chromium || true)" node scripts/studio-browser-regression.mjs
+
+      - name: Validate consolidated product surfaces
+        run: |
+          set -euo pipefail
+          node scripts/remaining-work-consolidation-test.mjs
+
+      - name: Validate live Studio stability
+        run: |
+          set -euo pipefail
+          node scripts/live-studio-stability-test.mjs
+
+      - name: Run Studio release gate
+        run: |
+          set -euo pipefail
+          node scripts/studio-release-gate.mjs
+
+      - name: Validate onboarding and End Session
+        run: |
+          set -euo pipefail
+          node scripts/onboarding-end-session-test.mjs
+
+      - name: Validate platform admin founder controls
+        run: |
+          set -euo pipefail
+          node --check js/platform-admin.js
+          python3 -m py_compile scripts/toasty-auth-db.py
+          node scripts/platform-admin-test.mjs
+
+      - name: Validate Automatic Director planner
+        run: |
+          set -euo pipefail
+          for f in js/director/*.js js/make-video.js; do node --check "$f"; done
+          node scripts/director-plan-test.mjs
+
+      - name: Validate AI usage analytics
+        run: |
+          set -euo pipefail
+          node scripts/ai-usage-analytics-test.mjs
+
+      - name: Validate public Peeps roast Dub
+        run: |
+          set -euo pipefail
+          node scripts/peeps-josip-roast-test.mjs
+
