@@ -50,6 +50,13 @@ export function syncParticipantStage({ stage, engine, roomId, participants, self
     const existing = mounted.get(participant.participantId);
     if (existing) {
       updateParticipantLowerThird(existing.lowerThird, participant);
+      // Presence identity can survive a VDO publisher reconnect with a new stream ID.
+      // The existing iframe still views the old ID unless we explicitly replace it.
+      const nextSourceId = participant.transportSourceId || null;
+      if (nextSourceId && existing.transportSourceId !== nextSourceId) {
+        engine.mountParticipantView(existing.videoContainer, { roomId, streamId: nextSourceId }, existing.frameId);
+        existing.transportSourceId = nextSourceId;
+      }
       return;
     }
     if (!participant.transportSourceId) return; // presence known but VDO source not resolved yet
