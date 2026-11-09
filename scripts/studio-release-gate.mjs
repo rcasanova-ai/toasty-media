@@ -6,6 +6,7 @@ const html=read("studio/director.html");
 const live=read("js/live-session.js");
 const video=read("js/video-engine.js");
 const listener=read("js/listener.js");
+const participantStage=read("js/participant-stage.js");
 const renderer=read("js/program-renderer.js");
 const control=read("js/session-control.js");
 const db=read("scripts/toasty-auth-db.py");
@@ -32,6 +33,10 @@ assert(video.includes('mountDirectorControlFrame(container,{roomId})') && video.
 assert(video.includes("view:true"),"Host/control publisher paths include publish-only/view guard");
 assert(listener.includes("Do not reuse the Director's raw host MediaStream inside Program Output"),"Program Output does not reuse the raw Host mic stream");
 assert(!/audioMixer\.addParticipant\(\{\s*participantId:\s*["']host["'][\s\S]{0,180}stream:\s*this\._hostPreviewStream/.test(live),"Director does not route Host mic into local ProgramAudioBus");
+
+// A reconnect can preserve participant identity while replacing the VDO publisher stream.
+assert(participantStage.includes("existing.transportSourceId !== nextSourceId"),"participant viewer detects a changed publisher stream ID");
+assert(participantStage.includes("engine.mountParticipantView(existing.videoContainer, { roomId, streamId: nextSourceId }, existing.frameId)"),"participant viewer rebinds to the new publisher without tearing down other tiles");
 
 // Canonical control state must not flap between stale Studio tabs.
 assert(control.includes("controllerStartedAt"),"canonical state carries controller epoch");
