@@ -10,7 +10,7 @@
       ['Audio', ['lv-audio']]
     ],
     producer: [
-      ['Session', ['lv-sources','lv-record','lv-show-actions']],
+      ['Session', ['lv-record','lv-show-actions']],
       ['Guests', ['lv-sources']],
       ['Scenes', ['lv-scenes']],
       ['Graphics', ['lv-graphics','lv-end-card']],
