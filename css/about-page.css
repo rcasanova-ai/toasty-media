@@ -66,3 +66,13 @@
 .about-book__placeholder span { font-size: clamp(1.05rem, 2vw, 1.6rem); font-weight: 800; letter-spacing: .07em; line-height: 1.35; color: #fff; }
 .about-book__placeholder small { font-size: .8rem; color: #d6d7e6; }
 .about-book__placeholder--phyll { background: linear-gradient(150deg, #183a43, #324979 65%, #463d72); }
+
+/* Balance the About background narrative with substantial left-column context. */
+#background .ts-split { align-items: start; }
+.about-background-intro { position: sticky; top: 7rem; }
+.about-background-highlights { display: grid; gap: .9rem; margin-top: clamp(2rem, 5vw, 4rem); }
+.about-background-highlights > div { padding: 1.1rem 1.25rem; border-left: 3px solid var(--orange); background: linear-gradient(90deg, rgba(255,122,41,.11), rgba(255,122,41,.015)); border-radius: 0 .65rem .65rem 0; }
+.about-background-highlights strong { display: block; color: var(--text); font-size: clamp(1.15rem,2vw,1.6rem); line-height: 1.3; }
+.about-background-highlights span { display: block; margin-top: .35rem; color: var(--text-2); font-size: .95rem; line-height: 1.5; }
+@media (max-width: 860px) { .about-background-intro { position: static; } .about-background-highlights { grid-template-columns: repeat(3,minmax(0,1fr)); margin-top: 1.5rem; } }
+@media (max-width: 620px) { .about-background-highlights { grid-template-columns: 1fr; } }
