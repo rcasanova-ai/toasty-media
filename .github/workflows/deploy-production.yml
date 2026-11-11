@@ -104,6 +104,8 @@ jobs:
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --location https://toasty.media/ >/tmp/home.html
+          curl --fail --silent --show-error --location https://toasty.media/wonderverse/ >/tmp/wonderverse.html
+          grep -Fq 'A magical world of curiosity' /tmp/wonderverse.html
           curl --fail --silent --show-error --location https://toasty.media/ricardo/ >/dev/null
           curl --fail --silent --show-error --location https://toasty.media/studio/ >/dev/null
           curl --fail --silent --show-error --location https://toasty.media/studio/experts.html >/tmp/guest.html
