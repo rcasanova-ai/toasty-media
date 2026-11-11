@@ -228,3 +228,20 @@ body.ts {
 .ts-term__btn:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
 .ts-term__tip { position: absolute; z-index: 30; left: 0; top: calc(100% + .5rem); width: min(18rem, 80vw); padding: .8rem 1rem; border-radius: var(--r-2); background: var(--ink-3); border: 1px solid var(--line-strong); box-shadow: var(--shadow-1); color: var(--text); font-size: .9rem; font-weight: 400; line-height: 1.45; letter-spacing: 0; text-transform: none; white-space: normal; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .15s; }
 .ts-term:hover .ts-term__tip, .ts-term__btn:focus-visible + .ts-term__tip, .ts-term.is-open .ts-term__tip { opacity: 1; visibility: visible; pointer-events: auto; }
+
+/* Keep the full navigation from overflowing on laptop and desktop widths. */
+@media (min-width: 821px) and (max-width: 1279px) {
+  .ts-nav__toggle { display: inline-flex; align-items: center; justify-content: center; margin-left: auto; }
+  .ts-nav__panel { position: absolute; inset: 68px 0 auto 0; background: var(--ink-1); border-bottom: 1px solid var(--line); padding: var(--s-4) var(--gutter) var(--s-5); display: none; flex-direction: column; align-items: stretch; gap: var(--s-4); max-height: calc(100vh - 68px); overflow-y: auto; }
+  .ts-nav[data-open="true"] .ts-nav__panel { display: flex; }
+  .ts-nav__links { flex-direction: column; align-items: stretch; gap: 0; }
+  .ts-nav__links a { padding: .7rem 0; border-bottom: 1px solid var(--line); }
+  .ts-nav__cta { align-items: flex-start; }
+}
+@media (min-width: 1280px) {
+  .ts-nav__bar { gap: 1rem; }
+  .ts-nav__panel { gap: 1.2rem; min-width: 0; }
+  .ts-nav__links { gap: clamp(.65rem, 1.25vw, 1.3rem); }
+  .ts-nav__links a { font-size: .88rem; white-space: nowrap; }
+  .ts-brand { flex-shrink: 0; }
+}
