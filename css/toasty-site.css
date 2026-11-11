@@ -245,3 +245,14 @@ body.ts {
   .ts-nav__links a { font-size: .88rem; white-space: nowrap; }
   .ts-brand { flex-shrink: 0; }
 }
+
+/* Distinct, scannable footer instead of a second header menu. */
+.ts-footer__grid{display:grid;grid-template-columns:minmax(210px,2fr) repeat(3,minmax(130px,1fr));gap:2rem 3rem;align-items:start}
+.ts-footer__identity,.ts-footer__group{display:flex;flex-direction:column;align-items:flex-start;gap:.65rem}
+.ts-footer__identity strong{color:var(--text);font-size:1.1rem}
+.ts-footer__identity span{max-width:230px;line-height:1.5}
+.ts-footer__identity small{margin-top:1rem}
+.ts-footer__group strong{color:var(--toast);font-size:.82rem;letter-spacing:.08em;text-transform:uppercase;margin-bottom:.35rem}
+.ts-footer__group a{font-size:.92rem;line-height:1.5}
+@media(max-width:760px){.ts-footer__grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:2rem}.ts-footer__identity{grid-column:1/-1}}
+@media(max-width:420px){.ts-footer__grid{grid-template-columns:1fr 1fr;gap:1.5rem}}
