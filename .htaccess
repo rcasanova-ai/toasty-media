@@ -1,3 +1,4 @@
+ErrorDocument 404 /404.html
 # DEVELOPMENT/STABILIZATION CACHE POLICY — deterministic freshness over cache performance while Studio
 # is under active development. The server's default static-file policy is public, max-age=604800 (7
 # days) — once a browser cached a file under that default, it wouldn't even ask again for up to a week,
