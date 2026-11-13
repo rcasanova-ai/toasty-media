@@ -1,0 +1,7 @@
+/* Studio workspace organization. Visual-only: never changes capture controls. */
+#liveConsole .studio-clean-tabs{display:flex;flex-wrap:wrap;gap:6px;padding:12px 4px 18px;grid-column:1/-1;border-bottom:1px solid rgba(255,255,255,.12);margin-bottom:8px}
+#liveConsole .studio-clean-tab{appearance:none;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.035);color:inherit;border-radius:999px;padding:10px 17px;font:600 13px/1.2 inherit;cursor:pointer;min-height:42px}
+#liveConsole .studio-clean-tab[aria-current="true"]{background:rgba(255,255,255,.17);border-color:rgba(255,255,255,.45)}
+#liveConsole .studio-clean-tab:focus-visible{outline:2px solid #b7a8ff;outline-offset:3px}
+#liveConsole .lv-panel.studio-clean-inactive{display:none!important}
+@media(max-width:600px){#liveConsole .studio-clean-tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin}#liveConsole .studio-clean-tab{white-space:nowrap;flex-shrink:0}}
