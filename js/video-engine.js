@@ -1,4 +1,13 @@
 import { vdoMicProcessingParams } from "./microphone-capture.js";
+
+// A live speaker/microphone loop is possible whenever a saved headphones/studio preset
+// disables AEC. The iframe owns the published microphone, so enforce AEC at its VDO
+// capture boundary for every live host/guest, regardless of stale localStorage presets.
+// Keep noise suppression and AGC preferences unchanged.
+export function livePublisherMicParams(processing) {
+  return { ...vdoMicProcessingParams(processing), aec: "1" };
+}
+
 const VDO_ORIGIN = "https://vdo.ninja";
 const IFRAME_ALLOW =
   "camera; microphone; display-capture; autoplay; fullscreen; picture-in-picture; web-share";
@@ -79,7 +88,7 @@ export class VideoEngine {
   // still needs the next real Host+Guest test to confirm VDO actually resolves it this way in practice.
   mountDirectorFrame(container,{roomId,label="Host",videoDeviceLabel,audioDeviceLabel,micProcessing,backgroundMode="none"}) {
     const streamId=`${roomId}h`;
-    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cleanoutput:"1",cover:"1",autostart:"1",view:true,proaudio:"1",...vdoMicProcessingParams(micProcessing),videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),effects:effectForBackground(backgroundMode),imagelist:sharedBackgroundImage(backgroundMode)?JSON.stringify([sharedBackgroundImage(backgroundMode)]):undefined});
+    return this.mountFrame(container,"host",{room:roomId,push:streamId,label,webcam:"1",showlabels:"1",cleanoutput:"1",cover:"1",autostart:"1",view:true,proaudio:"1",...livePublisherMicParams(micProcessing),videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),effects:effectForBackground(backgroundMode),imagelist:sharedBackgroundImage(backgroundMode)?JSON.stringify([sharedBackgroundImage(backgroundMode)]):undefined});
   }
 
   // slots=4 reserves 4 even grid cells regardless of how many are actually filled, and cover=1 crops
@@ -478,7 +487,7 @@ export function buildGuestPublisherParams({roomId,password,guestName,backgroundM
       // proaudio alone turns echo cancellation, noise suppression and AGC OFF inside VDO's capture. These explicit
       // params are applied after it, so the person's chosen processing (default: echo cancel + noise suppression
       // on, AGC off) is what is really published and recorded. See vdoMicProcessingParams.
-      ...vdoMicProcessingParams(micProcessing),
+      ...livePublisherMicParams(micProcessing),
       outboundaudiobitrate:"256",
       videodevice:normalizeVdoDeviceLabel(videoDeviceLabel),
       audiodevice:normalizeVdoDeviceLabel(audioDeviceLabel),

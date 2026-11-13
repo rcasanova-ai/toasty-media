@@ -14,7 +14,13 @@ import { fileURLToPath } from "node:url";
 import { synthProgramme, wavBytes } from "./lib/synth-programme.mjs";
 import { analyzeFile } from "./lib/audio-file-analysis.mjs";
 import { summarizeRtcAudioStats, rtcQualityVerdict } from "../js/audio-analysis.js";
-import { buildGuestPublisherParams, buildVdoUrl } from "../js/video-engine.js";
+import { buildGuestPublisherParams, buildVdoUrl, livePublisherMicParams } from "../js/video-engine.js";
+
+for (const preset of ["speakers", "headphones", "studio"]) {
+  if (livePublisherMicParams(preset).aec !== "1") throw new Error(`Live AEC disabled for ${preset}`);
+  if (buildGuestPublisherParams({ roomId: "echo-regression", micProcessing: preset }).params.aec !== "1") throw new Error(`Guest AEC disabled for ${preset}`);
+}
+
 
 const SECONDS = Number(process.env.SECONDS || 22);
 const NOISE_DBFS = Number(process.env.NOISE_DBFS ?? -42);
