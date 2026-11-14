@@ -55,7 +55,7 @@ if($mode==='lookout'){
   if(preg_match('~<meta\\s+[^>]*name=[\\x22\\x27]description[\\x22\\x27][^>]*content=[\\x22\\x27]([^\\x22\\x27]*)~i',$body,$m))$description=trim(html_entity_decode($m[1],ENT_QUOTES|ENT_HTML5,'UTF-8'));
   $pageText=preg_replace('~<script\\b[^>]*>.*?</script>|<style\\b[^>]*>.*?</style>~is',' ',$body);
   $pageText=strtolower(html_entity_decode(strip_tags($pageText),ENT_QUOTES|ENT_HTML5,'UTF-8') );
-  $signals=mb_strtolower($pageTitle.' '.$description.' '.$pageText,'UTF-8');
+  $signals=strtolower($pageTitle.' '.$description.' '.$pageText);
   $industries=[
     'tutoring'=>['tutor','tutoring','private lessons','exam preparation','online learning','student support'],
     'healthcare'=>['clinic','patient','medical practice','healthcare','dentist'],
