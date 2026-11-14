@@ -14,7 +14,7 @@ for name in ("shipwrekt-teal.png", "scanner-orange.png", "boarding-party-red.png
     q = deque()
     def near_white(x,y):
         r,g,b,_=px[x,y]
-        return min(r,g,b)>=235 and max(r,g,b)-min(r,g,b)<=25
+        return min(r,g,b)>=198 and max(r,g,b)-min(r,g,b)<=20
     for x in range(w):
         for y in (0,h-1):
             i=y*w+x
@@ -36,7 +36,7 @@ for name in ("shipwrekt-teal.png", "scanner-orange.png", "boarding-party-red.png
             if seen[y*w+x]:
                 r,g,b,a=px[x,y]
                 # feather near-white fringe, with true white fully transparent
-                opacity=max(0,min(255,round((255-min(r,g,b))*255/20)))
+                opacity=0
                 px[x,y]=(r,g,b,opacity)
                 removed+=1
     im.save(path,optimize=True)
