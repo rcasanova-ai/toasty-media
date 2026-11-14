@@ -83,10 +83,23 @@ if($mode==='lookout'){
     'upgrade_label'=>'Explore The Scanner ($199) or The Boarding Party ($1,000)',
     'upgrade_url'=>'#packages'
   ];
+  // Lightweight public-page discoverability and answer-engine readiness checks.
+  $hasDescription=(bool)preg_match('~<meta\\s+[^>]*name\\s*=\\s*["\\x27]description["\\x27]~i',$body);
+  $hasCanonical=(bool)preg_match('~<link\\s+[^>]*rel\\s*=\\s*["\\x27]canonical["\\x27]~i',$body);
+  $hasViewport=(bool)preg_match('~<meta\\s+[^>]*name\\s*=\\s*["\\x27]viewport["\\x27]~i',$body);
+  $hasSchema=(bool)preg_match('~<script\\s+[^>]*type\\s*=\\s*["\\x27]application/ld\\x2bjson["\\x27]~i',$body);
+  $hasH1=(bool)preg_match('~<h1(?:\\s|>)~i',$body);
+  $hasOg=(bool)preg_match('~<meta\\s+[^>]*property\\s*=\\s*["\\x27]og:title["\\x27]~i',$body);
+  if(!$pageTitle)finding('low','Missing homepage title','No HTML title detected in the retrieved homepage.','Write a descriptive, unique page title.');
+  if(!$hasDescription)finding('info','Search description not detected','No meta description detected in the retrieved HTML.','Add a concise description explaining who you serve and what you offer.');
+  if(!$hasCanonical)finding('info','Canonical URL not detected','No canonical link detected in the retrieved HTML.','Add a canonical URL where appropriate to reduce duplicate-page ambiguity.');
+  if(!$hasH1)finding('info','Primary heading not detected','No H1 detected in the retrieved HTML.','Use a clear main heading that explains the page.');
+  if(!$hasSchema)finding('info','Structured data not detected','No JSON-LD script detected in the retrieved HTML.','Consider accurate Organization, LocalBusiness or Service schema where applicable. Never invent claims.');
+  $discoverability=['page_title_present'=>(bool)$pageTitle,'meta_description_present'=>$hasDescription,'canonical_present'=>$hasCanonical,'h1_present'=>$hasH1,'structured_data_jsonld_present'=>$hasSchema,'open_graph_title_present'=>$hasOg,'mobile_viewport_present'=>$hasViewport,'note'=>'Basic HTML signals only. This does not measure AI search rankings or guarantee inclusion in AI answers.'];
   foreach(['strict-transport-security'=>['medium','HSTS header absent','Enable HSTS after confirming HTTPS on all subdomains.'],'content-security-policy'=>['medium','CSP header absent','Add a tested Content Security Policy.'],'x-content-type-options'=>['low','MIME protection absent','Set X-Content-Type-Options: nosniff.'],'referrer-policy'=>['low','Referrer Policy absent','Set a suitable Referrer-Policy.']] as $h=>$v)if(!isset($headers[$h]))finding($v[0],$v[1],$h.' not present',$v[2]);
   if(isset($headers['x-content-type-options'])&&strtolower($headers['x-content-type-options'])!=='nosniff')finding('low','Invalid MIME protection','X-Content-Type-Options is not nosniff','Set it to nosniff.');
   if($status>=500)finding('medium','Origin returned server error','HTTP '.$status,'Investigate server errors.');
-  echo json_encode(['ok'=>true,'product'=>'The Lookout','target'=>'https://'.$host,'checked_at'=>gmdate('c'),'http_status'=>$status,'tls_verified'=>$ssl===0,'personalized'=>$personalized,'checks'=>['HTTPS certificate validation','HTTP status','HSTS','Content Security Policy','MIME protection','Referrer Policy'],'findings'=>$findings,'limitations'=>['Passive homepage request only.','No authenticated, database, exploit, or source-code tests.','Missing headers are configuration signals, not proof of compromise.']]);exit;
+  echo json_encode(['ok'=>true,'product'=>'The Lookout','target'=>'https://'.$host,'checked_at'=>gmdate('c'),'http_status'=>$status,'tls_verified'=>$ssl===0,'personalized'=>$personalized,'discoverability'=>$discoverability,'checks'=>['HTTPS certificate validation','HTTP status','HSTS','Content Security Policy','MIME protection','Referrer Policy'],'findings'=>$findings,'limitations'=>['Passive homepage request only; search and answer-engine checks are HTML signal checks, not ranking measurements.','No authenticated, database, exploit, or source-code tests.','Missing headers are configuration signals, not proof of compromise.']]);exit;
 }
 $repo=trim((string)($data['repository']??''));
 if(!preg_match('~^[a-zA-Z0-9_.-]{1,39}/[a-zA-Z0-9_.-]{1,100}$~D',$repo))fail('Enter repository as owner/name.');
