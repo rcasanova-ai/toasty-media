@@ -1,0 +1,18 @@
+name: SHIPWREKT email and PDF checks
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'shipwrekt/api/scan.php'
+      - 'shipwrekt/api/email-report.php'
+      - 'shipwrekt/index.html'
+      - '.github/workflows/shipwrekt-email-pdf-check.yml'
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PHP syntax
+        run: |
+          php -l shipwrekt/api/scan.php
+          php -l shipwrekt/api/email-report.php
