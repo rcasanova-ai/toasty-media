@@ -32,7 +32,14 @@ function github(string $url,?string $token=null,bool $optional=false):array {
   $json=json_decode($body,true);if(!is_array($json))fail('Invalid GitHub response.',502);return $json;
 }
 $findings=[];
-function finding(string $level,string $title,string $evidence,string $fix):void {global $findings;$findings[]=['severity'=>$level,'title'=>$title,'evidence'=>$evidence,'recommendation'=>$fix];}
+function finding(string $level,string $title,string $evidence,string $fix,string $category='security'):void {global $findings;$findings[]=['category'=>$category,'severity'=>$level,'title'=>$title,'evidence'=>$evidence,'recommendation'=>$fix];}
+function publicPath(string $host,string $ip,string $path):array {
+ $out='';$c=curl_init('https://'.$host.$path);
+ curl_setopt_array($c,[CURLOPT_RETURNTRANSFER=>false,CURLOPT_CONNECTTIMEOUT=>3,CURLOPT_TIMEOUT=>6,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2,CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS,CURLOPT_RESOLVE=>[$host.':443:'.$ip],CURLOPT_USERAGENT=>'SHIPWREKT-Lookout/0.4']);
+ curl_setopt($c,CURLOPT_WRITEFUNCTION,function($c,$chunk)use(&$out){$n=max(0,24576-strlen($out));if($n)$out.=substr($chunk,0,$n);return strlen($chunk);});
+ $ok=curl_exec($c);$status=(int)curl_getinfo($c,CURLINFO_HTTP_CODE);curl_close($c);
+ return ['status'=>$ok===false?0:$status,'body'=>$out];
+}
 if($mode==='lookout'){
   $url=trim((string)($data['url']??''));
   $parts=parse_url($url);
@@ -90,16 +97,37 @@ if($mode==='lookout'){
   $hasSchema=(bool)preg_match('~<script\\s+[^>]*type\\s*=\\s*["\\x27]application/ld\\x2bjson["\\x27]~i',$body);
   $hasH1=(bool)preg_match('~<h1(?:\\s|>)~i',$body);
   $hasOg=(bool)preg_match('~<meta\\s+[^>]*property\\s*=\\s*["\\x27]og:title["\\x27]~i',$body);
-  if(!$pageTitle)finding('low','Missing homepage title','No HTML title detected in the retrieved homepage.','Write a descriptive, unique page title.');
-  if(!$hasDescription)finding('info','Search description not detected','No meta description detected in the retrieved HTML.','Add a concise description explaining who you serve and what you offer.');
-  if(!$hasCanonical)finding('info','Canonical URL not detected','No canonical link detected in the retrieved HTML.','Add a canonical URL where appropriate to reduce duplicate-page ambiguity.');
-  if(!$hasH1)finding('info','Primary heading not detected','No H1 detected in the retrieved HTML.','Use a clear main heading that explains the page.');
-  if(!$hasSchema)finding('info','Structured data not detected','No JSON-LD script detected in the retrieved HTML.','Consider accurate Organization, LocalBusiness or Service schema where applicable. Never invent claims.');
+  if(!$pageTitle)finding('low','Missing homepage title','No HTML title detected in the retrieved homepage.','Write a descriptive, unique page title.','visibility');
+  if(!$hasDescription)finding('info','Search description not detected','No meta description detected in the retrieved HTML.','Add a concise description explaining who you serve and what you offer.','visibility');
+  if(!$hasCanonical)finding('info','Canonical URL not detected','No canonical link detected in the retrieved HTML.','Add a canonical URL where appropriate to reduce duplicate-page ambiguity.','visibility');
+  if(!$hasH1)finding('info','Primary heading not detected','No H1 detected in the retrieved HTML.','Use a clear main heading that explains the page.','visibility');
+  if(!$hasSchema)finding('info','Structured data not detected','No JSON-LD script detected in the retrieved HTML.','Consider accurate Organization, LocalBusiness or Service schema where applicable. Never invent claims.','visibility');
   $discoverability=['page_title_present'=>(bool)$pageTitle,'meta_description_present'=>$hasDescription,'canonical_present'=>$hasCanonical,'h1_present'=>$hasH1,'structured_data_jsonld_present'=>$hasSchema,'open_graph_title_present'=>$hasOg,'mobile_viewport_present'=>$hasViewport,'note'=>'Basic HTML signals only. This does not measure AI search rankings or guarantee inclusion in AI answers.'];
   foreach(['strict-transport-security'=>['medium','HSTS header absent','Enable HSTS after confirming HTTPS on all subdomains.'],'content-security-policy'=>['medium','CSP header absent','Add a tested Content Security Policy.'],'x-content-type-options'=>['low','MIME protection absent','Set X-Content-Type-Options: nosniff.'],'referrer-policy'=>['low','Referrer Policy absent','Set a suitable Referrer-Policy.']] as $h=>$v)if(!isset($headers[$h]))finding($v[0],$v[1],$h.' not present',$v[2]);
   if(isset($headers['x-content-type-options'])&&strtolower($headers['x-content-type-options'])!=='nosniff')finding('low','Invalid MIME protection','X-Content-Type-Options is not nosniff','Set it to nosniff.');
   if($status>=500)finding('medium','Origin returned server error','HTTP '.$status,'Investigate server errors.');
-  echo json_encode(['ok'=>true,'product'=>'The Lookout','target'=>'https://'.$host,'checked_at'=>gmdate('c'),'http_status'=>$status,'tls_verified'=>$ssl===0,'personalized'=>$personalized,'discoverability'=>$discoverability,'checks'=>['HTTPS certificate validation','HTTP status','HSTS','Content Security Policy','MIME protection','Referrer Policy'],'findings'=>$findings,'limitations'=>['Passive homepage request only; search and answer-engine checks are HTML signal checks, not ranking measurements.','No authenticated, database, exploit, or source-code tests.','Missing headers are configuration signals, not proof of compromise.']]);exit;
+  $robots=publicPath($host,$pinned,'/robots.txt');
+  $sitemap=publicPath($host,$pinned,'/sitemap.xml');
+  $privacy=publicPath($host,$pinned,'/privacy');
+  $terms=publicPath($host,$pinned,'/terms');
+  if($robots['status']===404)finding('info','robots.txt not found','Standard /robots.txt returned 404.','Publish crawler guidance if needed and advertise your sitemap.','visibility');
+  if($sitemap['status']===404)finding('low','sitemap.xml not found at standard location','Standard /sitemap.xml returned 404. Another sitemap may exist.','Publish or advertise a valid sitemap.','visibility');
+  $links=[];
+  if(preg_match_all('~<a\\b[^>]*href\\s*=\\s*["\\x27]([^"\\x27]+)~i',$body,$matches)){
+   foreach($matches[1] as $href){$u=parse_url(html_entity_decode($href,ENT_QUOTES|ENT_HTML5,'UTF-8'));if($u===false)continue;if(!isset($u['host'])||strtolower($u['host'])===$host)$links[]=strtolower($u['path']??'');}
+  }
+  $privacyLinked=(bool)array_filter($links,fn($x)=>str_contains($x,'privacy')||str_contains($x,'data-protection'));
+  $termsLinked=(bool)array_filter($links,fn($x)=>str_contains($x,'terms')||str_contains($x,'conditions'));
+  $privacyFound=$privacyLinked||$privacy['status']===200;
+  $termsFound=$termsLinked||$terms['status']===200;
+  if(!$privacyFound)finding('medium','Privacy policy not discovered','No privacy link on sampled homepage and /privacy did not return 200. Other locations were not checked.','Link a service-specific privacy notice describing real data practices.','trust');
+  if(!$termsFound)finding('info','Terms of service not discovered','No terms link on sampled homepage and /terms did not return 200. Other locations were not checked.','Consider terms tailored to the services offered and applicable law.','trust');
+  $policyText=strtolower(strip_tags($privacy['body']));
+  foreach(['lorem ipsum','[company name]','[your company]','insert company name','template privacy policy'] as $placeholder)if($privacy['status']===200&&str_contains($policyText,$placeholder)){finding('medium','Privacy notice contains template language','Placeholder text found in /privacy.','Review the policy against actual data collection, retention, vendors and contact details.','trust');break;}
+  $stock=[];foreach(["in today's fast-paced",'ever-evolving landscape','unlock the power','revolutionize the way','seamless experience','cutting-edge solution','delve into','game-changer'] as $phrase)if(str_contains($pageText,$phrase))$stock[]=$phrase;
+  if(count($stock)>=2)finding('info','Generic marketing language detected','Several stock phrases were observed; this is not evidence of AI authorship.','Use specific examples, measurable claims and language grounded in your service.','content');
+  $publicSummary=['robots_txt_status'=>$robots['status'],'sitemap_xml_status'=>$sitemap['status'],'sitemap_advertised_in_robots'=>(bool)preg_match('~^\\s*Sitemap:~mi',$robots['body']),'privacy_discovered'=>$privacyFound,'terms_discovered'=>$termsFound,'generic_phrases'=>$stock,'limitations'=>['Only the homepage and four standard same-origin paths were requested.','A missing path does not prove the resource is absent elsewhere.','AI authorship cannot reliably be determined from copy alone.']];
+  echo json_encode(['ok'=>true,'product'=>'The Lookout','target'=>'https://'.$host,'checked_at'=>gmdate('c'),'http_status'=>$status,'tls_verified'=>$ssl===0,'personalized'=>$personalized,'discoverability'=>$discoverability,'public_checks'=>$publicSummary,'checks'=>['HTTPS certificate validation','HTTP status','HSTS','Content Security Policy','MIME protection','Referrer Policy'],'findings'=>$findings,'limitations'=>['Passive homepage request only; search and answer-engine checks are HTML signal checks, not ranking measurements.','No authenticated, database, exploit, or source-code tests.','Missing headers are configuration signals, not proof of compromise.']]);exit;
 }
 $repo=trim((string)($data['repository']??''));
 if(!preg_match('~^[a-zA-Z0-9_.-]{1,39}/[a-zA-Z0-9_.-]{1,100}$~D',$repo))fail('Enter repository as owner/name.');
