@@ -47,10 +47,45 @@ if($mode==='lookout'){
   $headers=[];curl_setopt($ch,CURLOPT_HEADERFUNCTION,function($ch,$line)use(&$headers){$p=explode(':',$line,2);if(count($p)===2)$headers[strtolower(trim($p[0]))]=trim($p[1]);return strlen($line);});
   $response=curl_exec($ch);$status=curl_getinfo($ch,CURLINFO_HTTP_CODE);$error=curl_error($ch);$ssl=curl_getinfo($ch,CURLINFO_SSL_VERIFYRESULT);curl_close($ch);
   if($response===false)fail('HTTPS request failed: '.($error?'Connection or certificate error':'Unknown error'),502);
+  // Interpret only publicly visible homepage content. No authentication attempts.
+  $body=substr((string)$response,0,32768);
+  $pageTitle='';$description='';$pageText='';
+  if(preg_match('~<title[^>]*>(.*?)</title>~is',$body,$m))$pageTitle=trim(html_entity_decode(strip_tags($m[1]),ENT_QUOTES|ENT_HTML5,'UTF-8'));
+  if(preg_match('~<meta\\s+[^>]*name=[\\x22\\x27]description[\\x22\\x27][^>]*content=[\\x22\\x27]([^\\x22\\x27]*)~i',$body,$m))$description=trim(html_entity_decode($m[1],ENT_QUOTES|ENT_HTML5,'UTF-8'));
+  $pageText=preg_replace('~<script\\b[^>]*>.*?</script>|<style\\b[^>]*>.*?</style>~is',' ',$body);
+  $pageText=mb_strtolower(html_entity_decode(strip_tags($pageText),ENT_QUOTES|ENT_HTML5,'UTF-8'),'UTF-8');
+  $signals=mb_strtolower($pageTitle.' '.$description.' '.$pageText,'UTF-8');
+  $industries=[
+    'tutoring'=>['tutor','tutoring','private lessons','exam preparation','online learning','student support'],
+    'healthcare'=>['clinic','patient','medical practice','healthcare','dentist'],
+    'ecommerce'=>['shop now','add to cart','checkout','online store'],
+    'recruitment'=>['recruitment','executive search','job seekers','hiring'],
+    'finance'=>['financial services','investment adviser','banking','accounting firm'],
+    'hospitality'=>['hotel','book a room','restaurant','reservations'],
+    'professional services'=>['consulting','professional services','advisory']
+  ];
+  $industry=null;$best=0;
+  foreach($industries as $label=>$words){$score=0;foreach($words as $word){if(str_contains($signals,$word))$score++;}if($score>$best){$best=$score;$industry=$label;}}
+  $loginObserved=(bool)preg_match('~(?:href|action)\\s*=\\s*[\\x22\\x27][^\\x22\\x27]*(?:login|log-in|signin|sign-in|account)[^\\x22\\x27]*[\\x22\\x27]|type\\s*=\\s*[\\x22\\x27]password[\\x22\\x27]~i',$body);
+  $loginText=(bool)preg_match('~\\b(?:log in|login|sign in|client portal|student portal|member portal)\\b~i',$pageText);
+  $loginObserved=$loginObserved||$loginText;
+  $industryPhrase=$industry==='tutoring'?'tutoring or education':($industry??'an industry I could not confidently identify');
+  $cheeky=$industry==='tutoring'?'Helping students pass their exams? Time to see whether your website passes its own security homework.':($industry==='ecommerce'?'Your customers can add things to their cart. Let us make sure trouble cannot add itself to the checkout.':($industry==='recruitment'?'You find the right people. Let us check whether the wrong people might find their way in.':'Nice-looking ship. Now let us check what is happening below deck.'));
+  $personalized=[
+    'industry'=>$industry,
+    'industry_confidence'=>$best>=2?'moderate':($best===1?'low':'unknown'),
+    'page_title'=>mb_substr($pageTitle,0,140),
+    'login_visible'=>$loginObserved,
+    'cheeky_comment'=>$cheeky,
+    'observation'=>($industry?'Your public homepage suggests '.$industryPhrase.' services. ':'Your homepage did not clearly identify the business category. ').($loginObserved?'We also noticed what appears to be a login or account entry point.':'We did not identify a login on this homepage. That does not mean your site has none.'),
+    'deeper_assessment'=>$loginObserved?'If customers, students or staff sign in, their accounts and personal information deserve a closer look. This free scan cannot establish whether passwords are stored safely, account permissions work correctly or private records are protected. Our deeper assessment examines those controls with your authorization.':'The free scan only checks the public homepage. A deeper assessment can review authentication, private data handling, access permissions and backend safeguards with your authorization.',
+    'upgrade_label'=>'Explore The Scanner ($199) or The Boarding Party ($1,000)',
+    'upgrade_url'=>'#packages'
+  ];
   foreach(['strict-transport-security'=>['medium','HSTS header absent','Enable HSTS after confirming HTTPS on all subdomains.'],'content-security-policy'=>['medium','CSP header absent','Add a tested Content Security Policy.'],'x-content-type-options'=>['low','MIME protection absent','Set X-Content-Type-Options: nosniff.'],'referrer-policy'=>['low','Referrer Policy absent','Set a suitable Referrer-Policy.']] as $h=>$v)if(!isset($headers[$h]))finding($v[0],$v[1],$h.' not present',$v[2]);
   if(isset($headers['x-content-type-options'])&&strtolower($headers['x-content-type-options'])!=='nosniff')finding('low','Invalid MIME protection','X-Content-Type-Options is not nosniff','Set it to nosniff.');
   if($status>=500)finding('medium','Origin returned server error','HTTP '.$status,'Investigate server errors.');
-  echo json_encode(['ok'=>true,'product'=>'The Lookout','target'=>'https://'.$host,'checked_at'=>gmdate('c'),'http_status'=>$status,'tls_verified'=>$ssl===0,'checks'=>['HTTPS certificate validation','HTTP status','HSTS','Content Security Policy','MIME protection','Referrer Policy'],'findings'=>$findings,'limitations'=>['Passive homepage request only.','No authenticated, database, exploit, or source-code tests.','Missing headers are configuration signals, not proof of compromise.']]);exit;
+  echo json_encode(['ok'=>true,'product'=>'The Lookout','target'=>'https://'.$host,'checked_at'=>gmdate('c'),'http_status'=>$status,'tls_verified'=>$ssl===0,'personalized'=>$personalized,'checks'=>['HTTPS certificate validation','HTTP status','HSTS','Content Security Policy','MIME protection','Referrer Policy'],'findings'=>$findings,'limitations'=>['Passive homepage request only.','No authenticated, database, exploit, or source-code tests.','Missing headers are configuration signals, not proof of compromise.']]);exit;
 }
 $repo=trim((string)($data['repository']??''));
 if(!preg_match('~^[a-zA-Z0-9_.-]{1,39}/[a-zA-Z0-9_.-]{1,100}$~D',$repo))fail('Enter repository as owner/name.');
