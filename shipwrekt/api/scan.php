@@ -43,17 +43,18 @@ if($mode==='lookout'){
   if(!$ips||count(array_filter($ips,'globalIp'))!==count($ips))fail('Only publicly routable targets are permitted.');
   $pinned=$ips[0];
   $ch=curl_init('https://'.$host.'/');
-  curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_HEADER=>true,CURLOPT_NOBODY=>false,CURLOPT_HTTPGET=>true,CURLOPT_RANGE=>'0-8191',CURLOPT_TIMEOUT=>12,CURLOPT_CONNECTTIMEOUT=>5,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2,CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS,CURLOPT_RESOLVE=>[$host.':443:'.$pinned],CURLOPT_USERAGENT=>'SHIPWREKT-Lookout/0.2 (passive authorized check)',CURLOPT_MAXFILESIZE=>32768]);
+  curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_HEADER=>true,CURLOPT_NOBODY=>false,CURLOPT_HTTPGET=>true,CURLOPT_RANGE=>'0-8191',CURLOPT_TIMEOUT=>12,CURLOPT_CONNECTTIMEOUT=>5,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2,CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS,CURLOPT_RESOLVE=>[$host.':443:'.$pinned],CURLOPT_USERAGENT=>'SHIPWREKT-Lookout/0.3 (passive authorized check)']);
+  $bodyCapture='';curl_setopt($ch,CURLOPT_WRITEFUNCTION,function($ch,$chunk)use(&$bodyCapture){$remaining=max(0,32768-strlen($bodyCapture));if($remaining>0)$bodyCapture.=substr($chunk,0,$remaining);return strlen($chunk);});
   $headers=[];curl_setopt($ch,CURLOPT_HEADERFUNCTION,function($ch,$line)use(&$headers){$p=explode(':',$line,2);if(count($p)===2)$headers[strtolower(trim($p[0]))]=trim($p[1]);return strlen($line);});
-  $response=curl_exec($ch);$status=curl_getinfo($ch,CURLINFO_HTTP_CODE);$error=curl_error($ch);$ssl=curl_getinfo($ch,CURLINFO_SSL_VERIFYRESULT);curl_close($ch);
-  if($response===false)fail('HTTPS request failed: '.($error?'Connection or certificate error':'Unknown error'),502);
+  $response=curl_exec($ch);$status=curl_getinfo($ch,CURLINFO_HTTP_CODE);$curlCode=curl_errno($ch);$error=curl_error($ch);$ssl=curl_getinfo($ch,CURLINFO_SSL_VERIFYRESULT);curl_close($ch);
+  if($response===false){$reason=match($curlCode){6=>'Domain DNS lookup failed.',7=>'Connection refused or unreachable.',28=>'Connection timed out.',35,51,60=>'TLS certificate or handshake failed.',default=>'Connection failed (cURL '.$curlCode.').'};fail($reason.' This is a connection diagnostic, not proof of a website vulnerability.',502);}
   // Interpret only publicly visible homepage content. No authentication attempts.
-  $body=substr((string)$response,0,32768);
+  $body=$bodyCapture;
   $pageTitle='';$description='';$pageText='';
   if(preg_match('~<title[^>]*>(.*?)</title>~is',$body,$m))$pageTitle=trim(html_entity_decode(strip_tags($m[1]),ENT_QUOTES|ENT_HTML5,'UTF-8'));
   if(preg_match('~<meta\\s+[^>]*name=[\\x22\\x27]description[\\x22\\x27][^>]*content=[\\x22\\x27]([^\\x22\\x27]*)~i',$body,$m))$description=trim(html_entity_decode($m[1],ENT_QUOTES|ENT_HTML5,'UTF-8'));
   $pageText=preg_replace('~<script\\b[^>]*>.*?</script>|<style\\b[^>]*>.*?</style>~is',' ',$body);
-  $pageText=mb_strtolower(html_entity_decode(strip_tags($pageText),ENT_QUOTES|ENT_HTML5,'UTF-8'),'UTF-8');
+  $pageText=strtolower(html_entity_decode(strip_tags($pageText),ENT_QUOTES|ENT_HTML5,'UTF-8') );
   $signals=mb_strtolower($pageTitle.' '.$description.' '.$pageText,'UTF-8');
   $industries=[
     'tutoring'=>['tutor','tutoring','private lessons','exam preparation','online learning','student support'],
@@ -74,7 +75,7 @@ if($mode==='lookout'){
   $personalized=[
     'industry'=>$industry,
     'industry_confidence'=>$best>=2?'moderate':($best===1?'low':'unknown'),
-    'page_title'=>mb_substr($pageTitle,0,140),
+    'page_title'=>substr($pageTitle,0,140),
     'login_visible'=>$loginObserved,
     'cheeky_comment'=>$cheeky,
     'observation'=>($industry?'Your public homepage suggests '.$industryPhrase.' services. ':'Your homepage did not clearly identify the business category. ').($loginObserved?'We also noticed what appears to be a login or account entry point.':'We did not identify a login on this homepage. That does not mean your site has none.'),
