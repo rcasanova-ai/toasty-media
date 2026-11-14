@@ -8,6 +8,8 @@ function db():PDO {
  if(!$path||!str_starts_with($path,'/')||str_contains($path,'/public_html/')||str_contains($path,'/htdocs/'))throw new RuntimeException('Crew enrollment is not configured yet.');
  $dir=dirname($path);if(!is_dir($dir))throw new RuntimeException('Crew storage unavailable.');
  $db=new PDO('sqlite:'.$path,null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC]);
+ $db->exec('CREATE TABLE IF NOT EXISTS login_attempts (identifier TEXT NOT NULL, attempted_at INTEGER NOT NULL)');
+ $db->exec('CREATE INDEX IF NOT EXISTS idx_login_attempts ON login_attempts(identifier,attempted_at)');
  $db->exec('CREATE TABLE IF NOT EXISTS engineers(id INTEGER PRIMARY KEY AUTOINCREMENT,email TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,callsign TEXT NOT NULL,experience TEXT NOT NULL DEFAULT \'\',specialties TEXT NOT NULL DEFAULT \'\',timezone TEXT NOT NULL DEFAULT \'UTC\',languages TEXT NOT NULL DEFAULT \'\',availability TEXT NOT NULL DEFAULT \'\',status TEXT NOT NULL DEFAULT \'pending\',agreement_version TEXT,agreement_at TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)');
  return $db;
 }
@@ -29,8 +31,17 @@ if($_SERVER['REQUEST_METHOD']==='POST'){
   $q->execute([$email,password_hash($password,PASSWORD_DEFAULT),$callsign,'applicant-v1']);
   session_regenerate_id(true);$_SESSION['engineer_id']=(int)$db->lastInsertId();$notice='Application account created. Complete your profile. Approval is required before public listing.';
  }elseif($action==='login'){
+  $email=strtolower(trim((string)($_POST['email']??'')));
+  $identifier=hash('sha256',$email.'|'.(string)($_SERVER['REMOTE_ADDR']??''));
+  $db->prepare('DELETE FROM login_attempts WHERE attempted_at<?')->execute([time()-86400]);
+  $limit=$db->prepare('SELECT COUNT(*) FROM login_attempts WHERE identifier=? AND attempted_at>?');
+  $limit->execute([$identifier,time()-900]);
+  if((int)$limit->fetchColumn()>=5)throw new RuntimeException('Too many attempts. Please try again in 15 minutes.');
+  $db->prepare('INSERT INTO login_attempts(identifier,attempted_at) VALUES(?,?)')->execute([$identifier,time()]);
   $q=$db->prepare('SELECT id,password_hash FROM engineers WHERE email=?');$q->execute([strtolower(trim((string)($_POST['email']??'')))]);$user=$q->fetch();
   if(!$user||!password_verify((string)($_POST['password']??''),$user['password_hash']))throw new RuntimeException('Invalid credentials.');
+  $db->prepare('DELETE FROM login_attempts WHERE identifier=?')->execute([$identifier]);
+  if(password_needs_rehash($user['password_hash'],PASSWORD_DEFAULT)){$db->prepare('UPDATE engineers SET password_hash=? WHERE id=?')->execute([password_hash((string)$_POST['password'],PASSWORD_DEFAULT),(int)$user['id']]);}
   session_regenerate_id(true);$_SESSION['engineer_id']=(int)$user['id'];$notice='Signed in.';
  }elseif($action==='logout'){unset($_SESSION['engineer_id']);session_regenerate_id(true);$notice='Signed out.';}
  elseif($action==='profile'&&!empty($_SESSION['engineer_id'])){
