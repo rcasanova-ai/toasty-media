@@ -44,7 +44,7 @@ function mailReport(string $email,array $d):bool {
  return mail($email,$subject,$body,$mime,'-freports@toasty.media');
 }
 $dir=getenv('SHIPWREKT_REPORT_STORE');$secret=getenv('SHIPWREKT_REPORT_SECRET');
-if(!$dir||!str_starts_with($dir,'/')||!is_dir($dir)||!is_writable($dir)||str_contains($dir,'public_html')||!$secret||strlen($secret)<32)respond(503,['error'=>'Email delivery is not configured.']);
+if(!$dir||!str_starts_with($dir,'/')||!is_dir($dir)||!is_writable($dir)||str_contains($dir,'public_html')||str_contains($dir,'htdocs')||!$secret||strlen($secret)<32)respond(503,['error'=>'Email delivery is not configured.']);
 if($_SERVER['REQUEST_METHOD']==='GET'){
  $token=(string)($_GET['confirm']??'');if(!preg_match('/^[a-f0-9]{64}$/D',$token))respond(400,['error'=>'Invalid confirmation link.']);
  $file=$dir.'/'.hash_hmac('sha256',$token,$secret).'.json';
@@ -59,6 +59,9 @@ if((int)($_SERVER['CONTENT_LENGTH']??0)>150000)respond(413,['error'=>'Report too
 $input=json_decode(file_get_contents('php://input'),true);if(!is_array($input))respond(400,['error'=>'Invalid request.']);
 $email=strtolower(trim((string)($input['email']??'')));$d=$input['report']??null;
 if(!filter_var($email,FILTER_VALIDATE_EMAIL)||strlen($email)>254||!is_array($d)||empty($d['ok'])||!is_array($d['findings']??null)||count($d['findings'])>100)respond(400,['error'=>'Valid email and assessment required.']);
+$signature=(string)($d['report_signature']??'');unset($d['report_signature']);
+$expected=hash_hmac('sha256',json_encode($d,JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE),$secret);
+if(!preg_match('/^[a-f0-9]{64}$/D',$signature)||!hash_equals($expected,$signature))respond(403,['error'=>'Only genuine SHIPWREKT assessments can be emailed.']);
 $issued=strtotime((string)($d['checked_at']??''));if(!$issued||abs(time()-$issued)>1800)respond(400,['error'=>'Assessment expired. Please scan again.']);
 $ip=(string)($_SERVER['REMOTE_ADDR']??'unknown');$limit=$dir.'/rate-'.hash_hmac('sha256',$ip,$secret);
 $events=json_decode(@file_get_contents($limit)?:'[]',true);$events=is_array($events)?array_filter($events,fn($t)=>is_int($t)&&$t>time()-3600):[];
