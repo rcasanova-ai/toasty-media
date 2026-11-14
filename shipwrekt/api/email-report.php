@@ -38,10 +38,10 @@ function mailReport(string $email,array $d):bool {
  $pdf=makePdf($d);$boundary='shipwrekt_'.bin2hex(random_bytes(12));
  $subject='Your SHIPWREKT website assessment report';
  $plain="Your SHIPWREKT report is attached as a PDF.\n\nScope and limitations are described inside.\n\nSHIPWREKT | White Hats. Black Flags.\nhttps://toasty.media/shipwrekt/";
- $mime="MIME-Version: 1.0\r\nFrom: SHIPWREKT <reports@toasty.media>\r\nContent-Type: multipart/mixed; boundary=\"".$boundary."\"\r\n";
+ $mime="MIME-Version: 1.0\r\nFrom: SHIPWREKT via Toasty Media <hello@toasty.media>\r\nContent-Type: multipart/mixed; boundary=\"".$boundary."\"\r\n";
  $body="--".$boundary."\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n".$plain."\r\n";
  $body.="--".$boundary."\r\nContent-Type: application/pdf; name=\"SHIPWREKT-Assessment.pdf\"\r\nContent-Disposition: attachment; filename=\"SHIPWREKT-Assessment.pdf\"\r\nContent-Transfer-Encoding: base64\r\n\r\n".chunk_split(base64_encode($pdf))."\r\n--".$boundary."--\r\n";
- return mail($email,$subject,$body,$mime,'-freports@toasty.media');
+ return mail($email,$subject,$body,$mime,'-fhello@toasty.media');
 }
 $dir=getenv('SHIPWREKT_REPORT_STORE');$secret=getenv('SHIPWREKT_REPORT_SECRET');
 if(!$dir||!str_starts_with($dir,'/')||!is_dir($dir)||!is_writable($dir)||str_contains($dir,'public_html')||str_contains($dir,'htdocs')||!$secret||strlen($secret)<32)respond(503,['error'=>'Email delivery is not configured.']);
@@ -69,6 +69,6 @@ if(count($events)>=5)respond(429,['error'=>'Hourly email limit reached.']);$even
 $token=bin2hex(random_bytes(32));$file=$dir.'/'.hash_hmac('sha256',$token,$secret).'.json';
 file_put_contents($file,json_encode(['email'=>$email,'report'=>$d,'expires'=>time()+1800]),LOCK_EX);chmod($file,0600);
 $link='https://toasty.media/shipwrekt/api/email-report.php?confirm='.$token;
-$headers="From: SHIPWREKT <reports@toasty.media>\r\nContent-Type: text/plain; charset=UTF-8\r\n";
-if(!mail($email,'Confirm your SHIPWREKT PDF report',"Confirm your email to receive your assessment PDF:\n\n".$link."\n\nThis link expires in 30 minutes. If you did not request it, ignore this message.",$headers,'-freports@toasty.media')){unlink($file);respond(502,['error'=>'Confirmation email could not be sent.']);}
+$headers="From: SHIPWREKT <hello@toasty.media>\r\nContent-Type: text/plain; charset=UTF-8\r\n";
+if(!mail($email,'Confirm your SHIPWREKT PDF report',"Confirm your email to receive your assessment PDF:\n\n".$link."\n\nThis link expires in 30 minutes. If you did not request it, ignore this message.",$headers,'-fhello@toasty.media')){unlink($file);respond(502,['error'=>'Confirmation email could not be sent.']);}
 respond(200,['ok'=>true,'message'=>'Check your inbox for a confirmation link. Your PDF is sent after confirmation.']);
