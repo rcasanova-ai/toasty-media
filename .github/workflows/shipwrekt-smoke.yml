@@ -1,0 +1,30 @@
+name: SHIPWREKT scanner smoke test
+on:
+  push:
+    paths:
+      - shipwrekt/api/scan.php
+      - shipwrekt/index.html
+      - .github/workflows/shipwrekt-smoke.yml
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PHP syntax check
+        run: php -l shipwrekt/api/scan.php
+      - name: Verify UI has both functional forms
+        run: |
+          grep -Fq 'id="lookoutForm"' shipwrekt/index.html
+          grep -Fq 'id="repoForm"' shipwrekt/index.html
+          grep -Fq '/shipwrekt/api/scan.php' shipwrekt/index.html
+      - name: Wait for production publication
+        run: sleep 50
+      - name: Live free scan and GitHub proof of concept
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 25 -H 'Content-Type: application/json' -d '{"mode":"lookout","url":"https://example.com","authorized":true}' https://toasty.media/shipwrekt/api/scan.php -o /tmp/lookout.json
+          php -r '$d=json_decode(file_get_contents("/tmp/lookout.json"),true); if(empty($d["ok"])||empty($d["findings"])||($d["product"]??"")!=="The Lookout")exit(1);'
+          curl -fsS --max-time 35 -H 'Content-Type: application/json' -d '{"mode":"repository","repository":"octocat/Hello-World","authorized":true}' https://toasty.media/shipwrekt/api/scan.php -o /tmp/repo.json
+          php -r '$d=json_decode(file_get_contents("/tmp/repo.json"),true); if(empty($d["ok"])||($d["repository"]??"")!=="octocat/Hello-World")exit(1);'
+          echo 'Both SHIPWREKT production scans returned structured reports.'
