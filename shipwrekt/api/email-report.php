@@ -43,6 +43,8 @@ function mailReport(string $email,array $d):bool {
  $body.="--".$boundary."\r\nContent-Type: application/pdf; name=\"SHIPWREKT-Assessment.pdf\"\r\nContent-Disposition: attachment; filename=\"SHIPWREKT-Assessment.pdf\"\r\nContent-Transfer-Encoding: base64\r\n\r\n".chunk_split(base64_encode($pdf))."\r\n--".$boundary."--\r\n";
  return mail($email,$subject,$body,$mime,'-fhello@toasty.media');
 }
+$config='/home/fmxgijyvpq/.shipwrekt/report-config.php';
+if(is_file($config)){require_once $config;}
 $dir=getenv('SHIPWREKT_REPORT_STORE');$secret=getenv('SHIPWREKT_REPORT_SECRET');
 if(!$dir||!str_starts_with($dir,'/')||!is_dir($dir)||!is_writable($dir)||str_contains($dir,'public_html')||str_contains($dir,'htdocs')||!$secret||strlen($secret)<32)respond(503,['error'=>'Email delivery is not configured.']);
 if($_SERVER['REQUEST_METHOD']==='GET'){
