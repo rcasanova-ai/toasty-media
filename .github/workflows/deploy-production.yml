@@ -185,6 +185,14 @@ jobs:
           grep -Fq 'renderDirected' /tmp/director-render.js
           curl --fail --silent --show-error --location https://toasty.media/css/make-video.css -o /tmp/make-video.css
           grep -Fq '.mmv-big' /tmp/make-video.css
+          # SHIPWREKT: verify the actual approved PNG artwork is publicly served, not an HTML fallback.
+          curl --fail --silent --show-error --location https://toasty.media/shipwrekt/ -o /tmp/shipwrekt.html
+          grep -Fq '/shipwrekt/assets/shipwrekt-teal.png' /tmp/shipwrekt.html
+          for logo in shipwrekt-teal scanner-orange boarding-party-red; do
+            curl --fail --silent --show-error --location "https://toasty.media/shipwrekt/assets/$logo.png" -o "/tmp/$logo.png"
+            test "$(head -c 4 "/tmp/$logo.png" | od -An -tx1 | tr -d ' \\n')" = '89504e47'
+            test "$(wc -c < "/tmp/$logo.png")" -gt 100000
+          done
           echo 'Production verification passed.'
 
   validate:
