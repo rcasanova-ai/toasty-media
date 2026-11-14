@@ -20,14 +20,14 @@ $v=is_array($v)?array_values(array_filter($v,fn($t)=>is_int($t)&&$t>$now-3600)):
 if(count($v)>=12)fail('Hourly scan limit reached. Please try again later.',429);
 $v[]=$now;@file_put_contents($bucket,json_encode($v),LOCK_EX);
 function globalIp(string $ip):bool {return filter_var($ip,FILTER_VALIDATE_IP,FILTER_FLAG_NO_PRIV_RANGE|FILTER_FLAG_NO_RES_RANGE)!==false;}
-function github(string $url,?string $token=null):array {
+function github(string $url,?string $token=null,bool $optional=false):array {
   $c=curl_init($url);$headers=['Accept: application/vnd.github+json','User-Agent: SHIPWREKT-Assessment/0.2','X-GitHub-Api-Version: 2022-11-28'];
   if($token)$headers[]='Authorization: Bearer '.$token;
   curl_setopt_array($c,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_HTTPHEADER=>$headers,CURLOPT_CONNECTTIMEOUT=>5,CURLOPT_TIMEOUT=>12,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_MAXREDIRS=>0,CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2,CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS,CURLOPT_MAXFILESIZE=>1500000]);
   $body=curl_exec($c);$status=curl_getinfo($c,CURLINFO_HTTP_CODE);curl_close($c);
   if(!is_string($body))fail('GitHub connection failed.',502);
   if($status===401||$status===403)fail('GitHub denied access. Check the token permissions or API limit.',403);
-  if($status===404)fail('Repository not found or token lacks access.',404);
+  if($status===404&&$optional)return [];if($status===404)fail('Repository not found or token lacks access.',404);
   if($status<200||$status>=300)fail('GitHub API returned HTTP '.$status,502);
   $json=json_decode($body,true);if(!is_array($json))fail('Invalid GitHub response.',502);return $json;
 }
@@ -61,12 +61,12 @@ if(($root['private']??false)&&!$token)fail('Private repository requires a fine-g
 $branch=$root['default_branch']??'main';
 $enc=rawurlencode($branch);
 $protection=null;
-try{$protection=github('https://api.github.com/repos/'.$repo.'/branches/'.$enc.'/protection',$token?:null);}catch(Throwable $e){}
+$protection=github('https://api.github.com/repos/'.$repo.'/branches/'.$enc.'/protection',$token?:null,true);
 $prs=github('https://api.github.com/repos/'.$repo.'/pulls?state=closed&per_page=30',$token?:null);
 $commits=github('https://api.github.com/repos/'.$repo.'/commits?per_page=30',$token?:null);
 $deployments=github('https://api.github.com/repos/'.$repo.'/deployments?per_page=30',$token?:null);
 $contributors=github('https://api.github.com/repos/'.$repo.'/contributors?per_page=30',$token?:null);
-if($protection===null)finding('medium','Branch protection not verified','No protection evidence returned for '.$branch.'. GitHub permissions may restrict visibility.','Confirm branch protection and mandatory reviews.');
+if(!$protection)finding('medium','Branch protection not verified','No protection evidence returned for '.$branch.'. GitHub permissions may restrict visibility.','Confirm branch protection and mandatory reviews.');
 $merged=array_values(array_filter($prs,fn($p)=>!empty($p['merged_at'])));
 $unreviewed=0;foreach($merged as $pr){if(($pr['user']['login']??'')===($pr['merged_by']['login']??'')&&isset($pr['merged_by']))$unreviewed++;}
 if($unreviewed)finding('medium','Self-merged pull requests observed',$unreviewed.' of '.count($merged).' recent merged PRs show the same author and merger. This does not establish missing reviews.','Confirm independent review rules and exceptions.');
@@ -75,4 +75,4 @@ $dates=[];foreach($commits as $c){$d=$c['commit']['committer']['date']??null;if(
 $depDates=[];foreach($deployments as $d){if(!empty($d['created_at']))$depDates[]=$d['created_at'];}
 $latencies=[];foreach($depDates as $d){$dt=strtotime($d);$prior=array_filter($dates,fn($c)=>strtotime($c)<=$dt);if($prior)$latencies[]=round(($dt-max(array_map('strtotime',$prior)))/60,1);}
 if($latencies&&min($latencies)<5)finding('info','Rapid commit-to-deployment interval observed','Shortest approximate interval in available samples: '.min($latencies).' minutes. Events are not necessarily causally linked.','Check whether automated tests, approvals and rollback gates cover rapid releases.');
-echo json_encode(['ok'=>true,'product'=>'The Scanner: GitHub proof of concept','repository'=>$repo,'checked_at'=>gmdate('c'),'private'=>(bool)($root['private']??false),'default_branch'=>$branch,'branch_protection_verified'=>$protection!==null,'recent_commits'=>count($commits),'closed_pull_requests'=>count($prs),'merged_pull_requests'=>count($merged),'deployment_events'=>count($deployments),'contributors_in_sample'=>count($contributors),'approximate_commit_to_deploy_minutes'=>$latencies,'findings'=>$findings,'limitations'=>['Read-only GitHub metadata; no code download or secret scanning.','Token is used for this request only, not saved by this application.','Audit log and collaborator access require organization-specific permissions and are not assessed here.','Commit and deployment event proximity does not establish causation.','No payment or billing is processed. This is a limited proof of concept.']]);
+echo json_encode(['ok'=>true,'product'=>'The Scanner: GitHub proof of concept','repository'=>$repo,'checked_at'=>gmdate('c'),'private'=>(bool)($root['private']??false),'default_branch'=>$branch,'branch_protection_verified'=>!empty($protection),'recent_commits'=>count($commits),'closed_pull_requests'=>count($prs),'merged_pull_requests'=>count($merged),'deployment_events'=>count($deployments),'contributors_in_sample'=>count($contributors),'approximate_commit_to_deploy_minutes'=>$latencies,'findings'=>$findings,'limitations'=>['Read-only GitHub metadata; no code download or secret scanning.','Token is used for this request only, not saved by this application.','Audit log and collaborator access require organization-specific permissions and are not assessed here.','Commit and deployment event proximity does not establish causation.','No payment or billing is processed. This is a limited proof of concept.']]);
