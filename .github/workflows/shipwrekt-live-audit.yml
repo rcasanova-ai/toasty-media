@@ -14,7 +14,7 @@ jobs:
       - name: Verify public sites, TLS and response headers
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           for url in https://toasty.media/shipwrekt/ https://toasty.media/ https://santaticrm.com/ https://8alta.com/ https://itexecutivepartners-recruit.com/ https://toasty.media/thaiddown/ https://toasty.media/eloquence/; do
             echo "::group::$url"
             headers=$(mktemp)
@@ -23,16 +23,23 @@ jobs:
             for h in strict-transport-security content-security-policy x-content-type-options referrer-policy permissions-policy; do
               if grep -qi "^$h:" "$headers"; then echo "$h: present"; else echo "$h: MISSING"; fi
             done
-            if [[ "$status" == 200 ]]; then echo "HTTPS: accessible"; else echo "HTTPS: requires investigation"; fi
+            if [[ "$status" == 200 ]]; then echo "HTTPS: accessible"; else echo "::error::HTTPS failed for $url (HTTP $status)"; exit 1; fi
             rm -f "$headers"
             echo "::endgroup::"
           done
-      - name: Probe SHIPWREKT scanner with harmless authorized request
+      - name: Verify SHIPWREKT scanner returns a real assessment
         shell: bash
         run: |
-          set -uo pipefail
-          curl --silent --show-error --max-time 30 --dump-header /tmp/shipwrekt-headers -o /tmp/shipwrekt-body -H 'Content-Type: application/json' --data '{"mode":"lookout","url":"https://toasty.media/shipwrekt/","authorized":true}' https://toasty.media/shipwrekt/api/scan.php || true
-          head -n 16 /tmp/shipwrekt-headers || true
-          head -c 500 /tmp/shipwrekt-body || true
-          echo
-          echo 'No credentials or private tokens used.'
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            status=$(curl --silent --show-error --max-time 30 -o /tmp/shipwrekt-body -w '%{http_code}' -H 'Content-Type: application/json' --data '{"mode":"lookout","url":"https://toasty.media/shipwrekt/","authorized":true}' https://toasty.media/shipwrekt/api/scan.php)
+            if [[ "$status" == 200 ]] && python3 -c 'import json; d=json.load(open("/tmp/shipwrekt-body")); assert d["ok"] is True and d["product"] == "The Lookout" and isinstance(d["findings"], list)'; then
+              echo "Scanner returned valid assessment."
+              exit 0
+            fi
+            echo "Attempt $attempt: HTTP $status; awaiting production deployment"
+            sleep 30
+          done
+          echo "::error::SHIPWREKT scanner failed to return a valid assessment."
+          head -c 500 /tmp/shipwrekt-body
+          exit 1
