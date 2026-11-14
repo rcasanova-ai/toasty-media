@@ -58,7 +58,7 @@ jobs:
             if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then BASE="HEAD^"; fi
             git diff --name-only --diff-filter=ACMRT "$BASE" HEAD | grep -E "$FILTER" > /tmp/deploy-files.txt || true
             # Reconcile previously skipped directories even if older commits introduced them.
-            git ls-files 'itexecutivepartners/*' 'about/*' 'resume/*' 'contact/*' 'ponderings/*' 'wonderverse/*' 'books/*' 'command/*' 'speaking/*' 'talks/auditions/*' 'robots.txt' 'sitemap.xml' >> /tmp/deploy-files.txt
+            git ls-files 'shipwrekt/*' 'itexecutivepartners/*' 'about/*' 'resume/*' 'contact/*' 'ponderings/*' 'wonderverse/*' 'books/*' 'command/*' 'speaking/*' 'talks/auditions/*' 'robots.txt' 'sitemap.xml' >> /tmp/deploy-files.txt
             sort -u -o /tmp/deploy-files.txt /tmp/deploy-files.txt
           fi
           echo "Files selected:"
