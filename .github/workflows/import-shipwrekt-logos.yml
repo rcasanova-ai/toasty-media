@@ -15,12 +15,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p shipwrekt/assets
-          curl -fLsS --retry 2 --max-time 60 'https://docs.google.com/docs-images-rt/AIpPl2BmCUMwolip1LeIeP1QhSjGg5crcc20qqQBrKnv4P79hPqwldfYjhHO90csrzN8gpVQHyzrEYVC2xsndY-FTy1FDBTdxr6dY03_OzbMAebTHEyexF5isayQGuZ6W3hW3cCWcLzujeL9cuf0vhs84L2MmkyufeFbrKljNFhUNRexbKQSjGg=s2048?key=yvyCk8979pQfanBcF4EUEw' -o 'shipwrekt/assets/shipwrekt-teal.png'
-          test "$(head -c 4 shipwrekt/assets/shipwrekt-teal.png | od -An -tx1 | tr -d ' \n')" = "89504e47"
+          curl -fLsS --retry 2 --max-time 60 'https://docs.google.com/docs-images-rt/AIpPl2BmCUMwolip1LeIeP1QhSjGg5crcc20qqQBrKnv4P79hPqwldfYjhHO90csrzN8gpVQHyzrEYVC2xsndY-FTy1FDBTdxr6dY03_OzbMAebTHEyexF5isayQGuZ6W3hW3cCWcLzujeL9cuf0vhs84L2MmkyufeFbrKljNFhUNRexbKQSjGg=s2048?key=yvyCk8979pQfanBcF4EUEw' -o 'shipwrekt/assets/scanner-orange.png'
+          test "$(head -c 4 shipwrekt/assets/scanner-orange.png | od -An -tx1 | tr -d ' \n')" = "89504e47"
           curl -fLsS --retry 2 --max-time 60 'https://docs.google.com/docs-images-rt/AIpPl2DyAkRBuGXHOEK46drOAG0JQSrE8yIaEZrlLL2WJEGNZ-CY9pSLbsZbcBimkim7Rtd-I3B_I9GB90yuizndHYUXxb-01n2fWR5nROH1Udz81QquaS1yCBV8nKndtIUu9NBYc8VCo4aHJjX9_KKWBfkk7i0TMJ7wR7Okhk6OjigNzcfr=s2048?key=yvyCk8979pQfanBcF4EUEw' -o 'shipwrekt/assets/boarding-party-red.png'
           test "$(head -c 4 shipwrekt/assets/boarding-party-red.png | od -An -tx1 | tr -d ' \n')" = "89504e47"
-          curl -fLsS --retry 2 --max-time 60 'https://docs.google.com/docs-images-rt/AIpPl2Ax-gD9f3pSrOLqBObloj_ao0Bl_S9F_FufakZ3OrJzABD_g3NMSHaTC0KxURg5fAwQfovyZNOsGmUrc_3XjWPDcEz1sWlpzp340MI5IrkEi15Fr9rkQl12lAr12Pjop5A0Fv46fx7PSq4XcxVyYIcYSZmo1uCKFMM8-Md0QD3qQALxbJQ=s2048?key=yvyCk8979pQfanBcF4EUEw' -o 'shipwrekt/assets/scanner-orange.png'
-          test "$(head -c 4 shipwrekt/assets/scanner-orange.png | od -An -tx1 | tr -d ' \n')" = "89504e47"
+          curl -fLsS --retry 2 --max-time 60 'https://docs.google.com/docs-images-rt/AIpPl2Ax-gD9f3pSrOLqBObloj_ao0Bl_S9F_FufakZ3OrJzABD_g3NMSHaTC0KxURg5fAwQfovyZNOsGmUrc_3XjWPDcEz1sWlpzp340MI5IrkEi15Fr9rkQl12lAr12Pjop5A0Fv46fx7PSq4XcxVyYIcYSZmo1uCKFMM8-Md0QD3qQALxbJQ=s2048?key=yvyCk8979pQfanBcF4EUEw' -o 'shipwrekt/assets/shipwrekt-teal.png'
+          test "$(head -c 4 shipwrekt/assets/shipwrekt-teal.png | od -An -tx1 | tr -d ' \n')" = "89504e47"
       - name: Commit original artwork
         run: |
           git config user.name 'github-actions[bot]'
