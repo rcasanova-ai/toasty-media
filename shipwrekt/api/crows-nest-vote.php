@@ -4,31 +4,37 @@ header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 $method=$_SERVER['REQUEST_METHOD']??'GET';
-if(!in_array($method,['GET','POST'],true)){http_response_code(405);echo json_encode(['error'=>'Method not allowed']);exit;}
-$dir=sys_get_temp_dir().'/shipwrekt-interest';
-if(!is_dir($dir)&&!@mkdir($dir,0700,true)&&!is_dir($dir)){http_response_code(503);echo json_encode(['error'=>'Feedback unavailable']);exit;}
-$file=$dir.'/votes.json';
-$handle=@fopen($file,'c+');
-if(!$handle||!flock($handle,LOCK_EX)){http_response_code(503);echo json_encode(['error'=>'Feedback unavailable']);exit;}
-rewind($handle);$data=json_decode(stream_get_contents($handle),true);
-if(!is_array($data))$data=['yes'=>0,'no'=>0];
-$data['yes']=max(0,(int)($data['yes']??0));$data['no']=max(0,(int)($data['no']??0));
-if($method==='POST'){
-  if((int)($_SERVER['CONTENT_LENGTH']??0)>500){http_response_code(413);echo json_encode(['error'=>'Request too large']);exit;}
+if(!in_array($method,['GET','POST'],true)){header('Allow: GET, POST');http_response_code(405);echo json_encode(['error'=>'Method not allowed']);exit;}
+function failVote(int $status,string $message):never{http_response_code($status);echo json_encode(['ok'=>false,'error'=>$message]);exit;}
+$path=getenv('SHIPWREKT_VOTES_DB')?:'';
+if(!$path||!str_starts_with($path,'/')||preg_match('~/(public_html|htdocs|www|shipwrekt)/~i',$path)||!is_dir(dirname($path)))failVote(503,'Feedback temporarily unavailable');
+try{
+ $db=new PDO('sqlite:'.$path,null,null,[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_TIMEOUT=>5]);
+ $db->exec('PRAGMA busy_timeout=5000');
+ $db->exec('CREATE TABLE IF NOT EXISTS votes (id INTEGER PRIMARY KEY, vote TEXT NOT NULL CHECK(vote IN (\'yes\',\'no\')), visitor_hash TEXT NOT NULL, created_at INTEGER NOT NULL)');
+ $db->exec('CREATE INDEX IF NOT EXISTS idx_votes_visitor_time ON votes(visitor_hash,created_at)');
+ if($method==='POST'){
+  if((int)($_SERVER['CONTENT_LENGTH']??0)>500)failVote(413,'Request too large');
   $origin=$_SERVER['HTTP_ORIGIN']??'';
-  if($origin!==''&&$origin!=='https://toasty.media'){http_response_code(403);echo json_encode(['error'=>'Origin not allowed']);exit;}
-  $input=json_decode(file_get_contents('php://input'),true);
-  $vote=$input['vote']??null;
-  if(!in_array($vote,['yes','no'],true)){http_response_code(400);echo json_encode(['error'=>'Invalid vote']);exit;}
-  // A lightweight abuse barrier; IP hashes are not retained. Counts are anonymous aggregates.
-  $ip=$_SERVER['REMOTE_ADDR']??'';
-  $fingerprint=hash('sha256',$ip.'|'.($_SERVER['HTTP_USER_AGENT']??''));
-  $rateFile=$dir.'/rate-'.substr($fingerprint,0,24);
-  $last=(int)@file_get_contents($rateFile);
-  if($last>time()-86400){http_response_code(429);echo json_encode(['error'=>'One vote per visitor per day']);exit;}
-  $data[$vote]++;
-  rewind($handle);ftruncate($handle,0);fwrite($handle,json_encode($data));fflush($handle);
-  @file_put_contents($rateFile,(string)time(),LOCK_EX);
-}
-flock($handle,LOCK_UN);fclose($handle);
-echo json_encode(['ok'=>true,'votes'=>['yes'=>$data['yes'],'no'=>$data['no']]]);
+  if($origin!=='https://toasty.media')failVote(403,'Origin not allowed');
+  $raw=file_get_contents('php://input',false,null,0,501);
+  $input=json_decode($raw?:'',true);
+  $vote=is_array($input)?($input['vote']??null):null;
+  if(!in_array($vote,['yes','no'],true))failVote(400,'Invalid vote');
+  $ip=(string)($_SERVER['REMOTE_ADDR']??'');
+  $ua=substr((string)($_SERVER['HTTP_USER_AGENT']??''),0,250);
+  $salt=getenv('SHIPWREKT_VOTES_SALT')?:'';
+  if(strlen($salt)<32)failVote(503,'Feedback temporarily unavailable');
+  $visitor=hash_hmac('sha256',$ip.'|'.$ua,$salt);
+  $db->exec('BEGIN IMMEDIATE TRANSACTION');
+  $check=$db->prepare('SELECT 1 FROM votes WHERE visitor_hash=? AND created_at>? LIMIT 1');
+  $check->execute([$visitor,time()-86400]);
+  if($check->fetchColumn()){$db->rollBack();failVote(429,'One vote per visitor per day');}
+  $insert=$db->prepare('INSERT INTO votes(vote,visitor_hash,created_at) VALUES(?,?,?)');
+  $insert->execute([$vote,$visitor,time()]);
+  $db->commit();
+ }
+ $counts=['yes'=>0,'no'=>0];
+ foreach($db->query('SELECT vote,COUNT(*) AS total FROM votes GROUP BY vote') as $row){$counts[$row['vote']]=(int)$row['total'];}
+ echo json_encode(['ok'=>true,'votes'=>$counts]);
+}catch(Throwable $e){if(isset($db)&&$db->inTransaction())$db->rollBack();failVote(503,'Feedback temporarily unavailable');}
