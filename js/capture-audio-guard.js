@@ -6,12 +6,10 @@
 // the ceiling, never above it. The ceiling is -2 dBFS rather than -1: the AAC/Opus encoder that follows can overshoot its input by up to about 1 dB (measured), and the headroom keeps the decoded file below full scale. If anything about it is unavailable or fails, the original stream is returned unchanged
 // (fail open): a recording must never be lost because a safety feature could not start.
 //
-// The same worklet also carries the quiet-voice safety net (js/recording-leveler.js): a Program Output capture whose speech is far
-// below a healthy level (a take recorded at -45 LUFS is unusable) is raised, boost only, before the limiter. At a normal level it does
-// nothing. Turn it off with localStorage["toasty.recording.leveler"] = "off".
+// The same worklet can carry the quiet-voice safety net (js/recording-leveler.js), but it is OFF for this path: see the `leveler`
+// option. The worklet still measures loudness and the limiter still runs.
 //
 // Turn off with localStorage["toasty.recording.limiter"] = "off" (kept for diagnosing a suspected processing problem).
-import { levelerEnabled } from "./recording-leveler.js";
 export const GUARD_STORAGE_KEY = "toasty.recording.limiter";
 
 export function guardEnabled(storage = globalThis.localStorage) {
@@ -29,7 +27,9 @@ export async function guardCaptureAudio(stream, {
   lookaheadMs = 5,
   latencyHint = 0,
   onlyDisplayCapture = true,
-  leveler = levelerEnabled()
+  // Off by default here: this is the mix of several talkers (and whatever their rooms leak). One gain over a mix lifts the quietest
+  // talker's residual echo and room noise along with the voice, so only the single-microphone recording path gets the rescue.
+  leveler = false
 } = {}) {
   const audioTrack = stream?.getAudioTracks?.()[0];
   if (!enabled) return passthrough(stream, "disabled");

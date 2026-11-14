@@ -5,7 +5,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { execFileSync } from "node:child_process";
-import { analyzeChannels, measureLoudness, toDbfs, truePeakDbtp } from "../js/audio-analysis.js";
+import { analyzeChannels, detectEcho, measureLoudness, toDbfs, truePeakDbtp } from "../js/audio-analysis.js";
 import { enhanceChannels } from "../js/audio-enhance.js";
 import { analyseSpeechLevel, classifyLevel, planSpeechGain } from "../js/loudness-plan.js";
 import { RecordingLeveler, levelAdvice } from "../js/recording-leveler.js";
@@ -188,6 +188,17 @@ console.log("\nThe recording worklet fails open");
   ok(same && node.failed && node.port.posted.some((m) => m.type === "error"), "a processing error hands the input straight through and reports it, instead of recording silence");
   node.process([[input]], [[out]]);
   ok(out.every((v, i) => v === input[i]), "and keeps passing it through afterwards");
+}
+
+console.log("\nEcho detection");
+{
+  const echoed = (gain, ms) => { const d = Math.round(SR * ms / 1000), o = new Float32Array(programme.length); for (let i = 0; i < o.length; i++) o[i] = programme[i] + (i >= d ? gain * programme[i - d] : 0); return o; };
+  const clean = detectEcho(programme, SR);
+  ok(!clean.echo && clean.score < 0.12, `clean speech is not flagged (score ${clean.score.toFixed(3)})`);
+  const a = detectEcho(echoed(0.32, 180), SR), b = detectEcho(echoed(0.5, 350), SR), c = detectEcho(echoed(0.16, 90), SR);
+  ok(a.echo && Math.abs(a.delayMs - 180) <= 6, `a copy 10 dB down at 180 ms is found at ${a.delayMs} ms (score ${a.score.toFixed(2)})`);
+  ok(b.echo && Math.abs(b.delayMs - 350) <= 6, `a copy 6 dB down at 350 ms is found at ${b.delayMs} ms (score ${b.score.toFixed(2)})`);
+  ok(c.echo && Math.abs(c.delayMs - 90) <= 6, `a copy 16 dB down at 90 ms is found at ${c.delayMs} ms (score ${c.score.toFixed(2)})`);
 }
 
 const sample = process.env.TOASTY_QUIET_SAMPLE || `${homedir()}/Downloads/toastyaudiotest.mp4`;
