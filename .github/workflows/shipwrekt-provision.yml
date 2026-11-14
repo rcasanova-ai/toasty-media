@@ -1,0 +1,56 @@
+name: Provision SHIPWREKT report delivery
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.TOASTY_SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.TOASTY_SSH_HOST }}
+          SSH_PORT: ${{ secrets.TOASTY_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/toasty_github_deploy
+          chmod 600 ~/.ssh/toasty_github_deploy
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
+      - name: Provision private report store and signing secret
+        env:
+          SSH_HOST: ${{ secrets.TOASTY_SSH_HOST }}
+          SSH_USER: ${{ secrets.TOASTY_SSH_USER }}
+          SSH_PORT: ${{ secrets.TOASTY_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/toasty_github_deploy -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          base="$HOME/.shipwrekt"
+          mkdir -p "$base/reports"
+          chmod 700 "$base" "$base/reports"
+          config="$base/report-config.php"
+          if [[ ! -s "$config" ]]; then
+            secret="$(php -r 'echo bin2hex(random_bytes(32));')"
+            printf '<?php\nputenv("SHIPWREKT_REPORT_STORE=%s");\nputenv("SHIPWREKT_REPORT_SECRET=%s");\n' "$base/reports" "$secret" > "$config"
+            chmod 600 "$config"
+          fi
+          php -l "$config"
+          php -r 'require $argv[1]; $d=getenv("SHIPWREKT_REPORT_STORE");$s=getenv("SHIPWREKT_REPORT_SECRET"); if(!is_dir($d)||!is_writable($d)||strlen($s)<32)exit(1); echo "SHIPWREKT report configuration ready\n";' "$config"
+          REMOTE
+      - name: Check live report endpoint
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            code=$(curl --silent --show-error --max-time 20 -o /tmp/shipwrekt-response -w '%{http_code}' https://toasty.media/shipwrekt/api/email-report.php)
+            if [[ "$code" == 400 ]]; then
+              echo 'Live report endpoint reachable and rejects missing confirmation token.'
+              exit 0
+            fi
+            echo "Attempt $attempt: HTTP $code"
+            sleep 20
+          done
+          cat /tmp/shipwrekt-response
+          exit 1
