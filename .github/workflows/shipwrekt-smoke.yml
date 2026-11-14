@@ -5,6 +5,7 @@ on:
       - shipwrekt/api/scan.php
       - shipwrekt/index.html
       - shipwrekt/api/crows-nest-vote.php
+      - shipwrekt/crew/index.php
       - .github/workflows/shipwrekt-smoke.yml
   workflow_dispatch:
 jobs:
@@ -13,7 +14,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: PHP syntax check
-        run: php -l shipwrekt/api/scan.php
+        run: |
+          set -e
+          php -l shipwrekt/api/scan.php
           php -l shipwrekt/api/crows-nest-vote.php
           php -l shipwrekt/crew/index.php
       - name: Verify UI has both functional forms
