@@ -1,6 +1,11 @@
 name: Provision SHIPWREKT report delivery
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/shipwrekt-provision.yml'
+      - 'shipwrekt/api/email-report.php'
 permissions:
   contents: read
 jobs:
