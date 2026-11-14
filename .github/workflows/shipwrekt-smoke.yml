@@ -25,12 +25,21 @@ jobs:
           grep -Fq 'id="repoForm"' shipwrekt/index.html
           grep -Fq '/shipwrekt/api/scan.php' shipwrekt/index.html
       - name: Wait for production publication
-        run: sleep 50
-      - name: Live free scan and GitHub proof of concept
+        run: sleep 15
+      - name: Live free scan with response diagnostics
         run: |
           set -euo pipefail
-          curl -fsS --max-time 25 -H 'Content-Type: application/json' -d '{"mode":"lookout","url":"https://example.com","authorized":true}' https://toasty.media/shipwrekt/api/scan.php -o /tmp/lookout.json
-          php -r '$d=json_decode(file_get_contents("/tmp/lookout.json"),true); if(empty($d["ok"])||empty($d["findings"])||($d["product"]??"")!=="The Lookout")exit(1);'
-          curl -fsS --max-time 35 -H 'Content-Type: application/json' -d '{"mode":"repository","repository":"octocat/Hello-World","authorized":true}' https://toasty.media/shipwrekt/api/scan.php -o /tmp/repo.json
+          for target in 'https://toasty.media/' 'https://example.com/'; do
+            payload=$(printf '{"mode":"lookout","url":"%s","authorized":true}' "$target")
+            status=$(curl -sS --max-time 35 -o /tmp/lookout.json -w '%{http_code}' -H 'Content-Type: application/json' -d "$payload" https://toasty.media/shipwrekt/api/scan.php)
+            echo "Lookout target: $target; HTTP $status"
+            python3 -c 'import json;d=json.load(open("/tmp/lookout.json"));print("Result:", {k:d.get(k) for k in ("ok","error","product","target","http_status")})'
+            if [[ "$status" != 200 ]]; then echo "::error::Lookout returned HTTP $status"; exit 1; fi
+            php -r '$d=json_decode(file_get_contents("/tmp/lookout.json"),true); if(empty($d["ok"])||!is_array($d["findings"]??null)||($d["product"]??"")!=="The Lookout")exit(1);'
+          done
+          status=$(curl -sS --max-time 35 -o /tmp/repo.json -w '%{http_code}' -H 'Content-Type: application/json' -d '{"mode":"repository","repository":"octocat/Hello-World","authorized":true}' https://toasty.media/shipwrekt/api/scan.php)
+          echo "Repository assessment HTTP $status"
+          python3 -c 'import json;d=json.load(open("/tmp/repo.json"));print("Result:", {k:d.get(k) for k in ("ok","error","product","repository")})'
+          [[ "$status" == 200 ]]
           php -r '$d=json_decode(file_get_contents("/tmp/repo.json"),true); if(empty($d["ok"])||($d["repository"]??"")!=="octocat/Hello-World")exit(1);'
           echo 'Both SHIPWREKT production scans returned structured reports.'
