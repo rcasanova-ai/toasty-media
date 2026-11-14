@@ -1,0 +1,38 @@
+name: SHIPWREKT live website security verification
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - shipwrekt/index.html
+      - shipwrekt/api/scan.php
+      - .github/workflows/shipwrekt-live-audit.yml
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Verify public sites, TLS and response headers
+        shell: bash
+        run: |
+          set -uo pipefail
+          for url in https://toasty.media/shipwrekt/ https://toasty.media/ https://santaticrm.com/ https://8alta.com/ https://itexecutivepartners-recruit.com/ https://toasty.media/thaiddown/ https://toasty.media/eloquence/; do
+            echo "::group::$url"
+            headers=$(mktemp)
+            status=$(curl --location --silent --show-error --max-time 20 --connect-timeout 8 --output /dev/null --dump-header "$headers" --write-out '%{http_code}' "$url") || status=000
+            echo "HTTP status: $status"
+            for h in strict-transport-security content-security-policy x-content-type-options referrer-policy permissions-policy; do
+              if grep -qi "^$h:" "$headers"; then echo "$h: present"; else echo "$h: MISSING"; fi
+            done
+            if [[ "$status" == 200 ]]; then echo "HTTPS: accessible"; else echo "HTTPS: requires investigation"; fi
+            rm -f "$headers"
+            echo "::endgroup::"
+          done
+      - name: Probe SHIPWREKT scanner with harmless authorized request
+        shell: bash
+        run: |
+          set -uo pipefail
+          curl --silent --show-error --max-time 30 --dump-header /tmp/shipwrekt-headers -o /tmp/shipwrekt-body -H 'Content-Type: application/json' --data '{"mode":"lookout","url":"https://toasty.media/shipwrekt/","authorized":true}' https://toasty.media/shipwrekt/api/scan.php || true
+          head -n 16 /tmp/shipwrekt-headers || true
+          head -c 500 /tmp/shipwrekt-body || true
+          echo
+          echo 'No credentials or private tokens used.'
